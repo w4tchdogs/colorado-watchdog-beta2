@@ -24,4 +24,4 @@ There is no application test framework. Add relevant application checks only whe
 
 ## Bootstrap status
 
-The private repository is [w4tchdogs/colorado-watchdog-beta2](https://github.com/w4tchdogs/colorado-watchdog-beta2). GitHub Free and the existing $0 Actions budget with excess usage blocked were verified on November 12, 2026. Codex has connector write access; local Git transport authentication remains unavailable. The bootstrap is being published on `bootstrap/collaboration-pipeline`; hosted checks and merge results are recorded in GitHub. See `docs/collaboration.md` for the remaining integration limitations.
+The private repository is [w4tchdogs/colorado-watchdog-beta2](https://github.com/w4tchdogs/colorado-watchdog-beta2). GitHub Free and the existing $0 Actions budget with excess usage blocked were verified on November 12, 2026. Codex has connector write access; local Git transport authentication remains unavailable. [Bootstrap PR #1](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/1) records the published branch, hosted checks, and merge state. See `docs/collaboration.md` for the remaining integration limitations.

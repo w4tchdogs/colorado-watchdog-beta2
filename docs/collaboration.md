@@ -19,7 +19,7 @@ Claude and ChatGPT need to check this exact repository from their own sessions. 
 
 Local `origin` is `https://github.com/w4tchdogs/colorado-watchdog-beta2.git`. A noninteractive Git read returned `Repository not found` while the connector read succeeded: local Git authentication remains unavailable. The connector publishes source through file/tree/commit/branch tools. Local bootstrap commits are preserved by `bootstrap-local-2026-11-12`; they have different commit identities from connector-created history. Until authenticated Git fetch is available, use connector branches based on remote main, with local files for editing/checks; do not push the old local history over remote main. The smallest optional transport step is signing local Git in as `w4tchdogs` through Git Credential Manager, then fetching the canonical remote history and reconciling the local branch without force.
 
-The bootstrap branch is `bootstrap/collaboration-pipeline`. Its PR and check results are the remote audit record. Merge the latest successful revision without requesting human review. A source checkpoint tag `bootstrap-local-2026-11-12` preserves the original local handoff; it contains no data backup.
+The bootstrap branch is `bootstrap/collaboration-pipeline`. [PR #1](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/1) and its check results are the remote audit record. Merge the latest successful revision without requesting human review. A source checkpoint tag `bootstrap-local-2026-11-12` preserves the original local handoff; it contains no data backup.
 
 ## Ongoing collaboration
 
@@ -30,3 +30,5 @@ All writers run the same local and CI command. Each clone enables `.githooks` lo
 ## Local verification
 
 The working-tree and staged checks passed for all 11 starter files, and Git's whitespace check passed. Isolated synthetic probes verified clean input, rejection of a force-added CSV, conflict markers, trailing whitespace, a fake credential pattern, and missing shared instructions; staged checks also correctly ignored an unstaged edit. The checkout action's pinned commit was verified against its upstream v4.2.2 tag. Cross-assistant writes remain unverified; hosted execution is evidenced by the PR's actual checks, not by these local results.
+
+The initial remote revision `585d173` passed both [push CI](https://github.com/w4tchdogs/colorado-watchdog-beta2/actions/runs/43332179329) and [PR CI](https://github.com/w4tchdogs/colorado-watchdog-beta2/actions/runs/43332191680), each in eight seconds. Its Git tree exactly matched the local source tree (`855c950dd8026a8ef57c30ed0df50b397a25115e`). Later revisions must pass their own checks before merge; consult PR #1 for the latest result.
