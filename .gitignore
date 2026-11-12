@@ -1,0 +1,25 @@
+# Source only. Never add beta-1 captures or operational data.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.csv
+*.tsv
+*.xlsx
+*.sqlite*
+*.db
+*.sql
+*.zip
+*.7z
+*.bak
+backups/
+evidence/
+private/
+uploads/
+data/
+node_modules/
+dist/
+.DS_Store
+Thumbs.db
