@@ -7,6 +7,127 @@ const json = (value, status = 200) =>
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === "/guard/snapshot" && request.method === "POST") {
+      return json(
+        await env.DB.prepare(
+          "SELECT generation FROM transaction_guard WHERE id = 1",
+        ).first(),
+      );
+    }
+    if (url.pathname === "/guard/commit" && request.method === "POST") {
+      const key = url.searchParams.get("key");
+      if (!key) return json({ error: "key required" }, 400);
+      const generation = Number(url.searchParams.get("generation"));
+      if (!Number.isSafeInteger(generation) || generation < 0) {
+        return json({ error: "generation required" }, 400);
+      }
+      try {
+        const statements = [
+          env.DB.prepare(`INSERT INTO transaction_guard_assertions (id, valid)
+            SELECT 1, generation = ? FROM transaction_guard WHERE id = 1`).bind(
+            generation,
+          ),
+          env.DB.prepare(
+            "INSERT INTO guard_probe_writes (id, label) VALUES (?, ?)",
+          ).bind(`planned-${key}`, "planned write"),
+        ];
+        if (url.searchParams.get("row") === "organization") {
+          statements.push(
+            env.DB.prepare(`UPDATE organizations
+              SET name = 'Planned update', version = version + 1
+              WHERE id = ? AND version = 1`).bind(
+              `d1-guard-org-${url.searchParams.get("target") ?? key}`,
+            ),
+          );
+        }
+        statements.push(
+          env.DB.prepare(`INSERT INTO audit_events
+            (id, actor_account_id, action, target_type, target_id, summary)
+            VALUES (?, ?, 'guard.probe', 'guard_probe', ?, 'Synthetic guarded batch')`).bind(
+            `guard-audit-${key}`,
+            `d1-guard-actor-${key.startsWith("case-7") ? "case-7" : key}`,
+            `planned-${key}`,
+          ),
+        );
+        statements.push(
+          env.DB.prepare(
+            "DELETE FROM transaction_guard_assertions WHERE id = 1",
+          ),
+        );
+        await env.DB.batch(statements);
+        return json({ committed: true });
+      } catch {
+        return json({ committed: false, reason: "stale_dependency" }, 409);
+      }
+    }
+    if (url.pathname === "/guard/change" && request.method === "POST") {
+      const key = url.searchParams.get("key");
+      const mode = url.searchParams.get("mode") ?? "organization";
+      if (mode === "account") {
+        await env.DB.prepare(
+          "UPDATE accounts SET status = 'disabled', version = version + 1 WHERE id = ? AND version = 1",
+        )
+          .bind(`d1-guard-actor-${key}`)
+          .run();
+      } else if (mode === "source") {
+        await env.DB.prepare(
+          "INSERT INTO role_sources (id, url, title, source_type) VALUES (?, 'https://example.invalid/guard-source', 'Synthetic', 'official_page')",
+        )
+          .bind(`guard-source-${key}`)
+          .run();
+      } else if (mode === "affiliation") {
+        await env.DB.prepare(
+          "INSERT INTO organization_county_affiliations (id, organization_id, county_fips, relationship_type) VALUES (?, ?, '08013', 'serves')",
+        )
+          .bind(`guard-affiliation-${key}`, `d1-guard-org-${key}`)
+          .run();
+      } else if (mode === "relationship") {
+        await env.DB.prepare(
+          "INSERT INTO positions (id, organization_id, title) VALUES (?, ?, 'Synthetic related position')",
+        )
+          .bind(`guard-position-${key}`, `d1-guard-org-${key}`)
+          .run();
+      } else if (mode === "idempotency") {
+        await env.DB.prepare(`INSERT INTO sync_batches
+          (id, actor_account_id, idempotency_key, request_fingerprint, contract_version,
+           request_id, status, committed_at, result_json)
+          VALUES (?, ?, 'guard-key', ?, 'm2-sync/v1', ?, 'committed',
+                  '2026-11-13T00:00:00.000Z', '{}')`)
+          .bind(
+            `guard-batch-${key}`,
+            `d1-guard-actor-${key}`,
+            "a".repeat(64),
+            `guard-request-${key}`,
+          )
+          .run();
+      } else {
+        await env.DB.prepare(
+          "UPDATE organizations SET name = 'Changed after planner read', version = version + 1 WHERE id = ? AND version = 1",
+        )
+          .bind(`d1-guard-org-${key}`)
+          .run();
+      }
+      return json({ changed: true, mode });
+    }
+    if (url.pathname === "/guard/state") {
+      const key = url.searchParams.get("key");
+      return json(
+        await env.DB.prepare(`SELECT
+        (SELECT COUNT(*) FROM guard_probe_writes WHERE id = ?) AS planned,
+        (SELECT COUNT(*) FROM audit_events WHERE id = ?) AS audit,
+        (SELECT COUNT(*) FROM transaction_guard_assertions) AS assertions,
+        (SELECT version FROM organizations WHERE id = ?) AS org_version,
+        (SELECT name FROM organizations WHERE id = ?) AS org_name,
+        generation FROM transaction_guard WHERE id = 1`)
+          .bind(
+            `planned-${key}`,
+            `guard-audit-${key}`,
+            `d1-guard-org-${key}`,
+            `d1-guard-org-${key}`,
+          )
+          .first(),
+      );
+    }
     if (url.pathname === "/write" && request.method === "POST") {
       const result = await env.DB.prepare(
         "INSERT INTO accounts (id, kind, role, display_name) VALUES (?, ?, ?, ?) RETURNING id, role, version",
@@ -31,6 +152,13 @@ export default {
       if (!passed) throw new Error(`D1 check failed: ${name}`);
       checks.push(name);
     };
+    const generation = await env.DB.prepare(
+      "SELECT generation FROM transaction_guard WHERE id = 1",
+    ).first();
+    check(
+      "transaction guard fixture initialized",
+      generation?.generation === 0,
+    );
     const history = await env.DB.prepare(
       "SELECT version, name, sha256 FROM schema_migrations ORDER BY version",
     ).all();
