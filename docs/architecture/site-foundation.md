@@ -1,8 +1,9 @@
 # Website foundation status
 
 This document describes the implemented M0-A application boundary, M0-B local
-database foundation, and M0-C accounts, identities, authorization, and auditing.
-It is not evidence that M0-D, a hosted Site, or production D1 exists.
+database foundation, M0-C accounts, identities, authorization, and auditing,
+and the M0-D local checkpoint foundation. It is not evidence that a hosted
+Site, production D1, or a production backup system exists.
 
 ## M0-A application
 
@@ -92,13 +93,20 @@ This adds no D1 binding or hosted compatibility claim. The Worker package still
 uses the platform-standard Fetch surface; local database services are injected
 and tested using SQL.js only.
 
+## M0-D local checkpoints
+
+- `src/local/checkpoints/` produces an immutable checkpoint bundle of the
+  Website database and local file storage, verifies it by restoring into
+  scratch storage, and tracks state in `operations` and `checkpoints`.
+- Only a local directory destination exists. Pruning is refused. No off-site
+  destination, encryption, schedule or hosted D1/R2 behavior is implemented.
+- Every entrypoint requires an M0-C trusted principal with the matching
+  checkpoint capability, and state changes are audited in the same
+  transaction. No HTTP route exposes checkpoints. See
+  [checkpoints](checkpoints.md) for format, guarantees and limits.
+
 ## Deferred milestones
 
-- **M0-D:** checkpoint production, verification/restore, and local destination
-  adapter. Only the authorization and transactional audit extension contract
-  is present; no checkpoint producer, verifier, restore path, destination
-  adapter, or prune operation is implemented. Off-site destination remains
-  undecided until one is configured.
 - **M1:** attach organization, person, employment, and role-source tables to
   the Website schema using its version convention. County organizations can
   retain their own structures; regional or partner offices can serve a county
