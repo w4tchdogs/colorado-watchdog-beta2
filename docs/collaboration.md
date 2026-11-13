@@ -8,7 +8,7 @@ Observed November 12, 2026. A tool's presence is not proof of repository permiss
 | Codex GitHub connector | Authenticated as `w4tchdogs`; private repository readable with push/admin permission; source writes succeeded | No create-repository or billing-control tool |
 | Browser fallback | Owner completed sign-in; private repository created; Free plan and $0 blocked Actions budget verified | Browser sign-in does not authenticate local Git |
 | Claude | Fable v3 reports GitHub push tools observed in its earlier session | Not independently exercised here; verify access to this repository in Claude's session |
-| ChatGPT/Archon | Read access was exercised in a Chat session on November 12, 2026; write-capable GitHub actions were exposed | Actual writes must be verified in the particular session; do not assume a standing read-only or write-capable role |
+| ChatGPT/Archon | Read and branch/commit/PR write actions succeeded through the GitHub connector on November 12, 2026, in a Chat session (PR #3) | Check current session credentials and permission before future writes; local Windows checkout access was not tested |
 | Owner | Can inspect the same GitHub branches/PRs when connected | No routine approval role |
 
 ## Remote setup
