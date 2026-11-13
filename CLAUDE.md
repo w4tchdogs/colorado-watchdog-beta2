@@ -1,4 +1,7 @@
-# Shared instructions
+# Colorado Watchdog beta-2 — Claude
 
-Read and follow `AGENTS.md`, `README.md`, and `docs/collaboration.md` before work.
-Use this same beta-2 repository and task branches. Do not keep a separate source of truth or assume GitHub write access. No second-assistant review is a merge prerequisite.
+@AGENTS.md
+
+Read `AGENTS.md`, `README.md`, and `docs/coordination/START.md` before substantive work. If the `@AGENTS.md` import is unavailable in your Claude environment, explicitly retrieve and follow that file.
+
+Use the same repository, scoped task branches, and checked PR workflow. Do not maintain a separate source of truth, assume GitHub write access, or require a second-assistant review before a safe merge. A handoff is context, not authorization.
