@@ -4,8 +4,8 @@ Observed November 12, 2026. A tool's presence is not proof of repository permiss
 
 | Participant/surface | Observed capability | Limitation |
 | --- | --- | --- |
-| Codex local | Git and Node available; isolated repository, commits, checks | No GitHub CLI or GH_TOKEN/GITHUB_TOKEN in this session |
-| Codex GitHub connector | Authenticated as `w4tchdogs`; new private repository readable with push/admin permission; initial file commit succeeded | No create-repository or billing-control tool; use connector for source writes while Git transport is unavailable |
+| Codex local | Git Credential Manager authenticated as `w4tchdogs`; authenticated fetch succeeded; main tracks origin/main | Separate machines and sessions need their own working connection |
+| Codex GitHub connector | Authenticated as `w4tchdogs`; private repository readable with push/admin permission; source writes succeeded | No create-repository or billing-control tool |
 | Browser fallback | Owner completed sign-in; private repository created; Free plan and $0 blocked Actions budget verified | Browser sign-in does not authenticate local Git |
 | Claude | Fable v3 reports GitHub push tools observed in its earlier session | Not independently exercised here; verify access to this repository in Claude's session |
 | ChatGPT/Archon | Can use a read/review role without pushing | Its separate session/connector was not inspected; do not claim write access or definitively label it read-only |
@@ -17,7 +17,9 @@ The canonical private repository is [w4tchdogs/colorado-watchdog-beta2](https://
 
 Claude and ChatGPT need to check this exact repository from their own sessions. Do not silently change account/app permissions if it is unavailable. A functioning existing writer integration is sufficient; ChatGPT need not push.
 
-Local `origin` is `https://github.com/w4tchdogs/colorado-watchdog-beta2.git`. A noninteractive Git read returned `Repository not found` while the connector read succeeded: local Git authentication remains unavailable. The connector publishes source through file/tree/commit/branch tools. Local bootstrap commits are preserved by `bootstrap-local-2026-11-12`; they have different commit identities from connector-created history. Until authenticated Git fetch is available, use connector branches based on remote main, with local files for editing/checks; do not push the old local history over remote main. The smallest optional transport step is signing local Git in as `w4tchdogs` through Git Credential Manager, then fetching the canonical remote history and reconciling the local branch without force.
+Local `origin` is `https://github.com/w4tchdogs/colorado-watchdog-beta2.git`. Git Credential Manager sign-in as `w4tchdogs` succeeded on November 12, 2026. A repository-local credential username selects this account. Authenticated fetch succeeded, and the local source matched remote main exactly before synchronization. Local `main` now tracks `origin/main`; use ordinary fetch, task-branch push, checked PR, merge, and fast-forward pull.
+
+Original local history remains on `archive/local-main-before-sync`, the local bootstrap branch, and checkpoint tags `bootstrap-local-2026-11-12` and `bootstrap-published-2026-11-12`. These commits have different identities from connector-created remote history. Start new work from synchronized main; do not push the old local history over remote main.
 
 The bootstrap branch is `bootstrap/collaboration-pipeline`. [PR #1](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/1) and its check results are the remote audit record. Merge the latest successful revision without requesting human review. A source checkpoint tag `bootstrap-local-2026-11-12` preserves the original local handoff; it contains no data backup.
 
