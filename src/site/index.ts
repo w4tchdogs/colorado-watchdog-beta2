@@ -1,0 +1,237 @@
+import { emptyEditorialSource } from "./editorial-source.js";
+import { renderDocument } from "./layout.js";
+import { countiesPage } from "./pages/counties.js";
+import { countyPage } from "./pages/county.js";
+import { directoryPage } from "./pages/directory.js";
+import { articlePage, editorialListPage } from "./pages/editorial.js";
+import {
+  badRequestPage,
+  methodNotAllowedPage,
+  notFoundPage,
+  serverErrorPage,
+  unavailablePage,
+} from "./pages/errors.js";
+import { homePage } from "./pages/home.js";
+import { aboutPage, readingRecordsPage } from "./pages/info.js";
+import { organizationPage } from "./pages/organization.js";
+import { personPage } from "./pages/person.js";
+import {
+  BadRequest,
+  NotFound,
+  type Page,
+  type PublicSiteOptions,
+  type SiteContext,
+} from "./types.js";
+
+export type { EditorialSource } from "./editorial-source.js";
+export type { PublicSiteOptions, SiteAssets } from "./types.js";
+
+const MAX_PATH_LENGTH = 300;
+const MAX_QUERY_LENGTH = 1024;
+const ASSET_PATH = /^\/assets\/([a-z0-9-]+\.(?:css|js|svg))$/;
+
+const SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "x-frame-options": "DENY",
+  "cross-origin-opener-policy": "same-origin",
+  "content-security-policy":
+    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+} as const;
+
+/** Rejects repeated parameters and anything outside the page's allowlist. */
+function checkedParameters(
+  url: URL,
+  allowed: readonly string[],
+  restartHref: string,
+): URLSearchParams {
+  for (const key of new Set(url.searchParams.keys())) {
+    if (!allowed.includes(key) || url.searchParams.getAll(key).length !== 1) {
+      throw new BadRequest(restartHref);
+    }
+  }
+  return url.searchParams;
+}
+
+function route(context: SiteContext, url: URL, pathname: string): Page {
+  const segments = pathname.split("/").filter(Boolean);
+  const [first, second, ...rest] = segments;
+  if (rest.length > 0 || pathname.includes("//")) throw new NotFound();
+  const none = () => checkedParameters(url, [], pathname);
+
+  if (first === undefined) {
+    none();
+    return homePage(context);
+  }
+  if (second === undefined) {
+    switch (first) {
+      case "counties":
+        return countiesPage(
+          context,
+          checkedParameters(url, ["q"], "/counties").get("q") ?? "",
+        );
+      case "people":
+      case "organizations":
+        return directoryPage(
+          context,
+          first,
+          checkedParameters(url, ["query", "cursor"], `/${first}`),
+        );
+      case "stories":
+        none();
+        return editorialListPage(context, "story");
+      case "posts":
+        none();
+        return editorialListPage(context, "post");
+      case "about":
+        none();
+        return aboutPage();
+      case "reading-records":
+        none();
+        return readingRecordsPage();
+      default:
+        throw new NotFound();
+    }
+  }
+  switch (first) {
+    case "counties":
+      return countyPage(
+        context,
+        second,
+        checkedParameters(url, ["orgAfter", "roleAfter"], pathname),
+      );
+    case "people":
+      return personPage(
+        context,
+        second,
+        checkedParameters(url, ["afterRoleId"], pathname),
+      );
+    case "organizations":
+      return organizationPage(
+        context,
+        second,
+        checkedParameters(url, ["positionAfter", "roleAfter"], pathname),
+      );
+    case "stories":
+      none();
+      return articlePage(context, "story", second);
+    case "posts":
+      none();
+      return articlePage(context, "post", second);
+    default:
+      throw new NotFound();
+  }
+}
+
+function errorToPage(error: unknown): Page {
+  if (error instanceof NotFound) return notFoundPage(error.what);
+  if (error instanceof BadRequest) return badRequestPage(error.restartHref);
+  if (error instanceof Error) {
+    if (error.name === "StorageUnavailableError") return unavailablePage();
+    if (error.name.endsWith("InputError")) return badRequestPage("/");
+  }
+  return serverErrorPage();
+}
+
+/**
+ * Server-rendered public site. It reads only through the shared service layer
+ * and returns complete HTML documents, so pages work without JavaScript.
+ */
+export function createPublicSite(options: PublicSiteOptions) {
+  const editorial = options.editorial ?? emptyEditorialSource;
+  const preview = options.preview === true;
+  const clock = options.now ?? (() => new Date());
+  const countyBanner = options.countyBanner ?? (() => null);
+
+  const respond = (page: Page, head: boolean, extra = {}): Response =>
+    new Response(head ? null : renderDocument(page, preview), {
+      status: page.status ?? 200,
+      headers: {
+        ...SECURITY_HEADERS,
+        "cache-control": "no-store",
+        "content-type": "text/html; charset=utf-8",
+        ...extra,
+      },
+    });
+
+  return {
+    async fetch(request: Request): Promise<Response> {
+      const head = request.method === "HEAD";
+      try {
+        const url = new URL(request.url);
+        if (request.method !== "GET" && !head) {
+          return respond(methodNotAllowedPage(), false, { allow: "GET, HEAD" });
+        }
+        if (
+          url.pathname.length > MAX_PATH_LENGTH ||
+          url.search.length > MAX_QUERY_LENGTH
+        ) {
+          return respond(notFoundPage("page"), head);
+        }
+        let pathname: string;
+        try {
+          pathname = decodeURIComponent(url.pathname);
+        } catch {
+          return respond(notFoundPage("page"), head);
+        }
+
+        const asset = ASSET_PATH.exec(pathname);
+        if (asset?.[1]) {
+          const file = await options.assets.get(asset[1]);
+          if (!file) return respond(notFoundPage("page"), head);
+          return new Response(head ? null : file.body, {
+            status: 200,
+            headers: {
+              ...SECURITY_HEADERS,
+              "cache-control": "no-cache",
+              "content-type": file.contentType,
+            },
+          });
+        }
+
+        const context: SiteContext = {
+          services: options.services,
+          editorial,
+          preview,
+          now: clock(),
+          countyBanner,
+        };
+        return respond(route(context, url, pathname), head);
+      } catch (error) {
+        try {
+          return respond(errorToPage(error), head);
+        } catch {
+          return new Response("Internal error", {
+            status: 500,
+            headers: { "content-type": "text/plain; charset=utf-8" },
+          });
+        }
+      }
+    },
+  };
+}
+
+interface FetchHandler {
+  fetch(request: Request): Promise<Response>;
+}
+
+/**
+ * Composes the JSON application and the public site behind one Fetch handler.
+ * `/api/*` and `/_internal/*` keep their existing behavior unchanged.
+ */
+export function createWebsite(handlers: {
+  readonly application: FetchHandler;
+  readonly site: FetchHandler;
+}): FetchHandler {
+  return {
+    fetch(request) {
+      const { pathname } = new URL(request.url);
+      return pathname === "/api" ||
+        pathname.startsWith("/api/") ||
+        pathname.startsWith("/_internal/") ||
+        pathname.startsWith("/internal/")
+        ? handlers.application.fetch(request)
+        : handlers.site.fetch(request);
+    },
+  };
+}
