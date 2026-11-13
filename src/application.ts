@@ -2,9 +2,11 @@ import {
   type DirectoryPageRequest,
   MAX_DIRECTORY_PAGE_SIZE,
 } from "./contracts/directory.js";
+import type { PersonProfilePageRequest } from "./contracts/person-profile.js";
 import { StorageUnavailableError } from "./contracts/storage.js";
 import { InvalidInputError } from "./services/accounts.js";
 import type { ApplicationServices } from "./services/index.js";
+import { PersonProfileInputError } from "./services/person-profile.js";
 import { AuthorizationError } from "./services/security.js";
 
 const HEALTH_PATH = "/_internal/health";
@@ -14,6 +16,7 @@ const PRINCIPAL_PATH = "/_internal/principal";
 const ACCOUNTS_PATH = "/api/accounts";
 const COUNTY_DIRECTORY_PATH =
   /^\/api\/counties\/([^/]+)\/(organizations|roles)$/;
+const PEOPLE_PROFILE_PATH = /^\/api\/people\/(.*)$/;
 
 export function createApplication(services: ApplicationServices) {
   return {
@@ -44,6 +47,7 @@ async function dispatch(
   }
 
   const directoryMatch = pathname.match(COUNTY_DIRECTORY_PATH);
+  const personProfileMatch = pathname.match(PEOPLE_PROFILE_PATH);
   const directoryCountyFips = directoryMatch?.[1];
   const directoryResource = directoryMatch?.[2];
   if (
@@ -54,7 +58,8 @@ async function dispatch(
       PRINCIPAL_PATH,
       ACCOUNTS_PATH,
     ].includes(pathname) &&
-    !directoryMatch
+    !directoryMatch &&
+    !personProfileMatch
   ) {
     return jsonResponse(404, { error: "not_found" });
   }
@@ -68,7 +73,7 @@ async function dispatch(
     );
   }
 
-  if (!directoryMatch && url.search !== "") {
+  if (!directoryMatch && !personProfileMatch && url.search !== "") {
     return jsonResponse(400, { error: "unexpected_query" });
   }
 
@@ -77,6 +82,18 @@ async function dispatch(
     : null;
   if (directoryMatch && !directoryRequest) {
     const supportedParameters = new Set(["limit", "afterId"]);
+    const hasUnsupportedParameter = [...url.searchParams.keys()].some(
+      (key) => !supportedParameters.has(key),
+    );
+    return jsonResponse(400, {
+      error: hasUnsupportedParameter ? "unexpected_query" : "invalid_request",
+    });
+  }
+  const personProfileRequest = personProfileMatch
+    ? parsePersonProfileRequest(personProfileMatch[1], url.searchParams)
+    : null;
+  if (personProfileMatch && !personProfileRequest) {
+    const supportedParameters = new Set(["limit", "afterRoleId"]);
     const hasUnsupportedParameter = [...url.searchParams.keys()].some(
       (key) => !supportedParameters.has(key),
     );
@@ -114,6 +131,12 @@ async function dispatch(
           : services.listCountyRoleEntries(directoryRequest);
       return jsonResponse(200, { ...page });
     }
+    if (personProfileRequest) {
+      const profile = services.getPersonProfile(personProfileRequest);
+      return profile
+        ? jsonResponse(200, { ...profile })
+        : jsonResponse(404, { error: "not_found" });
+    }
 
     return await createAccount(request, services);
   } catch (error) {
@@ -126,8 +149,64 @@ async function dispatch(
     if (error instanceof InvalidInputError) {
       return jsonResponse(400, { error: "invalid_request" });
     }
+    if (error instanceof PersonProfileInputError) {
+      return jsonResponse(400, { error: "invalid_request" });
+    }
     return jsonResponse(500, { error: "internal_error" });
   }
+}
+
+function parsePersonProfileRequest(
+  personId: string | undefined,
+  searchParams: URLSearchParams,
+): PersonProfilePageRequest | null {
+  if (
+    typeof personId !== "string" ||
+    personId.length < 1 ||
+    personId.length > 128 ||
+    !/^[A-Za-z0-9._:-]+$/.test(personId)
+  ) {
+    return null;
+  }
+
+  const allowedParameters = new Set(["limit", "afterRoleId"]);
+  const keys = [...searchParams.keys()];
+  if (
+    keys.some((key) => !allowedParameters.has(key)) ||
+    keys.some((key) => searchParams.getAll(key).length !== 1)
+  ) {
+    return null;
+  }
+
+  const limitValue = searchParams.get("limit");
+  let limit: number | undefined;
+  if (limitValue !== null) {
+    if (!/^\d+$/.test(limitValue)) return null;
+    limit = Number(limitValue);
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > MAX_DIRECTORY_PAGE_SIZE
+    ) {
+      return null;
+    }
+  }
+
+  const afterRoleId = searchParams.get("afterRoleId");
+  if (
+    afterRoleId !== null &&
+    (afterRoleId.length < 1 ||
+      afterRoleId.length > 128 ||
+      !/^[A-Za-z0-9._:-]+$/.test(afterRoleId))
+  ) {
+    return null;
+  }
+
+  return {
+    personId,
+    ...(limit === undefined ? {} : { limit }),
+    ...(afterRoleId === null ? {} : { afterRoleId }),
+  };
 }
 
 function parseDirectoryPageRequest(

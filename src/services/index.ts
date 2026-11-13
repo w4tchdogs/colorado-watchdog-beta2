@@ -1,5 +1,6 @@
 import type { CheckpointService } from "../contracts/checkpoints.js";
 import type { DirectoryPageRequest } from "../contracts/directory.js";
+import type { PersonProfilePageRequest } from "../contracts/person-profile.js";
 import type { StorageProbe } from "../contracts/storage.js";
 import { StorageUnavailableError } from "../contracts/storage.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
@@ -16,6 +17,7 @@ import {
 import { listAuditEvents } from "./audit.js";
 import { listCountyOrganizations, listCountyRoleEntries } from "./directory.js";
 import { createOperation } from "./operations.js";
+import { getPersonProfile } from "./person-profile.js";
 import {
   type Capability,
   createTestHumanIdentityAdapter,
@@ -91,6 +93,9 @@ export interface ApplicationServices {
   listCountyRoleEntries(
     input: DirectoryPageRequest,
   ): ReturnType<typeof listCountyRoleEntries>;
+  getPersonProfile(
+    input: PersonProfilePageRequest,
+  ): ReturnType<typeof getPersonProfile>;
   /** Checkpoint operations. Each call checks its own checkpoint capability. */
   checkpoints(): CheckpointService;
 }
@@ -213,6 +218,9 @@ export function createServices(
     },
     listCountyRoleEntries(input) {
       return listCountyRoleEntries(requireDatabase(), input);
+    },
+    getPersonProfile(input) {
+      return getPersonProfile(requireDatabase(), input);
     },
     checkpoints() {
       if (!dependencies.checkpoints) {
