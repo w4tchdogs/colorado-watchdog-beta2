@@ -209,6 +209,27 @@ label {
   margin: 0;
 }
 
+.filters input[type="search"] {
+  width: 16rem;
+  max-width: 100%;
+}
+
+.list-summary {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
+}
+
+.modified-cell .relative {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+table.drafts tr.row-archived td {
+  background: var(--wash);
+}
+
 .filters select,
 .account-switch select {
   width: auto;

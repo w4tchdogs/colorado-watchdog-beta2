@@ -22,6 +22,14 @@ export const MAX_CONTENT_SUMMARY_LENGTH = 500;
 export const MAX_CONTENT_BODY_BYTES = 200_000;
 export const MAX_CONTENT_RELATIONSHIPS_PER_KIND = 50;
 
+export const CONTENT_SORTS = ["id", "modified"] as const;
+/** `id` is the original ID order. `modified` is newest first. */
+export type ContentSort = (typeof CONTENT_SORTS)[number];
+
+export const MAX_CONTENT_SEARCH_LENGTH = 100;
+export const MAX_CONTENT_SEARCH_TERMS = 5;
+export const MAX_CONTENT_CURSOR_LENGTH = 200;
+
 export const DEFAULT_CONTENT_PAGE_SIZE = 25;
 export const MAX_CONTENT_PAGE_SIZE = 100;
 
@@ -83,7 +91,18 @@ export interface ContentListRequest {
   readonly status?: ContentStatus;
   readonly contentType?: ContentType;
   readonly limit?: number;
+  /** Ordering. Defaults to `id`. */
+  readonly sort?: ContentSort;
+  /**
+   * Case-insensitive (ASCII) substring match against title and summary.
+   * Whitespace separates up to five terms and every term must match.
+   * Treated as data: wildcard characters match literally.
+   */
+  readonly search?: string | null;
+  /** Cursor for `id` ordering only: the last ID seen. */
   readonly afterId?: string | null;
+  /** Cursor for `modified` ordering only: the `nextCursor` of the previous page. */
+  readonly cursor?: string | null;
 }
 
 export interface ContentPage {

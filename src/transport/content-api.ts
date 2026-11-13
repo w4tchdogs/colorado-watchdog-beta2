@@ -1,4 +1,5 @@
 import {
+  CONTENT_SORTS,
   CONTENT_STATUSES,
   CONTENT_TYPES,
   type ContentDraftChanges,
@@ -10,11 +11,14 @@ import {
   type ContentRevision,
   type ContentRevisionListRequest,
   type ContentRevisionPage,
+  type ContentSort,
   type ContentStatus,
   type ContentType,
   MAX_CONTENT_BODY_BYTES,
+  MAX_CONTENT_CURSOR_LENGTH,
   MAX_CONTENT_PAGE_SIZE,
   MAX_CONTENT_RELATIONSHIPS_PER_KIND,
+  MAX_CONTENT_SEARCH_LENGTH,
   MAX_CONTENT_SUMMARY_LENGTH,
   MAX_CONTENT_TITLE_LENGTH,
   type NewContentDraft,
@@ -355,7 +359,34 @@ function parseInput(
     case "getDraft":
       return closed(value, ["id"]) && isId(value.id) ? value : null;
     case "listDrafts": {
-      if (!closed(value, ["status", "contentType", "limit", "afterId"]))
+      if (
+        !closed(value, [
+          "status",
+          "contentType",
+          "limit",
+          "afterId",
+          "sort",
+          "search",
+          "cursor",
+        ])
+      )
+        return null;
+      if (
+        value.sort !== undefined &&
+        !CONTENT_SORTS.includes(value.sort as ContentSort)
+      )
+        return null;
+      if (
+        value.search !== undefined &&
+        value.search !== null &&
+        !isString(value.search, MAX_CONTENT_SEARCH_LENGTH * 6)
+      )
+        return null;
+      if (
+        value.cursor !== undefined &&
+        value.cursor !== null &&
+        !isString(value.cursor, MAX_CONTENT_CURSOR_LENGTH)
+      )
         return null;
       if (
         value.status !== undefined &&

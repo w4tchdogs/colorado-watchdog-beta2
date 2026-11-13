@@ -1,6 +1,7 @@
 import {
   CONTENT_BODY_FORMAT,
   CONTENT_REVISION_KINDS,
+  CONTENT_SORTS,
   CONTENT_STATUSES,
   CONTENT_TYPES,
   type ContentAction,
@@ -21,8 +22,11 @@ import {
   type ContentType,
   DEFAULT_CONTENT_PAGE_SIZE,
   MAX_CONTENT_BODY_BYTES,
+  MAX_CONTENT_CURSOR_LENGTH,
   MAX_CONTENT_PAGE_SIZE,
   MAX_CONTENT_RELATIONSHIPS_PER_KIND,
+  MAX_CONTENT_SEARCH_LENGTH,
+  MAX_CONTENT_SEARCH_TERMS,
   MAX_CONTENT_SUMMARY_LENGTH,
   MAX_CONTENT_TITLE_LENGTH,
   type NewContentDraft,
@@ -748,6 +752,51 @@ function findItem(database: WebsiteDatabase, id: string): ContentItem | null {
   };
 }
 
+const SORTABLE_ID = /^[A-Za-z0-9._:-]{1,128}$/;
+const MODIFIED_CURSOR_PREFIX = "m1~";
+const CURSOR_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: rejects control input
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/;
+
+/** Returns one escaped LIKE pattern per search term. */
+function parseSearch(value: unknown): readonly string[] {
+  if (value === undefined || value === null) return [];
+  if (typeof value !== "string" || CONTROL_CHARACTERS.test(value)) {
+    throw new ContentInputError();
+  }
+  const trimmed = value.trim();
+  if (trimmed.length > MAX_CONTENT_SEARCH_LENGTH) {
+    throw new ContentInputError();
+  }
+  if (trimmed.length === 0) return [];
+  const terms = trimmed.split(/\s+/u);
+  if (terms.length > MAX_CONTENT_SEARCH_TERMS) {
+    throw new ContentInputError();
+  }
+  return terms.map((term) => `%${term.replace(/[\\%_]/gu, "\\$&")}%`);
+}
+
+function parseModifiedCursor(value: string): {
+  readonly updatedAt: string;
+  readonly id: string;
+} {
+  if (value.length > MAX_CONTENT_CURSOR_LENGTH) throw new ContentInputError();
+  if (!value.startsWith(MODIFIED_CURSOR_PREFIX)) throw new ContentInputError();
+  const parts = value.slice(MODIFIED_CURSOR_PREFIX.length).split("~");
+  const [updatedAt, id] = parts;
+  if (
+    parts.length !== 2 ||
+    updatedAt === undefined ||
+    id === undefined ||
+    !CURSOR_TIMESTAMP.test(updatedAt) ||
+    Number.isNaN(Date.parse(updatedAt)) ||
+    !SORTABLE_ID.test(id)
+  ) {
+    throw new ContentInputError();
+  }
+  return { updatedAt, id };
+}
+
 function listItems(
   database: WebsiteDatabase,
   request: ContentListRequest,
@@ -767,9 +816,56 @@ function listItems(
   if (contentType !== null && !CONTENT_TYPES.includes(contentType)) {
     throw new ContentInputError();
   }
+  const sort = request.sort === undefined ? "id" : request.sort;
+  if (!CONTENT_SORTS.includes(sort)) {
+    throw new ContentInputError();
+  }
   const afterId = request.afterId ?? null;
+  const cursor = request.cursor ?? null;
   if (afterId !== null) {
     validateId(afterId);
+    // An ID cursor belongs to ID ordering only.
+    if (sort !== "id" || !SORTABLE_ID.test(afterId)) {
+      throw new ContentInputError();
+    }
+  }
+  if (cursor !== null) {
+    if (sort !== "modified" || typeof cursor !== "string") {
+      throw new ContentInputError();
+    }
+  }
+  const patterns = parseSearch(request.search);
+
+  const conditions = [
+    "(? IS NULL OR status = ?)",
+    "(? IS NULL OR content_type = ?)",
+  ];
+  const params: (string | number | null)[] = [
+    status,
+    status,
+    contentType,
+    contentType,
+  ];
+  for (const pattern of patterns) {
+    conditions.push("(title LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\')");
+    params.push(pattern, pattern);
+  }
+  let order: string;
+  if (sort === "modified") {
+    if (cursor !== null) {
+      const position = parseModifiedCursor(cursor);
+      conditions.push(
+        "(updated_at < ? OR (updated_at = ? AND id COLLATE BINARY < ?))",
+      );
+      params.push(position.updatedAt, position.updatedAt, position.id);
+    }
+    order = "updated_at DESC, id COLLATE BINARY DESC";
+  } else {
+    if (afterId !== null) {
+      conditions.push("id > ?");
+      params.push(afterId);
+    }
+    order = "id COLLATE BINARY";
   }
 
   const rows = database
@@ -778,19 +874,21 @@ function listItems(
               created_by_account_id, last_edited_by_account_id,
               created_at, updated_at, archived_at
        FROM content_items
-       WHERE (? IS NULL OR status = ?)
-         AND (? IS NULL OR content_type = ?)
-         AND (? IS NULL OR id > ?)
-       ORDER BY id COLLATE BINARY LIMIT ?`,
+       WHERE ${conditions.join("\n         AND ")}
+       ORDER BY ${order} LIMIT ?`,
     )
-    .all(status, status, contentType, contentType, afterId, afterId, limit + 1);
+    .all(...params, limit + 1);
   const hasMore = rows.length > limit;
   const items = rows.slice(0, limit).map(summaryFromRow);
-  return {
-    items,
-    hasMore,
-    nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null,
-  };
+  const last = items.at(-1);
+  let nextCursor: string | null = null;
+  if (hasMore && last) {
+    nextCursor =
+      sort === "modified"
+        ? `${MODIFIED_CURSOR_PREFIX}${last.updatedAt}~${last.id}`
+        : last.id;
+  }
+  return { items, hasMore, nextCursor };
 }
 
 function summaryFromRow(row: Record<string, unknown>): ContentSummary {

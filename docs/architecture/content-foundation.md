@@ -18,7 +18,7 @@ Three link tables (`content_item_counties`, `content_item_people`, `content_item
 - Content fields and relationships change in one transaction. An invalid target rolls back the whole change, including the audit event.
 - Relationship input replaces only the kinds supplied. An empty array clears that kind.
 - Archived items cannot be edited until restored. Archive and restore each increment the version.
-- Listing returns summaries without bodies, ordered by ID with an opaque-by-convention `afterId` cursor and a page size of 1 to 100 (default 25).
+- Listing returns summaries without bodies, with a page size of 1 to 100 (default 25). Order is by ID (default, `afterId` cursor) or most recently modified first (`sort: "modified"`, `cursor`), with optional title and summary `search`. See [editorial-workspace.md](editorial-workspace.md#listing-contract-m3-d).
 
 ## Security and audit
 

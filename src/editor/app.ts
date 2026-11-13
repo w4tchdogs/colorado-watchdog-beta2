@@ -3,6 +3,7 @@ import type {
   ContentRevision,
   ContentRevisionKind,
   ContentRevisionSummary,
+  ContentSort,
   ContentStatus,
   ContentSummary,
   ContentType,
@@ -53,6 +54,8 @@ type RelLike = {
 };
 type NoticeKind = "info" | "success" | "error";
 
+/** Mirrors MAX_CONTENT_SEARCH_LENGTH. Types only cross the browser boundary. */
+const MAX_CONTENT_SEARCH_LENGTH = 100;
 const ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const MAX_PER_KIND = 50;
 const MAX_BODY_CHARACTERS = 200_000;
@@ -173,6 +176,18 @@ export function mountEditorApp(
     const date = new Date(iso);
     return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
   };
+  const relativeTime = (iso: string) => {
+    const then = new Date(iso).getTime();
+    if (Number.isNaN(then)) return "";
+    const seconds = Math.round((Date.now() - then) / 1000);
+    if (seconds < 0) return "";
+    if (seconds < 60) return "just now";
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} min ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} h ago`;
+    return `${Math.floor(hours / 24)} d ago`;
+  };
   const timeElement = (iso: string) =>
     h("time", { datetime: iso, title: iso }, formatTime(iso));
 
@@ -259,7 +274,12 @@ export function mountEditorApp(
 
   // ---------------------------------------------------------- dashboard
   function renderDashboard(token: number): void {
-    const filters = { type: "", status: "" };
+    const filters = {
+      type: "",
+      status: "",
+      sort: "modified" as ContentSort,
+      search: "",
+    };
     const cursors: (string | null)[] = [null];
     let pageIndex = 0;
     let requestId = 0;
@@ -278,6 +298,34 @@ export function mountEditorApp(
       h("option", { value: "draft" }, "Draft"),
       h("option", { value: "archived" }, "Archived"),
     );
+    const sortSelect = h(
+      "select",
+      { id: "sort-order" },
+      h("option", { value: "modified" }, "Recently modified"),
+      h("option", { value: "id" }, "ID order"),
+    );
+    const searchInput = h("input", {
+      id: "search-text",
+      type: "search",
+      maxlength: String(MAX_CONTENT_SEARCH_LENGTH),
+      autocomplete: "off",
+      placeholder: "Title or summary",
+    });
+    const searchButton = h(
+      "button",
+      { type: "submit", id: "search-submit" },
+      "Search",
+    );
+    const clearButton = h(
+      "button",
+      { type: "button", id: "filters-clear" },
+      "Clear search and filters",
+    );
+    const summary = h("p", {
+      class: "list-summary",
+      id: "list-summary",
+      role: "status",
+    });
     const results = h("div", { class: "results" });
     const pager = h("div", { class: "pager" });
     const newPost = h("button", { type: "button", id: "new-post" }, "New Post");
@@ -290,6 +338,24 @@ export function mountEditorApp(
     newStory.addEventListener("click", () =>
       go({ name: "new", type: "story" }),
     );
+    const form = h(
+      "form",
+      {
+        class: "filters",
+        role: "search",
+        "aria-label": "Search and filter drafts",
+      },
+      h("label", { for: "search-text" }, "Search"),
+      searchInput,
+      searchButton,
+      h("label", { for: "filter-type" }, "Type"),
+      typeSelect,
+      h("label", { for: "filter-status" }, "Status"),
+      statusSelect,
+      h("label", { for: "sort-order" }, "Sort by"),
+      sortSelect,
+      clearButton,
+    );
 
     replaceChildren(
       doc,
@@ -300,30 +366,57 @@ export function mountEditorApp(
         h("h1", {}, "Drafts"),
         h("div", { class: "actions" }, newPost, newStory),
       ),
-      h(
-        "div",
-        { class: "filters", role: "group", "aria-label": "Filter drafts" },
-        h("label", { for: "filter-type" }, "Type"),
-        typeSelect,
-        h("label", { for: "filter-status" }, "Status"),
-        statusSelect,
-      ),
+      form,
+      summary,
       results,
       pager,
     );
 
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      resetAndLoad();
+    });
     typeSelect.addEventListener("change", () => resetAndLoad());
     statusSelect.addEventListener("change", () => resetAndLoad());
+    sortSelect.addEventListener("change", () => resetAndLoad());
+    clearButton.addEventListener("click", () => {
+      typeSelect.value = "";
+      statusSelect.value = "";
+      searchInput.value = "";
+      resetAndLoad();
+      searchInput.focus();
+    });
+    // Any change to the search, filters or order starts again from page one.
     function resetAndLoad() {
       filters.type = typeSelect.value;
       filters.status = statusSelect.value;
+      filters.sort = sortSelect.value === "id" ? "id" : "modified";
+      filters.search = searchInput.value.trim();
       cursors.length = 1;
       pageIndex = 0;
       void load();
     }
 
+    const hasActiveFilters = () =>
+      filters.type !== "" || filters.status !== "" || filters.search !== "";
+
+    function describeView(): string {
+      const parts = [
+        `Sorted by ${filters.sort === "modified" ? "recently modified, newest first" : "ID order"}`,
+      ];
+      if (filters.type)
+        parts.push(`type: ${filters.type === "post" ? "Posts" : "Stories"}`);
+      if (filters.status)
+        parts.push(
+          `status: ${filters.status === "draft" ? "Draft" : "Archived"}`,
+        );
+      if (filters.search) parts.push(`search: "${filters.search}"`);
+      return parts.join(", ");
+    }
+
     async function load(): Promise<void> {
       const mine = ++requestId;
+      summary.textContent = describeView();
       replaceChildren(
         doc,
         results,
@@ -332,18 +425,27 @@ export function mountEditorApp(
       clear(pager);
       try {
         if (!info) info = await client.sandboxInfo();
+        const position = cursors[pageIndex];
         const page = await client.listDrafts({
           limit: pageSize,
+          sort: filters.sort,
           ...(filters.type ? { contentType: filters.type as ContentType } : {}),
           ...(filters.status
             ? { status: filters.status as ContentStatus }
             : {}),
-          ...(cursors[pageIndex] ? { afterId: cursors[pageIndex] } : {}),
+          ...(filters.search ? { search: filters.search } : {}),
+          ...(position
+            ? filters.sort === "modified"
+              ? { cursor: position }
+              : { afterId: position }
+            : {}),
         });
         if (mine !== requestId || token !== renderToken) return;
         renderRows(page.items);
         renderPager(page.hasMore, page.nextCursor, page.items.length);
-        announce(`${page.items.length} drafts shown`);
+        const shown = `${page.items.length} ${page.items.length === 1 ? "item" : "items"} shown`;
+        summary.textContent = `${describeView()}. ${shown}.`;
+        announce(shown);
       } catch (error) {
         if (mine !== requestId || token !== renderToken) return;
         const retry = h("button", { type: "button" }, "Try again");
@@ -369,7 +471,9 @@ export function mountEditorApp(
           h(
             "p",
             { class: "empty" },
-            "No Posts or Stories match these filters yet. Use New Post or New Story to start one.",
+            hasActiveFilters()
+              ? "No Posts or Stories match this search and these filters. Try different words or clear the search and filters."
+              : "No Posts or Stories yet. Use New Post or New Story to start one.",
           ),
         );
         return;
@@ -388,7 +492,10 @@ export function mountEditorApp(
         body.appendChild(
           h(
             "tr",
-            { "data-id": item.id },
+            {
+              "data-id": item.id,
+              class: item.status === "archived" ? "row-archived" : "",
+            },
             h("td", {}, typeBadge(item.contentType)),
             h(
               "td",
@@ -399,12 +506,25 @@ export function mountEditorApp(
                 : null,
             ),
             h("td", { class: "num" }, `v${item.version}`),
-            h("td", {}, timeElement(item.updatedAt)),
+            h(
+              "td",
+              { class: "modified-cell" },
+              timeElement(item.updatedAt),
+              h("span", { class: "relative" }, relativeTime(item.updatedAt)),
+            ),
             h("td", {}, statusBadge(item.status)),
             h("td", {}, open),
           ),
         );
       }
+      const modifiedHead = h(
+        "th",
+        {
+          scope: "col",
+          ...(filters.sort === "modified" ? { "aria-sort": "descending" } : {}),
+        },
+        "Last modified",
+      );
       replaceChildren(
         doc,
         results,
@@ -418,14 +538,13 @@ export function mountEditorApp(
             h(
               "tr",
               {},
-              ...[
-                "Type",
-                "Title and summary",
-                "Version",
-                "Last modified",
-                "Status",
-                "Open",
-              ].map((label) => h("th", { scope: "col" }, label)),
+              ...["Type", "Title and summary", "Version"].map((label) =>
+                h("th", { scope: "col" }, label),
+              ),
+              modifiedHead,
+              ...["Status", "Open"].map((label) =>
+                h("th", { scope: "col" }, label),
+              ),
             ),
           ),
           body,
