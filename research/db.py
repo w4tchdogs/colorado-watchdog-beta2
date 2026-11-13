@@ -4,6 +4,8 @@ import hashlib
 import sqlite3
 from pathlib import Path
 
+from research.mapping import COUNTIES
+
 MIGRATIONS = Path(__file__).parent / "migrations"
 
 
@@ -97,3 +99,44 @@ def validate_migration_history(db, directory=MIGRATIONS):
     if integrity != "ok":
         raise ValueError(f"Database integrity check failed: {integrity}")
     return {"integrity": integrity, "schema_version": len(files), "migration_count": len(files)}
+
+
+def seed_counties(db):
+    """Add the canonical public county registry without repairing conflicting rows."""
+    if db.in_transaction:
+        raise ValueError("Finish the current transaction before seeding counties")
+    if not isinstance(COUNTIES, dict) or len(COUNTIES) != 64:
+        raise ValueError("Canonical Colorado county mapping is incomplete")
+    if any(not isinstance(fips, str) or len(fips) != 5 or not fips.startswith("08")
+           or not isinstance(name, str) or not name.strip()
+           for fips, name in COUNTIES.items()):
+        raise ValueError("Canonical Colorado county mapping contains an invalid entry")
+    with db:
+        db.execute("BEGIN IMMEDIATE")
+        validate_migration_history(db)
+        rows = list(db.execute("SELECT fips,name FROM counties ORDER BY fips"))
+        existing = {row["fips"]: row["name"] for row in rows}
+        names = {row["name"]: row["fips"] for row in rows}
+        present = [{"fips": fips, "name": name} for fips, name in sorted(existing.items())
+                   if COUNTIES.get(fips) == name]
+        conflicts = []
+        for fips, name in sorted(existing.items()):
+            expected = COUNTIES.get(fips)
+            if expected is None:
+                conflicts.append({"fips": fips, "reason": "unexpected_fips"})
+            elif expected != name:
+                conflicts.append({"fips": fips, "reason": "name_mismatch"})
+        for name, fips in sorted(names.items()):
+            expected_fips = next((key for key, value in COUNTIES.items() if value == name), None)
+            if expected_fips is not None and expected_fips != fips and not any(
+                    conflict["fips"] == fips for conflict in conflicts):
+                conflicts.append({"fips": fips, "reason": "name_assigned_to_different_fips"})
+        if conflicts:
+            db.rollback()
+            return {"status": "conflict", "inserted": [], "already_present": present,
+                    "conflicts": conflicts}
+        missing = [(fips, name) for fips, name in sorted(COUNTIES.items()) if fips not in existing]
+        db.executemany("INSERT INTO counties(fips,name) VALUES (?,?)", missing)
+        return {"status": "seeded" if missing else "already_present",
+                "inserted": [{"fips": fips, "name": name} for fips, name in missing],
+                "already_present": present, "conflicts": []}

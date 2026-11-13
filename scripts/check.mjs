@@ -33,15 +33,17 @@ const allowed = new Set([
   'tests/checkpoint-fixtures.mjs', 'docs/architecture/checkpoints.md',
   'docs/architecture/site-foundation.md',
   'docs/architecture/site-sync-contract.md',
-  'research/__init__.py', 'research/__main__.py', 'research/db.py', 'research/intake.py',
+  'research/__init__.py', 'research/__main__.py', 'research/backup.py', 'research/db.py', 'research/intake.py',
   'research/mapping.py', 'research/quarantine.py', 'research/store.py', 'research/operator.py', 'research/migrations/001_foundation.sql',
   'tests/__init__.py', 'tests/research_fixtures.py', 'tests/test_research.py', 'tests/test_legacy_contract.py',
   'tests/test_csv_intake.py',
+  'tests/test_readiness.py',
   'tests/test_quarantine.py', 'tests/test_source_classification.py',
   'tests/test_operator.py', 'tests/test_identity_bootstrap.py', 'docs/research/R0-foundation.md',
   'docs/research/legacy-csv-compatibility.md', 'docs/research/csv-intake.md',
   'docs/research/R1-operator-interface.md', 'docs/research/R2-identity-bootstrap.md',
   'docs/research/R4-H1-intake-hardening.md',
+  'docs/research/R5A-local-database-readiness.md',
 ]);
 const staged = process.argv.includes('--staged');
 const git = (...args) => execFileSync('git', args, { maxBuffer: 2 * 1024 * 1024 });

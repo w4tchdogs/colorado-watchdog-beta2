@@ -1,6 +1,7 @@
 """Synthetic regression cases for the published legacy CSV contract."""
 import json
 import unittest
+from contextlib import closing
 
 from research.db import connect, migrate
 from research.mapping import COUNTIES, parse_csv
@@ -10,7 +11,7 @@ from tests.research_fixtures import observation, csv_bytes
 
 class LegacyContractTests(unittest.TestCase):
     def test_legacy_listing_status_preserved_and_explicitly_normalized(self):
-        with connect() as db:
+        with closing(connect()) as db, db:
             migrate(db)
             db.execute("INSERT INTO counties VALUES ('08107','Routt')")
             db.commit()
@@ -47,7 +48,7 @@ class LegacyContractTests(unittest.TestCase):
                     parse_csv(csv_bytes([observation(fips, county=wrong)]))
 
     def test_invalid_grouping_ingestion_writes_nothing(self):
-        with connect() as db:
+        with closing(connect()) as db, db:
             migrate(db)
             db.execute("INSERT INTO counties VALUES ('08107','Routt')")
             db.commit()
