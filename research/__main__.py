@@ -10,8 +10,9 @@ from pathlib import Path
 
 from research import operator
 from research.db import connect, migrate, validate_database, validate_migration_history
-from research.intake import preview_csv
+from research.intake import preview_csv, quarantine_validation_report
 from research.mapping import CsvHeaderMismatch, CsvStructureError, MAPPINGS
+from research.quarantine import quarantine_invalid_original
 from research.store import ingest_csv
 
 
@@ -53,6 +54,17 @@ def parser_for():
     intake.add_argument("--expect-sha256", help="Require the exact file hash reported by preview")
     intake.add_argument("--commit", action="store_true", required=True,
                         help="Required explicit confirmation that this command may write")
+
+    quarantine = database_command("quarantine-invalid", "explicitly preserve a rejected original CSV outside the checkout")
+    quarantine.add_argument("--file", type=Path, required=True, help="Explicit original CSV path")
+    quarantine.add_argument("--root", type=Path, required=True,
+                            help="Existing private quarantine directory outside the source checkout")
+    quarantine.add_argument("--version", choices=tuple(MAPPINGS), required=True,
+                            help="Explicit registered mapping version")
+    quarantine.add_argument("--version-label", required=True)
+    quarantine.add_argument("--lineage-kind", choices=("original",), required=True)
+    quarantine.add_argument("--provenance", choices=("legacy_delivery", "synthetic"),
+                            default="legacy_delivery")
 
     def inspection(name, help_text):
         command = database_command(name, help_text)
@@ -109,6 +121,14 @@ def parser_for():
     variant.add_argument("--actor", required=True)
     variant.add_argument("--rationale", required=True)
 
+    classify = database_command("classify-source", "explicitly classify one registered source with an audit event")
+    classify.add_argument("--source-id", required=True)
+    classify.add_argument("--status", choices=operator.SOURCE_CLASSIFICATIONS, required=True)
+    classify.add_argument("--actor", required=True)
+    classify.add_argument("--basis", required=True,
+                          help="Documented reason for the classification; hostnames alone are insufficient")
+    classify.add_argument("--evidence-id", help="Optional evidence already associated with this exact source")
+
     visit = database_command("record-visit", "record a source visit or attempt without fetching")
     visit.add_argument("--source-id", required=True)
     visit.add_argument("--run-id", required=True)
@@ -142,10 +162,14 @@ def parser_for():
 
 
 def _path(args, parser):
-    path = args.database.resolve()
+    return _external_path(args.database, parser, "Research databases")
+
+
+def _external_path(candidate, parser, label):
+    path = candidate.resolve()
     repo = Path(__file__).resolve().parents[1]
     if path == repo or repo in path.parents:
-        parser.error("Research databases must be outside the source checkout")
+        parser.error(f"{label} must be outside the source checkout")
     return path
 
 
@@ -284,19 +308,52 @@ def _run_csv_command(args, path):
             result["column_count"] = error.column_count
             result["header_match"] = True
             result["file_size_bytes"] = file_size
-            result["errors"][0]["line_start"] = error.line
+            result["errors"][0]["line_start"] = error.line_start or error.line
             result["errors"][0]["line_end"] = error.line
         line = re.search(r"(?:physical line|line) (\d+)", str(error))
-        if line:
+        if line and result["errors"][0]["line_start"] is None:
             result["errors"][0]["line_start"] = int(line.group(1))
             result["errors"][0]["line_end"] = int(line.group(1))
         return result, (2 if mode == "intake-csv" else 1)
+
+
+def _run_quarantine_command(args, path):
+    file_name = None
+    file_hash = None
+    try:
+        file_name, payload = _csv_input(args.file)
+        file_hash = hashlib.sha256(payload).hexdigest()
+        db = _read_only(path)
+        try:
+            report = quarantine_validation_report(
+                db, payload, file_name=file_name, version=args.version,
+                version_label=args.version_label, lineage_kind=args.lineage_kind,
+            )
+        finally:
+            db.close()
+        if report["eligible"]:
+            return {"mode": "quarantine", "status": "refused_valid_delivery", "eligible": True,
+                    "sha256": file_hash,
+                    "errors": [{"category": "delivery_is_valid",
+                                "message": "Valid deliveries are not eligible for rejected-original quarantine"}]}, 1
+        result = quarantine_invalid_original(
+            args.root, payload, file_name=file_name, version=args.version,
+            version_label=args.version_label, validation_report=report, provenance=args.provenance,
+        )
+        return {"mode": "quarantine", **result}, 0
+    except (OSError, sqlite3.Error, ValueError, RuntimeError) as error:
+        message = str(error) if isinstance(error, ValueError) else "Quarantine failed before a complete artifact was published"
+        return {"mode": "quarantine", "status": "failed", "eligible": False,
+                "sha256": file_hash,
+                "errors": [{"category": "quarantine_failed", "message": message}]}, 2
 
 
 def main(argv=None):
     parser = parser_for()
     args = parser.parse_args(argv)
     path = _path(args, parser)
+    if args.command == "quarantine-invalid":
+        _external_path(args.root, parser, "Quarantine roots")
     if args.command == "init":
         try:
             with path.open("xb"):
@@ -318,6 +375,10 @@ def main(argv=None):
             return 2
         print("error: database file does not exist", file=sys.stderr)
         return 2
+    if args.command == "quarantine-invalid":
+        result, status = _run_quarantine_command(args, path)
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        return status
     if args.command in {"preview-csv", "intake-csv"}:
         result, status = _run_csv_command(args, path)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
@@ -372,6 +433,10 @@ def main(argv=None):
                                                        published_name=args.published_name, kind=args.kind,
                                                        evidence_id=args.evidence_id, actor=args.actor,
                                                        rationale=args.rationale)
+                elif args.command == "classify-source":
+                    result = operator.classify_source(db, source_id=args.source_id, status=args.status,
+                                                      actor=args.actor, basis=args.basis,
+                                                      evidence_id=args.evidence_id)
                 elif args.command == "record-visit":
                     result = operator.record_visit(db, source_id=args.source_id, run_id=args.run_id,
                                                    provenance=args.provenance, outcome=args.outcome, actor=args.actor,

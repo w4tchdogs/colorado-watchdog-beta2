@@ -1,9 +1,11 @@
 """Read-only intake previews over the established R0 mapping and delivery model."""
 
 from collections import defaultdict
+import hashlib
 
 from research.db import validate_migration_history
-from research.mapping import COUNTIES, canonical_json, mapping_definition, parse_csv_report
+from research.mapping import (COUNTIES, CsvHeaderMismatch, CsvStructureError, canonical_json,
+                              mapping_definition, parse_csv_report)
 
 
 def preview_csv(db, payload, *, file_name, version, version_label=None,
@@ -35,6 +37,14 @@ def preview_csv(db, payload, *, file_name, version, version_label=None,
     county_fips = next(iter(counties)) if len(counties) == 1 else None
     if county_fips is None and rows and len(counties) == 0:
         add_error("county_unavailable", "No valid county identifier is available for lineage checks")
+    if county_fips is not None:
+        registered = db.execute("SELECT name FROM counties WHERE fips=?", (county_fips,)).fetchone()
+        if registered is None:
+            add_error("county_not_registered", "County is missing from the target database registry",
+                      field="county_fips")
+        elif registered["name"] != COUNTIES[county_fips]:
+            add_error("county_registry_conflict", "Registered county name conflicts with the canonical FIPS mapping",
+                      field="county_fips")
     if provenance not in ("synthetic", "legacy_delivery"):
         add_error("invalid_provenance", "Provenance must be synthetic or legacy_delivery")
     if not file_name or not file_name.strip():
@@ -150,3 +160,62 @@ def preview_csv(db, payload, *, file_name, version, version_label=None,
         "errors": errors, "warnings": [], "diagnostics_truncated": diagnostics_truncated,
         "eligible": not errors,
     }
+
+
+def quarantine_validation_report(db, payload, *, file_name, version, version_label,
+                                 lineage_kind="original", max_errors=100):
+    """Return preview-compatible sanitized findings even for unreadable CSV structure."""
+    history = validate_migration_history(db)
+    common = {"mode": "preview", "mapping_version": version, "file_name": file_name,
+              "file_sha256": hashlib.sha256(payload).hexdigest(), "file_size_bytes": len(payload),
+              "county": None, "records": {"total": None, "valid": 0, "invalid": None,
+                                                "duplicate_rows": 0, "expected_distinct_claims": 0},
+              "source_urls": {"records_with_url": 0, "distinct": 0},
+              "source_metadata": {"records_with_title": 0, "records_with_source_date": 0,
+                                  "records_with_checked_date": 0},
+              "lineage": {"kind": lineage_kind, "parent_batch_id": None, "family_id": None,
+                          "parent_selected": None, "selected_requested": False},
+              "replay": {"status": "not_assessed", "batch_id": None, "selected": None,
+                         "conflicts": []},
+              "migration_check": history, "warnings": [], "diagnostics_truncated": False,
+              "eligible": False}
+    try:
+        return preview_csv(db, payload, file_name=file_name, version=version,
+                           version_label=version_label, lineage_kind=lineage_kind,
+                           max_errors=max_errors)
+    except CsvHeaderMismatch as error:
+        common.update({"column_count": error.column_count, "header_match": False,
+                       "errors": [{"record_number": None, "line_start": None, "line_end": None,
+                                   "field": None, "category": "unsupported_header",
+                                   "message": "Header does not exactly match the selected mapping"}]})
+    except CsvStructureError as error:
+        partial = error.partial_report or {}
+        prior_errors = list(partial.get("errors", []))
+        structural_error = {"record_number": None, "line_start": error.line_start or error.line,
+                            "line_end": error.line, "field": None,
+                            "category": "malformed_csv", "message": "Malformed CSV structure"}
+        if len(prior_errors) < max_errors:
+            prior_errors.append(structural_error)
+        else:
+            common["diagnostics_truncated"] = True
+        rows = partial.get("rows", [])
+        common["records"] = {"total": partial.get("record_count"), "valid": len(rows),
+                              "invalid": partial.get("invalid_record_count"),
+                              "duplicate_rows": 0, "expected_distinct_claims": len(rows)}
+        common.update({"column_count": error.column_count, "header_match": error.column_count is not None,
+                       "errors": prior_errors,
+                       "diagnostics_truncated": (common["diagnostics_truncated"]
+                                                  or partial.get("diagnostics_truncated", False))})
+    except UnicodeDecodeError:
+        common.update({"column_count": None, "header_match": None,
+                       "errors": [{"record_number": None, "line_start": None, "line_end": None,
+                                   "field": None, "category": "invalid_encoding",
+                                   "message": "CSV input is not valid UTF-8"}]})
+    except ValueError as error:
+        if str(error) != "CSV has no header":
+            raise
+        common.update({"column_count": None, "header_match": False,
+                       "errors": [{"record_number": None, "line_start": None, "line_end": None,
+                                   "field": None, "category": "missing_header",
+                                   "message": "CSV has no header"}]})
+    return common

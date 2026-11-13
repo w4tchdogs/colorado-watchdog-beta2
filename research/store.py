@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4, uuid5, NAMESPACE_URL
 
-from research.mapping import canonical_json, mapping_definition, parse_csv
+from research.mapping import COUNTIES, canonical_json, mapping_definition, parse_csv
 
 
 def new_id(kind):
@@ -69,6 +69,11 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
     with db:
         # Serialize replay and selection checks with the write transaction.
         db.execute("BEGIN IMMEDIATE")
+        county_record = db.execute("SELECT name FROM counties WHERE fips=?", (county,)).fetchone()
+        if county_record is None:
+            raise ValueError("County is missing from the target database registry")
+        if county_record["name"] != COUNTIES[county]:
+            raise ValueError("Registered county name conflicts with the canonical FIPS mapping")
         existing = db.execute(
             "SELECT * FROM scrape_batches WHERE county_fips=? AND file_sha256=? AND mapping_version=?",
             (county, parsed["file_sha256"], version),

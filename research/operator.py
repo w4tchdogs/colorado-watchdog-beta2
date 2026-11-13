@@ -11,6 +11,7 @@ AXES = ("structure", "leadership", "named_staff", "positions")
 COVERAGE = ("not_started", "partial", "reviewed", "stale", "blocked")
 VISIT_PROVENANCE = ("observed", "reconstructed", "synthetic")
 VISIT_OUTCOMES = ("success", "not_modified", "blocked", "failed", "not_found")
+SOURCE_CLASSIFICATIONS = ("unknown", "official", "partner", "other")
 
 
 def _limit(limit):
@@ -123,6 +124,71 @@ def inspect_sources(db, *, source_id=None, county=None, limit=50):
                                      "result_count FROM source_visits WHERE source_id=? "
                                      "ORDER BY attempted_at DESC,id LIMIT ?", (source["id"], MAX_LIMIT))
     return sources
+
+
+def classify_source(db, *, source_id, status, actor, basis, evidence_id=None):
+    """Set one explicit source classification with an atomic research event."""
+    if not all(isinstance(value, str) and value.strip() for value in (source_id, actor, basis)):
+        raise ValueError("Source, operator, and documented classification basis are required")
+    if status not in SOURCE_CLASSIFICATIONS:
+        raise ValueError("Invalid source classification")
+    if evidence_id is not None and (not isinstance(evidence_id, str) or not evidence_id.strip()):
+        raise ValueError("Supporting evidence identifier cannot be blank")
+    if db.in_transaction:
+        raise ValueError("Finish the current transaction before an operator update")
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        source = db.execute("SELECT id,official_status FROM sources WHERE id=?", (source_id,)).fetchone()
+        if source is None:
+            raise ValueError("Unknown source")
+        provenance = "reconstructed"
+        if evidence_id is not None:
+            evidence = db.execute(
+                "SELECT e.source_id,r.provenance FROM evidence_links e "
+                "JOIN research_runs r ON r.id=e.run_id WHERE e.id=?", (evidence_id,)
+            ).fetchone()
+            if evidence is None or evidence["source_id"] != source_id:
+                raise ValueError("Supporting evidence must belong to the selected source")
+            provenance = evidence["provenance"]
+        previous = source["official_status"]
+        if previous == status:
+            prior_event = db.execute(
+                "SELECT detail_json FROM research_events WHERE kind IN "
+                "('source_classified','source_classification_confirmed') "
+                "AND entity_type='sources' AND entity_id=? ORDER BY rowid DESC LIMIT 1",
+                (source_id,),
+            ).fetchone()
+            if prior_event:
+                try:
+                    detail = json.loads(prior_event["detail_json"])
+                except json.JSONDecodeError:
+                    detail = {}
+                if (detail.get("after") == {"official_status": status}
+                        and detail.get("supporting_evidence_id") == evidence_id
+                        and detail.get("basis") == basis and detail.get("operator") == actor):
+                    db.commit()
+                    return {"source_id": source_id, "official_status": status,
+                            "previous_status": previous, "changed": False,
+                            "recorded": False, "run_id": None}
+        run = _create_screening_run(db, provenance=provenance, actor=actor,
+                                    note="R4-H1 source classification")
+        changed = previous != status
+        if changed:
+            db.execute("UPDATE sources SET official_status=? WHERE id=?", (status, source_id))
+        _event(db, run=run, actor=actor,
+               kind="source_classified" if changed else "source_classification_confirmed",
+               entity_type="sources",
+               entity_id=source_id,
+               detail={"before": {"official_status": previous},
+                       "after": {"official_status": status},
+                       "supporting_evidence_id": evidence_id, "basis": basis})
+        db.commit()
+        return {"source_id": source_id, "official_status": status,
+                "previous_status": previous, "changed": changed,
+                "recorded": True, "run_id": run["id"]}
+    except Exception:
+        db.rollback()
+        raise
 
 
 def inspect_matches(db, *, county=None, status=None, person_id=None, limit=50):

@@ -111,6 +111,41 @@ class CsvIntakeCase(unittest.TestCase):
                 self.assertNotIn("Synthetic Riley Example", completed.stdout)
                 self.assertNotIn("SYNTHETIC ONLY", completed.stdout)
 
+    def test_preview_and_commit_require_matching_registered_county(self):
+        self.write_csv(fixture_csv(rows=[fixture_row(fips="08037")]))
+        before_counts = self.counts()
+        before_bytes = self.database.read_bytes()
+        before_files = sorted(item.name for item in self.root.iterdir())
+        preview = self.result(self.call_cli(*self.preview_args()))
+        self.assertFalse(preview["eligible"])
+        self.assertIn("county_not_registered", [item["category"] for item in preview["errors"]])
+        self.assertEqual(self.call_cli(*self.intake_args()).returncode, 2)
+        self.assertEqual(self.counts(), before_counts)
+        self.assertEqual(self.database.read_bytes(), before_bytes)
+        self.assertEqual(sorted(item.name for item in self.root.iterdir()), before_files)
+
+        db = connect(self.database)
+        db.execute("INSERT INTO counties VALUES ('08037','Eagle')")
+        db.commit()
+        db.close()
+        registered = self.result(self.call_cli(*self.preview_args()))
+        self.assertTrue(registered["eligible"])
+        self.assertEqual(self.call_cli(*self.intake_args()).returncode, 0)
+
+    def test_preview_and_commit_fail_closed_on_conflicting_county_name(self):
+        db = connect(self.database)
+        db.execute("INSERT INTO counties VALUES ('08037','Synthetic Wrong County')")
+        db.commit()
+        db.close()
+        self.write_csv(fixture_csv(rows=[fixture_row(fips="08037")]))
+        before_counts = self.counts()
+        preview = self.result(self.call_cli(*self.preview_args()))
+        self.assertFalse(preview["eligible"])
+        self.assertIn("county_registry_conflict", [item["category"] for item in preview["errors"]])
+        committed = self.call_cli(*self.intake_args())
+        self.assertEqual(committed.returncode, 2, committed.stderr)
+        self.assertEqual(self.counts(), before_counts)
+
     def test_mapping_version_is_required_and_never_guessed(self):
         self.write_csv(fixture_csv("legacy-11/v1"))
         missing = self.call_cli("preview-csv", self.database, "--file", self.csv_path)
