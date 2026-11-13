@@ -1,4 +1,5 @@
 import type { CheckpointService } from "../contracts/checkpoints.js";
+import type { CountyOverviewRequest } from "../contracts/county-overview.js";
 import type { DirectoryPageRequest } from "../contracts/directory.js";
 import type {
   OrganizationProfilePageRequest,
@@ -19,6 +20,7 @@ import {
   updateAccount,
 } from "./accounts.js";
 import { listAuditEvents } from "./audit.js";
+import { getCountyOverview } from "./county-overview.js";
 import { listCountyOrganizations, listCountyRoleEntries } from "./directory.js";
 import { createOperation } from "./operations.js";
 import {
@@ -101,6 +103,9 @@ export interface ApplicationServices {
   listCountyRoleEntries(
     input: DirectoryPageRequest,
   ): ReturnType<typeof listCountyRoleEntries>;
+  getCountyOverview(
+    input: CountyOverviewRequest,
+  ): ReturnType<typeof getCountyOverview>;
   getOrganizationProfile(
     input: OrganizationProfilePageRequest,
   ): ReturnType<typeof getOrganizationProfile>;
@@ -232,6 +237,9 @@ export function createServices(
     },
     listCountyRoleEntries(input) {
       return listCountyRoleEntries(requireDatabase(), input);
+    },
+    getCountyOverview(input) {
+      return getCountyOverview(requireDatabase(), input);
     },
     getOrganizationProfile(input) {
       return getOrganizationProfile(requireDatabase(), input);
