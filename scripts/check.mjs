@@ -7,6 +7,10 @@ const allowed = new Set([
   '.github/workflows/check.yml', 'AGENTS.md', 'CLAUDE.md', 'README.md',
   'docs/decisions.md', 'docs/cost-limits.md', 'docs/collaboration.md',
   'scripts/check.mjs',
+  'docs/coordination/START.md', 'docs/coordination/HANDOFF-TEMPLATE.md',
+  'docs/coordination/PROJECT-BOOTSTRAP.md',
+  'docs/architecture/beta-2-planning-handoff.md',
+  '.github/ISSUE_TEMPLATE/scoped-task.md', '.github/pull_request_template.md',
 ]);
 const staged = process.argv.includes('--staged');
 const git = (...args) => execFileSync('git', args, { maxBuffer: 2 * 1024 * 1024 });

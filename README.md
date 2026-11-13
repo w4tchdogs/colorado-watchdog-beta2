@@ -14,7 +14,13 @@ The workspace is `D:\ChatGPT\Watchdog\colorado-watchdog-beta2`. Beta-1 at `D:\Ch
 4. Push the branch and open a PR describing behavior, checks, and limitations. No required reviewers or approval queues. Fix CI failures autonomously, then merge after the latest commit's checks pass. Reconcile and recheck changes when main advances. A later second-assistant review is useful but optional.
 5. Pull merged main. Preserve commits as checkpoints; revert a faulty merged commit through another checked branch/PR. Future application deletion uses trash/restore; none is implemented now.
 
-Codex and Claude write through whichever authenticated GitHub integration is actually available. ChatGPT may only read: it can review a commit or PR and supply a patch in chat, which a writer applies on a branch. The owner can inspect history without becoming an approval dependency. See [verified capabilities and connection steps](docs/collaboration.md).
+Codex, Claude, and ChatGPT may read or write through whichever authenticated GitHub integration is actually available in their session; never infer write access from a tool listing. An assistant without working write access supplies a scoped patch or copy-ready handoff for a connected writer. The owner can inspect history without becoming an approval dependency. See [verified capabilities and connection steps](docs/collaboration.md).
+
+## Shared AI memory
+
+Start at [the coordination guide](docs/coordination/START.md). The shared [handoff template](docs/coordination/HANDOFF-TEMPLATE.md) is used for issue-based transfers. [Project bootstrap text](docs/coordination/PROJECT-BOOTSTRAP.md) is offered for related ChatGPT Projects but is **not automatically installed** in their settings.
+
+GitHub main/accepted architecture documents are durable shared knowledge; Issues hold assignments and compact handoffs; PRs record accepted changes. See [current planning handoff](docs/architecture/beta-2-planning-handoff.md), which clearly distinguishes decisions from implementation.
 
 ## Starter checks
 
