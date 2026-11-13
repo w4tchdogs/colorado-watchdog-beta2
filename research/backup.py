@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from research.db import validate_migration_history
+from research.db import migrate, validate_migration_history
 
 _MAGIC = b"CW-R5A-DPAPI\x00\x01"
 _CHUNK = 1
@@ -51,8 +51,29 @@ def _encode_value(value):
     return value
 
 
+def _schema_objects(db):
+    """Return managed SQLite schema identity and definitions, including autoindexes."""
+    return tuple(tuple(row) for row in db.execute(
+        "SELECT type, name, tbl_name, sql FROM sqlite_master "
+        "WHERE name <> 'sqlite_sequence' ORDER BY type, name, tbl_name"))
+
+
+def _validate_canonical_schema(db):
+    """Compare with a fresh schema built from this checkout's packaged migrations."""
+    expected_db = sqlite3.connect(":memory:")
+    try:
+        expected_db.execute("PRAGMA foreign_keys=ON")
+        migrate(expected_db)
+        expected = _schema_objects(expected_db)
+    finally:
+        expected_db.close()
+    if _schema_objects(db) != expected:
+        raise ValueError("Database schema differs from the canonical packaged migration schema")
+
+
 def _database_snapshot(db):
     history = validate_migration_history(db)
+    _validate_canonical_schema(db)
     tables = [row[0] for row in db.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
     if set(tables) != _DOMAIN_TABLES | {"schema_migrations"}:

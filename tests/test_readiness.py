@@ -57,6 +57,73 @@ class ReadinessCase(unittest.TestCase):
     def seed(self):
         return seed_counties(self.db)
 
+    def test_backup_snapshot_requires_exact_migration_derived_schema(self):
+        self.assertEqual(backup_module._database_snapshot(self.db)["schema_version"], 1)
+        alterations = {
+            "missing county index": "DROP INDEX claims_county_person",
+            "missing lineage trigger": "DROP TRIGGER batch_lineage_update",
+            "altered same-name index": "DROP INDEX claims_county_person; "
+                "CREATE INDEX claims_county_person ON role_claims(person_id, county_fips)",
+            "altered same-name trigger": "DROP TRIGGER batch_lineage_update; "
+                "CREATE TRIGGER batch_lineage_update BEFORE UPDATE ON role_claims "
+                "BEGIN SELECT RAISE(ABORT, 'altered'); END",
+            "altered same-name view": "DROP VIEW selected_role_claims; "
+                "CREATE VIEW selected_role_claims AS SELECT c.id FROM role_claims c",
+            "unexpected index": "CREATE INDEX unexpected_managed_index ON role_claims(county_fips)",
+            "unexpected trigger": "CREATE TRIGGER unexpected_managed_trigger AFTER INSERT ON role_claims "
+                "BEGIN SELECT 1; END",
+            "unexpected view": "CREATE VIEW unexpected_managed_view AS SELECT id FROM role_claims",
+        }
+        for label, sql in alterations.items():
+            with self.subTest(schema_change=label):
+                candidate = sqlite3.connect(":memory:")
+                try:
+                    candidate.execute("PRAGMA foreign_keys=ON")
+                    migrate(candidate)
+                    candidate.executescript(sql)
+                    with self.assertRaisesRegex(ValueError, "canonical packaged migration schema"):
+                        backup_module._database_snapshot(candidate)
+                finally:
+                    candidate.close()
+
+    @unittest.skipUnless(os.name == "nt", "authenticated backup uses Windows DPAPI")
+    def test_noncanonical_backup_fails_without_publishing_destination(self):
+        for name, sql in (("index", "DROP INDEX claims_county_person"),
+                          ("trigger", "DROP TRIGGER batch_lineage_update")):
+            with self.subTest(missing=name):
+                damaged = self.root / f"missing-{name}.sqlite"
+                backup_module._copy_database(self.database, damaged)
+                altered = sqlite3.connect(damaged)
+                try:
+                    altered.executescript(sql)
+                finally:
+                    altered.close()
+                destination = self.root / f"missing-{name}.cwdb"
+                with self.assertRaisesRegex(ValueError, "canonical packaged migration schema"):
+                    backup_database(damaged, destination)
+                self.assertFalse(destination.exists())
+
+    @unittest.skipUnless(os.name == "nt", "authenticated backup uses Windows DPAPI")
+    def test_authenticated_historical_artifact_cannot_bypass_schema_validation(self):
+        canonical_snapshot = backup_module._database_snapshot(self.db)
+        altered_db_path = self.root / "historical-noncanonical.sqlite"
+        backup_module._copy_database(self.database, altered_db_path)
+        altered_db = sqlite3.connect(altered_db_path)
+        try:
+            altered_db.executescript(
+                "DROP INDEX claims_county_person; DROP TRIGGER batch_lineage_update;")
+        finally:
+            altered_db.close()
+
+        # Build an artifact with the legacy authenticated framing and a matching,
+        # authentic file digest but a manifest captured from the canonical rows.
+        artifact = self.root / "historical-noncanonical.cwdb"
+        backup_module._encrypt_snapshot(altered_db_path, artifact, canonical_snapshot)
+        destination = self.root / "must-not-publish-restored.sqlite"
+        with self.assertRaisesRegex(ValueError, "canonical packaged migration schema"):
+            restore_database(artifact, destination)
+        self.assertFalse(destination.exists())
+
     def test_fresh_seed_produces_all_public_counties_and_is_idempotent(self):
         self.assertEqual(self.db.execute("SELECT count(*) FROM counties").fetchone()[0], 0)
         first = self.seed()
