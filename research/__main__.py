@@ -1,13 +1,18 @@
 """Local research database initialization, inspection, and evidence-led operations."""
 
 import argparse
+import hashlib
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
 
 from research import operator
-from research.db import connect, migrate, validate_database
+from research.db import connect, migrate, validate_database, validate_migration_history
+from research.intake import preview_csv
+from research.mapping import CsvHeaderMismatch, CsvStructureError, MAPPINGS
+from research.store import ingest_csv
 
 
 def parser_for():
@@ -21,6 +26,33 @@ def parser_for():
 
     database_command("init", "exclusively create and initialize an empty database")
     database_command("check", "validate an existing database without writing")
+
+    def csv_intake(name, help_text):
+        command = database_command(name, help_text)
+        command.add_argument("--file", type=Path, required=True, help="Explicit CSV input path")
+        command.add_argument("--version", choices=tuple(MAPPINGS), required=True,
+                             help="Explicit registered mapping version")
+        command.add_argument("--parent-batch-id", help="Existing parent batch for corrected/alternative deliveries")
+        command.add_argument("--supersedes-json", type=Path,
+                             help="JSON object mapping CSV record numbers to parent claim IDs")
+        command.add_argument("--select", action="store_true",
+                             help="Explicitly select this batch within its family")
+        command.add_argument("--provenance", choices=("legacy_delivery", "synthetic"), default="legacy_delivery")
+        return command
+
+    preview = csv_intake("preview-csv", "read-only validation preview of an explicitly mapped CSV")
+    preview.add_argument("--version-label", help="Optional delivery label for replay comparison")
+    preview.add_argument("--lineage-kind", choices=("original", "complementary", "corrected", "alternative"),
+                         default="original")
+    preview.add_argument("--max-errors", type=int, default=100, help="Maximum diagnostic count (1–500)")
+
+    intake = csv_intake("intake-csv", "commit one explicitly described CSV delivery")
+    intake.add_argument("--version-label", required=True)
+    intake.add_argument("--lineage-kind", choices=("original", "complementary", "corrected", "alternative"),
+                        required=True)
+    intake.add_argument("--expect-sha256", help="Require the exact file hash reported by preview")
+    intake.add_argument("--commit", action="store_true", required=True,
+                        help="Required explicit confirmation that this command may write")
 
     def inspection(name, help_text):
         command = database_command(name, help_text)
@@ -124,6 +156,143 @@ def _read_only(path):
     return db
 
 
+def _ensure_preview_journal_safe(path):
+    with path.open("rb") as database_file:
+        header = database_file.read(20)
+    if header.startswith(b"SQLite format 3\x00") and header[18:20] == b"\x02\x02":
+        raise ValueError("CSV preview does not support WAL-mode databases because SQLite may modify auxiliary files")
+
+
+def _read_supersedes(path):
+    if path is None:
+        return {}
+    if not path.is_file() or path.stat().st_size > 1024 * 1024:
+        raise ValueError("Correction mapping must be an existing JSON file no larger than 1 MiB")
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Correction mapping contains duplicate JSON keys")
+            result[key] = value
+        return result
+
+    payload = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+    if not isinstance(payload, dict):
+        raise ValueError("Correction mapping must be a JSON object of record numbers to claim IDs")
+    result = {}
+    for record, claim in payload.items():
+        if (not re.fullmatch(r"[1-9][0-9]*", str(record)) or not isinstance(claim, str)
+                or not claim.strip() or claim != claim.strip()):
+            raise ValueError("Correction mapping keys must be positive record numbers and values nonblank claim IDs")
+        number = int(record)
+        if number in result:
+            raise ValueError("Correction mapping contains duplicate record numbers")
+        result[number] = claim
+    return result
+
+
+def _csv_input(path):
+    file_path = path.resolve()
+    if not file_path.is_file():
+        raise ValueError("CSV input file does not exist")
+    return file_path.name, file_path.read_bytes()
+
+
+def _json_error(mode, category, message, *, file_name=None, file_sha256=None):
+    return {"mode": mode, "status": "failed", "eligible": False,
+            "file_name": file_name, "file_sha256": file_sha256,
+            "errors": [{"record_number": None, "line_start": None, "line_end": None,
+                        "field": None, "category": category, "message": message}]}
+
+
+def _run_csv_command(args, path):
+    mode = args.command
+    file_name = None
+    file_hash = None
+    file_size = None
+    try:
+        file_name, payload = _csv_input(args.file)
+        file_size = len(payload)
+        file_hash = hashlib.sha256(payload).hexdigest()
+        supersedes = _read_supersedes(args.supersedes_json)
+        if mode == "preview-csv" and not 1 <= args.max_errors <= 500:
+            raise ValueError("--max-errors must be between 1 and 500")
+        if mode == "intake-csv" and args.expect_sha256:
+            if not re.fullmatch(r"[0-9a-fA-F]{64}", args.expect_sha256):
+                raise ValueError("--expect-sha256 must be a 64-character SHA-256 value")
+            if file_hash != args.expect_sha256.lower():
+                result = _json_error(mode, "input_hash_mismatch", "CSV file no longer matches the previewed SHA-256",
+                                     file_name=file_name, file_sha256=file_hash)
+                result["expected_sha256"] = args.expect_sha256.lower()
+                result["mapping_version"] = args.version
+                result["file_size_bytes"] = file_size
+                return result, 2
+        if mode == "preview-csv":
+            _ensure_preview_journal_safe(path)
+            db = _read_only(path)
+            try:
+                result = preview_csv(db, payload, file_name=file_name, version=args.version,
+                                     version_label=args.version_label, lineage_kind=args.lineage_kind,
+                                     parent_batch_id=args.parent_batch_id, selected=args.select,
+                                     provenance=args.provenance, supersedes=supersedes,
+                                     max_errors=args.max_errors)
+            finally:
+                db.close()
+            return result, 0 if result["eligible"] else 1
+
+        if not args.version_label.strip():
+            raise ValueError("--version-label cannot be blank")
+        db = connect(path)
+        try:
+            preview_result = preview_csv(db, payload, file_name=file_name, version=args.version,
+                                         version_label=args.version_label, lineage_kind=args.lineage_kind,
+                                         parent_batch_id=args.parent_batch_id, selected=args.select,
+                                         provenance=args.provenance, supersedes=supersedes)
+            if not preview_result["eligible"]:
+                result = {"mode": mode, "status": "failed", "eligible": False,
+                          "file_name": file_name, "file_sha256": file_hash,
+                          "mapping_version": args.version, "lineage": preview_result["lineage"],
+                          "replay": preview_result["replay"], "records": preview_result["records"],
+                          "errors": preview_result["errors"],
+                          "diagnostics_truncated": preview_result["diagnostics_truncated"]}
+                return result, 2
+            committed = ingest_csv(db, payload, file_name=file_name, version_label=args.version_label,
+                                   version=args.version, provenance=args.provenance,
+                                   lineage_kind=args.lineage_kind, parent_batch_id=args.parent_batch_id,
+                                   selected=args.select, supersedes=supersedes, return_result=True)
+            result = {"mode": mode, **committed, "file_name": file_name,
+                      "version_label": args.version_label,
+                      "preview_counts": preview_result["records"],
+                      "expected_sha256": args.expect_sha256}
+        finally:
+            db.close()
+        return result, 0 if committed["created"] else 3
+    except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+        category = "commit_failed" if mode == "intake-csv" else "preview_failed"
+        if isinstance(error, CsvHeaderMismatch):
+            category = "unsupported_header"
+        elif isinstance(error, CsvStructureError):
+            category = "malformed_csv"
+        result = _json_error(mode, category, str(error), file_name=file_name, file_sha256=file_hash)
+        if isinstance(error, CsvHeaderMismatch):
+            result["mapping_version"] = args.version
+            result["column_count"] = error.column_count
+            result["header_match"] = False
+            result["file_size_bytes"] = file_size
+        elif isinstance(error, CsvStructureError) and error.column_count is not None:
+            result["mapping_version"] = args.version
+            result["column_count"] = error.column_count
+            result["header_match"] = True
+            result["file_size_bytes"] = file_size
+            result["errors"][0]["line_start"] = error.line
+            result["errors"][0]["line_end"] = error.line
+        line = re.search(r"(?:physical line|line) (\d+)", str(error))
+        if line:
+            result["errors"][0]["line_start"] = int(line.group(1))
+            result["errors"][0]["line_end"] = int(line.group(1))
+        return result, (2 if mode == "intake-csv" else 1)
+
+
 def main(argv=None):
     parser = parser_for()
     args = parser.parse_args(argv)
@@ -143,8 +312,16 @@ def main(argv=None):
             print(f"error: {error}", file=sys.stderr)
             return 2
     if not path.is_file():
+        if args.command in {"preview-csv", "intake-csv"}:
+            print(json.dumps(_json_error(args.command, "database_missing", "Database file does not exist"),
+                             sort_keys=True))
+            return 2
         print("error: database file does not exist", file=sys.stderr)
         return 2
+    if args.command in {"preview-csv", "intake-csv"}:
+        result, status = _run_csv_command(args, path)
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        return status
     try:
         if args.command in {"check", "counties", "units", "people", "claims", "unassigned", "sources",
                             "matches", "coverage", "events"}:

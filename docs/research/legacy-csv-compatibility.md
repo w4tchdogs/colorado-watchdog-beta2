@@ -50,6 +50,6 @@ Values absent from a format remain `None` in its normalized mapping. Every suppl
 
 Select a mapping explicitly when calling `research.store.ingest_csv`, for example `version="legacy-11/v1"` or `version="legacy-16/v1"`. The existing default remains `legacy-17/v1`. Mapping headers, fields, and policy are persisted with the delivery; replay rejects a changed definition under the same mapping version. Raw CSV hashes, delivery lineage, duplicate handling, corrections, complementary batches, rollback, and source/evidence provenance use the existing R0 path.
 
-No database migration is required. The mappings do not create people, infer organizational hierarchy, create source visits, or treat a checked date as fetch telemetry. The research CLI does not provide a CSV ingest command; use the existing Python ingestion API with an explicitly selected version.
+No database migration is required. The mappings do not create people, infer organizational hierarchy, create source visits, or treat a checked date as fetch telemetry. R4 adds a separate explicit CLI preview and intake workflow; see the [operator guide](csv-intake.md). Direct Python callers can also use the existing ingestion API with an explicitly selected version.
 
 Synthetic regression coverage is in `tests/test_research.py`, including exact layouts, field semantics, county aliases, validation failures, preserved raw evidence, replay, corrected and complementary lineage, and rollback. All fixtures use fictional names and `example.invalid` URLs.
