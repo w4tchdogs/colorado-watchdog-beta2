@@ -1,0 +1,8 @@
+name = "colorado-watchdog-d1-local-tests"
+main = "tests/d1/worker.mjs"
+compatibility_date = "2026-11-13"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "colorado-watchdog-disposable-test"
+database_id = "00000000-0000-4000-8000-000000000009"

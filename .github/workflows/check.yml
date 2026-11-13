@@ -14,7 +14,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -26,6 +26,8 @@ jobs:
           node-version: 22
       - name: Install locked Website dependencies
         run: npm ci
+      - name: Verify Website migrations and API on local D1
+        run: npm run test:d1
       - name: Check starter repository
         run: node scripts/check.mjs
       - name: Validate local research schema and synthetic mappings
