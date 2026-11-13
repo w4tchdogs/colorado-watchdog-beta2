@@ -12,9 +12,9 @@ const allowed = new Set([
   'docs/architecture/beta-2-planning-handoff.md',
   '.github/ISSUE_TEMPLATE/scoped-task.md', '.github/pull_request_template.md',
   'research/__init__.py', 'research/__main__.py', 'research/db.py',
-  'research/mapping.py', 'research/store.py', 'research/migrations/001_foundation.sql',
+  'research/mapping.py', 'research/store.py', 'research/operator.py', 'research/migrations/001_foundation.sql',
   'tests/__init__.py', 'tests/research_fixtures.py', 'tests/test_research.py', 'tests/test_legacy_contract.py',
-  'docs/research/R0-foundation.md',
+  'tests/test_operator.py', 'docs/research/R0-foundation.md', 'docs/research/R1-operator-interface.md',
 ]);
 const staged = process.argv.includes('--staged');
 const git = (...args) => execFileSync('git', args, { maxBuffer: 2 * 1024 * 1024 });
