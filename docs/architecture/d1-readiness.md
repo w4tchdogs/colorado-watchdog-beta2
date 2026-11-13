@@ -1,67 +1,83 @@
 # D1 compatibility readiness
 
-Status: **not ready for D1 integration**. This note records a local compatibility
-probe and the database work that remains. No D1 database was provisioned or
-written during this work.
+Status: **local Wrangler D1 compatibility is exercised; Website integration with
+D1 is not ready**. All tests use synthetic rows in a disposable local database.
+They do not access hosted D1, production resources or credentials.
 
-## Verified locally
+## Verified SQL.js behavior
 
 The Website boundary in `src/database/sqlite.ts` is synchronous SQL.js:
 
 - `prepare().get()`, `all()`, and `run()` return synchronously.
 - `transaction(callback)` returns a thunk. Invoking it starts `BEGIN IMMEDIATE`,
   runs a synchronous callback, then commits or rolls back.
-- Foreign keys are enabled before migrations. The local migration runner checks
-  migration names and checksums, applies each new migration in a local
-  transaction, and runs `foreign_key_check` afterward.
-- Migrations 0005–0008 apply locally on SQLite 3.37+ and add the sync batch,
-  reversal, duplicate-flag, and observation tables and indexes. Existing tests
-  cover migration reapplication; the D1 readiness probe also checks foreign-key
-  enforcement, actor/idempotency uniqueness, and rollback of data, batch, and
-  audit writes together.
+- The Website migration runner validates ordered migration names and SHA-256
+  checksums in its custom `schema_migrations` table, applies new migrations in
+  a local transaction, and runs `foreign_key_check` afterward.
+- Existing Website tests establish SQL.js behavior for constraints, schema,
+  migration reapplication and the current synchronous transactions. They are
+  not D1 evidence.
 
-These checks describe SQL.js/SQLite behavior only. They do not establish D1
-compatibility or production readiness.
+## Verified Wrangler local-D1 behavior
 
-## D1 gaps
+`npm run test:d1` uses the pinned Wrangler development tool with
+`wrangler.d1-test.toml`. It explicitly selects `--local`, writes persistence to
+a unique temporary directory, starts `wrangler dev` on loopback, and removes
+the directory and Worker process in `finally`. Its synthetic database ID is a
+local config identifier only. No remote operation or deployment is used.
 
-D1 prepared statement calls are asynchronous (`first()`, `all()`, and `run()`)
-and return D1 result shapes. The current services expect synchronous row values
-throughout planning and commit/reversal. D1 `batch()` runs a submitted sequence
-of prepared statements sequentially as one transaction and rolls back the
-sequence if a statement fails, but the current sync algorithms perform reads,
-branch on those results, and then write inside a synchronous callback. A D1
-implementation must redesign that boundary and prove that every data-dependent
-decision and its guarded writes are covered by an appropriate atomic unit.
+The harness applies the unchanged Website migrations 0001–0009 in version
+order using Wrangler's local D1 execution. It creates and inspects the Website's
+existing `schema_migrations(version, name, sha256)` model and records each
+source migration's normalized SHA-256. It does not configure or rely on
+Wrangler's separate migration-history facility. The setup inserts the Website
+history entry immediately after executing each migration; this is test setup,
+not an atomic production migration runner.
 
-The local `BEGIN IMMEDIATE` writer serialization has not been demonstrated for
-D1. D1's single-threaded database execution and atomic batch semantics do not by
-themselves prove the current read/plan/write race behavior, concurrent
-idempotency winner handling, or commit/reversal behavior across separate
-requests. The stored idempotency and reversal rows are useful durable replay
-records, but uncertain hosted outcomes and retries still need D1-specific tests.
+Before migration 0008 it seeds one synthetic legacy duplicate flag, batch,
+people and actor, then checks that 0008's `ROW_NUMBER()` backfill preserves the
+expected observation links. It also checks ordered history, schema objects,
+`STRICT` tables, migration 0009 content relationship tables, foreign-key
+integrity. The runtime rejects `PRAGMA integrity_check` with `SQLITE_AUTH`
+through both the Worker binding and `wrangler d1 execute --local`, so the
+harness cannot run SQLite's full integrity pragma through supported local D1
+interfaces. It does not replace that check with SQL.js.
 
-The Website migration runner is custom and uses synchronous `exec`, `pragma`,
-and statement APIs. The SQL in migrations 0005–0008 has not been applied through
-Wrangler or checked against a hosted D1 database. Local acceptance of `STRICT`,
-JSON checks, indexes, and the migration 0008 window-function backfill is not
-proof of compatibility with the configured D1 migration path.
+The local D1 Worker checks asynchronous prepared-statement `bind()`, `first()`
+and `all()` calls and returned values; JSON and foreign-key constraint failures;
+`batch()` rollback after a later statement fails; unique actor/idempotency-key
+enforcement; and a version-guarded update that rejects a stale version. Separate
+Worker requests verify the inserted row remains available across requests in
+the same Wrangler local session. These checks describe this installed local
+Wrangler/workerd D1 implementation, not hosted D1 service behavior.
 
-## Required before claiming readiness
+## Still unverified on hosted D1
 
-1. Introduce an explicitly asynchronous database/service boundary; do not adapt
-   D1 to the synchronous `WebsiteDatabase` shape.
-2. Apply migrations 0001–0008 to an isolated D1 database and verify schema,
-   foreign keys, unique constraints, and migration replay behavior.
-3. Exercise commit plus audit, idempotency replay, reversal plus audit, rollback
-   on an injected failure, concurrent identical and conflicting requests, and
-   retries after an uncertain response using the real D1 binding/API.
-4. Confirm actor scoping, current authorization checks, and restored state after
-   process/request boundaries. Keep sync authorization default-deny and routes
-   unregistered until those checks and a separate activation authorization are
-   complete.
+No hosted D1 database was accessed. Hosted execution/version differences,
+operational limits, concurrent requests, uncertain-response retries, remote
+backup/restore and production migration operations remain unverified.
+
+Local `batch()` rollback demonstrates D1 batch atomicity for a predetermined
+sequence. It does **not** prove that the current synchronous M2 commit or
+reversal algorithm is safe on D1, nor does it establish atomicity for a
+read/plan/write flow whose decisions depend on earlier query results.
+
+## Remaining work before D1 integration
+
+1. Introduce and adopt an explicitly asynchronous database and service boundary;
+   do not adapt D1 to the synchronous `WebsiteDatabase` shape.
+2. Design async commit and reversal paths so data-dependent reads, authorization,
+   uniqueness/idempotency decisions, guarded writes and audit rows are covered
+   by suitable atomic operations.
+3. Test commit plus audit, replay, reversal plus audit, injected failure,
+   concurrent identical/conflicting requests and uncertain-response retries
+   against a D1-capable isolated environment. Keep synchronization routes
+   unregistered and default-deny until that work and separate activation
+   authorization are complete.
+4. Separately authorize and verify any hosted-D1 migration or operational test.
 
 References: [D1 prepared statements](https://developers.cloudflare.com/d1/worker-api/prepared-statements/),
 [D1 batch transactions](https://developers.cloudflare.com/d1/worker-api/d1-database/),
 [D1 foreign keys](https://developers.cloudflare.com/d1/sql-api/foreign-keys/),
-and [D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/).
+[D1 local development](https://developers.cloudflare.com/d1/best-practices/local-development/),
+and [Wrangler D1 commands](https://developers.cloudflare.com/d1/wrangler-commands/).
