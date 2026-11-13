@@ -139,10 +139,12 @@ class CsvHeaderMismatch(ValueError):
 
 
 class CsvStructureError(ValueError):
-    def __init__(self, message, column_count=None, line=None):
+    def __init__(self, message, column_count=None, line=None, *, line_start=None, partial_report=None):
         super().__init__(message)
         self.column_count = column_count
         self.line = line
+        self.line_start = line_start
+        self.partial_report = partial_report
 
 
 def _record_errors(record_number, values, spec):
@@ -275,9 +277,21 @@ def parse_csv_report(payload, version="legacy-17/v1", registry=None, *, max_erro
     except StopIteration as error:
         raise ValueError("CSV has no header") from error
     except csv.Error as error:
+        partial_report = None
+        if "rows" in locals():
+            partial_report = {
+                "rows": rows,
+                "errors": errors,
+                "record_count": total_records,
+                "invalid_record_count": invalid_records,
+                "diagnostics_truncated": diagnostics_truncated,
+                "last_complete_line": previous_line,
+            }
         raise CsvStructureError(f"Malformed CSV near physical line {reader.line_num}",
                                 len(header) if "header" in locals() else None,
-                                reader.line_num) from error
+                                reader.line_num,
+                                line_start=(previous_line + 1 if "previous_line" in locals() else None),
+                                partial_report=partial_report) from error
     return {"mapping": spec, "file_sha256": hashlib.sha256(payload).hexdigest(),
             "header": header, "column_count": len(header), "rows": rows,
             "errors": errors, "record_count": total_records,

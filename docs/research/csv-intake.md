@@ -67,3 +67,5 @@ The commit JSON reports `created` or `replayed`, batch and family IDs, mapping v
 The database is never created or initialized by these commands. Preview and commit process one explicit CSV file per invocation. Invalid rows prevent commit of the delivery; the operator must correct the source file or choose a verified mapping before retrying. Source URLs are required by the current schema. No application, web service, automatic identity matching, organizational inference, visit creation, or migration is part of R4.
 
 All documented filenames, labels, IDs, and URLs in examples are synthetic. The automated tests create temporary SQLite files and use `example.invalid` sources only.
+
+For rejected-original quarantine, county-registry preflight and explicit source classification, see the [R4-H1 hardening guide](R4-H1-intake-hardening.md).
