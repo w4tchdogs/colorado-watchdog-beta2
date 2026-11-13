@@ -104,6 +104,7 @@ const allowed = new Set([
   "research/store.py",
   "research/submission.py",
   "research/operator.py",
+  "research/structure.py",
   "research/migrations/001_foundation.sql",
   "research/migrations/002_durable_site_submissions.sql",
   "tests/__init__.py",
@@ -116,6 +117,7 @@ const allowed = new Set([
   "tests/test_quarantine.py",
   "tests/test_source_classification.py",
   "tests/test_operator.py",
+  "tests/test_structure.py",
   "tests/test_identity_bootstrap.py",
   "docs/research/R0-foundation.md",
   "docs/research/legacy-csv-compatibility.md",
@@ -124,6 +126,7 @@ const allowed = new Set([
   "docs/research/R2-identity-bootstrap.md",
   "docs/research/R4-H1-intake-hardening.md",
   "docs/research/R5A-local-database-readiness.md",
+  "docs/research/organizational-positions.md",
   "docs/research/R6-durable-submission-client.md",
 ]);
 const staged = process.argv.includes("--staged");

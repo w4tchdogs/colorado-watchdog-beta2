@@ -70,3 +70,7 @@ The merged foundation was checked against the consolidated legacy reference. Thi
 ## R3 legacy CSV compatibility
 
 The historical 11- and 16-column beta-1 contracts are now implemented as explicit `legacy-11/v1` and `legacy-16/v1` mappings. See the [compatibility guide](legacy-csv-compatibility.md) for the evidence, exact crosswalk, validation behavior, and limitations. The existing `legacy-17/v1` mapping and migration checksum remain unchanged.
+
+## Statewide organizational and position foundation
+
+The reusable evidence-led planner and transactional operator are documented in [organizational-positions.md](organizational-positions.md). It reuses the existing schema and migration, preserves source/version history, and has a private inspectable preview plus idempotent apply and verification commands. Tests use only synthetic evidence; a separately authorized local execution may apply the reviewed preview to the permanent Profiles database.
