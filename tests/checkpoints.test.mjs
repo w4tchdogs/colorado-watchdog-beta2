@@ -75,13 +75,31 @@ function assertFailed(report, code, subjectPattern) {
 
 test("checkpoint of a synthetic database and files restores and matches", async (t) => {
   const fixture = await createFixture(t);
+  fixture.database.exec(`
+    INSERT INTO organizations (id, name, organization_type, county_fips)
+    VALUES
+      ('m1-county-org', 'Synthetic County Government', 'county_government', '08001'),
+      ('m1-regional-org', 'Synthetic Regional Office', 'regional', NULL);
+    INSERT INTO organization_county_affiliations
+      (id, organization_id, county_fips, relationship_type)
+    VALUES ('m1-affiliation', 'm1-regional-org', '08001', 'serves');
+    INSERT INTO people (id, display_name)
+    VALUES ('m1-person', 'Synthetic M1 Person');
+    INSERT INTO positions (id, organization_id, title)
+    VALUES ('m1-position', 'm1-county-org', 'Synthetic M1 Position');
+    INSERT INTO role_sources (id, url, title, source_type)
+    VALUES ('m1-source', 'https://county.example.test/synthetic-role', 'Synthetic Public Role Source', 'official_page');
+    INSERT INTO person_roles
+      (id, person_id, position_id, source_id, source_checked_at)
+    VALUES ('m1-person-role', 'm1-person', 'm1-position', 'm1-source', '2026-11-13T00:00:00Z');
+  `);
   const prepared = await produce(fixture);
   const { manifest } = prepared;
 
   assert.equal(manifest.format_version, 1);
   assert.equal(manifest.checkpoint_id, ID);
   assert.equal(manifest.application.commit, COMMIT);
-  assert.equal(manifest.database.migration_version, 3);
+  assert.equal(manifest.database.migration_version, 4);
   assert.deepEqual(manifest.database.migrations, knownMigrationRecords());
   assert.deepEqual(
     manifest.database.tables.map((table) => [table.name, table.rows]),
@@ -92,8 +110,28 @@ test("checkpoint of a synthetic database and files restores and matches", async 
       ["counties", 64],
       ["identities", 3],
       ["operations", 1],
-      ["schema_migrations", 3],
+      ["organization_county_affiliations", 1],
+      ["organizations", 2],
+      ["people", 1],
+      ["person_roles", 1],
+      ["positions", 1],
+      ["role_sources", 1],
+      ["schema_migrations", 4],
     ],
+  );
+  const m1Tables = [
+    "organization_county_affiliations",
+    "organizations",
+    "people",
+    "person_roles",
+    "positions",
+    "role_sources",
+  ];
+  assert.deepEqual(
+    manifest.database.tables
+      .filter((table) => m1Tables.includes(table.name))
+      .map((table) => table.name),
+    m1Tables,
   );
   assert.deepEqual(
     manifest.files,
@@ -106,8 +144,8 @@ test("checkpoint of a synthetic database and files restores and matches", async 
       .sort((a, b) => (a.key < b.key ? -1 : 1)),
   );
   assert.deepEqual(manifest.totals, {
-    tables: 7,
-    rows: 75,
+    tables: 13,
+    rows: 83,
     files: 4,
     file_bytes: 52,
   });
@@ -127,13 +165,43 @@ test("checkpoint of a synthetic database and files restores and matches", async 
   );
   assert.deepEqual(await fixture.destination.list(), [ID]);
 
+  const restoredIds = {};
   const report = await verify(fixture, ID, {
     expectedManifestSha256: prepared.manifestSha256,
+    openScratchDatabase: async () => {
+      const scratch = await openWebsiteDatabase();
+      return {
+        close() {
+          try {
+            for (const table of m1Tables) {
+              restoredIds[table] = scratch
+                .prepare(`SELECT id FROM "${table}" ORDER BY id`)
+                .all()
+                .map((row) => row.id);
+            }
+          } finally {
+            scratch.close();
+          }
+        },
+        exec: (sql) => scratch.exec(sql),
+        pragma: (sql, options) => scratch.pragma(sql, options),
+        prepare: (sql) => scratch.prepare(sql),
+        transaction: (callback) => scratch.transaction(callback),
+      };
+    },
   });
   assert.deepEqual(report.failures, []);
   assert.equal(report.ok, true);
   assert.equal(report.manifest_sha256, prepared.manifestSha256);
   assert.deepEqual(report.restored, manifest.totals);
+  assert.deepEqual(restoredIds, {
+    organization_county_affiliations: ["m1-affiliation"],
+    organizations: ["m1-county-org", "m1-regional-org"],
+    people: ["m1-person"],
+    person_roles: ["m1-person-role"],
+    positions: ["m1-position"],
+    role_sources: ["m1-source"],
+  });
   assert.deepEqual(readdirSync(fixture.scratchRoot), []);
 });
 
