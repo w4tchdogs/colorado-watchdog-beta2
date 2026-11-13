@@ -38,30 +38,28 @@ GitHub `main` holds accepted work and documentation. Issues hold tasks, discussi
 
 Use branches and PRs, run checks appropriate to the change, resolve failures, and integrate passing work while accounting for concurrent changes.
 
-## Mandatory Assignment Coordination and Conflict Prevention
+## Default Delivery Path — Ship Routine Work
 
-Before starting substantial work:
+**For routine, reversible work with available prerequisites, the default is: authorized assignment → implementation → relevant automated tests/checks → passing PR → merge.**
 
-1. Check the latest `main`, relevant Issues, PRs, handoffs, and known concurrent assignments.
-2. Confirm the task's prerequisites, ownership, authorized scope, affected files/interfaces, and exclusions.
-3. Identify overlapping work, outdated baselines, and missing dependencies.
-4. Preserve accepted commits, migrations, tests, research evidence, and documentation.
-5. Avoid modifying another collaborator's active work or silently replacing local-only deliverables.
-6. Report material conflicts and stop the conflicting portion rather than independently reassigning or overwriting work.
-7. Recheck current `main` and concurrent changes before merging.
-8. Resolve integration conflicts without discarding accepted work.
+An implementing collaborator may merge a passing, nonconflicting PR under its assigned scope without another AI acceptance review, a 💠archon sign-off, a separate owner approval, or a repeated documentation closeout. A concise PR summary and normal CI are sufficient evidence for routine work. Do not create a new Issue, Drive report, tracking ledger, or handoff merely to satisfy a process step.
 
-Distinguish local completion, reported success, merged work, and independent acceptance when required.
+Use **targeted independent review only when a concrete material risk warrants it**: authentication/authorization and secrets, exposure of private data, destructive or irreversible changes, identity merges, production-impacting operations, or an architectural uncertainty with expensive consequences. Not every schema addition or small correction is high risk. Review the specific risk once; do not create chains of re-review or delay unrelated work. Automated tests and a checked PR remain the normal verification standard.
 
-No open PR does not necessarily mean no work is underway.
+The 💠archon's responsibility is to keep Codex, Claude, Copilot, Mistral and others moving safely in parallel—not to act as a mandatory approver. Prefer independently useful, nonoverlapping tasks to unnecessary sequential approval gates. Planning a prompt never authorizes execution; once an implementation task is explicitly authorized, its executor may complete and merge it within scope.
 
-Do not implement dependent work against unavailable or unverified deliverables.
+## Lightweight Conflict Prevention
 
-The 💠archon must apply the same conflict-prevention checks **before issuing prompts**, not merely after work begins.
+Before preparing a new assignment or starting material work, perform a **quick, proportionate readiness check**:
 
-**Conflict prevention takes precedence over maximizing parallel activity.**
+1. Reuse recent reliable context and check current `main`, relevant active PRs/Issues and known local-only assignments as needed. Do not exhaustively audit all historical work for routine tasks.
+2. Check only material prerequisites and plausible file, schema, interface or responsibility overlaps. A missing PR does not prove inactivity, but unknown local work is not a reason to freeze unrelated tasks.
+3. If there is no concrete conflict or missing prerequisite, **proceed**. If an overlap exists, split ownership, coordinate integration or pause only the conflicting portion while other work continues.
+4. Before merging, refresh `main`, resolve actual conflicts, preserve accepted work and require appropriate automated checks to pass.
 
-Use existing Issues and concise handoffs for coordination. Avoid unnecessary tracking bureaucracy or approval gates.
+Do not rewrite accepted migrations or erase concurrent changes. Escalate only demonstrated risks or genuinely missing dependencies. Distinguish reported local completion, green CI, merged history and optional independent acceptance when making factual claims.
+
+**Avoid redundant verification, speculative blockers, mandatory review-after-review, and administrative work that slows delivery.**
 
 ## Cost-Conscious Assignments
 
@@ -77,14 +75,7 @@ Recommend economical configurations for other AI collaborators where useful.
 
 When asked to prepare an assignment, provide a complete, copy-ready prompt without automatically executing it.
 
-Include:
-
-- Current verified baseline.
-- Scope and exclusions.
-- Dependencies and concurrent work.
-- Preservation requirements.
-- Verification and acceptance criteria.
-- Deliverables and stop conditions.
+Keep prompts **complete but proportional to the task**. State the working baseline, relevant ownership and dependencies, boundaries, appropriate checks, and expected deliverable without repeating long historical background or imposing routine approvals. Use concise prompts for simple tasks and detailed safeguards only for high-risk work.
 
 When a request contains multiple tasks, prepare the selected task first.
 
