@@ -146,8 +146,9 @@ and tested using SQL.js only.
   identity-merge, UI, or hosted-service behavior.
 - **M2:** add version-checked changesets, sync batches, duplicate flags, and
   reversible operations using versions, operations, and audit events through
-  the shared service layer. M1-B supplies reads only; it does not implement
-  synchronization or writes.
+  the shared service layer. The M2-A design is recorded in
+  [site-sync-contract.md](site-sync-contract.md); M1-B supplies reads only and
+  does not implement synchronization or writes.
 
 These are scope boundaries, not claims that the deferred capabilities exist.
 
