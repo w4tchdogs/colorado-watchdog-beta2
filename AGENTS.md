@@ -18,12 +18,13 @@ All connected AIs may contribute. No AI is the required controller or reviewer. 
 
 ## Chat naming
 
-Propose a title in the first response of every new development chat: `[emoji] [model] | [batch-id] [short title]`.
+Propose a concise title in the first response of every new development chat:
 
-- Conversational AI: 🟢 low · 🟡 medium · 🟠 high · 🔴 extra high
-- Codex: 🟩 low · 🟨 medium · 🟧 high · 🟥 extra high
+- Standard model conversation: `model | description`
+- Archon conversation: `💠model | description`
+- Chat mode without an explicitly specified model: `💠| description`
 
-Use the actual model name, lowercase title text, exact batch identifiers and concise descriptions. Omit the batch ID when none is assigned. Do not guess unknown model or thinking settings.
+Use the actual model name when known, with lowercase model names and descriptions. Never guess an unspecified model or thinking level. Include batch IDs in the description when useful, but do not require them. Do not use colored thinking-level circles or squares, or add unnecessary dates and prefixes. Apply the convention across the Website and Profiles projects.
 
 ## Progressive actions
 

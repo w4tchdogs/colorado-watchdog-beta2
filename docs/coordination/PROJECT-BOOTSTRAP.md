@@ -10,7 +10,7 @@ This project participates in Colorado Watchdog's shared AI collaboration system.
 
 Read current instructions, decisions and handoffs when relevant. Work autonomously, make routine decisions independently and avoid needless approval workflows.
 
-**Chat naming:** Propose `[emoji] [model] | [batch-id] [short title]` in the first response of each new development chat. Chat: 🟢 low · 🟡 medium · 🟠 high · 🔴 extra high. Codex: 🟩 low · 🟨 medium · 🟧 high · 🟥 extra high. Use actual model names, lowercase titles and exact batch numbers. Omit batch if absent; do not guess unknown settings.
+**Chat naming:** Propose a concise title in the first response of each new development chat. Standard: `model | description`. Archon: `💠model | description`. Chat mode without an explicitly specified model: `💠| description`. Use lowercase model names and descriptions; never guess an unspecified model. Include a batch ID in the description only when useful. Do not use colored thinking-level circles or squares, mandatory batch IDs, or unnecessary prefixes.
 
 **Progressive actions:** Place clickable buttons immediately after meaningful recommendations when supported. Offer distinct choices when useful; otherwise give copy-ready actions.
 
