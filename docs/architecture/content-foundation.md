@@ -50,7 +50,7 @@ The content service also keeps its own injected default-deny policy, so transpor
 
 ## Content safety
 
-Bodies, including stored HTML, Markdown links and embedded content, are inert source text. The API returns them only as JSON strings with `bodyFormat: "markdown"`. No renderer exists. A future preview or publication renderer must escape or strip raw HTML and sanitize link targets.
+Bodies, including stored HTML, Markdown links and embedded content, are inert source text. The API returns them only as JSON strings with `bodyFormat: "markdown"`. The only renderer is the local editorial preview described in [editorial-workspace.md](editorial-workspace.md), which never assigns HTML and shows raw HTML as text. A future publication renderer must do the same.
 
 ## Limits
 

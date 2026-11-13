@@ -28,6 +28,7 @@ const allowed = new Set([
   "tsconfig.json",
   "tsconfig.build.json",
   "scripts/dev.mjs",
+  "scripts/editor-dev.mjs",
   "src/application.ts",
   "src/worker.ts",
   "src/contracts/runtime.ts",
@@ -68,7 +69,22 @@ const allowed = new Set([
   "tests/content-fixtures.mjs",
   "tests/content-revisions.test.mjs",
   "tests/content-api.test.mjs",
+  "tests/editor-fixtures.mjs",
+  "tests/editor-markdown.test.mjs",
+  "tests/editor-sandbox.test.mjs",
+  "tests/editor-ui.test.mjs",
   "docs/architecture/content-foundation.md",
+  "docs/architecture/editorial-workspace.md",
+  "website/editor/index.html",
+  "website/editor/editor.css",
+  "src/editor/api-client.ts",
+  "src/editor/app.ts",
+  "src/editor/diff.ts",
+  "src/editor/dom.ts",
+  "src/editor/main.ts",
+  "src/editor/markdown.ts",
+  "src/editor/preview.ts",
+  "src/editor-dev/sandbox.ts",
   "src/services/duplicate-flags.ts",
   "tests/duplicate-flags.test.mjs",
   "tests/application.test.mjs",
@@ -162,7 +178,10 @@ for (const file of files) {
   if (!["100644", "100755"].includes(mode))
     errors.push(`Non-regular file: ${file}`);
   const bytes = staged ? git("show", `:${file}`) : readFileSync(file);
-  if (bytes.length > 64 * 1024) errors.push(`File exceeds 64 KiB: ${file}`);
+  // The generated npm lockfile is the only file allowed to exceed 64 KiB.
+  const sizeLimit = file === "package-lock.json" ? 256 * 1024 : 64 * 1024;
+  if (bytes.length > sizeLimit)
+    errors.push(`File exceeds ${sizeLimit / 1024} KiB: ${file}`);
   let content;
   try {
     content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
