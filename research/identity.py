@@ -170,10 +170,12 @@ def _identity_connection_edges(db, county_fips, rows, *, planned_sources, allow_
             continue
         if evidence["batch_county"] not in (None, county_fips):
             continue
+        raw_text = "\n".join((evidence["raw_record_json"] or "", evidence["quotation"] or "",
+                               evidence["observed_title"] or ""))
+        if not any(cue in raw_text.casefold() for cue in _ROLE_CUES):
+            continue
         text = _evidence_text(evidence)
         folded = text.casefold()
-        if not any(cue in folded for cue in _ROLE_CUES):
-            continue
         mentioned_first_words = ({match.group(0) for match in first_words_pattern.finditer(folded)}
                                  if first_words_pattern else set())
         for first_word in mentioned_first_words:
