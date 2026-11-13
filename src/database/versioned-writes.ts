@@ -15,6 +15,7 @@ const MUTABLE_COLUMNS = {
     "manifest_json",
     "manifest_sha256",
     "verification_status",
+    "verification_json",
     "verified_at",
   ],
 } as const;

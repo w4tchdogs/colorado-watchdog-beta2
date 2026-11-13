@@ -91,7 +91,7 @@ export function migrateWebsiteDatabase(
         `Applied migration name changed at version ${record.version}`,
       );
     }
-    if (record.sha256 !== checksum(migration.sql)) {
+    if (record.sha256 !== migrationChecksum(migration.sql)) {
       throw new Error(`Applied migration changed: ${migration.name}`);
     }
   }
@@ -105,7 +105,11 @@ export function migrateWebsiteDatabase(
         .prepare(
           "INSERT INTO schema_migrations (version, name, sha256) VALUES (?, ?, ?)",
         )
-        .run(migration.version, migration.name, checksum(migration.sql));
+        .run(
+          migration.version,
+          migration.name,
+          migrationChecksum(migration.sql),
+        );
       database.exec(migration.sql);
     });
 
@@ -190,7 +194,8 @@ function parseMigrationRecord(row: Record<string, unknown>): MigrationRecord {
   };
 }
 
-function checksum(sql: string): string {
+/** SHA-256 of migration SQL with normalized line endings. */
+export function migrationChecksum(sql: string): string {
   const normalized = sql.replace(/\r\n?/g, "\n");
   return createHash("sha256").update(normalized, "utf8").digest("hex");
 }

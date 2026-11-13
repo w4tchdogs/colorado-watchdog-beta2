@@ -1,3 +1,4 @@
+import type { CheckpointService } from "../contracts/checkpoints.js";
 import type { StorageProbe } from "../contracts/storage.js";
 import { StorageUnavailableError } from "../contracts/storage.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
@@ -82,6 +83,8 @@ export interface ApplicationServices {
     principal: TrustedPrincipal,
     limit?: number,
   ): ReadonlyArray<Record<string, unknown>>;
+  /** Checkpoint operations. Each call checks its own checkpoint capability. */
+  checkpoints(): CheckpointService;
 }
 
 export interface ServiceDependencies {
@@ -89,6 +92,8 @@ export interface ServiceDependencies {
   readonly database?: WebsiteDatabase;
   readonly humanIdentityAdapter?: HumanIdentityAdapter;
   readonly now?: () => Date;
+  /** Local checkpoint implementation. Absent unless the host injects one. */
+  readonly checkpoints?: CheckpointService;
 }
 
 export function createServices(
@@ -194,6 +199,12 @@ export function createServices(
     },
     listAuditEvents(principal, limit) {
       return listAuditEvents(requireDatabase(), principal, limit);
+    },
+    checkpoints() {
+      if (!dependencies.checkpoints) {
+        throw new StorageUnavailableError();
+      }
+      return dependencies.checkpoints;
     },
   };
 }
