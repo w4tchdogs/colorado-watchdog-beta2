@@ -1,3 +1,7 @@
+import {
+  type DirectoryPageRequest,
+  MAX_DIRECTORY_PAGE_SIZE,
+} from "./contracts/directory.js";
 import { StorageUnavailableError } from "./contracts/storage.js";
 import { InvalidInputError } from "./services/accounts.js";
 import type { ApplicationServices } from "./services/index.js";
@@ -8,6 +12,8 @@ const LIVE_PATH = "/_internal/live";
 const READY_PATH = "/_internal/ready";
 const PRINCIPAL_PATH = "/_internal/principal";
 const ACCOUNTS_PATH = "/api/accounts";
+const COUNTY_DIRECTORY_PATH =
+  /^\/api\/counties\/([^/]+)\/(organizations|roles)$/;
 
 export function createApplication(services: ApplicationServices) {
   return {
@@ -37,6 +43,9 @@ async function dispatch(
     throw error;
   }
 
+  const directoryMatch = pathname.match(COUNTY_DIRECTORY_PATH);
+  const directoryCountyFips = directoryMatch?.[1];
+  const directoryResource = directoryMatch?.[2];
   if (
     ![
       HEALTH_PATH,
@@ -44,7 +53,8 @@ async function dispatch(
       READY_PATH,
       PRINCIPAL_PATH,
       ACCOUNTS_PATH,
-    ].includes(pathname)
+    ].includes(pathname) &&
+    !directoryMatch
   ) {
     return jsonResponse(404, { error: "not_found" });
   }
@@ -58,8 +68,21 @@ async function dispatch(
     );
   }
 
-  if (url.search !== "") {
+  if (!directoryMatch && url.search !== "") {
     return jsonResponse(400, { error: "unexpected_query" });
+  }
+
+  const directoryRequest = directoryMatch
+    ? parseDirectoryPageRequest(url.searchParams, directoryCountyFips)
+    : null;
+  if (directoryMatch && !directoryRequest) {
+    const supportedParameters = new Set(["limit", "afterId"]);
+    const hasUnsupportedParameter = [...url.searchParams.keys()].some(
+      (key) => !supportedParameters.has(key),
+    );
+    return jsonResponse(400, {
+      error: hasUnsupportedParameter ? "unexpected_query" : "invalid_request",
+    });
   }
 
   if (pathname === LIVE_PATH) {
@@ -84,6 +107,13 @@ async function dispatch(
         role: principal.role,
       });
     }
+    if (directoryResource && directoryRequest) {
+      const page =
+        directoryResource === "organizations"
+          ? services.listCountyOrganizations(directoryRequest)
+          : services.listCountyRoleEntries(directoryRequest);
+      return jsonResponse(200, { ...page });
+    }
 
     return await createAccount(request, services);
   } catch (error) {
@@ -98,6 +128,56 @@ async function dispatch(
     }
     return jsonResponse(500, { error: "internal_error" });
   }
+}
+
+function parseDirectoryPageRequest(
+  searchParams: URLSearchParams,
+  countyFips: string | undefined,
+): DirectoryPageRequest | null {
+  if (typeof countyFips !== "string" || !/^08\d{3}$/.test(countyFips)) {
+    return null;
+  }
+
+  const allowedParameters = new Set(["limit", "afterId"]);
+  const keys = [...searchParams.keys()];
+  if (
+    keys.some((key) => !allowedParameters.has(key)) ||
+    keys.some((key) => searchParams.getAll(key).length !== 1)
+  ) {
+    return null;
+  }
+
+  const limitValue = searchParams.get("limit");
+  let limit: number | undefined;
+  if (limitValue !== null) {
+    if (!/^\d+$/.test(limitValue)) {
+      return null;
+    }
+    limit = Number(limitValue);
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > MAX_DIRECTORY_PAGE_SIZE
+    ) {
+      return null;
+    }
+  }
+
+  const afterId = searchParams.get("afterId");
+  if (
+    afterId !== null &&
+    (afterId.length < 1 ||
+      afterId.length > 128 ||
+      !/^[A-Za-z0-9._:-]+$/.test(afterId))
+  ) {
+    return null;
+  }
+
+  return {
+    countyFips,
+    ...(limit === undefined ? {} : { limit }),
+    ...(afterId === null ? {} : { afterId }),
+  };
 }
 
 async function createAccount(
