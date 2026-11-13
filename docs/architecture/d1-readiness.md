@@ -26,8 +26,12 @@ a unique temporary directory, starts `wrangler dev` on loopback, and removes
 the directory and Worker process in `finally`. Its synthetic database ID is a
 local config identifier only. No remote operation or deployment is used.
 
-The harness applies the unchanged Website migrations 0001–0009 in version
-order using Wrangler's local D1 execution. It creates and inspects the Website's
+The harness applies the unchanged Website migrations 0001–0010 in version
+order using Wrangler's local D1 execution. It also applies all ten migrations
+to a second independent empty local store and checks the content tables, the
+revision index and triggers, exact migration names and normalized SHA-256
+checksums, contiguous history and the absence of baselines for an empty store.
+It creates and inspects the Website's
 existing `schema_migrations(version, name, sha256)` model and records each
 source migration's normalized SHA-256. It does not configure or rely on
 Wrangler's separate migration-history facility. The setup inserts the Website
@@ -36,9 +40,15 @@ not an atomic production migration runner.
 
 Before migration 0008 it seeds one synthetic legacy duplicate flag, batch,
 people and actor, then checks that 0008's `ROW_NUMBER()` backfill preserves the
-expected observation links. It also checks ordered history, schema objects,
-`STRICT` tables, migration 0009 content relationship tables, foreign-key
-integrity. The runtime rejects `PRAGMA integrity_check` with `SQLITE_AUTH`
+expected observation links. After migration 0009 and before 0010, it seeds
+synthetic content with non-default versions, Markdown, metadata, timestamps,
+accounts and explicit county/person/organization links. The 0010 checks confirm
+one baseline per item at its actual version, exact content and timestamp
+preservation, binary-sorted relationship JSON, no earlier fabricated
+revisions, required table/index/triggers, append-only enforcement,
+matching-version insertion, revision CHECK constraints and revision foreign
+keys. It also checks ordered history, schema objects, `STRICT` tables, 0009
+relationship tables and `foreign_key_check`. The runtime rejects `PRAGMA integrity_check` with `SQLITE_AUTH`
 through both the Worker binding and `wrangler d1 execute --local`, so the
 harness cannot run SQLite's full integrity pragma through supported local D1
 interfaces. It does not replace that check with SQL.js.
@@ -46,10 +56,17 @@ interfaces. It does not replace that check with SQL.js.
 The local D1 Worker checks asynchronous prepared-statement `bind()`, `first()`
 and `all()` calls and returned values; JSON and foreign-key constraint failures;
 `batch()` rollback after a later statement fails; unique actor/idempotency-key
-enforcement; and a version-guarded update that rejects a stale version. Separate
-Worker requests verify the inserted row remains available across requests in
-the same Wrangler local session. These checks describe this installed local
-Wrangler/workerd D1 implementation, not hosted D1 service behavior.
+enforcement; and a version-guarded update that rejects a stale version. It also
+commits a content/revision/audit batch and injects a mismatched revision version
+into a second batch, confirming that none of its three records remain after
+failure. Separate Worker requests verify the inserted row remains available
+across requests in the same Wrangler local session. The Website SQL.js tests
+continue to cover migration-runner reapplication: recorded migrations are
+checksum-validated and skipped without changing history or schema. Migration
+0010 itself is a one-time, non-idempotent SQL migration; the local D1 harness
+checks its recorded source checksum and completed state instead of replaying
+its DDL. These checks describe this installed local Wrangler/workerd D1
+implementation, not hosted D1 service behavior.
 
 ## Still unverified on hosted D1
 

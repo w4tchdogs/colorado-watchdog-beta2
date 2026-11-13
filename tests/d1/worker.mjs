@@ -36,12 +36,12 @@ export default {
     ).all();
     check(
       "ordered custom migration history and checksums",
-      history.results?.length === 9 &&
+      history.results?.length === 10 &&
         history.results.every(
           (row, index) =>
             row.version === index + 1 &&
             row.name ===
-              `000${index + 1}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation"][index]}.sql` &&
+              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions"][index]}.sql` &&
             /^[0-9a-f]{64}$/.test(row.sha256),
         ),
     );
@@ -85,6 +85,180 @@ export default {
     const fkCheck = await env.DB.prepare("PRAGMA foreign_key_check").all();
     check("0009 content relationships", content.count === 4);
     check("foreign_key_check", fkCheck.results?.length === 0);
+
+    const requiredRevisionObjects = await env.DB.prepare(
+      `SELECT type, name FROM sqlite_master
+       WHERE name IN ('content_revisions', 'content_revisions_editor',
+         'content_revisions_no_update', 'content_revisions_no_delete',
+         'content_revisions_match_current') ORDER BY name`,
+    ).all();
+    check(
+      "0010 revision table, index, and triggers",
+      requiredRevisionObjects.results?.length === 5 &&
+        requiredRevisionObjects.results.some(
+          (row) => row.type === "table" && row.name === "content_revisions",
+        ) &&
+        requiredRevisionObjects.results.some(
+          (row) =>
+            row.type === "index" && row.name === "content_revisions_editor",
+        ) &&
+        requiredRevisionObjects.results.filter((row) => row.type === "trigger")
+          .length === 3,
+    );
+    const baseline = await env.DB.prepare(
+      `SELECT content_id, version, change_kind, title, summary, body, status,
+              county_fips_json, person_ids_json, organization_ids_json,
+              edited_by_account_id, recorded_at
+       FROM content_revisions ORDER BY content_id`,
+    ).all();
+    const post = baseline.results?.find(
+      (row) => row.content_id === "d1-content-post",
+    );
+    const story = baseline.results?.find(
+      (row) => row.content_id === "d1-content-story",
+    );
+    check(
+      "0010 populated version-9 baseline preserves content and sorted relationships",
+      baseline.results?.length === 2 &&
+        post?.version === 4 &&
+        post.change_kind === "baseline" &&
+        post.title === "Synthetic legacy post" &&
+        post.summary === "Full summary" &&
+        post.body === "# Full Markdown\n\n**Preserve every character.**" &&
+        post.status === "draft" &&
+        post.county_fips_json === '["08001","08013"]' &&
+        post.person_ids_json ===
+          '["d1-content-person-a","d1-content-person-b"]' &&
+        post.organization_ids_json === '["d1-content-org"]' &&
+        post.edited_by_account_id === "d1-content-editor" &&
+        post.recorded_at === "2026-11-12T18:45:12.345Z" &&
+        story?.version === 3 &&
+        story.change_kind === "baseline" &&
+        story.status === "archived" &&
+        story.summary === null &&
+        story.body === "Archived body" &&
+        story.recorded_at === "2026-11-10T07:08:09.010Z",
+    );
+
+    let revisionUpdateRejected = false;
+    let revisionDeleteRejected = false;
+    let staleRevisionRejected = false;
+    let checkRejected = false;
+    let revisionForeignKeyRejected = false;
+    let editorForeignKeyRejected = false;
+    try {
+      await env.DB.prepare(
+        "UPDATE content_revisions SET body = 'changed' WHERE content_id = 'd1-content-post'",
+      ).run();
+    } catch {
+      revisionUpdateRejected = true;
+    }
+    try {
+      await env.DB.prepare(
+        "DELETE FROM content_revisions WHERE content_id = 'd1-content-post'",
+      ).run();
+    } catch {
+      revisionDeleteRejected = true;
+    }
+    try {
+      await env.DB.prepare(`INSERT INTO content_revisions
+        (content_id, version, change_kind, title, body, status, county_fips_json,
+         person_ids_json, organization_ids_json, edited_by_account_id)
+        VALUES ('d1-content-post', 5, 'update', 'Stale', '', 'draft', '[]', '[]', '[]', 'd1-content-editor')`).run();
+    } catch {
+      staleRevisionRejected = true;
+    }
+    try {
+      await env.DB.prepare(`INSERT INTO content_revisions
+        (content_id, version, change_kind, title, body, status, county_fips_json,
+         person_ids_json, organization_ids_json, edited_by_account_id)
+        VALUES ('d1-content-post', 4, 'invalid', 'Invalid', '', 'draft', '[]', '[]', '[]', 'd1-content-editor')`).run();
+    } catch {
+      checkRejected = true;
+    }
+    try {
+      await env.DB.prepare(`INSERT INTO content_revisions
+        (content_id, version, change_kind, title, body, status, county_fips_json,
+         person_ids_json, organization_ids_json, edited_by_account_id)
+        VALUES ('missing-content', 1, 'create', 'Missing content', '', 'draft', '[]', '[]', '[]', 'd1-content-editor')`).run();
+    } catch {
+      revisionForeignKeyRejected = true;
+    }
+    try {
+      await env.DB.prepare(`INSERT INTO content_revisions
+        (content_id, version, change_kind, title, body, status, county_fips_json,
+         person_ids_json, organization_ids_json, edited_by_account_id)
+        VALUES ('d1-content-story', 4, 'update', 'Missing editor', '', 'draft', '[]', '[]', '[]', 'missing-account')`).run();
+    } catch {
+      editorForeignKeyRejected = true;
+    }
+    check(
+      "append-only, current-version, CHECK, and revision foreign-key enforcement",
+      revisionUpdateRejected &&
+        revisionDeleteRejected &&
+        staleRevisionRejected &&
+        checkRejected &&
+        revisionForeignKeyRejected &&
+        editorForeignKeyRejected,
+    );
+
+    const createContent = (id) =>
+      env.DB.prepare(`INSERT INTO content_items
+      (id, content_type, title, body, status, created_by_account_id, last_edited_by_account_id)
+      VALUES (?, 'post', 'Atomic synthetic content', 'body', 'draft', 'd1-content-author', 'd1-content-author')`).bind(
+        id,
+      );
+    const createRevision = (id, version) =>
+      env.DB.prepare(`INSERT INTO content_revisions
+      (content_id, version, change_kind, title, body, status, county_fips_json,
+       person_ids_json, organization_ids_json, edited_by_account_id)
+      VALUES (?, ?, 'create', 'Atomic synthetic content', 'body', 'draft', '[]', '[]', '[]', 'd1-content-author')`).bind(
+        id,
+        version,
+      );
+    const createAudit = (id) =>
+      env.DB.prepare(`INSERT INTO audit_events
+      (id, actor_account_id, action, target_type, target_id, summary)
+      VALUES (?, 'd1-content-author', 'content.create', 'content', ?, 'Synthetic local D1 transaction')`).bind(
+        `audit-${id}`,
+        id,
+      );
+    await env.DB.batch([
+      createContent("d1-atomic-success"),
+      createRevision("d1-atomic-success", 1),
+      createAudit("d1-atomic-success"),
+    ]);
+    const successRows = await env.DB.prepare(`SELECT
+      (SELECT COUNT(*) FROM content_items WHERE id = 'd1-atomic-success') AS content,
+      (SELECT COUNT(*) FROM content_revisions WHERE content_id = 'd1-atomic-success') AS revision,
+      (SELECT COUNT(*) FROM audit_events WHERE id = 'audit-d1-atomic-success') AS audit`).first();
+    check(
+      "content, revision, and audit batch succeeds atomically",
+      successRows.content === 1 &&
+        successRows.revision === 1 &&
+        successRows.audit === 1,
+    );
+    let transactionRejected = false;
+    try {
+      await env.DB.batch([
+        createContent("d1-atomic-failure"),
+        createRevision("d1-atomic-failure", 2),
+        createAudit("d1-atomic-failure"),
+      ]);
+    } catch {
+      transactionRejected = true;
+    }
+    const failedRows = await env.DB.prepare(`SELECT
+      (SELECT COUNT(*) FROM content_items WHERE id = 'd1-atomic-failure') AS content,
+      (SELECT COUNT(*) FROM content_revisions WHERE content_id = 'd1-atomic-failure') AS revision,
+      (SELECT COUNT(*) FROM audit_events WHERE id = 'audit-d1-atomic-failure') AS audit`).first();
+    check(
+      "failed content/revision/audit batch leaves no partial state",
+      transactionRejected &&
+        failedRows.content === 0 &&
+        failedRows.revision === 0 &&
+        failedRows.audit === 0,
+    );
 
     const query = await env.DB.prepare(
       "SELECT ? AS label, json_valid(?) AS valid_json",
