@@ -1,6 +1,6 @@
 # Website synchronization contract (M2-A)
 
-**Status: M2-A design, M2-B dry-run planning, and the local M2-C commit foundation are implemented.** The planner remains read-only. M2-C adds an internal local transaction service and durable replay tables, but exposes no route, ApplicationServices entry, production authorization, or hosted D1 behavior. Hosted compatibility remains unverified.
+**Status: M2-A design, M2-B dry-run planning, M2-C commit/replay, and M2-D local batch lookup/reversal are implemented.** These services remain internal: no route, ApplicationServices entry, production authorization, or hosted D1 behavior is enabled. Hosted compatibility remains unverified.
 
 ## M2-C local commit implementation
 
@@ -14,7 +14,7 @@ One transaction contains state revalidation, all inserts/updates, batch and item
 
 The batch result is retained for replay after closing and reopening a file-backed local database. It preserves the original batch ID, original request ID, result mapping, outcome, row version and commit timestamp. The Profiles client must durably persist its idempotency key and request fingerprint before submission and reuse that key after an uncertain outcome. M2-C does not add Profiles-side mapping or synchronization.
 
-M2-C retains only compact inverse metadata for future M2-D work: created/reused distinction, entity and Website ID, committed version, changed prior field values and version for updates, item order and dependencies. It does not execute reversal, delete or archive records, or rewrite source history. Committed idempotency and inverse records have no automatic expiry or pruning.
+M2-C retains compact inverse metadata: created/reused distinction, entity and Website ID, committed version, changed prior field values and version for updates, item order and dependencies. M2-D adds actor-scoped read-only result lookup and local atomic reversal. Reversal state is additive and does not mutate the committed batch. Committed idempotency, inverse, and reversal records have no automatic expiry or pruning.
 
 This remains a local fictional-data foundation. It does not enable production callers, add sync capabilities, expose batch-result lookup, certify D1 transaction semantics, or implement hosted concurrency. `source_checked_at`'s existing local validation skew remains a validator default rather than a production policy.
 
