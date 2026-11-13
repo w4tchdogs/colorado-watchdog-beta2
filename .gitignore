@@ -11,6 +11,9 @@
 *.sqlite*
 *.db
 *.sql
+!research/migrations/001_foundation.sql
+__pycache__/
+*.pyc
 *.zip
 *.7z
 *.bak

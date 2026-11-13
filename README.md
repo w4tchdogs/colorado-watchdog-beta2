@@ -1,10 +1,10 @@
 # Colorado Watchdog beta-2
 
-Shared AI-first website project for ChatGPT, Codex, Claude and the owner. The repository currently holds a development collaboration foundation and architecture planning, not a deployed beta-2 application.
+Shared AI-first project for ChatGPT, Codex, Claude and the owner. The repository includes the collaboration pipeline and a separate [local SQLite research foundation (R0)](docs/research/R0-foundation.md), validated with synthetic fixtures.
 
 **Start:** [Coordination](docs/coordination/START.md) · [Decisions](docs/decisions.md) · [Architecture handoff](docs/architecture/beta-2-planning-handoff.md)
 
-Initial architecture reference: [Fable v3](https://drive.google.com/file/d/1W8STh6s2qJWrDUELR66djYzzfJelt4g_/view). Beta-1 is the separate existing website and technical history.
+Current architecture reference: [Fable v4](https://drive.google.com/file/d/1ux9NG09zr9DkztRGYtc-Z3uXBZ81ncI0/view). Beta-1 is the separate existing website and technical history.
 
 ## Develop together
 
@@ -18,7 +18,7 @@ Reference Windows checkout: `D:\ChatGPT\Watchdog\colorado-watchdog-beta2`. A col
 
 Run `node scripts/check.mjs` with Node 22 or later and Git. It checks tracked file paths, formatting, whitespace, conflict markers and common credential patterns. Enable the optional local commit hook with `git config --local core.hooksPath .githooks`.
 
-[GitHub Actions](.github/workflows/check.yml) runs the same checker on push and PR. This is the starter foundation; add application checks as new code is developed.
+[GitHub Actions](.github/workflows/check.yml) runs the same checker and `python3 -B -m unittest discover -s tests -v` on pushes and PRs. The Python standard-library suite validates migrations and synthetic research scenarios.
 
 ## Collaboration history
 
