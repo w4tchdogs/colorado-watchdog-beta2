@@ -75,6 +75,7 @@ export async function mountWorkspace({
     session,
     pageSize,
     previewDelayMs: 0,
+    searchDelayMs: 0,
     ...(confirmLeave ? { confirmLeave } : {}),
   });
   const $ = (selector) => window.document.querySelector(selector);

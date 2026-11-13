@@ -9,6 +9,12 @@ import type {
   ContentRevisionPage,
   NewContentDraft,
 } from "../contracts/content.js";
+import type {
+  DirectoryLookupRequest,
+  DirectoryLookupResult,
+  OrganizationLookupItem,
+  PersonLookupItem,
+} from "../contracts/editor-lookup.js";
 
 /**
  * Browser-side client for the internal editorial API. It only builds requests
@@ -28,6 +34,7 @@ export const EDITOR_API_PATHS = {
   restoreRevision: "/internal/content/revisions/restore",
 } as const;
 export const SANDBOX_INFO_PATH = "/sandbox/info";
+export const SANDBOX_LOOKUP_PATH = "/sandbox/lookup";
 export const SANDBOX_TOKEN_HEADER = "x-editor-token";
 export const SANDBOX_ACCOUNT_HEADER = "x-test-human-subject";
 
@@ -65,13 +72,6 @@ export interface SandboxInfo {
     readonly fips: string;
     readonly name: string;
   }[];
-  readonly directory: {
-    readonly people: readonly { readonly id: string; readonly name: string }[];
-    readonly organizations: readonly {
-      readonly id: string;
-      readonly name: string;
-    }[];
-  };
 }
 
 export type FetchLike = (
@@ -93,6 +93,14 @@ export interface EditorApiClientOptions {
 
 export interface EditorApiClient {
   sandboxInfo(): Promise<SandboxInfo>;
+  /** Sandbox only: bounded search or exact-ID check of people. */
+  lookupPeople(
+    request: Omit<DirectoryLookupRequest, "kind">,
+  ): Promise<DirectoryLookupResult<PersonLookupItem>>;
+  /** Sandbox only: bounded search or exact-ID check of organizations. */
+  lookupOrganizations(
+    request: Omit<DirectoryLookupRequest, "kind">,
+  ): Promise<DirectoryLookupResult<OrganizationLookupItem>>;
   createDraft(input: NewContentDraft): Promise<ContentItem>;
   getDraft(id: string): Promise<ContentItem>;
   listDrafts(request: ContentListRequest): Promise<ContentPage>;
@@ -183,6 +191,10 @@ export function createEditorApiClient(
 
   return {
     sandboxInfo: () => send<SandboxInfo>(SANDBOX_INFO_PATH, "GET"),
+    lookupPeople: (request) =>
+      post(SANDBOX_LOOKUP_PATH, { kind: "person", ...request }),
+    lookupOrganizations: (request) =>
+      post(SANDBOX_LOOKUP_PATH, { kind: "organization", ...request }),
     createDraft: (input) => post(EDITOR_API_PATHS.createDraft, input),
     getDraft: (id) => post(EDITOR_API_PATHS.getDraft, { id }),
     listDrafts: (request) => post(EDITOR_API_PATHS.listDrafts, request),
@@ -220,9 +232,9 @@ const MESSAGES: Readonly<Record<EditorErrorCode, string>> = {
   invalid_state:
     "That action is not available for the article's current state (archived articles must be restored first).",
   invalid_relationship:
-    "A selected county, person or organization does not exist.",
+    "A selected county, person or organization is no longer available. Unavailable records are marked in the Relationships panel. Remove them and save again.",
   invalid_request:
-    "The server rejected the input. Check the title, text and relationship IDs.",
+    "The server rejected the input. Check the title, text and selected relationships.",
   request_too_large: "The article is too large to send.",
   operation_unavailable: "This editorial operation is not available right now.",
   dependency_unavailable:
