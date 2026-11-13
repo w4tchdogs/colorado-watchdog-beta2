@@ -132,6 +132,10 @@ const SAFE_MESSAGES: Record<SyncErrorCode, string> = {
   duplicate_flag_invalid: "A duplicate flag is invalid or blocking.",
   changed_rows_limit: "The plan exceeds the 200-row limit.",
   commit_not_supported: "Commit intent is not available in the M2-B planner.",
+  invalid_idempotency_key: "The idempotency key is invalid.",
+  idempotency_mismatch:
+    "This idempotency key is already associated with a different request.",
+  commit_conflict: "The changeset conflicted with current Website data.",
 };
 
 /** Internal, unexposed read-only planner. It never opens a transaction or generates persistent IDs. */

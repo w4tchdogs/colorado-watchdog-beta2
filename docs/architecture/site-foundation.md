@@ -144,11 +144,13 @@ and tested using SQL.js only.
   people, positions, public role sources, and source-backed person-role
   associations. These tables contain no seeded personnel data and have no
   identity-merge, UI, or hosted-service behavior.
-- **M2:** add version-checked changesets, sync batches, duplicate flags, and
-  reversible operations using versions, operations, and audit events through
-  the shared service layer. The M2-A design is recorded in
-  [site-sync-contract.md](site-sync-contract.md); M1-B supplies reads only and
-  does not implement synchronization or writes.
+- **M2:** M2-B implements the internal read-only planner. M2-C adds the local
+  atomic commit and durable replay foundation with compact future reversal
+  metadata. It is intentionally not exposed through the shared service layer
+  and does not grant production sync capabilities. Hosted D1 behavior, API
+  integration, duplicate-flag lifecycle and reversal remain deferred. The
+  current contract and limits are recorded in
+  [site-sync-contract.md](site-sync-contract.md).
 
 These are scope boundaries, not claims that the deferred capabilities exist.
 

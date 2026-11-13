@@ -44,6 +44,31 @@ export function runAuditedMutation<T>(
   return transact();
 }
 
+/** Inserts validated audit evidence into a transaction owned by the caller. */
+export function insertAuditEvent(
+  database: WebsiteDatabase,
+  attribution: MutationAttribution,
+  audit: AuditRecord,
+): void {
+  assertCredentialFree(audit);
+  database
+    .prepare(
+      `INSERT INTO audit_events
+         (id, actor_account_id, operation_id, action, target_type, target_id, summary, details_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      crypto.randomUUID(),
+      attribution.principal.accountId,
+      attribution.operationId ?? null,
+      audit.action,
+      audit.targetType,
+      audit.targetId ?? null,
+      audit.summary,
+      JSON.stringify(audit.details ?? {}),
+    );
+}
+
 function assertCredentialFree(audit: AuditRecord): void {
   const values = [
     audit.action,

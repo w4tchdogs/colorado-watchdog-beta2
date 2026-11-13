@@ -1,6 +1,22 @@
 # Website synchronization contract (M2-A)
 
-**Status: M2-A design with M2-B local validation/planning implemented.** The M2-B planner is an internal, read-only development function. It exposes no route, service-layer entry, commit behavior, persistent sync state, Website ID generation, or production authorization. Hosted D1 compatibility remains unverified.
+**Status: M2-A design, M2-B dry-run planning, and the local M2-C commit foundation are implemented.** The planner remains read-only. M2-C adds an internal local transaction service and durable replay tables, but exposes no route, ApplicationServices entry, production authorization, or hosted D1 behavior. Hosted compatibility remains unverified.
+
+## M2-C local commit implementation
+
+The internal `commitSyncChangeset` accepts only the M2-B `m2-sync/v1` commit envelope, a branded active M0-C principal, and a separate bounded idempotency key. It rechecks that principal before replay and again inside the transaction using the existing privileged account check; no sync capability, role grant, transport route, or application service is added. The service is not exported through `src/services/index.ts`.
+
+Processing validates the bounded envelope and key, computes SHA-256 over canonical JSON containing a fixed commit-domain marker, contract version, ordered changes, and duplicate flags (absent flags normalize to an empty array), then checks the actor-scoped key. `requestId` and object property insertion order do not affect the fingerprint. For an exact committed match it returns the stored original result before state-sensitive planning. A mismatch returns `idempotency_mismatch`. A previously unused key reaches the unchanged dry-run planner, then the same planner runs again within the one owning `BEGIN IMMEDIATE` transaction before any writes.
+
+Migration `0005_m2_sync_batches.sql` adds `sync_batches` with a unique `(actor_account_id, idempotency_key)` and `sync_batch_items` with exact item mappings, outcomes, row versions, dependencies and compact inverse fields. It stores no complete request body. Creates receive Website-generated UUIDs; earlier temporary references resolve through the in-memory mapping. Compatible exact-URL sources can be reused. Updates use the established conditional version writer only after M2-B's narrower field validation.
+
+One transaction contains state revalidation, all inserts/updates, batch and item results, and one attributable `sync.batch.commit` audit row. The audit insertion helper does not open a transaction. Any late constraint, stale write, batch insert or audit failure rolls back all evidence and mutations; preflight and transaction rejection do not consume the key. Local same-connection contenders are serialized by SQLite `BEGIN IMMEDIATE` and the unique key. This is not evidence of cross-process or hosted concurrency behavior.
+
+The batch result is retained for replay after closing and reopening a file-backed local database. It preserves the original batch ID, original request ID, result mapping, outcome, row version and commit timestamp. The Profiles client must durably persist its idempotency key and request fingerprint before submission and reuse that key after an uncertain outcome. M2-C does not add Profiles-side mapping or synchronization.
+
+M2-C retains only compact inverse metadata for future M2-D work: created/reused distinction, entity and Website ID, committed version, changed prior field values and version for updates, item order and dependencies. It does not execute reversal, delete or archive records, or rewrite source history. Committed idempotency and inverse records have no automatic expiry or pruning.
+
+This remains a local fictional-data foundation. It does not enable production callers, add sync capabilities, expose batch-result lookup, certify D1 transaction semantics, or implement hosted concurrency. `source_checked_at`'s existing local validation skew remains a validator default rather than a production policy.
 
 ## M2-B pinned request and planning contract
 
@@ -16,7 +32,7 @@ Limits apply together: 512 KiB total request, 1–200 changes, 32 KiB per change
 
 Duplicate flags are optional advisory input. Only bounded, well-formed person flags with `nonblocking: true` are accepted; their references are checked and summaries may be returned in the plan. M2-B does not persist flags or implement their lifecycle.
 
-M2-B keeps validation/planning as internal functions with no principal parameter. It does not modify `security.ts`, capability grants, `ApplicationServices`, migrations, routes, hosted integrations, or Profiles. Stale conflicts include no row projection. The M2-B dry-run portion covers acceptance matrix cases 1–10, 16, 22 and 23; commit IDs, writes, atomicity and replay remain future M2-C behavior.
+M2-B keeps validation/planning as internal functions with no principal parameter. M2-C consumes that planner without modifying its dry-run-only behavior. The M2-B dry-run portion covers acceptance matrix cases 1–10, 16, 22 and 23; local commit, atomicity and replay are now covered by the internal M2-C service. Stale conflicts include no row projection.
 
 The design is grounded in the accepted Website foundation at M1-A/M1-B and the owner directions in [decisions.md](../decisions.md). Owner directions include local research and screening, Website-assigned public IDs, version-checked changesets, one verified official county webpage directly connecting a person's name to a role as sufficient source evidence, and nonblocking duplicate flags. Technical choices below are recommendations, not new owner policy. The document is for the Website track; it does not authorize or require changes to Profiles.
 
@@ -24,7 +40,7 @@ The design is grounded in the accepted Website foundation at M1-A/M1-B and the o
 
 At the `e233c278847b61357d8808c4f4bfb4ab99736954` main baseline, M1-A migration `website/migrations/0004_m1_county_roles.sql` defines organizations, county affiliations, people, positions, public role sources and source-backed person roles, each with a stable text ID and integer row version. The accepted `src/database/versioned-writes.ts` helper allowlists mutable fields and requires an expected version. M1-B provides bounded, read-only `listCountyOrganizations` and `listCountyRoleEntries` service contracts with stable IDs and versions. Neither M1-B nor this proposal provides sync writes.
 
-The current service boundary in `src/services/index.ts` exposes no sync operation or sync capability. Existing `operations`, `audit_events`, and M0-C `runAuditedMutation` provide useful patterns, not an already implemented sync ledger. Website sync-batch and duplicate-flag persistence would require a separately scoped future schema change. No production D1, hosted route, or Profiles connection is assumed.
+The current service boundary in `src/services/index.ts` exposes no sync operation or sync capability. The internal M2-C service and its durable Website batch tables are not part of that boundary. Duplicate-flag lifecycle persistence remains future work. No production D1, hosted route, or Profiles connection is assumed.
 
 Data flow:
 
@@ -594,7 +610,7 @@ These are suggestions for separately scoped future tasks; they are not automatic
 | Candidate | Main contract and dependencies | Acceptance evidence | Excludes |
 |---|---|---|---|
 | M2-B: validation and dry run | Typed allowlisted changeset validation, bounded lookups, dependency plan; uses M1-A schema and M1-B reads | Matrix cases 1-10, 16, 22-23; no persistent side effects | Commit, migration, production endpoint |
-| M2-C: atomic commit and replay | Proposed Website batch/idempotency schema, assigned IDs, transaction, audit, capabilities; depends on accepted M2-B | Matrix cases 1-9, 11-17, 21, 24 | Reversal lifecycle/UI, live deployment |
+| M2-C: atomic commit and replay | Implemented locally: additive batch schema, Website IDs, one transaction, audit and durable replay; no sync capability or route | Synthetic dependency, key scope, canonical fingerprint, rollback, replay and restart tests | Hosted D1, cross-process concurrency, reversal, live deployment |
 | M2-D: batch result and reversal | Bounded result lookup and fail-closed compensating transactions; depends on commit inverse metadata | Matrix cases 12, 15, 18-20, 24 | General restore, destructive archival |
 | M2-E: duplicate-flag lifecycle/API integration | Nonblocking flags and bounded transport wiring; depends on authorization, persistence and source contract | Matrix cases 5, 17, 21-23 | Identity merge, name matching, deployment without separate authorization |
 
@@ -602,7 +618,7 @@ The sequence may be consolidated or reordered based on implementation evidence; 
 
 ## Deferred and unresolved implementation choices
 
-Deferred: HTTP route shape, hosted D1 compatibility, exact capability grants, sync tables/migration, idempotency retention and key reuse, reversal window and operator UX, duplicate-flag persistence/lifecycle UI, request/rate limits after measurement, and any production credential provisioning. These do not prevent this design from being documented. Choose defaults in the relevant scoped implementation and record owner decisions for choices that affect access, irreversible retention, or production operations. No production service or data import is authorized.
+Deferred: HTTP route shape, hosted D1 compatibility, exact capability grants, idempotency retention and key reuse policy, reversal window and operator UX, duplicate-flag persistence/lifecycle UI, request/rate limits after measurement, and any production credential provisioning. M2-C retains committed replay and inverse records indefinitely in the local schema; no automatic expiry is implemented. These do not prevent the local M2-C foundation from being complete. No production service or data import is authorized.
 
 ## Summary
 
