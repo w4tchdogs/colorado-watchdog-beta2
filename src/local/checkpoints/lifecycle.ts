@@ -473,7 +473,8 @@ export function createCheckpointService(
     },
 
     async prune() {
-      // M0-C denies checkpoint.prune to every role; this refuses regardless.
+      // Pruning is disabled unconditionally and takes no principal. M0-C also
+      // denies checkpoint.prune to every role, so there is nothing to authorize.
       return destination.prune();
     },
   };

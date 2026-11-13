@@ -281,7 +281,12 @@ function validateCell(cell: unknown, subject: string): CheckpointCell {
         return ["i", text];
       }
     }
-    if (tag === "r" && text !== "NaN" && String(Number(text)) === text) {
+    // "-0" is the canonical form of negative zero, which String() cannot emit.
+    if (
+      tag === "r" &&
+      text !== "NaN" &&
+      (text === "-0" || String(Number(text)) === text)
+    ) {
       return ["r", text];
     }
   }

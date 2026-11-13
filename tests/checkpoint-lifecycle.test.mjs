@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
-import { readdirSync, renameSync } from "node:fs";
+import { readdirSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { openWebsiteDatabase } from "../dist/database/sqlite.js";
+import { canonicalJson } from "../dist/local/checkpoints/core.js";
 import { createCheckpointService } from "../dist/local/checkpoints/lifecycle.js";
 import { produceCheckpoint } from "../dist/local/checkpoints/producer.js";
 import { createServices } from "../dist/services/index.js";
+import {
+  createAgentCredential,
+  createTestHumanIdentityAdapter,
+  hasCapability,
+  resolvePrincipal,
+} from "../dist/services/security.js";
 import {
   COMMIT,
   createFixture,
@@ -414,4 +421,120 @@ test("orphan bundles are never trusted merely because they exist", async (t) => 
   const missing = await service.verify(fixture.owner, ID);
   assert.equal(missing.record.verificationStatus, "failed");
   assert.equal(missing.report.failures[0].code, "bundle_missing");
+});
+
+test("pruning is disabled unconditionally for every principal", async (t) => {
+  const fixture = await createFixture(t);
+  const service = createService(fixture);
+  await service.create(fixture.owner, { checkpointId: ID });
+  const before = treeDigest(fixture.destinationRoot);
+
+  // An administrator human and an administrator agent, resolved as requests are.
+  fixture.database.exec(
+    "UPDATE accounts SET role = 'administrator', version = version + 1 WHERE id = 'acct-synthetic-contributor'",
+  );
+  const administrator = await resolvePrincipal(
+    fixture.database,
+    new Request("https://watchdog.test/", {
+      headers: { "x-test-human-subject": "contributor" },
+    }),
+    createTestHumanIdentityAdapter({ contributor: "subject-contributor" }),
+  );
+  const credential = await createAgentCredential();
+  fixture.database
+    .prepare(
+      "INSERT INTO identities (id, account_id, provider, subject, credential_hash) VALUES ('ident-synthetic-key', 'acct-synthetic-agent', 'agent-key', 'prune-agent', ?)",
+    )
+    .run(credential.hash);
+  const agent = await resolvePrincipal(
+    fixture.database,
+    new Request("https://watchdog.test/", {
+      headers: { authorization: `Bearer ${credential.secret}` },
+    }),
+  );
+  assert.equal(administrator.role, "administrator");
+  assert.equal(agent.kind, "agent");
+
+  const forged = {
+    accountId: OWNER,
+    kind: "human",
+    role: "owner",
+    provider: "test-human",
+  };
+  const principals = [
+    fixture.owner,
+    administrator,
+    agent,
+    fixture.contributor,
+    forged,
+    OWNER,
+    null,
+    undefined,
+  ];
+  for (const principal of principals) {
+    assert.equal(
+      hasCapability(fixture.database, principal, "checkpoint.prune"),
+      false,
+    );
+    await assert.rejects(service.prune(principal), { code: "prune_disabled" });
+  }
+  await assert.rejects(service.prune(), { code: "prune_disabled" });
+
+  assert.equal(treeDigest(fixture.destinationRoot), before);
+  assert.deepEqual(await fixture.destination.list(), [ID]);
+  assert.equal(checkpointRow(fixture).verification_status, "pending");
+});
+
+test("hostile bundle text never enters returned or persisted verification details", async (t) => {
+  const hostile = '<script>alert("x")</script>';
+  const fixture = await createFixture(t);
+  fixture.database.exec(`
+    CREATE TABLE m0d_hostile (
+      id INTEGER PRIMARY KEY,
+      n INTEGER,
+      CONSTRAINT "${hostile.replaceAll('"', '""')}" CHECK (n > 0)
+    );
+    INSERT INTO m0d_hostile VALUES (1, 5);
+  `);
+  const service = createService(fixture);
+  await service.create(fixture.owner, { checkpointId: ID });
+
+  const path = fixture.bundlePath(ID, "db", "tables", "m0d_hostile.jsonl");
+  const text = readFileSync(path, "utf8").replace('["i","5"]', '["i","-5"]');
+  overwrite(path, text);
+  const manifestPath = fixture.bundlePath(ID, "manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const entry = manifest.database.tables.find(
+    (item) => item.name === "m0d_hostile",
+  );
+  entry.sha256 = sha256(text);
+  entry.bytes = Buffer.byteLength(text);
+  const manifestText = canonicalJson(manifest);
+  overwrite(manifestPath, manifestText);
+  // Re-anchor the recorded digest so verification reaches the restore step,
+  // as an attacker who also rewrote the database row would.
+  fixture.database
+    .prepare(
+      "UPDATE checkpoints SET manifest_sha256 = ?, version = version + 1 WHERE id = ?",
+    )
+    .run(sha256(manifestText), ID);
+
+  const outcome = await service.verify(fixture.owner, ID);
+  assert.equal(outcome.report.ok, false);
+  assert.equal(outcome.record.verificationStatus, "failed");
+  const restore = outcome.report.failures.find(
+    (failure) => failure.code === "restore_failed",
+  );
+  assert.ok(restore);
+  assert.match(restore.detail, /CHECK constraint failed/);
+  assert.ok(restore.detail.length <= 200);
+
+  const persisted = JSON.stringify([
+    outcome,
+    all(fixture, "SELECT * FROM checkpoints"),
+    all(fixture, "SELECT * FROM operations"),
+    all(fixture, "SELECT * FROM audit_events"),
+  ]);
+  assert.ok(!persisted.includes("script"));
+  assert.ok(!persisted.includes("alert"));
 });

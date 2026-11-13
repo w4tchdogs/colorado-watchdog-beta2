@@ -580,10 +580,15 @@ async function restoreDatabase(
       ) {
         throw error;
       }
-      // SQLite rejected the bundle's schema or rows. Engine messages name
-      // constraints and columns, not values; they are bounded regardless.
-      const message = error instanceof Error ? error.message : "unknown";
-      log.add("restore_failed", "database", `Restore rejected: ${message}`);
+      // SQLite rejected the bundle's schema or rows. Engine messages embed
+      // identifiers chosen by the bundle author, so the text is never
+      // echoed. Only a fixed description selected from the message prefix
+      // is reported.
+      log.add(
+        "restore_failed",
+        "database",
+        `Restore rejected: ${describeRestoreRejection(error)}`,
+      );
       return;
     }
 
@@ -678,4 +683,27 @@ async function restoreFiles(
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
+}
+
+const RESTORE_REJECTIONS: readonly (readonly [RegExp, string])[] = [
+  [/^CHECK constraint failed/, "a CHECK constraint failed"],
+  [/^UNIQUE constraint failed/, "a UNIQUE constraint failed"],
+  [/^NOT NULL constraint failed/, "a NOT NULL constraint failed"],
+  [/^FOREIGN KEY constraint failed/, "a FOREIGN KEY constraint failed"],
+  [/^datatype mismatch/, "a datatype mismatch"],
+  [/syntax error/, "a schema statement has a syntax error"],
+];
+
+/**
+ * Maps a SQLite restore error to a fixed, bounded description. The result
+ * never contains text taken from the error message.
+ */
+function describeRestoreRejection(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  for (const [pattern, description] of RESTORE_REJECTIONS) {
+    if (pattern.test(message)) {
+      return description;
+    }
+  }
+  return "SQLite rejected the bundle schema or rows (details withheld)";
 }

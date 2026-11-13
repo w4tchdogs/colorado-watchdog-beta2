@@ -42,9 +42,15 @@ Canonical rules:
   only. A manifest that does not re-serialize to identical bytes is rejected.
 - **Rows:** a JSON array in column order. `null` is SQL NULL. Other cells are
   `[tag, text]` pairs: `i` integer as decimal text (full 64-bit range), `r`
-  real as its shortest round-trip decimal, `t` valid UTF-8 text, `x` text
+  real as its shortest round-trip decimal (negative zero is `-0`), `t` valid UTF-8 text, `x` text
   whose stored bytes are not valid UTF-8 (hex), `b` blob (hex). Non-ASCII
   characters are escaped, so table files are pure ASCII.
+- **Negative zero:** `-0` is the only non-`String(Number)` real text, so the
+  sign survives restore. SQLite itself normalizes `-0.0` to `0.0` when it is
+  stored in a column with REAL or NUMERIC affinity, so only untyped or `ANY`
+  columns can hold it, and a checkpoint records what is actually stored. The
+  SQL.js adapter drops the sign of a numeric `-0` bound as a parameter, so the
+  restore binds `-0` as text and casts it to REAL.
 - **JSON columns:** stored by SQLite as text and preserved byte for byte. They
   are not parsed or reformatted.
 - **Row order:** lines are sorted before hashing, so a digest does not depend
@@ -65,8 +71,12 @@ The SQL.js adapter is synchronous and uses one connection. The whole database
 capture (schema, migration history, table list and all rows) runs inside one
 `BEGIN IMMEDIATE` transaction in a single synchronous call, before the
 producer first awaits. No other statement can run in between. Capture fails
-if called inside an open transaction, and it checks that SQLite's change
-counter did not move.
+if called inside an open transaction. Capture also compares SQLite's
+`total_changes()` before and after. That counter is cumulative for the
+capture connection only, so the comparison confirms that this connection ran
+no additional changing statement during capture. It does not detect writes
+made through any other connection. Within the single synchronous connection
+that no such writer exists, which is what makes the guarantee hold locally.
 
 Limits of this guarantee:
 
@@ -103,7 +113,11 @@ The live database, live file storage and the bundle are only read. The
 scratch directory is removed afterwards.
 
 Bundle defects produce a failed report with bounded, sanitized diagnostics
-that name tables, keys and members, never row values or file contents. An
+that name tables, keys and members, never row values or file contents. A
+bundle author controls schema identifiers, so SQLite's restore error text is
+never echoed. A rejected restore reports a fixed description chosen from the
+error's message prefix (for example "a CHECK constraint failed") or generic
+fixed text, and the subject is always `database`. An
 environmental failure (for example a scratch disk error) throws instead, so
 an interrupted run is never recorded as a verdict.
 
@@ -128,7 +142,8 @@ own unpublished staging directory. Staging left by a crash is ignored and can
 be removed by hand.
 
 `prune` always throws `prune_disabled`. No retention policy, schedule or
-off-site destination is configured.
+off-site destination is configured. Pruning is disabled unconditionally. It
+is not an authorized operation for any principal.
 
 ## Lifecycle and crash recovery
 
@@ -172,10 +187,12 @@ M0-C (PR #18) merged while M0-D was in progress, and the lifecycle uses its
 accepted contracts directly. There is no separate checkpoint identity or
 authorization mechanism.
 
-- Every entrypoint takes an M0-C `TrustedPrincipal` and calls
-  `requireCapability` with `checkpoint.create`, `checkpoint.verify` or
-  `checkpoint.read`. `reconcile` requires both create and verify. No
-  entrypoint accepts an account identifier from its caller.
+- Every operational entrypoint (`create`, `verify`, `reconcile`, `list`,
+  `read`) takes an M0-C `TrustedPrincipal` and calls `requireCapability` with
+  `checkpoint.create`, `checkpoint.verify` or `checkpoint.read`. `reconcile`
+  requires both create and verify. No entrypoint accepts an account identifier
+  from its caller. `prune` is the one exception: it takes no principal and
+  performs no capability check, because there is nothing to authorize.
 - Operations are created through M0-C `createOperation`, which attributes and
   audits them.
 - Each checkpoint state change and its audit event commit in one transaction
@@ -183,8 +200,12 @@ authorization mechanism.
   `checkpoint.verified`, `checkpoint.verification_failed`,
   `checkpoint.reconciled`. A failed or denied action writes no checkpoint
   audit event.
-- `prune` is refused for every principal. M0-C also denies
-  `checkpoint.prune` to every role.
+- `prune` is refused unconditionally, for owner, administrator, agent,
+  contributor and absent or invalid principals alike, and deletes nothing.
+  M0-C independently denies `checkpoint.prune` to every role, so no principal
+  could pass a capability check even if one were added. Do not add a permitted
+  pruning capability or a code path past `prune_disabled` without a separately
+  scoped assignment.
 - `ApplicationServices.checkpoints()` returns the service when a host injects
   one and otherwise throws. The Worker and the local harness inject none, and
   no route calls it.
