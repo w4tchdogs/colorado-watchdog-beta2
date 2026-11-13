@@ -12,7 +12,10 @@ export type Capability =
   | "checkpoint.create"
   | "checkpoint.verify"
   | "checkpoint.read"
-  | "checkpoint.prune";
+  | "checkpoint.prune"
+  | "sync.read"
+  | "sync.apply"
+  | "sync.revert";
 
 export type AccountKind = "human" | "agent";
 export type AccountRole = "contributor" | "editor" | "administrator" | "owner";
@@ -22,6 +25,7 @@ const principalBrand: unique symbol = Symbol("trusted-principal");
 export interface TrustedPrincipal {
   readonly [principalBrand]: true;
   readonly accountId: string;
+  readonly identityId: string;
   readonly kind: AccountKind;
   readonly role: AccountRole;
   readonly provider: string;
@@ -98,7 +102,8 @@ export async function resolvePrincipal(
     const credentialHash = await hashCredential(presentedCredential);
     const row = database
       .prepare(
-        `SELECT accounts.id, accounts.kind, accounts.role, identities.expires_at
+        `SELECT accounts.id, accounts.kind, accounts.role,
+                identities.id AS identity_id, identities.expires_at
          FROM identities
          JOIN accounts ON accounts.id = identities.account_id
          WHERE identities.provider = 'agent-key'
@@ -123,7 +128,8 @@ export async function resolvePrincipal(
   }
   const row = database
     .prepare(
-      `      SELECT accounts.id, accounts.kind, accounts.role, identities.expires_at
+      `      SELECT accounts.id, accounts.kind, accounts.role,
+                identities.id AS identity_id, identities.expires_at
        FROM identities
        JOIN accounts ON accounts.id = identities.account_id
        WHERE identities.provider = ?
@@ -155,13 +161,19 @@ export function hasCapability(
   }
   const current = database
     .prepare(
-      "SELECT kind, role FROM accounts WHERE id = ? AND status = 'active'",
+      `SELECT accounts.kind, accounts.role, identities.expires_at
+       FROM identities
+       JOIN accounts ON accounts.id = identities.account_id
+       WHERE accounts.id = ? AND identities.id = ?
+         AND identities.provider = ? AND identities.revoked_at IS NULL
+         AND accounts.status = 'active'`,
     )
-    .get(principal.accountId);
+    .get(principal.accountId, principal.identityId, principal.provider);
   return (
     !!current &&
     isAccountKind(current.kind) &&
     isAccountRole(current.role) &&
+    hasUnexpiredIdentity(current.expires_at, new Date()) &&
     current.kind === principal.kind &&
     current.role === principal.role &&
     ROLE_CAPABILITIES[current.role].includes(
@@ -248,6 +260,7 @@ function makePrincipal(
 ): TrustedPrincipal {
   if (
     typeof row.id !== "string" ||
+    typeof row.identity_id !== "string" ||
     !isAccountKind(row.kind) ||
     !isAccountRole(row.role)
   ) {
@@ -256,6 +269,7 @@ function makePrincipal(
   return Object.freeze({
     [principalBrand]: true as const,
     accountId: row.id,
+    identityId: row.identity_id,
     kind: row.kind,
     role: row.role,
     provider,

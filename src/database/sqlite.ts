@@ -18,6 +18,7 @@ export interface WebsiteDatabase {
   exec(sql: string): void;
   pragma(sql: string, options?: { simple?: boolean }): unknown;
   prepare(sql: string): WebsiteStatement;
+  /** Synchronous local SQL.js transaction boundary; this is not a D1 adapter. */
   transaction<T>(callback: () => T): () => T;
 }
 
@@ -91,6 +92,7 @@ class LocalDatabase implements WebsiteDatabase {
 
   transaction<T>(callback: () => T): () => T {
     return () => {
+      // BEGIN IMMEDIATE serializes local writers; D1 uses a separate async API.
       this.database.run("BEGIN IMMEDIATE");
       try {
         const result = callback();

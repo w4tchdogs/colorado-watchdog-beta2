@@ -78,6 +78,7 @@ function jsonRequest(path, value, headers = {}, options = {}) {
 function dependencies(principal, operations, overrides = {}) {
   return {
     resolvePrincipal: async () => principal,
+    // Positive sync decisions in transport tests are isolated synthetic grants.
     authorize: async () => true,
     operations,
     ...overrides,
