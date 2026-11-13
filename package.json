@@ -7,15 +7,17 @@
   },
   "scripts": {
     "dev": "npm run build && node scripts/dev.mjs",
-    "format": "biome format --write src tests/application.test.mjs scripts/dev.mjs package.json tsconfig.json tsconfig.build.json biome.json",
-    "format:check": "biome ci --formatter-enabled=true --linter-enabled=false src tests/application.test.mjs scripts/dev.mjs package.json tsconfig.json tsconfig.build.json biome.json",
-    "lint": "biome lint src tests/application.test.mjs scripts/dev.mjs",
+    "format": "biome format --write src tests/application.test.mjs tests/database.test.mjs scripts/dev.mjs package.json tsconfig.json tsconfig.build.json biome.json",
+    "format:check": "biome ci --formatter-enabled=true --linter-enabled=false src tests/application.test.mjs tests/database.test.mjs scripts/dev.mjs package.json tsconfig.json tsconfig.build.json biome.json",
+    "lint": "biome lint src tests/application.test.mjs tests/database.test.mjs scripts/dev.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.build.json",
     "test": "npm run build && node --test"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.7",
+    "@types/sql.js": "1.4.11",
+    "sql.js": "1.16.0",
     "typescript": "5.8.3"
   }
 }

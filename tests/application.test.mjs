@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createApplication } from "../dist/application.js";
 import { StorageUnavailableError } from "../dist/contracts/storage.js";
+import { migrateWebsiteDatabase } from "../dist/database/migrations.js";
+import { openWebsiteDatabase } from "../dist/database/sqlite.js";
 import { createLocalStorageProbe } from "../dist/local/storage-probe.js";
 import { createServices } from "../dist/services/index.js";
 import worker from "../dist/worker.js";
@@ -34,13 +36,20 @@ test("request dispatch reaches services with an injectable local adapter", async
 });
 
 test("the deterministic local adapter satisfies the storage boundary", async () => {
+  const database = await openWebsiteDatabase();
+  migrateWebsiteDatabase(database);
   const application = createApplication(
-    createServices({ storage: createLocalStorageProbe() }),
+    createServices({
+      storage: createLocalStorageProbe(database),
+    }),
   );
 
-  const response = await application.fetch(healthRequest());
-
-  assert.equal(response.status, 200);
+  try {
+    const response = await application.fetch(healthRequest());
+    assert.equal(response.status, 200);
+  } finally {
+    database.close();
+  }
 });
 
 test("unsupported routes and methods fail predictably", async () => {

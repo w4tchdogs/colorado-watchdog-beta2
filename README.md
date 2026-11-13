@@ -35,8 +35,11 @@ npm test
 npm run build
 ```
 
-The local adapter is a deterministic fake; M0-A does not create or access a
-Website database, Profiles database, or hosted service.
+`npm run dev` runs the Website migrations against an in-memory SQLite database
+by default. Set `DATABASE_PATH` to an isolated local Website SQLite file to
+persist that development database; never point it at the separate Profiles
+research database. The local SQL.js WebAssembly adapter is not part of the
+Worker entrypoint, and no hosted D1/R2 service or credentials are required.
 
 ## Repository checks
 

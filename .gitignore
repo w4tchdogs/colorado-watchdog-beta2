@@ -12,6 +12,7 @@
 *.db
 *.sql
 !research/migrations/001_foundation.sql
+!website/migrations/*.sql
 __pycache__/
 *.pyc
 *.zip
