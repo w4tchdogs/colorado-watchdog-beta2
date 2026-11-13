@@ -29,7 +29,7 @@ These decisions describe intended architecture and collaboration; they do **not*
 | Identity | Initial pre-import screening, then nonblocking possible-duplicate flags, later evidence-supported AI maintenance; name/nickname similarity alone never proves identity |
 | Research memory | Proposed 19-table relational model, including county-specific organizational structure, source discoveries and visits, coverage, role targets, aliases and website sync |
 | Shared AI memory | One GitHub repository, issue handoffs, checked PRs for durable documentation, short shared instructions and optional Project bootstrap text |
-| Chat titles | Circles for conversational AI and squares for Codex, each green/yellow/orange/red by low/medium/high/extra-high thinking, followed by actual model name; no Max tier |
+| Chat titles | Standard `model | description`; Archon `💠model | description`; unspecified-model Chat mode `💠| description`. Lowercase, concise; no colored thinking-level markers or mandatory batch IDs |
 
 See [sanitized architecture handoff](architecture/beta-2-planning-handoff.md). Any later implementation still requires a scoped task; keep the initial beta-2 database empty.
 
