@@ -5,6 +5,7 @@ import { migrateWebsiteDatabase } from "../dist/database/migrations.js";
 import { openWebsiteDatabase } from "../dist/database/sqlite.js";
 import { CountyOverviewInputError } from "../dist/services/county-overview.js";
 import { DirectoryInputError } from "../dist/services/directory.js";
+import { DirectorySearchInputError } from "../dist/services/directory-search.js";
 import { createServices } from "../dist/services/index.js";
 
 async function fixture(callback) {
@@ -54,6 +55,59 @@ function seed(database) {
     ('role-2','person-a','position-2','source-1',NULL,'2024-05-06','2026-10-02T00:00:00Z',1),
     ('role-3','person-b','position-3','source-2',NULL,NULL,'2026-10-03T00:00:00Z',1),
     ('role-4','person-b','position-4','source-2',NULL,NULL,'2026-10-04T00:00:00Z',1)`)
+    .run();
+}
+
+function seedSearchRecords(database) {
+  const people = [
+    ["person-alex-b", "Synthetic Alex Example", 2],
+    ["person-alex-a", "Synthetic Alex Example", 1],
+    ["person-alice", "Synthetic Alice Example", 3],
+    ["person-percent", "Synthetic 100% Office", 1],
+    ["person-percent-wild", "Synthetic 100X Office", 1],
+    ["person-underscore", "Synthetic _group Unit", 1],
+    ["person-underscore-wild", "Synthetic Xgroup Unit", 1],
+    ["person-quote", "Synthetic O'Brian Example", 1],
+    ["person-backslash", "Synthetic A\\B Example", 1],
+  ];
+  const insertPerson = database.prepare(
+    "INSERT INTO people(id,display_name,version) VALUES (?, ?, ?)",
+  );
+  for (const person of people) insertPerson.run(...person);
+  for (let index = 0; index < 105; index += 1) {
+    insertPerson.run(
+      `directory-person-${String(index).padStart(3, "0")}`,
+      "Synthetic Directory Person",
+      1,
+    );
+  }
+
+  const organizations = [
+    ["org-county", "Synthetic County Government", "county_government", "08001"],
+    ["org-office", "Synthetic Clerk's Office", "office", null],
+    ["org-department", "Synthetic Public Works Department", "department", null],
+    ["org-division", "Synthetic Services Division", "division", null],
+    ["org-regional", "Synthetic Mountain 100% Regional", "regional", null],
+    ["org-partner", "Synthetic County Partner", "partner", null],
+    ["org-other", "Synthetic Other Unit", "other", null],
+    ["org-underscore", "Synthetic _group Department", "department", null],
+    ["org-underscore-wild", "Synthetic Xgroup Department", "division", null],
+    ["org-percent-wild", "Synthetic 100X Regional", "regional", null],
+  ];
+  const insertOrganization = database.prepare(
+    `INSERT INTO organizations
+     (id,name,organization_type,county_fips,version)
+     VALUES (?, ?, ?, ?, 1)`,
+  );
+  for (const organization of organizations) {
+    insertOrganization.run(...organization);
+  }
+  database
+    .prepare(
+      `INSERT INTO organization_county_affiliations
+       (id,organization_id,county_fips,relationship_type)
+       VALUES ('regional-adams','org-regional','08001','serves')`,
+    )
     .run();
 }
 
@@ -296,5 +350,280 @@ test("county overview HTTP endpoint validates responses, methods, and identifier
     const wrongMethod = await request("/api/counties/08001", "POST");
     assert.equal(wrongMethod.status, 405);
     assert.equal(wrongMethod.headers.get("allow"), "GET");
+  });
+});
+
+test("people and organization discovery searches literal names with stable bounded pages", async () => {
+  await fixture(async (database, services) => {
+    seedSearchRecords(database);
+
+    const emptyPeople = services.searchPeople({ query: "No matching record" });
+    assert.deepEqual(emptyPeople, {
+      items: [],
+      hasMore: false,
+      nextCursor: null,
+    });
+    const emptyOrganizations = services.searchOrganizations({
+      query: "No matching organization",
+    });
+    assert.deepEqual(emptyOrganizations, {
+      items: [],
+      hasMore: false,
+      nextCursor: null,
+    });
+
+    const exactName = services.searchPeople({
+      query: "Synthetic Alex Example",
+    });
+    assert.deepEqual(
+      exactName.items.map(({ id, displayName }) => [id, displayName]),
+      [
+        ["person-alex-a", "Synthetic Alex Example"],
+        ["person-alex-b", "Synthetic Alex Example"],
+      ],
+    );
+    assert.deepEqual(
+      services.searchPeople({ query: "aLeX" }).items.map(({ id }) => id),
+      ["person-alex-a", "person-alex-b"],
+    );
+
+    for (const [query, expectedId] of [
+      ["100%", "person-percent"],
+      ["_group", "person-underscore"],
+      ["A\\B", "person-backslash"],
+      ["O'Br", "person-quote"],
+    ]) {
+      assert.deepEqual(
+        services.searchPeople({ query }).items.map(({ id }) => id),
+        [expectedId],
+      );
+    }
+    assert.deepEqual(services.searchPeople({ query: "' OR 1=1 --" }).items, []);
+
+    const firstDefaultPage = services.searchPeople({ query: "Directory" });
+    assert.equal(firstDefaultPage.items.length, 25);
+    assert.equal(firstDefaultPage.hasMore, true);
+    const firstPage = services.searchPeople({
+      query: "Directory",
+      limit: 100,
+    });
+    assert.equal(firstPage.items.length, 100);
+    assert.equal(firstPage.items[0].id, "directory-person-000");
+    assert.equal(firstPage.items.at(-1).id, "directory-person-099");
+    assert.equal(firstPage.hasMore, true);
+    const secondPage = services.searchPeople({
+      query: "Directory",
+      limit: 100,
+      cursor: firstPage.nextCursor,
+    });
+    assert.deepEqual(
+      secondPage.items.map(({ id }) => id),
+      [
+        "directory-person-100",
+        "directory-person-101",
+        "directory-person-102",
+        "directory-person-103",
+        "directory-person-104",
+      ],
+    );
+    assert.equal(secondPage.hasMore, false);
+    assert.equal(secondPage.nextCursor, null);
+
+    const organizations = services.searchOrganizations({ query: "Synthetic" });
+    const organizationTypes = new Map(
+      organizations.items.map(({ id, type }) => [id, type]),
+    );
+    assert.equal(organizationTypes.get("org-county"), "county_government");
+    assert.equal(organizationTypes.get("org-office"), "office");
+    assert.equal(organizationTypes.get("org-department"), "department");
+    assert.equal(organizationTypes.get("org-division"), "division");
+    assert.equal(organizationTypes.get("org-regional"), "regional");
+    assert.equal(organizationTypes.get("org-partner"), "partner");
+    assert.equal(organizationTypes.get("org-other"), "other");
+    assert.deepEqual(
+      organizations.items.find(({ id }) => id === "org-county"),
+      {
+        id: "org-county",
+        name: "Synthetic County Government",
+        type: "county_government",
+        version: 1,
+      },
+    );
+
+    const pagedOrganizationIds = [];
+    let organizationPage = services.searchOrganizations({
+      query: "Synthetic",
+      limit: 3,
+    });
+    for (let pageNumber = 0; pageNumber < 5; pageNumber += 1) {
+      pagedOrganizationIds.push(...organizationPage.items.map(({ id }) => id));
+      if (!organizationPage.hasMore) break;
+      organizationPage = services.searchOrganizations({
+        query: "Synthetic",
+        limit: 3,
+        cursor: organizationPage.nextCursor,
+      });
+    }
+    assert.equal(organizationPage.hasMore, false);
+    assert.equal(pagedOrganizationIds.length, 10);
+    assert.equal(new Set(pagedOrganizationIds).size, 10);
+
+    assert.deepEqual(
+      services.searchOrganizations({ query: "100%" }).items.map(({ id }) => id),
+      ["org-regional"],
+    );
+    assert.deepEqual(
+      services
+        .searchOrganizations({ query: "_group" })
+        .items.map(({ id }) => id),
+      ["org-underscore"],
+    );
+
+    for (const request of [
+      { query: "x" },
+      { query: "  " },
+      { query: "x".repeat(101) },
+      { query: "Synthetic", limit: 0 },
+      { query: "Synthetic", limit: 101 },
+      { query: "Synthetic", limit: 1.5 },
+      { query: "Synthetic", cursor: "malformed" },
+      { query: "Synthetic", unsupported: true },
+    ]) {
+      assert.throws(
+        () => services.searchPeople(request),
+        DirectorySearchInputError,
+      );
+    }
+    assert.throws(
+      () =>
+        services.searchPeople({
+          query: "Different",
+          cursor: firstPage.nextCursor,
+        }),
+      DirectorySearchInputError,
+    );
+    assert.throws(
+      () =>
+        services.searchOrganizations({
+          query: "Directory",
+          cursor: firstPage.nextCursor,
+        }),
+      DirectorySearchInputError,
+    );
+  });
+});
+
+test("directory discovery HTTP routes validate input and preserve profile routes without writes", async () => {
+  await fixture(async (database, services) => {
+    seedSearchRecords(database);
+    const application = createApplication(services);
+    const request = (path, method = "GET") =>
+      application.fetch(
+        new Request(`https://watchdog.test${path}`, { method }),
+      );
+    const before = {
+      schemaVersion: database.prepare("PRAGMA schema_version").get()
+        .schema_version,
+      people: database.prepare("SELECT COUNT(*) AS count FROM people").get()
+        .count,
+      organizations: database
+        .prepare("SELECT COUNT(*) AS count FROM organizations")
+        .get().count,
+      auditEvents: database
+        .prepare("SELECT COUNT(*) AS count FROM audit_events")
+        .get().count,
+    };
+
+    const people = await request("/api/people?query=Alex&limit=1");
+    assert.equal(people.status, 200);
+    const peoplePage = await people.json();
+    assert.deepEqual(peoplePage.items, [
+      {
+        id: "person-alex-a",
+        displayName: "Synthetic Alex Example",
+        version: 1,
+      },
+    ]);
+    assert.equal(peoplePage.hasMore, true);
+    assert.equal(typeof peoplePage.nextCursor, "string");
+
+    const organizations = await request(
+      "/api/organizations?query=Synthetic&limit=2",
+    );
+    assert.equal(organizations.status, 200);
+    const organizationPage = await organizations.json();
+    assert.equal(organizationPage.items.length, 2);
+    assert.equal(organizationPage.hasMore, true);
+    assert.equal(typeof organizationPage.nextCursor, "string");
+    assert.equal(
+      Object.hasOwn(organizationPage.items[0], "countyAssociation"),
+      false,
+    );
+
+    const incompatibleCursor = await request(
+      `/api/organizations?query=Synthetic&cursor=${peoplePage.nextCursor}`,
+    );
+    assert.equal(incompatibleCursor.status, 400);
+    assert.deepEqual(await incompatibleCursor.json(), {
+      error: "invalid_request",
+    });
+
+    for (const path of [
+      "/api/people",
+      "/api/people?query=x",
+      `/api/people?query=${"x".repeat(101)}`,
+      "/api/people?query=Alex&limit=101",
+      "/api/people?query=Alex&cursor=not-a-cursor",
+      "/api/people?query=Alex&unknown=1",
+      "/api/people?query=Alex&query=Alice",
+      "/api/organizations?query=",
+    ]) {
+      const response = await request(path);
+      assert.equal(response.status, 400, path);
+    }
+    const unsupported = await request("/api/people?query=Alex&unknown=1");
+    assert.deepEqual(await unsupported.json(), {
+      error: "unexpected_query",
+    });
+
+    for (const collection of ["people", "organizations"]) {
+      const wrongMethod = await request(
+        `/api/${collection}?query=Synthetic`,
+        "POST",
+      );
+      assert.equal(wrongMethod.status, 405);
+      assert.equal(wrongMethod.headers.get("allow"), "GET");
+    }
+
+    const personProfile = await request("/api/people/person-alex-a");
+    assert.equal(personProfile.status, 200);
+    assert.equal((await personProfile.json()).person.id, "person-alex-a");
+
+    const organizationProfile = await request("/api/organizations/org-county");
+    assert.equal(organizationProfile.status, 200);
+    assert.equal(
+      (await organizationProfile.json()).organization.id,
+      "org-county",
+    );
+    const organizationRoles = await request(
+      "/api/organizations/org-county/roles",
+    );
+    assert.equal(organizationRoles.status, 200);
+
+    assert.deepEqual(
+      {
+        schemaVersion: database.prepare("PRAGMA schema_version").get()
+          .schema_version,
+        people: database.prepare("SELECT COUNT(*) AS count FROM people").get()
+          .count,
+        organizations: database
+          .prepare("SELECT COUNT(*) AS count FROM organizations")
+          .get().count,
+        auditEvents: database
+          .prepare("SELECT COUNT(*) AS count FROM audit_events")
+          .get().count,
+      },
+      before,
+    );
   });
 });
