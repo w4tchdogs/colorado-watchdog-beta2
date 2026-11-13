@@ -25,11 +25,13 @@ hosting environment remains unverified.
 
 ## M0-B local database foundation
 
-- `website/migrations/` contains ordered, checksummed SQL migrations for the
-  six Website tables: counties, accounts, identities, audit events, operations,
-  and checkpoints. The first migration seeds the public 64-county FIPS registry;
-  migration 0003 adds the Colorado `08` FIPS-prefix constraint without changing
-  the accepted M0-B migrations.
+- `website/migrations/` contains ordered, checksummed SQL migrations. The M0
+  migrations create counties, accounts, identities, audit events, operations,
+  and checkpoints. Migration 0004 adds the M1-A organization, county
+  affiliation, people, position, role-source, and person-role tables without
+  changing accepted M0 migrations. The first migration seeds the public
+  64-county FIPS registry; migration 0003 adds the Colorado `08` FIPS-prefix
+  constraint.
 - `src/database/migrations.ts` validates contiguous versions, stored checksums,
   and unmanaged or incompatible databases. Each migration and its history row
   is applied in a local SQLite transaction; changed applied migrations are
@@ -111,6 +113,12 @@ and tested using SQL.js only.
   the Website schema using its version convention. County organizations can
   retain their own structures; regional or partner offices can serve a county
   without being county departments.
+- **M1-A:** migration 0004 adds county-scoped organization hierarchies with
+  county-government records bound to their county, explicit reporting or
+  grouping relationships, separate regional/partner county affiliations,
+  people, positions, public role sources, and source-backed person-role
+  associations. These tables contain no seeded personnel data and have no
+  identity-merge, UI, or hosted-service behavior.
 - **M2:** add bounded reads and version-checked changesets, sync batches,
   duplicate flags, and reversible operations using versions, operations, and
   audit events through the shared service layer.

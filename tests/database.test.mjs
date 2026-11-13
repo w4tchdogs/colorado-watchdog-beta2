@@ -120,7 +120,7 @@ test("migrations produce the same schema and are safe to reapply", async () => {
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
           .count,
-        3,
+        4,
       );
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM counties").get().count,
@@ -241,7 +241,7 @@ test("foreign keys, enum checks, and JSON checks reject invalid values", async (
   });
 });
 
-test("Website schema contains only its six tables and no research records", async () => {
+test("Website schema contains only the M0 and M1-A tables, with no research records", async () => {
   await withDatabase((database) => {
     migrate(database);
     const tables = database
@@ -257,6 +257,12 @@ test("Website schema contains only its six tables and no research records", asyn
       "counties",
       "identities",
       "operations",
+      "organization_county_affiliations",
+      "organizations",
+      "people",
+      "person_roles",
+      "positions",
+      "role_sources",
       "schema_migrations",
     ]);
 
@@ -266,6 +272,12 @@ test("Website schema contains only its six tables and no research records", asyn
       "checkpoints",
       "identities",
       "operations",
+      "organization_county_affiliations",
+      "organizations",
+      "people",
+      "person_roles",
+      "positions",
+      "role_sources",
     ]) {
       assert.equal(
         database.prepare(`SELECT COUNT(*) AS count FROM "${table}"`).get()
@@ -273,6 +285,157 @@ test("Website schema contains only its six tables and no research records", asyn
         0,
       );
     }
+  });
+});
+
+test("county organizations keep independent hierarchies and regional affiliations separate", async () => {
+  await withDatabase((database) => {
+    migrate(database);
+    assert.throws(() =>
+      database
+        .prepare(
+          "INSERT INTO organizations (id, name, organization_type) VALUES ('unscoped-county-government', 'Invalid County Government', 'county_government')",
+        )
+        .run(),
+    );
+    database
+      .prepare(
+        `INSERT INTO organizations
+           (id, name, organization_type, county_fips, parent_organization_id, parent_relationship)
+         VALUES
+           ('adams-government', 'Synthetic Adams County', 'county_government', '08001', NULL, NULL),
+           ('adams-health', 'Synthetic Health Department', 'department', '08001', 'adams-government', 'reports_to'),
+           ('boulder-government', 'Synthetic Boulder County', 'county_government', '08013', NULL, NULL),
+           ('regional-health', 'Synthetic Regional Health Office', 'regional', NULL, NULL, NULL),
+           ('partner-dispatch', 'Synthetic Shared Dispatch Partner', 'partner', NULL, NULL, NULL)`,
+      )
+      .run();
+
+    assert.throws(() =>
+      database
+        .prepare(
+          `INSERT INTO organizations
+             (id, name, organization_type, county_fips, parent_organization_id, parent_relationship)
+           VALUES ('cross-county-child', 'Invalid Child', 'office', '08001', 'boulder-government', 'grouped_under')`,
+        )
+        .run(),
+    );
+    assert.throws(() =>
+      database
+        .prepare(
+          "UPDATE organizations SET parent_organization_id = 'adams-health', parent_relationship = 'grouped_under' WHERE id = 'adams-government'",
+        )
+        .run(),
+    );
+    assert.throws(() =>
+      database
+        .prepare(
+          "UPDATE organizations SET county_fips = '08013' WHERE id = 'adams-government'",
+        )
+        .run(),
+    );
+
+    database
+      .prepare(
+        `INSERT INTO organization_county_affiliations
+           (id, organization_id, county_fips, relationship_type)
+         VALUES
+           ('regional-adams', 'regional-health', '08001', 'serves'),
+           ('dispatch-adams', 'partner-dispatch', '08001', 'shared_service'),
+           ('dispatch-boulder', 'partner-dispatch', '08013', 'shared_service')`,
+      )
+      .run();
+
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM organization_county_affiliations WHERE organization_id = 'partner-dispatch'",
+        )
+        .get().count,
+      2,
+    );
+    assert.equal(
+      database
+        .prepare("SELECT parent_relationship FROM organizations WHERE id = ?")
+        .get("adams-health").parent_relationship,
+      "reports_to",
+    );
+  });
+});
+
+test("person roles require a public source and retain stable relational IDs", async () => {
+  await withDatabase((database) => {
+    migrate(database);
+    database
+      .prepare(
+        `INSERT INTO organizations (id, name, organization_type, county_fips)
+         VALUES ('synthetic-office', 'Synthetic County Office', 'office', '08001')`,
+      )
+      .run();
+    database
+      .prepare(
+        "INSERT INTO people (id, display_name) VALUES ('synthetic-person-1', 'Synthetic Person')",
+      )
+      .run();
+    database
+      .prepare(
+        "INSERT INTO positions (id, organization_id, title) VALUES ('synthetic-position-1', 'synthetic-office', 'Synthetic Clerk')",
+      )
+      .run();
+
+    assert.throws(() =>
+      database
+        .prepare(
+          `INSERT INTO role_sources (id, url, title, source_type)
+           VALUES ('invalid-source', 'file:///private/person.html', 'Private File', 'official_page')`,
+        )
+        .run(),
+    );
+    database
+      .prepare(
+        `INSERT INTO role_sources (id, url, title, source_type)
+         VALUES ('synthetic-source-1', 'https://county.example.test/clerk', 'Synthetic Official Directory', 'official_page')`,
+      )
+      .run();
+    assert.throws(() =>
+      database
+        .prepare(
+          `INSERT INTO person_roles
+             (id, person_id, position_id, source_id, start_date, end_date, source_checked_at)
+           VALUES ('invalid-date-range', 'synthetic-person-1', 'synthetic-position-1', 'synthetic-source-1', '2026-01-01', '2025-01-01', '2026-11-13T00:00:00Z')`,
+        )
+        .run(),
+    );
+    assert.throws(() =>
+      database
+        .prepare(
+          `INSERT INTO person_roles
+             (id, person_id, position_id, source_id, source_checked_at)
+           VALUES ('role-without-source', 'synthetic-person-1', 'synthetic-position-1', 'missing-source', '2026-11-13T00:00:00Z')`,
+        )
+        .run(),
+    );
+    database
+      .prepare(
+        `INSERT INTO person_roles
+           (id, person_id, position_id, source_id, start_date, source_checked_at)
+         VALUES ('synthetic-role-1', 'synthetic-person-1', 'synthetic-position-1', 'synthetic-source-1', '2026-01-01', '2026-11-13T00:00:00Z')`,
+      )
+      .run();
+
+    assert.deepEqual(
+      database
+        .prepare(
+          "SELECT person_id, position_id, source_id, version FROM person_roles WHERE id = ?",
+        )
+        .get("synthetic-role-1"),
+      {
+        person_id: "synthetic-person-1",
+        position_id: "synthetic-position-1",
+        source_id: "synthetic-source-1",
+        version: 1,
+      },
+    );
   });
 });
 
@@ -306,6 +469,110 @@ test("versioned writes increment once and stale versions leave the row unchanged
           "UPDATE accounts SET display_name = 'Skipped version' WHERE id = 'test-human'",
         )
         .run(),
+    );
+  });
+});
+
+test("M1-A rows use optimistic writes and reject skipped versions", async () => {
+  await withDatabase((database) => {
+    migrate(database);
+    database
+      .prepare(
+        "INSERT INTO people (id, display_name) VALUES ('person-1', 'Synthetic Person')",
+      )
+      .run();
+    database
+      .prepare(
+        "INSERT INTO people (id, display_name) VALUES ('person-2', 'Other Synthetic Person')",
+      )
+      .run();
+    database
+      .prepare(
+        "INSERT INTO organizations (id, name, organization_type) VALUES ('regional-1', 'Synthetic Regional Office', 'regional')",
+      )
+      .run();
+    database
+      .prepare(
+        "INSERT INTO positions (id, organization_id, title) VALUES ('position-1', 'regional-1', 'Synthetic Role')",
+      )
+      .run();
+    database
+      .prepare(
+        "INSERT INTO organization_county_affiliations (id, organization_id, county_fips, relationship_type) VALUES ('affiliation-1', 'regional-1', '08001', 'serves')",
+      )
+      .run();
+    database
+      .prepare(
+        "INSERT INTO role_sources (id, url, title, source_type) VALUES ('source-1', 'https://regional.example.test/roles', 'Synthetic Roles', 'public_document')",
+      )
+      .run();
+    database
+      .prepare(
+        "INSERT INTO person_roles (id, person_id, position_id, source_id, source_checked_at) VALUES ('role-1', 'person-1', 'position-1', 'source-1', '2026-11-13T00:00:00Z')",
+      )
+      .run();
+
+    assert.equal(
+      updateVersionedRow(database, "organizations", "regional-1", 1, {
+        name: "Updated Synthetic Regional Office",
+      }),
+      2,
+    );
+    assert.equal(
+      updateVersionedRow(
+        database,
+        "organization_county_affiliations",
+        "affiliation-1",
+        1,
+        {
+          relationship_type: "shared_service",
+        },
+      ),
+      2,
+    );
+    assert.equal(
+      updateVersionedRow(database, "people", "person-1", 1, {
+        display_name: "Updated Synthetic Person",
+      }),
+      2,
+    );
+    assert.equal(
+      updateVersionedRow(database, "positions", "position-1", 1, {
+        title: "Updated Synthetic Role",
+      }),
+      2,
+    );
+    assert.equal(
+      updateVersionedRow(database, "role_sources", "source-1", 1, {
+        title: "Updated Synthetic Roles",
+      }),
+      2,
+    );
+    assert.equal(
+      updateVersionedRow(database, "person_roles", "role-1", 1, {
+        source_checked_at: "2026-11-13T01:00:00Z",
+      }),
+      2,
+    );
+    assert.throws(
+      () =>
+        updateVersionedRow(database, "person_roles", "role-1", 1, {
+          source_checked_at: "2026-11-13T02:00:00Z",
+        }),
+      StaleVersionError,
+    );
+    assert.throws(() =>
+      database
+        .prepare("UPDATE person_roles SET source_checked_at = ? WHERE id = ?")
+        .run("2026-11-13T03:00:00Z", "role-1"),
+    );
+    assert.equal(
+      database
+        .prepare(
+          "SELECT source_checked_at, version FROM person_roles WHERE id = ?",
+        )
+        .get("role-1").version,
+      2,
     );
   });
 });

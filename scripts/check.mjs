@@ -19,7 +19,7 @@ const allowed = new Set([
   'src/database/versioned-writes.ts', 'src/services/security.ts',
   'src/services/audit.ts', 'src/services/accounts.ts', 'src/services/operations.ts',
   'website/migrations/0001_counties.sql', 'website/migrations/0002_foundation.sql',
-  'website/migrations/0003_county_fips_prefix.sql',
+  'website/migrations/0003_county_fips_prefix.sql', 'website/migrations/0004_m1_county_roles.sql',
   'tests/application.test.mjs', 'tests/database.test.mjs',
   'tests/security.test.mjs', 'tests/harness.test.mjs',
   'src/contracts/checkpoints.ts', 'src/local/checkpoints/core.ts',
