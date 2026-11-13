@@ -150,8 +150,9 @@ def _connection_evidence_rows(db, county_fips):
 
 def _identity_connection_edges(db, county_fips, rows, *, planned_sources, allow_planned_sources):
     candidates = [row for row in rows if _active_batch(row) and _is_person_name(row["published_name"])
-                 and _direct_name_role(row) and (row["official_status"] == "official" or
-                                                 (allow_planned_sources and row["source_id"] in planned_sources))]
+                 and (row["official_status"] == "official" or
+                      (allow_planned_sources and row["source_id"] in planned_sources))
+                 and _direct_name_role(row)]
     by_name = defaultdict(list)
     for row in candidates:
         by_name[row["published_name"]].append(row)
@@ -209,6 +210,10 @@ def _identity_connection_edges(db, county_fips, rows, *, planned_sources, allow_
 
 def _source_proposals(db):
     sources = list(db.execute("SELECT id,original_url,official_status FROM sources ORDER BY id"))
+    eligible_sources = {source["id"] for source in sources
+                        if source["official_status"] == "unknown" and _official_host(source["original_url"])}
+    if not eligible_sources:
+        return []
     claims = db.execute(
         "SELECT c.id,c.county_fips,c.evidence_id,c.published_name,c.published_title,c.responsibility,"
         "e.source_id,e.raw_record_json,e.quotation,e.observed_title FROM role_claims c "
@@ -216,11 +221,11 @@ def _source_proposals(db):
     )
     proof = {}
     for row in claims:
-        if row["source_id"] not in proof and _direct_name_role(row):
+        if row["source_id"] in eligible_sources and row["source_id"] not in proof and _direct_name_role(row):
             proof[row["source_id"]] = row["evidence_id"]
     proposals = []
     for source in sources:
-        if source["official_status"] != "unknown" or not _official_host(source["original_url"]):
+        if source["id"] not in eligible_sources:
             continue
         evidence_id = proof.get(source["id"])
         if evidence_id is None:
