@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import stat
 import struct
 import tempfile
 from contextlib import closing
@@ -248,14 +249,16 @@ def _is_reparse(path):
         details = path.lstat()
     except FileNotFoundError:
         return False
-    return path.is_symlink() or bool(getattr(details, "st_file_attributes", 0) & 0x400)
+    return stat.S_ISLNK(details.st_mode) or bool(getattr(details, "st_file_attributes", 0) & 0x400)
 
 
 def _explicit_external_path(value, label, *, must_exist=False):
     raw = Path(value)
     if not raw.is_absolute() or ".." in raw.parts:
         raise ValueError(f"{label} must be an explicit absolute path without traversal")
-    for component in reversed((raw, *raw.parents)):
+    # Inspect each lexical component before resolving; resolve() would follow
+    # a symlink and hide the unsafe path the caller actually supplied.
+    for component in (raw, *raw.parents):
         if _is_reparse(component):
             raise ValueError(f"{label} cannot include symbolic links or reparse points")
     path = raw.resolve(strict=must_exist)
