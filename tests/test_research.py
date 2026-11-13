@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import shutil
 import tempfile
 import unittest
 import subprocess
@@ -112,14 +113,14 @@ class MigrationTests(DatabaseCase):
         with self.assertRaisesRegex(ValueError, "Foreign keys"):
             migrate(self.db)
         self.db.execute("PRAGMA foreign_keys=ON")
-        self.db.execute("PRAGMA user_version=2")
+        self.db.execute("PRAGMA user_version=3")
         with self.assertRaisesRegex(ValueError, "Schema version"):
             migrate(self.db)
 
-    def test_nineteen_domain_tables_and_integrity(self):
+    def test_twenty_domain_tables_and_integrity(self):
         tables = {r[0] for r in self.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        self.assertEqual(len(tables - {"schema_migrations"}), 19)
-        self.assertEqual(validate_database(self.db), {"integrity": "ok", "foreign_keys": [], "schema_version": 1})
+        self.assertEqual(len(tables - {"schema_migrations"}), 20)
+        self.assertEqual(validate_database(self.db), {"integrity": "ok", "foreign_keys": [], "schema_version": 2})
         self.assertEqual(self.db.execute("PRAGMA foreign_keys").fetchone()[0], 1)
 
     def test_repeat_migration_preserves_rows(self):
@@ -130,8 +131,10 @@ class MigrationTests(DatabaseCase):
 
     def test_changed_migration_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "001_foundation.sql"
-            path.write_text(MIGRATIONS.joinpath(path.name).read_text() + "\n-- changed\n")
+            for migration in MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql"):
+                shutil.copyfile(migration, Path(directory, migration.name))
+            path = Path(directory, "001_foundation.sql")
+            path.write_text(path.read_text() + "\n-- changed\n")
             with self.assertRaisesRegex(ValueError, "changed"):
                 migrate(self.db, directory)
 
