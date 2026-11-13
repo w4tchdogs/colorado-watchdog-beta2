@@ -61,6 +61,22 @@ def parser_for():
     associate.add_argument("--rationale", required=True)
     associate.add_argument("--actor", required=True)
 
+    bootstrap = database_command("bootstrap-person", "create a source-supported person and assign one claim atomically")
+    bootstrap.add_argument("--county-fips", required=True)
+    bootstrap.add_argument("--claim-id", required=True)
+    bootstrap.add_argument("--published-name", required=True)
+    bootstrap.add_argument("--evidence-id", required=True)
+    bootstrap.add_argument("--actor", required=True)
+    bootstrap.add_argument("--rationale", required=True)
+
+    variant = database_command("add-name-variant", "record an evidence-linked name form for an existing person")
+    variant.add_argument("--person-id", required=True)
+    variant.add_argument("--published-name", required=True)
+    variant.add_argument("--kind", choices=("published", "nickname", "former", "alternative"), required=True)
+    variant.add_argument("--evidence-id", required=True)
+    variant.add_argument("--actor", required=True)
+    variant.add_argument("--rationale", required=True)
+
     visit = database_command("record-visit", "record a source visit or attempt without fetching")
     visit.add_argument("--source-id", required=True)
     visit.add_argument("--run-id", required=True)
@@ -170,6 +186,15 @@ def main(argv=None):
                     result = operator.associate_claim(db, claim_id=args.claim_id, person_id=args.person_id,
                                                       evidence_id=args.evidence_id, rationale=args.rationale,
                                                       actor=args.actor)
+                elif args.command == "bootstrap-person":
+                    result = operator.bootstrap_person(db, county_fips=args.county_fips, claim_id=args.claim_id,
+                                                       published_name=args.published_name, evidence_id=args.evidence_id, actor=args.actor,
+                                                       rationale=args.rationale)
+                elif args.command == "add-name-variant":
+                    result = operator.add_name_variant(db, person_id=args.person_id,
+                                                       published_name=args.published_name, kind=args.kind,
+                                                       evidence_id=args.evidence_id, actor=args.actor,
+                                                       rationale=args.rationale)
                 elif args.command == "record-visit":
                     result = operator.record_visit(db, source_id=args.source_id, run_id=args.run_id,
                                                    provenance=args.provenance, outcome=args.outcome, actor=args.actor,

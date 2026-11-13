@@ -14,7 +14,8 @@ const allowed = new Set([
   'research/__init__.py', 'research/__main__.py', 'research/db.py',
   'research/mapping.py', 'research/store.py', 'research/operator.py', 'research/migrations/001_foundation.sql',
   'tests/__init__.py', 'tests/research_fixtures.py', 'tests/test_research.py', 'tests/test_legacy_contract.py',
-  'tests/test_operator.py', 'docs/research/R0-foundation.md', 'docs/research/R1-operator-interface.md',
+  'tests/test_operator.py', 'tests/test_identity_bootstrap.py', 'docs/research/R0-foundation.md',
+  'docs/research/R1-operator-interface.md', 'docs/research/R2-identity-bootstrap.md',
 ]);
 const staged = process.argv.includes('--staged');
 const git = (...args) => execFileSync('git', args, { maxBuffer: 2 * 1024 * 1024 });
