@@ -126,7 +126,7 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
                 "responsibility,source_listing_status,legacy_display_group,grouping_basis,department_label,"
                 "division_label,program_location,private_note,supersedes_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (claim_id, county, evidence_id, v["full_name"], v["title"] or None, v["responsibility"] or None,
-                 v["listing_status"], v["display_group"], v["grouping_basis"], v["department"], v["division"],
+                 ("Listed" if v["listing_status"] == "Listed in official source" else v["listing_status"]), v["display_group"], v["grouping_basis"], v["department"], v["division"],
                  v["program_location"], v["private_note"], parent_claim_id),
             )
         db.execute("INSERT INTO research_events VALUES (?,?,?,?,?,?,?,?,?)",

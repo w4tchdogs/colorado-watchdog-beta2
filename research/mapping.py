@@ -25,7 +25,7 @@ FIELDS_17 = (
 COUNTIES = dict(zip(
     [f"08{i:03d}" for i in range(1, 126, 2)] + ["08014"],
     ("Adams|Alamosa|Arapahoe|Archuleta|Baca|Bent|Boulder|Chaffee|Cheyenne|Clear Creek|"
-     "Conejos|Costilla|Crowley|Custer|Delta|Denver|Dolores|Douglas|Eagle|El Paso|Elbert|"
+     "Conejos|Costilla|Crowley|Custer|Delta|Denver|Dolores|Douglas|Eagle|Elbert|El Paso|"
      "Fremont|Garfield|Gilpin|Grand|Gunnison|Hinsdale|Huerfano|Jackson|Jefferson|Kiowa|"
      "Kit Carson|Lake|La Plata|Larimer|Las Animas|Lincoln|Logan|Mesa|Mineral|Moffat|"
      "Montezuma|Montrose|Morgan|Otero|Ouray|Park|Phillips|Pitkin|Prowers|Pueblo|Rio Blanco|"
@@ -100,8 +100,12 @@ def parse_csv(payload, version="legacy-17/v1", registry=None):
                 raise ValueError(f"Record {record_number}: county/FIPS mismatch")
             if not values["full_name"].strip():
                 raise ValueError(f"Record {record_number}: missing published name")
-            if values["listing_status"] not in ("Listed", "Explicitly former", "Unclear"):
+            if values["listing_status"] not in ("Listed in official source", "Explicitly former", "Unclear"):
                 raise ValueError(f"Record {record_number}: invalid listing status")
+            if values["grouping_basis"] is not None and values["grouping_basis"] not in (
+                "Official county structure", "Directory display fallback", "Needs editorial review",
+            ):
+                raise ValueError(f"Record {record_number}: invalid grouping basis")
             url = urlsplit(values["source_url"])
             if url.scheme not in ("http", "https") or not url.hostname or url.username or url.password:
                 raise ValueError(f"Record {record_number}: invalid source URL")

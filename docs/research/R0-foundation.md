@@ -37,7 +37,7 @@ County FIPS is the stable geographic key. The mapper includes the 64 public Colo
 
 ## Mapping and provenance
 
-`research.mapping.parse_csv` implements the report's exact ordered 17-column header as `legacy-17/v1`. It validates UTF-8/BOM, exact header/width, CSV quoting, county/FIPS agreement, published name, Listed/Explicitly former/Unclear status, HTTP(S) URLs without credentials, source-date precision and full checked dates. Blank titles and dates remain unknown. Source wording, grouping basis, names and notes remain unchanged. Grouping basis stays raw text: the two reports do not enumerate its full controlled vocabulary.
+`research.mapping.parse_csv` implements the report's exact ordered 17-column header as `legacy-17/v1`. It validates UTF-8/BOM, exact header/width, CSV quoting, county/FIPS agreement, published name, Listed in official source/Explicitly former/Unclear legacy status, HTTP(S) URLs without credentials, source-date precision and full checked dates. Blank titles and dates remain unknown. Source wording, grouping basis, names and notes remain unchanged. Grouping basis validates Official county structure, Directory display fallback and Needs editorial review. Source-specific display labels remain verbatim because supported source groupings vary. The legacy status Listed in official source maps explicitly to the internal Listed enum; raw evidence retains the exact legacy value. No migration or rewrite of existing observations is needed.
 
 Explicit `MappingSpec` registration supports future 11/16-column mappings. Their actual legacy contracts are not asserted or implemented here; tests use synthetic extension maps. Width is never guessed, mapping versions cannot be replaced, and replay rejects changed definitions under an existing version.
 
@@ -62,3 +62,7 @@ Claims start unassigned to people/units for later evidence-led screening; labels
 Routt fixtures exercise parent/subunit relationships and uncertain telemetry; Denver fixtures exercise appointed/navigation distinctions and complementary deliveries; Weld fixtures exercise nonadditive display corrections. These are invented mapping patterns, not real county validation.
 
 Next useful work: a bounded local operator interface for evidence-led person/claim association, source visits and coverage changes with transactional audit; then exact 11/16 mappings from authoritative contracts. Real intake, source fetching, AI screening, backups, multi-client concurrency, richer temporal relationships and Site exchange remain future implementation/testing work.
+
+## R0 legacy-contract follow-up
+
+The merged foundation was checked against the consolidated legacy reference. This follow-up corrects the Elbert/El Paso FIPS association, accepts the exact source-listing status, and rejects unsupported grouping-basis values before writes. It preserves the original migration checksum and raw source fields. Five regression tests extend the suite to 43 passing tests, including rejection without partial ingestion. Database contents remain synthetic only.

@@ -10,10 +10,10 @@ def observation(fips="08107", **changes):
     values = dict.fromkeys(FIELDS_17, "")
     values.update(
         county_fips=fips, county=COUNTIES[fips], full_name="Synthetic Rowan Example",
-        department="Fixture Services", title="Fixture Coordinator", listing_status="Listed",
+        department="Fixture Services", title="Fixture Coordinator", listing_status="Listed in official source",
         source_title="Invented directory", source_url=f"https://example.invalid/{fips}/directory",
         source_date="2025-03", checked_date="2026-11-12",
-        display_group="Illustrative display", grouping_basis="synthetic mapping case",
+        display_group="Illustrative display", grouping_basis="Official county structure",
         private_note="SYNTHETIC ONLY; no actual personnel or county hierarchy assertion.",
     )
     values.update(changes)
