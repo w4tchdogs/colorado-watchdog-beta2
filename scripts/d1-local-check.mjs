@@ -147,6 +147,65 @@ async function main() {
     migrationFile,
   ]);
 
+  const guardedTables = [
+    "accounts",
+    "identities",
+    "counties",
+    "organizations",
+    "organization_county_affiliations",
+    "people",
+    "positions",
+    "role_sources",
+    "person_roles",
+    "sync_batches",
+    "sync_batch_items",
+    "sync_batch_reversals",
+    "person_duplicate_flags",
+    "person_duplicate_flag_observations",
+    "audit_events",
+    "content_items",
+    "content_item_counties",
+    "content_item_people",
+    "content_item_organizations",
+    "content_revisions",
+    "guard_probe_writes",
+  ];
+  const guardTriggers = guardedTables.flatMap((table) =>
+    ["INSERT", "UPDATE", "DELETE"].map((operation) => {
+      const suffix = operation.toLowerCase();
+      return `CREATE TRIGGER guard_${table}_${suffix} AFTER ${operation} ON ${table}
+        BEGIN UPDATE transaction_guard SET generation = generation + 1 WHERE id = 1; END;`;
+    }),
+  );
+  const guardSetup = [
+    `CREATE TABLE transaction_guard (id INTEGER PRIMARY KEY CHECK (id = 1), generation INTEGER NOT NULL CHECK (generation >= 0)) STRICT;
+     INSERT INTO transaction_guard VALUES (1, 0);
+     CREATE TABLE transaction_guard_assertions (valid INTEGER NOT NULL CHECK (valid = 1)) STRICT;
+     CREATE TABLE guard_probe_writes (id TEXT PRIMARY KEY, label TEXT NOT NULL) STRICT;`,
+    `INSERT INTO accounts (id, kind, role, display_name)
+       VALUES ('d1-guard-shared', 'human', 'administrator', 'Shared versioned record');`,
+    ...Array.from({ length: 8 }, (_, index) => {
+      const key = `case-${index}`;
+      return `INSERT INTO accounts (id, kind, role, display_name) VALUES ('d1-guard-actor-${key}', 'human', 'administrator', 'Synthetic guard actor');
+        INSERT INTO organizations (id, name, organization_type, county_fips) VALUES ('d1-guard-org-${key}', 'Synthetic guard organization', 'county_government', '08001');`;
+    }),
+    ...guardTriggers,
+  ].join("\n");
+  const guardFile = join(persist, "transaction-guard-fixture.sql");
+  writeFileSync(guardFile, guardSetup);
+  runWrangler([
+    "d1",
+    "execute",
+    "DB",
+    "--config",
+    config,
+    "--local",
+    "--persist-to",
+    persist,
+    "--file",
+    guardFile,
+  ]);
+
   // A second independent local store exercises the empty-database path.
   const freshPersist = join(persist, "fresh-database");
   mkdirSync(freshPersist);
@@ -247,6 +306,86 @@ async function main() {
       );
     }
     if (!checks.ok || !detail.success) throw new Error(JSON.stringify(detail));
+
+    const races = [
+      ["organization", "county hierarchy/row version"],
+      ["relationship", "missing related position appeared"],
+      ["source", "unique source URL inserted"],
+      ["affiliation", "county affiliation inserted"],
+      ["account", "actor became inactive"],
+      ["idempotency", "actor-scoped idempotency key claimed"],
+    ];
+    for (const [index, [mode, label]] of races.entries()) {
+      const key = `case-${index}`;
+      const planned = fetch(
+        `${base}/guard/plan?key=${key}${mode === "organization" ? "&row=organization" : ""}`,
+        { method: "POST" },
+      );
+      const changed = fetch(`${base}/guard/change?key=${key}&mode=${mode}`, {
+        method: "POST",
+      });
+      const [planResponse, changeResponse] = await Promise.all([
+        planned,
+        changed,
+      ]);
+      const outcome = await planResponse.json();
+      if (
+        changeResponse.status !== 200 ||
+        planResponse.status !== 409 ||
+        outcome.committed
+      ) {
+        throw new Error(
+          `Guard failed to reject ${label}: ${JSON.stringify(outcome)}`,
+        );
+      }
+      const state = await (
+        await fetch(`${base}/guard/state?key=${key}`)
+      ).json();
+      if (state.planned !== 0 || state.audit !== 0) {
+        throw new Error(`Stale ${label} left partial writes or audit`);
+      }
+      if (
+        mode === "organization" &&
+        (state.org_version !== 2 ||
+          state.org_name !== "Changed after planner read")
+      ) {
+        throw new Error(
+          "Stale same-record writer overwrote the competing version",
+        );
+      }
+      console.log(
+        `PASS transaction guard rejects stale ${label} and rolls back writes/audit`,
+      );
+      if (mode === "organization") {
+        console.log(
+          "PASS competing version-1 organization update is preserved; stale same-row update is rejected",
+        );
+      }
+    }
+    const successKey = "case-6";
+    const successPlan = fetch(`${base}/guard/plan?key=${successKey}`, {
+      method: "POST",
+    });
+    const release = fetch(`${base}/guard/release?key=${successKey}`, {
+      method: "POST",
+    });
+    const [successResponse] = await Promise.all([successPlan, release]);
+    const successState = await (
+      await fetch(`${base}/guard/state?key=${successKey}`)
+    ).json();
+    if (
+      !successResponse.ok ||
+      successState.planned !== 1 ||
+      successState.audit !== 1
+    ) {
+      throw new Error(
+        "Guarded successful batch did not preserve its write and audit",
+      );
+    }
+    console.log(
+      "PASS guarded D1 batch commits expected write and audit together",
+    );
+
     const write = await fetch(`${base}/write`, { method: "POST" });
     const inserted = await write.json();
     const read = await fetch(`${base}/read`);

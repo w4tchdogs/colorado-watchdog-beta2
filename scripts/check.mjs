@@ -120,6 +120,7 @@ const allowed = new Set([
   "docs/architecture/site-foundation.md",
   "docs/architecture/site-sync-contract.md",
   "docs/architecture/d1-readiness.md",
+  "docs/architecture/m2-g0-transaction-guard.md",
   "research/__init__.py",
   "research/__main__.py",
   "research/backup.py",
