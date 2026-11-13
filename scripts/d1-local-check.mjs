@@ -180,7 +180,7 @@ async function main() {
   const guardSetup = [
     `CREATE TABLE transaction_guard (id INTEGER PRIMARY KEY CHECK (id = 1), generation INTEGER NOT NULL CHECK (generation >= 0)) STRICT;
      INSERT INTO transaction_guard VALUES (1, 0);
-     CREATE TABLE transaction_guard_assertions (valid INTEGER NOT NULL CHECK (valid = 1)) STRICT;
+     CREATE TABLE transaction_guard_assertions (id INTEGER PRIMARY KEY CHECK (id = 1), valid INTEGER NOT NULL CHECK (valid = 1)) STRICT;
      CREATE TABLE guard_probe_writes (id TEXT PRIMARY KEY, label TEXT NOT NULL) STRICT;`,
     `INSERT INTO accounts (id, kind, role, display_name)
        VALUES ('d1-guard-shared', 'human', 'administrator', 'Shared versioned record');`,
@@ -317,17 +317,17 @@ async function main() {
     ];
     for (const [index, [mode, label]] of races.entries()) {
       const key = `case-${index}`;
-      const planned = fetch(
-        `${base}/guard/plan?key=${key}${mode === "organization" ? "&row=organization" : ""}`,
+      const snapshot = await (
+        await fetch(`${base}/guard/snapshot`, { method: "POST" })
+      ).json();
+      const changeResponse = await fetch(
+        `${base}/guard/change?key=${key}&mode=${mode}`,
         { method: "POST" },
       );
-      const changed = fetch(`${base}/guard/change?key=${key}&mode=${mode}`, {
-        method: "POST",
-      });
-      const [planResponse, changeResponse] = await Promise.all([
-        planned,
-        changed,
-      ]);
+      const planResponse = await fetch(
+        `${base}/guard/commit?key=${key}&generation=${snapshot.generation}${mode === "organization" ? "&row=organization" : ""}`,
+        { method: "POST" },
+      );
       const outcome = await planResponse.json();
       if (
         changeResponse.status !== 200 ||
@@ -341,7 +341,7 @@ async function main() {
       const state = await (
         await fetch(`${base}/guard/state?key=${key}`)
       ).json();
-      if (state.planned !== 0 || state.audit !== 0) {
+      if (state.planned !== 0 || state.audit !== 0 || state.assertions !== 0) {
         throw new Error(`Stale ${label} left partial writes or audit`);
       }
       if (
@@ -362,21 +362,50 @@ async function main() {
         );
       }
     }
+    const sameVersion = await (
+      await fetch(`${base}/guard/snapshot`, { method: "POST" })
+    ).json();
+    const firstWriter = await fetch(
+      `${base}/guard/commit?key=case-7a&generation=${sameVersion.generation}&row=organization&target=case-7`,
+      { method: "POST" },
+    );
+    const secondWriter = await fetch(
+      `${base}/guard/commit?key=case-7b&generation=${sameVersion.generation}&row=organization&target=case-7`,
+      { method: "POST" },
+    );
+    const [firstOutcome, secondOutcome] = await Promise.all([
+      firstWriter.json(),
+      secondWriter.json(),
+    ]);
+    if (
+      !firstOutcome.committed ||
+      secondWriter.status !== 409 ||
+      secondOutcome.committed
+    ) {
+      throw new Error(
+        "Same-version writers did not produce one guarded winner",
+      );
+    }
+    console.log(
+      "PASS two requests planned at one version: first writer commits, second writer is rejected",
+    );
+
     const successKey = "case-6";
-    const successPlan = fetch(`${base}/guard/plan?key=${successKey}`, {
-      method: "POST",
-    });
-    const release = fetch(`${base}/guard/release?key=${successKey}`, {
-      method: "POST",
-    });
-    const [successResponse] = await Promise.all([successPlan, release]);
+    const successSnapshot = await (
+      await fetch(`${base}/guard/snapshot`, { method: "POST" })
+    ).json();
+    const successResponse = await fetch(
+      `${base}/guard/commit?key=${successKey}&generation=${successSnapshot.generation}`,
+      { method: "POST" },
+    );
     const successState = await (
       await fetch(`${base}/guard/state?key=${successKey}`)
     ).json();
     if (
       !successResponse.ok ||
       successState.planned !== 1 ||
-      successState.audit !== 1
+      successState.audit !== 1 ||
+      successState.assertions !== 0
     ) {
       throw new Error(
         "Guarded successful batch did not preserve its write and audit",

@@ -4,60 +4,40 @@ const json = (value, status = 200) =>
     headers: { "content-type": "application/json" },
   });
 
-const guardWaiters = new Map();
-
-function waiter(key) {
-  let entry = guardWaiters.get(key);
-  if (!entry) {
-    let ready;
-    let released;
-    entry = {
-      ready: new Promise((resolve) => (ready = resolve)),
-      released: new Promise((resolve) => (released = resolve)),
-      markReady: () => ready(),
-      release: () => released(),
-    };
-    guardWaiters.set(key, entry);
-  }
-  return entry;
-}
-
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === "/guard/plan" && request.method === "POST") {
+    if (url.pathname === "/guard/snapshot" && request.method === "POST") {
+      return json(
+        await env.DB.prepare(
+          "SELECT generation FROM transaction_guard WHERE id = 1",
+        ).first(),
+      );
+    }
+    if (url.pathname === "/guard/commit" && request.method === "POST") {
       const key = url.searchParams.get("key");
       if (!key) return json({ error: "key required" }, 400);
-      const gate = waiter(key);
-      const snapshot = await env.DB.prepare(
-        "SELECT generation FROM transaction_guard WHERE id = 1",
-      ).first();
-      gate.markReady();
-      await gate.released;
+      const generation = Number(url.searchParams.get("generation"));
+      if (!Number.isSafeInteger(generation) || generation < 0) {
+        return json({ error: "generation required" }, 400);
+      }
       try {
         const statements = [
-          env.DB.prepare(`INSERT INTO transaction_guard_assertions (valid)
-            SELECT generation = ? FROM transaction_guard WHERE id = 1`).bind(
-            snapshot.generation,
+          env.DB.prepare(`INSERT INTO transaction_guard_assertions (id, valid)
+            SELECT 1, generation = ? FROM transaction_guard WHERE id = 1`).bind(
+            generation,
           ),
           env.DB.prepare(
             "INSERT INTO guard_probe_writes (id, label) VALUES (?, ?)",
           ).bind(`planned-${key}`, "planned write"),
         ];
-        if (url.searchParams.get("row") === "shared") {
-          statements.push(
-            env.DB.prepare(`UPDATE accounts
-            SET display_name = ?, version = version + 1
-            WHERE id = 'd1-guard-shared' AND version = 1`).bind(
-              `writer-${key}`,
-            ),
-          );
-        }
         if (url.searchParams.get("row") === "organization") {
           statements.push(
             env.DB.prepare(`UPDATE organizations
               SET name = 'Planned update', version = version + 1
-              WHERE id = ? AND version = 1`).bind(`d1-guard-org-${key}`),
+              WHERE id = ? AND version = 1`).bind(
+              `d1-guard-org-${url.searchParams.get("target") ?? key}`,
+            ),
           );
         }
         statements.push(
@@ -69,23 +49,19 @@ export default {
             `planned-${key}`,
           ),
         );
+        statements.push(
+          env.DB.prepare(
+            "DELETE FROM transaction_guard_assertions WHERE id = 1",
+          ),
+        );
         await env.DB.batch(statements);
         return json({ committed: true });
       } catch {
         return json({ committed: false, reason: "stale_dependency" }, 409);
-      } finally {
-        // Keep the resolved barrier until the harness finishes its paired release requests.
       }
-    }
-    if (url.pathname === "/guard/ready") {
-      const gate = waiter(url.searchParams.get("key"));
-      await gate.ready;
-      return json({ ready: true });
     }
     if (url.pathname === "/guard/change" && request.method === "POST") {
       const key = url.searchParams.get("key");
-      const gate = waiter(key);
-      await gate.ready;
       const mode = url.searchParams.get("mode") ?? "organization";
       if (mode === "account") {
         await env.DB.prepare(
@@ -131,14 +107,7 @@ export default {
           .bind(`d1-guard-org-${key}`)
           .run();
       }
-      gate.release();
       return json({ changed: true, mode });
-    }
-    if (url.pathname === "/guard/release" && request.method === "POST") {
-      const gate = waiter(url.searchParams.get("key"));
-      await gate.ready;
-      gate.release();
-      return json({ released: true });
     }
     if (url.pathname === "/guard/state") {
       const key = url.searchParams.get("key");
@@ -146,6 +115,7 @@ export default {
         await env.DB.prepare(`SELECT
         (SELECT COUNT(*) FROM guard_probe_writes WHERE id = ?) AS planned,
         (SELECT COUNT(*) FROM audit_events WHERE id = ?) AS audit,
+        (SELECT COUNT(*) FROM transaction_guard_assertions) AS assertions,
         (SELECT version FROM organizations WHERE id = ?) AS org_version,
         (SELECT name FROM organizations WHERE id = ?) AS org_name,
         generation FROM transaction_guard WHERE id = 1`)

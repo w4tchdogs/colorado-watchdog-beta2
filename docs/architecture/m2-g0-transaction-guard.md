@@ -14,8 +14,9 @@ a single monotonically increasing Website dependency generation. Database
 triggers advance it on every insert, update, and delete in the tables that can
 affect a sync decision. Planning reads the generation before its async lookups.
 The commit batch begins with an insert-select assertion against the captured
-generation into a table whose `CHECK (valid = 1)` makes a mismatch fail. The
-same D1 batch then contains all writes, batch/item results, duplicate flags,
+generation into a one-row table whose `CHECK (valid = 1)` makes a mismatch fail.
+The batch deletes that assertion row after writing; rollback also removes it.
+The same D1 batch contains all writes, batch/item results, duplicate flags,
 generation-changing triggers, and the audit row. A concurrent change committed
 before the batch makes the assertion fail; one ordered after it sees a complete
 commit. D1's batch transaction supplies the serialization point. No Worker
@@ -57,18 +58,19 @@ proof.
 
 ## Local race evidence
 
-The disposable local Wrangler Worker test uses independent HTTP requests and a
-barrier after the planning read. It verifies:
+The disposable local Wrangler Worker test coordinates distinct HTTP requests
+in a deterministic read/change/commit order. It verifies:
 
-- Two independent Worker requests read the same version-1 organization. One
-  updates it while the other is paused before its guarded same-row update; the
-  stale writer rejects, rolls back its audit, and leaves the competing version
-  intact.
+- A planner reads a version-1 organization, a second request updates it, and
+  the first request's guarded same-row update rejects without overwriting the
+  competing version.
 - A hierarchy row/version change, newly inserted related position, new source
   URL, new county affiliation, actor deactivation, and competing actor-scoped
   idempotency key each invalidate the captured generation.
 - Every failed assertion rolls back the probe write and audit together.
 - A successful assertion commits its write and audit together.
+- Two commit requests using one captured generation and row version produce
+  one complete winner and one stale-generation rejection.
 
 These are local Wrangler/workerd results, not hosted D1 results. The proof
 establishes the trigger-plus-batch mechanism for the synthetic mutations above;
