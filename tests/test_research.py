@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
 
 from research.db import connect, migrate, validate_database, MIGRATIONS
@@ -123,18 +124,19 @@ class MigrationTests(DatabaseCase):
                 migrate(self.db, directory)
 
     def test_failed_migration_is_atomic(self):
-        with tempfile.TemporaryDirectory() as directory, connect() as db:
-            Path(directory, "001_bad.sql").write_text("CREATE TABLE partial(id TEXT); INVALID SQL;")
-            with self.assertRaises(sqlite3.OperationalError):
-                migrate(db, directory)
-            self.assertEqual(db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall(), [])
+        with tempfile.TemporaryDirectory() as directory:
+            with closing(connect()) as db:
+                Path(directory, "001_bad.sql").write_text("CREATE TABLE partial(id TEXT); INVALID SQL;")
+                with self.assertRaises(sqlite3.OperationalError):
+                    migrate(db, directory)
+                self.assertEqual(db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall(), [])
 
     def test_unknown_history_and_unmanaged_database_rejected(self):
         self.db.execute("INSERT INTO schema_migrations VALUES ('999_future.sql','fake')")
         self.db.commit()
         with self.assertRaisesRegex(ValueError, "history"):
             migrate(self.db)
-        with connect() as db:
+        with closing(connect()) as db:
             db.execute("CREATE TABLE external_data(id TEXT)")
             with self.assertRaisesRegex(ValueError, "unmanaged"):
                 migrate(db)
