@@ -120,7 +120,7 @@ test("migrations produce the same schema and are safe to reapply", async () => {
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
           .count,
-        6,
+        7,
       );
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM counties").get().count,
@@ -260,6 +260,7 @@ test("Website schema includes M0, M1-A and M2-D tables without Profiles records"
       "organization_county_affiliations",
       "organizations",
       "people",
+      "person_duplicate_flags",
       "person_roles",
       "positions",
       "role_sources",
@@ -278,6 +279,7 @@ test("Website schema includes M0, M1-A and M2-D tables without Profiles records"
       "organization_county_affiliations",
       "organizations",
       "people",
+      "person_duplicate_flags",
       "person_roles",
       "positions",
       "role_sources",

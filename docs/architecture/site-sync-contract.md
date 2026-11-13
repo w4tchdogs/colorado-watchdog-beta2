@@ -16,6 +16,12 @@ The batch result is retained for replay after closing and reopening a file-backe
 
 M2-C retains compact inverse metadata: created/reused distinction, entity and Website ID, committed version, changed prior field values and version for updates, item order and dependencies. M2-D adds actor-scoped read-only result lookup and local atomic reversal. Reversal state is additive and does not mutate the committed batch. Committed idempotency, inverse, and reversal records have no automatic expiry or pruning.
 
+M2-E adds migration `0007_m2_duplicate_flags.sql` and the internal `src/services/duplicate-flags.ts`. At commit, flags that passed the unchanged M2-B planner are stored in the same transaction as their batch: temporary person and source references resolve to Website IDs, and each flag keeps its originating batch and actor, its bounded reason and resolved evidence source IDs. One row exists per unordered person pair, so a pair reported again (same or reversed order, or by another batch) is left exactly as it is and never reopens or overrides a `dismissed` or `resolved` decision. Exact commit replay returns before planning and writes nothing. Flags never match, merge, delete or rewrite people, and names are never compared.
+
+Status is `open`, `dismissed` or `resolved`. `transitionDuplicateFlag` requires an active trusted principal, the flag ID, the expected version and a new status that differs from the current one. Any status may move to any other, so a decision can be deliberately reopened. Flags are readable and changeable only by the account whose batch created them, and other accounts see `not_found`. Creation, status changes and removal are written to the append-only audit table (`duplicate_flag.create`, `duplicate_flag.transition`, `duplicate_flag.remove`) with the actor, in the same transaction as the change. The commit audit row also counts flags created and already existing.
+
+M2-D reversal removes the still-`open` flags its batch created, with audit rows, before reversing records. It fails closed with `reversal_blocked` and changes nothing when any flag from the batch has been dismissed or resolved (reopen it first), when a flag from another batch references a person the batch created, or when another batch's flag cites a source the batch created. Reversal therefore cannot leave orphaned flags, lose a recorded decision, or report success falsely. A pair's flag belongs to the batch that first reported it. The lifecycle remains internal, with no capability, route or application service.
+
 This remains a local fictional-data foundation. It does not enable production callers, add sync capabilities, expose batch-result lookup, certify D1 transaction semantics, or implement hosted concurrency. `source_checked_at`'s existing local validation skew remains a validator default rather than a production policy.
 
 ## M2-B pinned request and planning contract
@@ -30,7 +36,7 @@ Dates are real calendar dates in `YYYY-MM-DD`; role end dates cannot precede sta
 
 Limits apply together: 512 KiB total request, 1–200 changes, 32 KiB per change, 25 source citations, 20 duplicate flags, and at most 200 planned changed rows. Field caps are 500 UTF-8 bytes for names/titles/reasons and 128 ASCII bytes for IDs and client refs. The planner performs bounded primary-key/county/uniqueness lookups and organization walks up to 64 ancestors; no write transaction is used. Results contain ordered `would_create`, `would_update`, `would_reuse` or `invalid` items, existing IDs only when already persisted, and bounded sanitized errors. Dry runs do not write rows, versions, audits, operations, sync state, flags or idempotency state, and generate no persistent Website IDs.
 
-Duplicate flags are optional advisory input. Only bounded, well-formed person flags with `nonblocking: true` are accepted; their references are checked and summaries may be returned in the plan. M2-B does not persist flags or implement their lifecycle.
+Duplicate flags are optional advisory input. Only bounded, well-formed person flags with `nonblocking: true` are accepted; their references are checked and summaries may be returned in the plan. M2-B itself does not persist flags; M2-E (below) persists them at commit.
 
 M2-B keeps validation/planning as internal functions with no principal parameter. M2-C consumes that planner without modifying its dry-run-only behavior. The M2-B dry-run portion covers acceptance matrix cases 1–10, 16, 22 and 23; local commit, atomicity and replay are now covered by the internal M2-C service. Stale conflicts include no row projection.
 
@@ -40,7 +46,7 @@ The design is grounded in the accepted Website foundation at M1-A/M1-B and the o
 
 At the `e233c278847b61357d8808c4f4bfb4ab99736954` main baseline, M1-A migration `website/migrations/0004_m1_county_roles.sql` defines organizations, county affiliations, people, positions, public role sources and source-backed person roles, each with a stable text ID and integer row version. The accepted `src/database/versioned-writes.ts` helper allowlists mutable fields and requires an expected version. M1-B provides bounded, read-only `listCountyOrganizations` and `listCountyRoleEntries` service contracts with stable IDs and versions. Neither M1-B nor this proposal provides sync writes.
 
-The current service boundary in `src/services/index.ts` exposes no sync operation or sync capability. The internal M2-C service and its durable Website batch tables are not part of that boundary. Duplicate-flag lifecycle persistence remains future work. No production D1, hosted route, or Profiles connection is assumed.
+The current service boundary in `src/services/index.ts` exposes no sync operation or sync capability. The internal M2-C service and its durable Website batch tables are not part of that boundary. No production D1, hosted route, or Profiles connection is assumed.
 
 Data flow:
 
