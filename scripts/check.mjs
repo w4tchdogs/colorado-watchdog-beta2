@@ -53,6 +53,7 @@ const allowed = new Set([
   "website/migrations/0005_m2_sync_batches.sql",
   "website/migrations/0006_m2_sync_reversals.sql",
   "website/migrations/0007_m2_duplicate_flags.sql",
+  "website/migrations/0008_duplicate_flag_observations.sql",
   "src/services/duplicate-flags.ts",
   "tests/duplicate-flags.test.mjs",
   "tests/application.test.mjs",

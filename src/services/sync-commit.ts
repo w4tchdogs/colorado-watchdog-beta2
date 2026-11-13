@@ -216,6 +216,7 @@ export async function commitSyncChangeset(
             requestId: request.requestId,
             duplicateFlagsCreated: flags.created,
             duplicateFlagsExisting: flags.existing,
+            duplicateFlagObservations: flags.observations,
           },
         },
       );

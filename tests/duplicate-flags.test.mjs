@@ -3,10 +3,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { migrateWebsiteDatabase } from "../dist/database/migrations.js";
+import {
+  loadWebsiteMigrations,
+  migrateWebsiteDatabase,
+} from "../dist/database/migrations.js";
 import { openWebsiteDatabase } from "../dist/database/sqlite.js";
 import {
   getDuplicateFlag,
+  listDuplicateFlagObservations,
   listDuplicateFlags,
   transitionDuplicateFlag,
 } from "../dist/services/duplicate-flags.js";
@@ -153,6 +157,10 @@ test("flags persist with resolved IDs, batch linkage, evidence and audit, and ne
     await f.reopen();
     const again = listDuplicateFlags(f.db, await f.principal());
     assert.deepEqual(again, flags);
+    assert.equal(
+      listDuplicateFlagObservations(f.db, await f.principal()).length,
+      1,
+    );
   });
 });
 
@@ -214,19 +222,66 @@ test("a later report of the same pair, in either order, never overrides a decisi
     );
     const again = await f.commit(
       "b",
-      request([source("s")], [flag(existing, newId), flag(newId, existing)]),
+      request(
+        [source("s1"), source("s2")],
+        [
+          flag(existing, newId, {
+            reason: "different evidence and reason from batch B",
+            evidenceSourceRefs: ["s1"],
+          }),
+        ],
+      ),
     );
     assert.equal(again.status, "committed");
     const flags = listDuplicateFlags(f.db, owner);
     assert.equal(flags.length, 1);
     assert.equal(flags[0].status, "resolved");
     assert.equal(flags[0].originBatchId, first.batchId);
+    assert.equal(
+      flags[0].reason,
+      "possible match; name alone is not identity evidence",
+    );
+    assert.deepEqual(flags[0].evidenceSourceIds, []);
+    const observations = listDuplicateFlagObservations(f.db, owner);
+    assert.equal(observations.length, 2);
+    assert.equal(observations[1].duplicateFlagId, created.id);
+    assert.deepEqual(observations[1].personIds, [...[newId, existing].sort()]);
+    assert.equal(observations[1].batchId, again.batchId);
+    assert.equal(
+      observations[1].reason,
+      "different evidence and reason from batch B",
+    );
+    assert.deepEqual(observations[1].evidenceSourceIds, [idOf(again, "s1")]);
+    assert.equal(observations[1].reportPosition, 0);
     const details = f.db
       .prepare(
         "SELECT details_json FROM audit_events WHERE action = 'sync.batch.commit' AND target_id = ?",
       )
       .get(again.batchId);
-    assert.equal(JSON.parse(details.details_json).duplicateFlagsExisting, 2);
+    assert.equal(JSON.parse(details.details_json).duplicateFlagsExisting, 1);
+    assert.equal(JSON.parse(details.details_json).duplicateFlagObservations, 1);
+    const replay = await f.commit(
+      "b",
+      request(
+        [source("s1"), source("s2")],
+        [
+          flag(existing, newId, {
+            reason: "different evidence and reason from batch B",
+            evidenceSourceRefs: ["s1"],
+          }),
+        ],
+      ),
+    );
+    assert.equal(replay.replayed, true);
+    assert.equal(listDuplicateFlagObservations(f.db, owner).length, 2);
+    await f.reopen();
+    const persisted = listDuplicateFlagObservations(f.db, await f.principal());
+    assert.equal(persisted.length, 2);
+    assert.equal(persisted[1].batchId, again.batchId);
+    assert.equal(
+      listDuplicateFlags(f.db, await f.principal())[0].status,
+      "resolved",
+    );
   });
 });
 
@@ -318,6 +373,13 @@ test("a late failure rolls back flags with the whole batch and does not consume 
       ),
       0,
     );
+    assert.equal(
+      count(
+        f.db,
+        "SELECT count(*) AS n FROM person_duplicate_flag_observations",
+      ),
+      0,
+    );
     f.db.exec("DROP TRIGGER fail_commit_audit");
     const retried = await f.commit("rollback", req);
     assert.equal(retried.status, "committed");
@@ -327,6 +389,60 @@ test("a late failure rolls back flags with the whole batch and does not consume 
       1,
     );
   });
+});
+
+test("migration 8 backfills a populated version-7 flag without changing its lifecycle state", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "watchdog-m2e-v7-"));
+  const path = join(dir, "website.sqlite");
+  const db = await openWebsiteDatabase(path);
+  try {
+    const migrations = loadWebsiteMigrations();
+    migrateWebsiteDatabase(db, migrations.slice(0, 7));
+    db.exec(`INSERT INTO accounts (id,kind,role,display_name,preferences)
+      VALUES ('owner-a','human','owner','Synthetic Owner','{}');
+      INSERT INTO people (id,display_name) VALUES ('person-a','A'),('person-b','B');
+      INSERT INTO sync_batches
+        (id,actor_account_id,idempotency_key,request_fingerprint,contract_version,request_id,status,committed_at,result_json)
+        VALUES ('batch-a','owner-a','key-a','${"a".repeat(64)}','m2-sync/v1','request-a','committed','2026-11-13T12:00:00.000Z','{"status":"committed","items":[]}');
+      INSERT INTO person_duplicate_flags
+        (id,person_id,possible_duplicate_person_id,pair_low_id,pair_high_id,category,reason,nonblocking,evidence_source_ids_json,origin_batch_id,origin_actor_account_id,status,version,created_at,updated_at,status_changed_at,status_changed_by_account_id)
+        VALUES ('flag-a','person-a','person-b','person-a','person-b','possible_match','version seven reason',1,'[]','batch-a','owner-a','dismissed',3,'2026-11-10T10:00:00.000Z','2026-11-11T10:00:00.000Z','2026-11-11T10:00:00.000Z','owner-a');`);
+    migrateWebsiteDatabase(db, migrations);
+    assert.deepEqual(
+      db
+        .prepare(
+          "SELECT id, duplicate_flag_id, pair_low_id, pair_high_id, batch_id, actor_account_id, report_position, reason, evidence_source_ids_json, observed_at FROM person_duplicate_flag_observations",
+        )
+        .get(),
+      {
+        id: "legacy-observation:flag-a",
+        duplicate_flag_id: "flag-a",
+        pair_low_id: "person-a",
+        pair_high_id: "person-b",
+        batch_id: "batch-a",
+        actor_account_id: "owner-a",
+        report_position: 0,
+        reason: "version seven reason",
+        evidence_source_ids_json: "[]",
+        observed_at: "2026-11-10T10:00:00.000Z",
+      },
+    );
+    const unchanged = db
+      .prepare(
+        "SELECT status, version, reason, created_at, updated_at FROM person_duplicate_flags WHERE id = 'flag-a'",
+      )
+      .get();
+    assert.deepEqual(unchanged, {
+      status: "dismissed",
+      version: 3,
+      reason: "version seven reason",
+      created_at: "2026-11-10T10:00:00.000Z",
+      updated_at: "2026-11-11T10:00:00.000Z",
+    });
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("malformed flags follow the accepted contract while valid advisory flags never block", async () => {
@@ -393,6 +509,13 @@ test("reversal removes open flags, writes audit evidence and leaves no orphans",
       count(f.db, "SELECT count(*) AS n FROM person_duplicate_flags"),
       0,
     );
+    assert.equal(
+      count(
+        f.db,
+        "SELECT count(*) AS n FROM person_duplicate_flag_observations",
+      ),
+      1,
+    );
     assert.equal(count(f.db, "SELECT count(*) AS n FROM people"), 1);
     assert.equal(
       count(
@@ -433,6 +556,11 @@ test("reversal is blocked, with no partial change, when a human decision was rec
       now,
     );
     assert.equal(blocked.status, "reversal_blocked");
+    assert.equal(
+      count(f.db, "SELECT count(*) AS n FROM sync_batch_reversals"),
+      0,
+      "blocked reversal writes no journal entry",
+    );
     assert.equal(count(f.db, "SELECT count(*) AS n FROM people"), 2);
     assert.equal(
       count(f.db, "SELECT count(*) AS n FROM person_duplicate_flags"),
@@ -466,15 +594,28 @@ test("reversal is blocked, with no partial change, when a human decision was rec
 
 test("reversal is blocked while a later batch's flag references a person or source it created", async () => {
   await fixture(async (f) => {
+    const y = await seed(f);
     const first = await f.commit(
       "first",
-      request([person("p1"), source("s1")]),
+      request(
+        [person("x"), source("s1")],
+        [flag("x", y, { evidenceSourceRefs: ["s1"] })],
+      ),
     );
-    const p1 = idOf(first, "p1");
+    const x = idOf(first, "x");
     const s1 = idOf(first, "s1");
     const second = await f.commit(
       "second",
-      request([person("p2")], [flag("p2", p1, { evidenceSourceRefs: [s1] })]),
+      request(
+        [source("s2")],
+        [
+          flag(y, x, {
+            reason: "later independent report",
+            evidenceSourceRefs: ["s2"],
+          }),
+        ],
+      ),
+      "b",
     );
     assert.equal(second.status, "committed");
     const owner = await f.principal();
@@ -491,16 +632,79 @@ test("reversal is blocked while a later batch's flag references a person or sour
       count(f.db, "SELECT count(*) AS n FROM person_duplicate_flags"),
       1,
     );
+    const observationsA = listDuplicateFlagObservations(f.db, owner);
+    const observationsB = listDuplicateFlagObservations(
+      f.db,
+      await f.principal("b"),
+    );
+    assert.deepEqual(observationsA[0].evidenceSourceIds, [s1]);
+    assert.equal(observationsA[0].reason, flag("x", y).reason);
+    assert.deepEqual(observationsB[0].evidenceSourceIds, [idOf(second, "s2")]);
+    assert.equal(observationsB[0].reason, "later independent report");
+    const [canonical] = listDuplicateFlags(f.db, owner);
+    assert.deepEqual(
+      listDuplicateFlagObservations(f.db, await f.principal("b")).map(
+        (x) => x.batchId,
+      ),
+      [second.batchId],
+    );
+    assert.equal(
+      getDuplicateFlag(f.db, await f.principal("b"), canonical.id),
+      null,
+    );
+    assert.deepEqual(
+      transitionDuplicateFlag(
+        f.db,
+        await f.principal("b"),
+        { flagId: canonical.id, expectedVersion: 1, toStatus: "dismissed" },
+        now,
+      ),
+      { status: "not_found" },
+    );
     // Reversing the later batch first clears the dependency.
     assert.equal(
-      (await reverseSyncBatch(f.db, owner, second.batchId, "r2", now)).status,
+      (
+        await reverseSyncBatch(
+          f.db,
+          await f.principal("b"),
+          second.batchId,
+          "r2",
+          now,
+        )
+      ).status,
       "reverted",
+    );
+    assert.equal(
+      count(
+        f.db,
+        "SELECT count(*) AS n FROM person_duplicate_flag_observations",
+      ),
+      2,
+    );
+    assert.equal(
+      count(f.db, "SELECT count(*) AS n FROM person_duplicate_flags"),
+      1,
+      "reversing a report-only batch retains the original canonical flag",
+    );
+    assert.equal(
+      listDuplicateFlagObservations(f.db, await f.principal("b")).length,
+      1,
+      "the reporter retains their historical observation",
     );
     assert.equal(
       (await reverseSyncBatch(f.db, owner, first.batchId, "r3", now)).status,
       "reverted",
     );
-    assert.equal(count(f.db, "SELECT count(*) AS n FROM people"), 0);
+    assert.equal(count(f.db, "SELECT count(*) AS n FROM people"), 1);
+    assert.equal(count(f.db, "SELECT count(*) AS n FROM role_sources"), 0);
+    assert.equal(
+      count(
+        f.db,
+        "SELECT count(*) AS n FROM person_duplicate_flag_observations",
+      ),
+      2,
+    );
+    assert.equal(typeof s1, "string");
   });
 });
 

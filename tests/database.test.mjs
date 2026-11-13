@@ -120,7 +120,7 @@ test("migrations produce the same schema and are safe to reapply", async () => {
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
           .count,
-        7,
+        8,
       );
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM counties").get().count,
@@ -241,7 +241,7 @@ test("foreign keys, enum checks, and JSON checks reject invalid values", async (
   });
 });
 
-test("Website schema includes M0, M1-A and M2-D tables without Profiles records", async () => {
+test("Website schema includes M0, M1-A, M2-D and M2-E tables without Profiles records", async () => {
   await withDatabase((database) => {
     migrate(database);
     const tables = database
@@ -260,6 +260,7 @@ test("Website schema includes M0, M1-A and M2-D tables without Profiles records"
       "organization_county_affiliations",
       "organizations",
       "people",
+      "person_duplicate_flag_observations",
       "person_duplicate_flags",
       "person_roles",
       "positions",
@@ -280,6 +281,7 @@ test("Website schema includes M0, M1-A and M2-D tables without Profiles records"
       "organizations",
       "people",
       "person_duplicate_flags",
+      "person_duplicate_flag_observations",
       "person_roles",
       "positions",
       "role_sources",
