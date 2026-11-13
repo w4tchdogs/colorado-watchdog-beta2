@@ -1,40 +1,27 @@
-# Integration status and handoff
+# Colorado Watchdog beta-2 — collaboration notes
 
-Observed November 12, 2026. A tool's presence is not proof of repository permission.
+For the common workflow, use [START.md](coordination/START.md). This document records observed integration history without duplicating permanent agent instructions.
 
-| Participant/surface | Observed capability | Limitation |
-| --- | --- | --- |
-| Codex local | Git Credential Manager authenticated as `w4tchdogs`; authenticated fetch succeeded; main tracks origin/main | Separate machines and sessions need their own working connection |
-| Codex GitHub connector | Authenticated as `w4tchdogs`; private repository readable with push/admin permission; source writes succeeded | No create-repository or billing-control tool |
-| Browser fallback | Owner completed sign-in; private repository created; Free plan and $0 blocked Actions budget verified | Browser sign-in does not authenticate local Git |
-| Claude | Fable v3 reports GitHub push tools observed in its earlier session | Not independently exercised here; verify access to this repository in Claude's session |
-| ChatGPT/Archon | Read and branch/commit/PR write actions succeeded through the GitHub connector on November 12, 2026, in a Chat session (PR #3) | Check current session credentials and permission before future writes; local Windows checkout access was not tested |
-| Owner | Can inspect the same GitHub branches/PRs when connected | No routine approval role |
+## Observed access on November 12, 2026
 
-## Remote setup
+| Participant | Observed result |
+| --- | --- |
+| Codex local | Git Credential Manager authenticated as `w4tchdogs`; fetch and push succeeded; local main tracked origin/main |
+| Codex GitHub connector | Private repository read/write succeeded |
+| ChatGPT GitHub connector | Branch, commit, PR, and merge actions succeeded for [PR #3](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/3) |
+| Claude | Fable v3 reported GitHub push tools; access to this exact repository was not independently exercised in that assessment |
+| Owner | GitHub history can be inspected; no mandatory review role |
 
-The canonical private repository is [w4tchdogs/colorado-watchdog-beta2](https://github.com/w4tchdogs/colorado-watchdog-beta2), created through the signed-in browser on November 12, 2026. The connected GitHub integration can read and write it. Billing verified GitHub Free and an existing account-wide $0 Actions budget that blocks excess usage. No further account connection is needed for Codex connector writes.
+These observations describe their original sessions, not guaranteed access in all future sessions.
 
-Claude and ChatGPT need to check this exact repository from their own sessions. Do not silently change account/app permissions if it is unavailable. A functioning existing writer integration is sufficient; ChatGPT need not push.
+The private repository is [w4tchdogs/colorado-watchdog-beta2](https://github.com/w4tchdogs/colorado-watchdog-beta2); local origin is `https://github.com/w4tchdogs/colorado-watchdog-beta2.git`.
 
-Local `origin` is `https://github.com/w4tchdogs/colorado-watchdog-beta2.git`. Git Credential Manager sign-in as `w4tchdogs` succeeded on November 12, 2026. A repository-local credential username selects this account. Authenticated fetch succeeded, and the local source matched remote main exactly before synchronization. Local `main` now tracks `origin/main`; use ordinary fetch, task-branch push, checked PR, merge, and fast-forward pull.
+## Historical synchronization
 
-Original local history remains on `archive/local-main-before-sync`, the local bootstrap branch, and checkpoint tags `bootstrap-local-2026-11-12` and `bootstrap-published-2026-11-12`. These commits have different identities from connector-created remote history. Start new work from synchronized main; do not push the old local history over remote main.
+The original Windows Git history was preserved on `archive/local-main-before-sync`, the local bootstrap branch, and tags `bootstrap-local-2026-11-12` and `bootstrap-published-2026-11-12`. Connector-created and local commits had different identities; Codex synchronized local main to remote main.
 
-The bootstrap branch is `bootstrap/collaboration-pipeline`. [PR #1](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/1) and its check results are the remote audit record. Merge the latest successful revision without requesting human review. A source checkpoint tag `bootstrap-local-2026-11-12` preserves the original local handoff; it contains no data backup.
+[PR #1](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/1) established the checked collaboration pipeline; [PR #2](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/2) documented local Git setup; [PR #3](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/3) introduced the common AI memory. Their results are historical, not automatic verification of later revisions.
 
-## Ongoing collaboration
+## Current collaboration
 
-Use one scoped issue or owner task as the work description, and include its reference in the PR. Post only sanitized source/technical summaries. Do not add messaging or notifications outside the requested work. An assistant with read-only access supplies suggestions or patches; any connected write-capable assistant may apply scoped changes, check, and merge. If the second assistant is unavailable, continue. No reviewer count, CODEOWNERS gate, environment approval, or paid branch-protection feature is required.
-
-All writers run the same local and CI command. Each clone enables `.githooks` locally. Git history supplies source checkpoints and `git revert` supplies rollback. Operational checkpoints, data backups, trash/restore, and deployment rollback are future application work, not features of this starter.
-
-## Local verification
-
-The working-tree and staged checks passed for all 11 starter files, and Git's whitespace check passed. Isolated synthetic probes verified clean input, rejection of a force-added CSV, conflict markers, trailing whitespace, a fake credential pattern, and missing shared instructions; staged checks also correctly ignored an unstaged edit. The checkout action's pinned commit was verified against its upstream v4.2.2 tag. Cross-assistant writes remain unverified; hosted execution is evidenced by the PR's actual checks, not by these local results.
-
-The initial remote revision `585d173` passed both [push CI](https://github.com/w4tchdogs/colorado-watchdog-beta2/actions/runs/43332179329) and [PR CI](https://github.com/w4tchdogs/colorado-watchdog-beta2/actions/runs/43332191680), each in eight seconds. Its Git tree exactly matched the local source tree (`855c950dd8026a8ef57c30ed0df50b397a25115e`). Later revisions must pass their own checks before merge; consult PR #1 for the latest result.
-
-## Shared-memory handoffs
-
-Use [START.md](coordination/START.md) for new-chat orientation and [HANDOFF-TEMPLATE.md](coordination/HANDOFF-TEMPLATE.md) for issue-based session transfers. Durable decisions/docs change by checked PR; transient progress and compact handoffs go in the relevant GitHub Issue. Read the latest issue comments before continuing; never assume a handoff grants task authorization. Project instruction text is provided in [PROJECT-BOOTSTRAP.md](coordination/PROJECT-BOOTSTRAP.md), but must be applied separately to each relevant ChatGPT Project.
+Any connected AI may contribute. Use Issues for work and [session handoffs](coordination/HANDOFF-TEMPLATE.md); branches and checked PRs for durable changes. If one assistant lacks write access, share its proposed work with another connected collaborator. No designated AI reviewer or controller is required.

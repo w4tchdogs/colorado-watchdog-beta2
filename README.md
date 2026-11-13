@@ -1,33 +1,25 @@
 # Colorado Watchdog beta-2
 
-An empty, source-only collaboration foundation for Codex, Claude, ChatGPT, and the owner. No application, Site, database, or operational data exists here.
+Shared AI-first website project for ChatGPT, Codex, Claude and the owner. The repository currently holds a development collaboration foundation and architecture planning, not a deployed beta-2 application.
 
-Direction: [Fable, November 12, 2026, revision 3](https://drive.google.com/file/d/1W8STh6s2qJWrDUELR66djYzzfJelt4g_/view), narrowed to the owner's initial pipeline request. Incremental cost stays **$0** using the existing Sites plan and GitHub Free. No purchases, upgrades, overages, or paid services. WordPress is excluded; a Files page precedes any optional SFTP consideration.
+**Start:** [Coordination](docs/coordination/START.md) · [Decisions](docs/decisions.md) · [Architecture handoff](docs/architecture/beta-2-planning-handoff.md)
 
-The workspace is `D:\ChatGPT\Watchdog\colorado-watchdog-beta2`. Beta-1 at `D:\ChatGPT\Watchdog\colorado-watchdog`, including its uncommitted work and historical captures, is preserved. Never migrate beta-1 records, evidence, credentials, backups, databases, or the full source tree.
+Initial architecture reference: [Fable v3](https://drive.google.com/file/d/1W8STh6s2qJWrDUELR66djYzzfJelt4g_/view). Beta-1 is the separate existing website and technical history.
 
-## Work together
+## Develop together
 
-1. Read `AGENTS.md` (Claude also has `CLAUDE.md`). Use GitHub main as shared history once connected.
-2. Fetch main and work on a short task branch. Never overwrite another assistant's uncommitted work; separate clones are fine, separate canonical repositories are not.
-3. Make scoped changes and run `node scripts/check.mjs` with Node 22 or later and Git. No package install is needed. Enable the local staged-file check with `git config --local core.hooksPath .githooks` in each clone.
-4. Push the branch and open a PR describing behavior, checks, and limitations. No required reviewers or approval queues. Fix CI failures autonomously, then merge after the latest commit's checks pass. Reconcile and recheck changes when main advances. A later second-assistant review is useful but optional.
-5. Pull merged main. Preserve commits as checkpoints; revert a faulty merged commit through another checked branch/PR. Future application deletion uses trash/restore; none is implemented now.
+Use the same repository and main history. Work on a task branch, make useful changes, run appropriate checks and open a PR for durable updates. Resolve test failures and concurrent changes before merging. No particular AI is a required reviewer.
 
-Codex, Claude, and ChatGPT may read or write through whichever authenticated GitHub integration is actually available in their session; never infer write access from a tool listing. An assistant without working write access supplies a scoped patch or copy-ready handoff for a connected writer. The owner can inspect history without becoming an approval dependency. See [verified capabilities and connection steps](docs/collaboration.md).
+GitHub Issues hold progress and session handoffs. Common instructions are in [AGENTS.md](AGENTS.md); the [Project bootstrap](docs/coordination/PROJECT-BOOTSTRAP.md) can be applied separately to relevant ChatGPT Projects.
 
-## Shared AI memory
+Reference Windows checkout: `D:\ChatGPT\Watchdog\colorado-watchdog-beta2`. A collaborator can use a connected GitHub integration or local checkout.
 
-Start at [the coordination guide](docs/coordination/START.md). The shared [handoff template](docs/coordination/HANDOFF-TEMPLATE.md) is used for issue-based transfers. [Project bootstrap text](docs/coordination/PROJECT-BOOTSTRAP.md) is offered for related ChatGPT Projects but is **not automatically installed** in their settings.
+## Existing development checks
 
-GitHub main/accepted architecture documents are durable shared knowledge; Issues hold assignments and compact handoffs; PRs record accepted changes. See [current planning handoff](docs/architecture/beta-2-planning-handoff.md), which clearly distinguishes decisions from implementation.
+Run `node scripts/check.mjs` with Node 22 or later and Git. It checks tracked file paths, formatting, whitespace, conflict markers and common credential patterns. Enable the optional local commit hook with `git config --local core.hooksPath .githooks`.
 
-## Starter checks
+[GitHub Actions](.github/workflows/check.yml) runs the same checker on push and PR. This is the starter foundation; add application checks as new code is developed.
 
-`.github/workflows/check.yml` runs on pushes and pull requests using one standard Ubuntu runner with a two-minute job limit. It uses read-only repository access, cancels superseded runs, and creates no caches, artifacts, deployments, or services. It checks the exact tracked file set, file size, UTF-8, conflict markers, whitespace, and common credential patterns. The local pre-commit hook checks staged bytes. These checks are guardrails, not a comprehensive personal-data or secret detector; inspect the diff before committing.
+## Collaboration history
 
-There is no application test framework. Add relevant application checks only when application code exists. Hosted execution depends on the verified $0 spending controls described in [cost limits](docs/cost-limits.md).
-
-## Bootstrap status
-
-The private repository is [w4tchdogs/colorado-watchdog-beta2](https://github.com/w4tchdogs/colorado-watchdog-beta2). GitHub Free and the existing $0 Actions budget with excess usage blocked were verified on November 12, 2026. Codex has connector write access and local Git authentication as `w4tchdogs` through Git Credential Manager. Local `main` tracks `origin/main`. [Bootstrap PR #1](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/1) records the published branch, hosted checks, and merge state. See `docs/collaboration.md` for the remaining integration limitations.
+[PR #1](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/1) established the pipeline; [PR #2](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/2) recorded Windows Git synchronization; [PR #3](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/3) established the first shared-memory instructions. See [collaboration notes](docs/collaboration.md) for historical connection details.

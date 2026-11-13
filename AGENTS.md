@@ -1,24 +1,38 @@
-# Colorado Watchdog beta-2
+# Colorado Watchdog beta-2 — shared AI instructions
 
-- Authority: owner's November 12, 2026 bootstrap request and [Fable v3](https://drive.google.com/file/d/1W8STh6s2qJWrDUELR66djYzzfJelt4g_/view). See `docs/decisions.md`.
-- Incremental cost must stay $0. Use existing ChatGPT Sites and GitHub Free allowances only. Never purchase, upgrade, enable paid overages, or provision billable services. Check current limits and account spending controls before hosted execution.
-- Beta-2 starts empty. Never copy beta-1 records, IDs, credentials, evidence, backups, database contents, or its full source tree.
-- Work only in `D:\ChatGPT\Watchdog\colorado-watchdog-beta2`. Preserve `D:\ChatGPT\Watchdog\colorado-watchdog` and its existing uncommitted work; historical N: captures remain untouched. Beta-1's operating policies remain scoped to beta-1.
-- This step is collaboration infrastructure only. No Site creation/deployment, schema, directory, CSV importer, Posts, media manager, or production admin features. Future work follows its assigned scope.
-- WordPress is out. Later Posts are Site-managed. Plan a Files page first; FileZilla/SFTP is optional only if simple, free, and useful.
-- Routine beta-2 work proceeds automatically: automated checks, Git audit history, checkpoints, reversible changes, and future trash/restore replace approval queues. No required reviewers, owner approvals, or second-assistant merge prerequisites.
-- Codex and Claude use the same repository, separate task branches, and PRs. Read `README.md`, synchronize with main, preserve others' work, run `node scripts/check.mjs`, and fix failures. Merge only after successful checks for the current PR revision; recheck if main changes. Use `git revert` for published mistakes, never rewrite shared history.
-- Record actual integration access in `docs/collaboration.md`. Any assistant may contribute through its verified GitHub connection; an assistant without working write access provides a patch for a connected writer. Do not claim untested access works.
-- Commit source and sanitized documentation only. Keep secrets, personal data, real CSVs, evidence and backups out of Git, issues, PRs, and logs. The starter file allowlist must be deliberately updated when scope grows. Never bypass checks to add data.
-- Do not invite users, change account/app permissions, or send external messages as part of this bootstrap.
+## Purpose and approach
 
-## Cross-AI memory and handoffs (owner-authorized documentation standard)
+Develop Colorado Watchdog beta-2 collaboratively through ChatGPT, Codex, Claude and future AI tools. [Shared repository](https://github.com/w4tchdogs/colorado-watchdog-beta2).
 
-- Start substantial beta-2 work at [the coordination entry point](docs/coordination/START.md). Read the current main-branch instructions, relevant accepted decisions, assigned issue/PR, and latest handoff. A shared link does not push updated context into a chat automatically; fetch it. The latest explicit owner direction and verified implementation state take precedence over older summaries.
-- GitHub main and accepted docs are the common source/history; GitHub Issues hold scoped tasks and concise session handoffs; branches/PRs carry durable changes. Drive holds longer references. Private Windows research files and evidence stay outside GitHub. No AI is the required owner/reviewer of shared memory.
-- Any connected AI may propose updates; write only with verified access and scope authorization. Re-read the latest revision, keep changes minimal, run applicable checks, use a PR, and never force-overwrite a concurrent edit. Routine beta-2 development has no extra owner-review gate; a handoff does not authorize a new task.
-- At the first response of each new development chat, propose a title: `[emoji] [model] | [batch-id] [short description]`. Use lowercase model/title and preserve exact batch digits, hyphens and leading zeros. Chat/conversational agents: 🟢 low, 🟡 medium, 🟠 high, 🔴 extra high. Codex: 🟩 low, 🟨 medium, 🟧 high, 🟥 extra high. Write the actual model name; never guess model/effort. If unknown, give a provisional title without an invented classification. No max tier. Rename only if supported. Re-propose when configuration changes.
-- When meaningful next steps exist, show two or three distinct options with real clickable buttons/radios where supported; put each relevant action directly after its recommendation, and make the submitted request specify scope and restrictions. A recommendation alone is not authorization. Provide copy-ready options when UI controls are unavailable; do not invent approval gates or unnecessary choices.
-- Proactively assess context and usage limits. If an actual context percentage is exposed, refresh a handoff near 70% and recommend a successor chat near 80%, preferably at a safe milestone. Otherwise use visible warnings, large tool outputs, compactions, conversation length and upcoming complexity as qualitative signals. Usage quota and context size are different; never claim background monitoring or exact percentage without evidence.
-- Use [the handoff template](docs/coordination/HANDOFF-TEMPLATE.md) at session transfer, material interruption, or continuity risk. Post sanitized handoffs to the active issue when possible; otherwise provide copy-ready text. Distinguish performed/verified from reported/planned; include branch/commit, results, blockers and next authorized scope. Do not imply persistence until read back.
-- Related ChatGPT Projects should use the short [project bootstrap](docs/coordination/PROJECT-BOOTSTRAP.md); repository edits do not automatically change Project settings. Preserve existing specialized beta-1 rules *only for beta-1*.
+Work proactively toward the user's objective. Make reasonable technical and procedural choices, complete useful intermediate steps independently, and ask about decisions that materially change the intended direction. Prefer maintainable solutions over repeated confirmations, process overhead or approval loops.
+
+Beta-1 is the separate existing website; use the relevant history and architectural decisions for each development effort.
+
+## Shared memory and collaboration
+
+Start substantial work with [START.md](docs/coordination/START.md). Read relevant decisions, architecture documents and recent handoffs as needed, not every historical file.
+
+GitHub main holds accepted work and documentation. Issues hold tasks, discussion and concise handoffs. Task branches and PRs carry durable changes. Drive holds longer reference reports.
+
+All connected AIs may contribute. No AI is the required controller or reviewer. Use branches and PRs, run checks appropriate to the change, resolve failures, and integrate passing work while accounting for concurrent changes.
+
+## Chat naming
+
+Propose a title in the first response of every new development chat: `[emoji] [model] | [batch-id] [short title]`.
+
+- Conversational AI: 🟢 low · 🟡 medium · 🟠 high · 🔴 extra high
+- Codex: 🟩 low · 🟨 medium · 🟧 high · 🟥 extra high
+
+Use the actual model name, lowercase title text, exact batch identifiers and concise descriptions. Omit the batch ID when none is assigned. Do not guess unknown model or thinking settings.
+
+## Progressive actions
+
+Whenever recommending a meaningful next step, place a working clickable action immediately after the recommendation when supported. Offer multiple choices when useful and copy-ready alternatives where controls are unavailable. Keep actions clear about their outcome; avoid unnecessary decisions that stall progress.
+
+## Conversation continuity
+
+Use available context and usage indicators during substantial work. When context use is measurable, prepare a handoff around 70% and recommend a fresh chat around 80%. Otherwise use visible warnings, conversation length, tool outputs, compaction and task complexity. Record completed work, decisions, progress and next continuation in [the handoff template](docs/coordination/HANDOFF-TEMPLATE.md).
+
+## Reporting
+
+Report completed work, actual verification, remaining work and useful links. Prefer making progress over lengthy procedural status reports.
