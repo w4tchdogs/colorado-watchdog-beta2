@@ -43,6 +43,17 @@ export interface DuplicateFlagFilter {
   readonly limit?: number;
 }
 
+export interface DuplicateFlagObservation {
+  readonly id: string;
+  readonly duplicateFlagId: string;
+  readonly personIds: readonly [string, string];
+  readonly batchId: string;
+  readonly reportPosition: number;
+  readonly reason: string;
+  readonly evidenceSourceIds: readonly string[];
+  readonly observedAt: string;
+}
+
 const STATUSES: readonly string[] = ["open", "dismissed", "resolved"];
 const MAX_LIST = 100;
 const MAX_FLAGS_PER_BATCH = 20;
@@ -53,7 +64,8 @@ const MAX_REASON_BYTES = 500;
  * Persists validated flags inside the caller's transaction. The caller must
  * already have run the M2-B planner against the same request, so references
  * are known to be well formed; this function still resolves and re-checks them.
- * A pair that already has a flag is left exactly as it is, whatever its status.
+ * A pair that already has a flag keeps its lifecycle row unchanged; every
+ * report still adds its own observation in the caller's transaction.
  */
 export function insertBatchDuplicateFlags(
   database: WebsiteDatabase,
@@ -62,13 +74,19 @@ export function insertBatchDuplicateFlags(
   rawFlags: unknown,
   mapped: ReadonlyMap<string, string>,
   now: string,
-): { readonly created: number; readonly existing: number } {
-  if (rawFlags === undefined) return { created: 0, existing: 0 };
+): {
+  readonly created: number;
+  readonly existing: number;
+  readonly observations: number;
+} {
+  if (rawFlags === undefined)
+    return { created: 0, existing: 0, observations: 0 };
   if (!Array.isArray(rawFlags) || rawFlags.length > MAX_FLAGS_PER_BATCH)
     throw new Error("invalid_flag");
   let created = 0;
   let existing = 0;
-  for (const raw of rawFlags) {
+  let observations = 0;
+  for (const [reportPosition, raw] of rawFlags.entries()) {
     if (!isRecord(raw)) throw new Error("invalid_flag");
     const { targetRef, possibleDuplicateOf, reason, evidenceSourceRefs } = raw;
     if (
@@ -111,49 +129,69 @@ export function insertBatchDuplicateFlags(
         "SELECT id FROM person_duplicate_flags WHERE pair_low_id = ? AND pair_high_id = ?",
       )
       .get(low, high);
-    if (prior) {
-      existing += 1;
-      continue;
-    }
-    const id = newId();
-    database
-      .prepare(
-        `INSERT INTO person_duplicate_flags
+    const id = prior ? string(prior.id) : newId();
+    if (prior) existing += 1;
+    else {
+      database
+        .prepare(
+          `INSERT INTO person_duplicate_flags
          (id, person_id, possible_duplicate_person_id, pair_low_id, pair_high_id,
           category, reason, nonblocking, evidence_source_ids_json, origin_batch_id,
           origin_actor_account_id, status, version, created_at, updated_at,
           status_changed_at, status_changed_by_account_id)
          VALUES (?, ?, ?, ?, ?, 'possible_match', ?, 1, ?, ?, ?, 'open', 1, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          personId,
+          otherId,
+          low,
+          high,
+          reason,
+          JSON.stringify(evidence),
+          batchId,
+          principal.accountId,
+          now,
+          now,
+          now,
+          principal.accountId,
+        );
+      insertAuditEvent(
+        database,
+        { principal },
+        {
+          action: "duplicate_flag.create",
+          targetType: "duplicate_flag",
+          targetId: id,
+          summary: "Created an advisory possible-duplicate flag",
+          details: { batchId, status: "open" },
+        },
+      );
+      created += 1;
+    }
+    database
+      .prepare(
+        `INSERT INTO person_duplicate_flag_observations
+         (id, duplicate_flag_id, pair_low_id, pair_high_id, batch_id,
+          actor_account_id, report_position, reason, evidence_source_ids_json,
+          observed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
+        newId(),
         id,
-        personId,
-        otherId,
         low,
         high,
-        reason,
-        JSON.stringify(evidence),
         batchId,
         principal.accountId,
+        reportPosition,
+        reason,
+        JSON.stringify(evidence),
         now,
-        now,
-        now,
-        principal.accountId,
       );
-    insertAuditEvent(
-      database,
-      { principal },
-      {
-        action: "duplicate_flag.create",
-        targetType: "duplicate_flag",
-        targetId: id,
-        summary: "Created an advisory possible-duplicate flag",
-        details: { batchId, status: "open" },
-      },
-    );
-    created += 1;
+    observations += 1;
   }
-  return { created, existing };
+  return { created, existing, observations };
 }
 
 /**
@@ -173,11 +211,23 @@ export function assertBatchDuplicateFlagsReversible(
     )
     .get(batchId);
   if (decided) throw new Error("unsafe_inverse");
+  const laterObservation = database
+    .prepare(
+      `SELECT 1 AS found FROM person_duplicate_flag_observations o
+       JOIN person_duplicate_flags f ON f.id = o.duplicate_flag_id
+       LEFT JOIN sync_batch_reversals r ON r.batch_id = o.batch_id
+       WHERE f.origin_batch_id = ? AND o.batch_id <> ? AND r.batch_id IS NULL
+       LIMIT 1`,
+    )
+    .get(batchId, batchId);
+  if (laterObservation) throw new Error("unsafe_inverse");
   for (const personId of createdPersonIds) {
     const foreign = database
       .prepare(
-        `SELECT 1 AS found FROM person_duplicate_flags
-         WHERE origin_batch_id <> ? AND (person_id = ? OR possible_duplicate_person_id = ?) LIMIT 1`,
+        `SELECT 1 AS found FROM person_duplicate_flag_observations o
+         LEFT JOIN sync_batch_reversals r ON r.batch_id = o.batch_id
+         WHERE r.batch_id IS NULL AND o.batch_id <> ?
+           AND (o.pair_low_id = ? OR o.pair_high_id = ?) LIMIT 1`,
       )
       .get(batchId, personId, personId);
     if (foreign) throw new Error("unsafe_inverse");
@@ -185,12 +235,57 @@ export function assertBatchDuplicateFlagsReversible(
   for (const sourceId of createdSourceIds) {
     const foreign = database
       .prepare(
-        `SELECT 1 AS found FROM person_duplicate_flags f, json_each(f.evidence_source_ids_json) j
-         WHERE f.origin_batch_id <> ? AND j.value = ? LIMIT 1`,
+        `SELECT 1 AS found FROM person_duplicate_flag_observations o,
+                json_each(o.evidence_source_ids_json) j
+         LEFT JOIN sync_batch_reversals r ON r.batch_id = o.batch_id
+         WHERE r.batch_id IS NULL AND o.batch_id <> ? AND j.value = ? LIMIT 1`,
       )
       .get(batchId, sourceId);
     if (foreign) throw new Error("unsafe_inverse");
   }
+}
+
+/** Returns only this actor's bounded observation history, including reversed reports. */
+export function listDuplicateFlagObservations(
+  database: WebsiteDatabase,
+  principal: TrustedPrincipal,
+  filter: { readonly limit?: number } = {},
+): readonly DuplicateFlagObservation[] {
+  assertActive(database, principal);
+  const limit = filter.limit ?? 50;
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIST)
+    throw new Error("Invalid duplicate flag observation filter");
+  return database
+    .prepare(
+      `SELECT id, duplicate_flag_id, pair_low_id, pair_high_id, batch_id,
+              report_position, reason, evidence_source_ids_json, observed_at
+       FROM person_duplicate_flag_observations
+       WHERE actor_account_id = ?
+       ORDER BY observed_at,
+         (SELECT rowid FROM sync_batches b WHERE b.id = batch_id), report_position
+       LIMIT ?`,
+    )
+    .all(principal.accountId, limit)
+    .map((row) => {
+      const evidence = JSON.parse(
+        string(row.evidence_source_ids_json),
+      ) as unknown;
+      if (
+        !Array.isArray(evidence) ||
+        evidence.some((x) => typeof x !== "string")
+      )
+        throw new Error("Invalid duplicate flag observation");
+      return {
+        id: string(row.id),
+        duplicateFlagId: string(row.duplicate_flag_id),
+        personIds: [string(row.pair_low_id), string(row.pair_high_id)] as const,
+        batchId: string(row.batch_id),
+        reportPosition: number(row.report_position),
+        reason: string(row.reason),
+        evidenceSourceIds: evidence as string[],
+        observedAt: string(row.observed_at),
+      };
+    });
 }
 
 /** Removes the still-open flags a batch created. Runs inside the reversal transaction. */
