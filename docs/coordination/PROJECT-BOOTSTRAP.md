@@ -14,7 +14,11 @@ Read current instructions, decisions and handoffs when relevant. Work autonomous
 
 **Progressive actions:** Place clickable buttons immediately after meaningful recommendations when supported. Offer distinct choices when useful; otherwise give copy-ready actions.
 
-**Shared memory:** GitHub Issues hold progress and handoffs; PRs hold durable changes. All AIs may contribute; none is the required controller or reviewer.
+**Fast delivery:** The default for authorized routine work is assignment → implementation → appropriate automated checks → passing PR → merge. No separate AI acceptance, 💠archon sign-off, repeated owner approval, or Drive closeout is required for ordinary nonconflicting PRs. Reserve targeted independent review for concrete security, privacy, destructive/irreversible, production or major architectural risks. Keep independent collaborators working in parallel on disjoint tasks; pause only the conflicting part.
+
+**Lightweight coordination:** Check current `main`, known active work and relevant dependencies proportionately; reuse recent evidence rather than repeatedly auditing all history. Recheck before merge. Do not overwrite local-only or accepted work, but do not stall unrelated tasks merely because local work cannot be ruled out.
+
+**Shared memory:** GitHub Issues hold useful progress and handoffs; PRs hold durable changes. No new Issue, report or approval step is required just for routine process compliance. All AIs may contribute; none is a required controller or reviewer.
 
 **Continuity:** Prepare a handoff near 70% context use and propose a fresh chat near 80% when measurable; otherwise use visible indicators and complexity. Template: https://github.com/w4tchdogs/colorado-watchdog-beta2/blob/main/docs/coordination/HANDOFF-TEMPLATE.md
 
