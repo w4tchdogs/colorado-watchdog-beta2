@@ -196,7 +196,10 @@ export type SyncErrorCode =
   | "too_many_duplicate_flags"
   | "duplicate_flag_invalid"
   | "changed_rows_limit"
-  | "commit_not_supported";
+  | "commit_not_supported"
+  | "invalid_idempotency_key"
+  | "idempotency_mismatch"
+  | "commit_conflict";
 
 export interface SyncPlanError {
   readonly code: SyncErrorCode;
