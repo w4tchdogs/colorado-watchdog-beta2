@@ -30,7 +30,9 @@ export type ContentAction =
   | "content.read"
   | "content.update"
   | "content.archive"
-  | "content.restore";
+  | "content.restore"
+  | "content.revision.read"
+  | "content.revision.restore";
 
 export interface ContentRelationships {
   /** Five-digit Colorado county FIPS codes. */
@@ -98,3 +100,53 @@ export type ContentAuthorizationPolicy = (
   principal: TrustedPrincipal,
   action: ContentAction,
 ) => boolean;
+
+export const CONTENT_REVISION_KINDS = [
+  "baseline",
+  "create",
+  "update",
+  "relationships",
+  "archive",
+  "restore_draft",
+  "restore_revision",
+] as const;
+export type ContentRevisionKind = (typeof CONTENT_REVISION_KINDS)[number];
+
+/**
+ * An immutable snapshot of the editable state recorded by one successful
+ * mutation. `baseline` marks content that predates revision history and holds
+ * its state when history began. Earlier states were never captured.
+ */
+export interface ContentRevision {
+  readonly contentId: string;
+  readonly version: number;
+  readonly changeKind: ContentRevisionKind;
+  readonly title: string;
+  readonly summary: string | null;
+  readonly body: string;
+  readonly bodyFormat: typeof CONTENT_BODY_FORMAT;
+  readonly status: ContentStatus;
+  readonly relationships: ContentRelationships;
+  readonly editedByAccountId: string;
+  readonly recordedAt: string;
+  /** Set only for `restore_revision`: the earlier version that was restored. */
+  readonly restoredFromVersion: number | null;
+}
+
+/** Revision listings omit the body and relationships. */
+export type ContentRevisionSummary = Omit<
+  ContentRevision,
+  "body" | "relationships"
+>;
+
+export interface ContentRevisionListRequest {
+  readonly limit?: number;
+  /** Return revisions older than this version (newest first). */
+  readonly beforeVersion?: number | null;
+}
+
+export interface ContentRevisionPage {
+  readonly items: readonly ContentRevisionSummary[];
+  readonly nextCursor: number | null;
+  readonly hasMore: boolean;
+}

@@ -1,5 +1,6 @@
 import {
   CONTENT_BODY_FORMAT,
+  CONTENT_REVISION_KINDS,
   CONTENT_STATUSES,
   CONTENT_TYPES,
   type ContentAction,
@@ -10,6 +11,11 @@ import {
   type ContentPage,
   type ContentRelationships,
   type ContentRelationshipsInput,
+  type ContentRevision,
+  type ContentRevisionKind,
+  type ContentRevisionListRequest,
+  type ContentRevisionPage,
+  type ContentRevisionSummary,
   type ContentStatus,
   type ContentSummary,
   type ContentType,
@@ -91,6 +97,28 @@ export interface ContentService {
     id: string,
     expectedVersion: number,
   ): ContentItem;
+  /** Newest first. Requires `content.revision.read`. */
+  listRevisions(
+    principal: TrustedPrincipal,
+    id: string,
+    request?: ContentRevisionListRequest,
+  ): ContentRevisionPage;
+  /** Requires `content.revision.read`. */
+  getRevision(
+    principal: TrustedPrincipal,
+    id: string,
+    version: number,
+  ): ContentRevision | null;
+  /**
+   * Copies an earlier revision's title, summary, body and relationships into a
+   * new current version. Requires `content.revision.restore`.
+   */
+  restoreRevision(
+    principal: TrustedPrincipal,
+    id: string,
+    expectedVersion: number,
+    revisionVersion: number,
+  ): ContentItem;
 }
 
 export interface ContentServiceOptions {
@@ -159,6 +187,8 @@ export function createContentService(
       readonly targetId: string;
       readonly summary: string;
       readonly details: Readonly<Record<string, string | number | boolean>>;
+      readonly revisionKind: ContentRevisionKind;
+      readonly restoredFromVersion?: number;
     },
     mutation: () => void,
   ): ContentItem => {
@@ -177,7 +207,12 @@ export function createContentService(
         // Recheck inside the transaction so a concurrent revocation is honored.
         authorize(principal, action);
         mutation();
-        return readItem(database, audit.targetId);
+        return recordRevision(
+          database,
+          audit.targetId,
+          audit.revisionKind,
+          audit.restoredFromVersion ?? null,
+        );
       },
     );
   };
@@ -191,6 +226,7 @@ export function createContentService(
         principal,
         "content.create",
         {
+          revisionKind: "create",
           auditAction: "content.create",
           targetId: id,
           summary: "Created a content draft",
@@ -235,6 +271,7 @@ export function createContentService(
         principal,
         "content.update",
         {
+          revisionKind: "update",
           auditAction: "content.update",
           targetId: target,
           summary: "Updated a content draft",
@@ -271,6 +308,7 @@ export function createContentService(
         principal,
         "content.update",
         {
+          revisionKind: "relationships",
           auditAction: "content.relationships.set",
           targetId: target,
           summary: "Replaced content relationships",
@@ -307,6 +345,7 @@ export function createContentService(
         principal,
         "content.archive",
         {
+          revisionKind: "archive",
           auditAction: "content.archive",
           targetId: target,
           summary: "Archived a content draft",
@@ -334,6 +373,7 @@ export function createContentService(
         principal,
         "content.restore",
         {
+          revisionKind: "restore_draft",
           auditAction: "content.restore",
           targetId: target,
           summary: "Restored an archived content draft",
@@ -350,6 +390,73 @@ export function createContentService(
             [],
             [],
           );
+        },
+      );
+    },
+
+    listRevisions(principal, id, request = {}) {
+      authorize(principal, "content.revision.read");
+      return listRevisionPage(database, validateId(id), request);
+    },
+
+    getRevision(principal, id, version) {
+      authorize(principal, "content.revision.read");
+      return findRevision(
+        database,
+        validateId(id),
+        validateExpectedVersion(version),
+      );
+    },
+
+    restoreRevision(principal, id, expectedVersion, revisionVersion) {
+      const target = validateId(id);
+      const version = validateExpectedVersion(expectedVersion);
+      const source = validateExpectedVersion(revisionVersion);
+      if (source >= version) {
+        throw new ContentInputError();
+      }
+      let restored: ContentRevision | null = null;
+      return mutate(
+        principal,
+        "content.revision.restore",
+        {
+          revisionKind: "restore_revision",
+          restoredFromVersion: source,
+          auditAction: "content.revision.restore",
+          targetId: target,
+          summary: "Restored an earlier content revision",
+          details: { fromVersion: source, version: version + 1 },
+        },
+        () => {
+          const current = database
+            .prepare("SELECT status, version FROM content_items WHERE id = ?")
+            .get(target);
+          if (!current) {
+            throw new ContentNotFoundError();
+          }
+          if (current.status !== "draft") {
+            throw new ContentStateError(
+              "Archived content must be restored before it can change",
+            );
+          }
+          if (current.version !== version) {
+            throw new StaleVersionError();
+          }
+          restored = findRevision(database, target, source);
+          if (!restored) {
+            throw new ContentNotFoundError();
+          }
+          applyVersionedChange(
+            database,
+            target,
+            version,
+            "draft",
+            "draft",
+            principal,
+            ["title", "summary", "body"],
+            [restored.title, restored.summary, restored.body],
+          );
+          replaceRelationships(database, target, restored.relationships);
         },
       );
     },
@@ -452,6 +559,152 @@ function replaceRelationships(
         .run(contentId, targetId);
     }
   }
+}
+
+function recordRevision(
+  database: WebsiteDatabase,
+  id: string,
+  kind: ContentRevisionKind,
+  restoredFromVersion: number | null,
+): ContentItem {
+  const item = readItem(database, id);
+  database
+    .prepare(
+      `INSERT INTO content_revisions
+         (content_id, version, change_kind, title, summary, body, status,
+          county_fips_json, person_ids_json, organization_ids_json,
+          edited_by_account_id, restored_from_version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      item.id,
+      item.version,
+      kind,
+      item.title,
+      item.summary,
+      item.body,
+      item.status,
+      JSON.stringify(item.relationships.countyFips),
+      JSON.stringify(item.relationships.personIds),
+      JSON.stringify(item.relationships.organizationIds),
+      item.lastEditedByAccountId,
+      restoredFromVersion,
+    );
+  return item;
+}
+
+const REVISION_SUMMARY_COLUMNS = `content_id, version, change_kind, title,
+  summary, status, edited_by_account_id, restored_from_version, recorded_at`;
+
+function findRevision(
+  database: WebsiteDatabase,
+  id: string,
+  version: number,
+): ContentRevision | null {
+  const row = database
+    .prepare(
+      `SELECT ${REVISION_SUMMARY_COLUMNS}, body, county_fips_json,
+              person_ids_json, organization_ids_json
+       FROM content_revisions WHERE content_id = ? AND version = ?`,
+    )
+    .get(id, version);
+  if (!row) {
+    return null;
+  }
+  return {
+    ...revisionSummaryFromRow(row),
+    body: asString(row.body),
+    relationships: {
+      countyFips: parseIdArray(row.county_fips_json),
+      personIds: parseIdArray(row.person_ids_json),
+      organizationIds: parseIdArray(row.organization_ids_json),
+    },
+  };
+}
+
+function listRevisionPage(
+  database: WebsiteDatabase,
+  id: string,
+  request: ContentRevisionListRequest,
+): ContentRevisionPage {
+  if (
+    typeof request !== "object" ||
+    request === null ||
+    Array.isArray(request)
+  ) {
+    throw new ContentInputError();
+  }
+  rejectUnknownKeys(request as Record<string, unknown>, [
+    "limit",
+    "beforeVersion",
+  ]);
+  const limit = request.limit ?? DEFAULT_CONTENT_PAGE_SIZE;
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_CONTENT_PAGE_SIZE) {
+    throw new ContentInputError();
+  }
+  const before = request.beforeVersion ?? null;
+  if (before !== null) {
+    validateExpectedVersion(before);
+  }
+  if (
+    !database
+      .prepare("SELECT 1 AS found FROM content_items WHERE id = ?")
+      .get(id)
+  ) {
+    throw new ContentNotFoundError();
+  }
+  const rows = database
+    .prepare(
+      `SELECT ${REVISION_SUMMARY_COLUMNS}
+       FROM content_revisions
+       WHERE content_id = ? AND (? IS NULL OR version < ?)
+       ORDER BY version DESC LIMIT ?`,
+    )
+    .all(id, before, before, limit + 1);
+  const hasMore = rows.length > limit;
+  const items = rows.slice(0, limit).map(revisionSummaryFromRow);
+  return {
+    items,
+    hasMore,
+    nextCursor: hasMore ? (items.at(-1)?.version ?? null) : null,
+  };
+}
+
+function revisionSummaryFromRow(
+  row: Record<string, unknown>,
+): ContentRevisionSummary {
+  if (
+    !CONTENT_REVISION_KINDS.includes(row.change_kind as ContentRevisionKind) ||
+    !CONTENT_STATUSES.includes(row.status as ContentStatus)
+  ) {
+    throw new Error("Invalid content revision record");
+  }
+  return {
+    contentId: asString(row.content_id),
+    version: asNumber(row.version),
+    changeKind: row.change_kind as ContentRevisionKind,
+    title: asString(row.title),
+    summary: row.summary === null ? null : asString(row.summary),
+    bodyFormat: CONTENT_BODY_FORMAT,
+    status: row.status as ContentStatus,
+    editedByAccountId: asString(row.edited_by_account_id),
+    recordedAt: asString(row.recorded_at),
+    restoredFromVersion:
+      row.restored_from_version === null
+        ? null
+        : asNumber(row.restored_from_version),
+  };
+}
+
+function parseIdArray(value: unknown): string[] {
+  const parsed: unknown = JSON.parse(asString(value));
+  if (
+    !Array.isArray(parsed) ||
+    parsed.some((entry) => typeof entry !== "string")
+  ) {
+    throw new Error("Invalid content revision record");
+  }
+  return parsed as string[];
 }
 
 function readItem(database: WebsiteDatabase, id: string): ContentItem {
