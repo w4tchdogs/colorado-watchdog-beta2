@@ -4,7 +4,7 @@ Shared AI-first project for ChatGPT, Codex, Claude and the owner. The repository
 
 **Start:** [Coordination](docs/coordination/START.md) · [Decisions](docs/decisions.md) · [Architecture handoff](docs/architecture/beta-2-planning-handoff.md)
 
-Current architecture reference: [Fable v4](https://drive.google.com/file/d/1ux9NG09zr9DkztRGYtc-Z3uXBZ81ncI0/view). Beta-1 is the separate existing website and technical history.
+Current architecture reference: [Fable v4](https://drive.google.com/file/d/1ux9NG09zr9DkztRGYtc-Z3uXBZ81ncI0/view). Beta-1 is the separate existing website and technical history. The current M2-A design for the Website synchronization contract is in [Website synchronization contract](docs/architecture/site-sync-contract.md).
 
 ## Develop together
 

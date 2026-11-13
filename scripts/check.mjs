@@ -32,6 +32,7 @@ const allowed = new Set([
   'tests/checkpoints.test.mjs', 'tests/checkpoint-lifecycle.test.mjs',
   'tests/checkpoint-fixtures.mjs', 'docs/architecture/checkpoints.md',
   'docs/architecture/site-foundation.md',
+  'docs/architecture/site-sync-contract.md',
   'research/__init__.py', 'research/__main__.py', 'research/db.py', 'research/intake.py',
   'research/mapping.py', 'research/quarantine.py', 'research/store.py', 'research/operator.py', 'research/migrations/001_foundation.sql',
   'tests/__init__.py', 'tests/research_fixtures.py', 'tests/test_research.py', 'tests/test_legacy_contract.py',
