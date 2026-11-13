@@ -18,6 +18,29 @@ const MUTABLE_COLUMNS = {
     "verification_json",
     "verified_at",
   ],
+  organizations: [
+    "name",
+    "organization_type",
+    "county_fips",
+    "parent_organization_id",
+    "parent_relationship",
+  ],
+  organization_county_affiliations: [
+    "organization_id",
+    "county_fips",
+    "relationship_type",
+  ],
+  people: ["display_name"],
+  positions: ["organization_id", "title"],
+  role_sources: ["url", "title", "source_type"],
+  person_roles: [
+    "person_id",
+    "position_id",
+    "source_id",
+    "start_date",
+    "end_date",
+    "source_checked_at",
+  ],
 } as const;
 
 export type VersionedTable = keyof typeof MUTABLE_COLUMNS;
