@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4, uuid5, NAMESPACE_URL
 
-from research.mapping import canonical_json, parse_csv
+from research.mapping import canonical_json, mapping_definition, parse_csv
 
 
 def new_id(kind):
@@ -14,9 +14,19 @@ def timestamp():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _delivery_result(batch, *, created, version, file_sha256, county, record_count,
+                     claim_count, duplicate_count, lineage_kind, parent_batch_id, family_id, selected):
+    return {"batch_id": batch, "mapping_version": version, "file_sha256": file_sha256,
+            "county_fips": county, "record_count": record_count, "distinct_claims": claim_count,
+            "duplicate_rows": duplicate_count, "family_id": family_id,
+            "lineage_kind": lineage_kind, "parent_batch_id": parent_batch_id,
+            "selected": bool(selected), "created": created,
+            "status": "created" if created else "replayed"}
+
+
 def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
                provenance="synthetic", lineage_kind="original", parent_batch_id=None,
-               selected=False, registry=None, supersedes=None):
+               selected=False, registry=None, supersedes=None, return_result=False):
     """Map one county delivery. Caller supplies lineage; no county/person/unit guessing.
 
     Exact repeats coalesce only within this file version. Every original occurrence
@@ -27,12 +37,7 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
         raise ValueError("Finish current transaction before ingest")
     parsed = parse_csv(payload, version, registry)
     spec = parsed["mapping"]
-    mapping_definition = {"headers": spec.headers, "fields": spec.fields}
-    if spec.version != "legacy-17/v1":
-        mapping_definition["county_name_policy"] = spec.county_name_policy
-        mapping_definition["legacy_field_limits"] = spec.legacy_field_limits
-        mapping_definition["grouping_basis_policy"] = spec.grouping_basis_policy
-    mapping_json = canonical_json(mapping_definition)
+    mapping_json = canonical_json(mapping_definition(spec))
     rows = parsed["rows"]
     counties = {r["values"]["county_fips"] for r in rows}
     if len(counties) != 1:
@@ -54,6 +59,12 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
         if len(parents) > 1:
             raise ValueError("Duplicate observations cannot supersede different claims")
         correction_links[digest] = next(iter(parents), None)
+    if lineage_kind not in ("original", "complementary", "corrected", "alternative"):
+        raise ValueError("Invalid delivery lineage kind")
+    if lineage_kind in ("original", "complementary") and parent_batch_id is not None:
+        raise ValueError("Original and complementary deliveries cannot have a parent")
+    if lineage_kind in ("corrected", "alternative") and parent_batch_id is None:
+        raise ValueError("Corrected and alternative deliveries require a parent batch")
     batch_id, run_id, now = new_id("batch"), new_id("run"), timestamp()
     with db:
         # Serialize replay and selection checks with the write transaction.
@@ -62,6 +73,9 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
             "SELECT * FROM scrape_batches WHERE county_fips=? AND file_sha256=? AND mapping_version=?",
             (county, parsed["file_sha256"], version),
         ).fetchone()
+        parent = db.execute("SELECT * FROM scrape_batches WHERE id=?", (parent_batch_id,)).fetchone()
+        if parent_batch_id and (not parent or parent["county_fips"] != county):
+            raise ValueError("Parent batch missing or from another county")
         if existing:
             if (existing["lineage_kind"], existing["parent_batch_id"], existing["version_label"],
                     existing["original_file_name"], existing["provenance_type"]) != (
@@ -77,10 +91,17 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
                 ).fetchone()
                 if prior[0] != correction_links[digest]:
                     raise ValueError("Replay correction links differ from recorded lineage")
+            if return_result:
+                counts = db.execute("SELECT count(*) FROM role_claims c JOIN evidence_links e ON e.id=c.evidence_id "
+                                    "WHERE e.batch_id=?", (existing["id"],)).fetchone()[0]
+                return _delivery_result(existing["id"], created=False, version=version,
+                                        file_sha256=parsed["file_sha256"], county=county,
+                                        record_count=len(rows), claim_count=counts,
+                                        duplicate_count=len(rows) - len(grouped),
+                                        lineage_kind=existing["lineage_kind"],
+                                        parent_batch_id=existing["parent_batch_id"],
+                                        family_id=existing["family_id"], selected=existing["selected"])
             return existing["id"]
-        parent = db.execute("SELECT * FROM scrape_batches WHERE id=?", (parent_batch_id,)).fetchone()
-        if parent_batch_id and (not parent or parent["county_fips"] != county):
-            raise ValueError("Parent batch missing or from another county")
         family_id = parent["family_id"] if parent else batch_id
         run_provenance = "synthetic" if provenance == "synthetic" else "observed"
         db.execute("INSERT INTO research_runs(id,kind,provenance,recorded_at) VALUES (?,?,?,?)",
@@ -138,6 +159,13 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
                    (new_id("event"), run_id, "delivery_mapped", "scrape_batches", batch_id, now, now,
                     run_provenance, canonical_json({"records": len(rows), "claims": len(grouped),
                                                    "duplicates": len(rows) - len(grouped)})))
+    if return_result:
+        return _delivery_result(batch_id, created=True, version=version,
+                                file_sha256=parsed["file_sha256"], county=county,
+                                record_count=len(rows), claim_count=len(grouped),
+                                duplicate_count=len(rows) - len(grouped),
+                                lineage_kind=lineage_kind, parent_batch_id=parent_batch_id,
+                                family_id=family_id, selected=selected)
     return batch_id
 
 

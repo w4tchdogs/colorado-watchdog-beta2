@@ -70,3 +70,30 @@ def validate_database(db):
         "foreign_keys": [tuple(row) for row in db.execute("PRAGMA foreign_key_check")],
         "schema_version": db.execute("PRAGMA user_version").fetchone()[0],
     }
+
+
+def validate_migration_history(db, directory=MIGRATIONS):
+    """Read-only verification that every packaged migration is already applied."""
+    files = sorted(Path(directory).glob("[0-9][0-9][0-9]_*.sql"))
+    names = [path.name for path in files]
+    versions = [int(name[:3]) for name in names]
+    if not files or versions != list(range(1, len(files) + 1)):
+        raise ValueError("Packaged migration versions are missing or noncontiguous")
+    tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "schema_migrations" not in tables:
+        raise ValueError("Database has no managed migration history")
+    applied = list(db.execute("SELECT name,sha256 FROM schema_migrations ORDER BY name"))
+    if [row[0] for row in applied] != names:
+        raise ValueError("Database migration history is incomplete or differs from this checkout")
+    if db.execute("PRAGMA user_version").fetchone()[0] != len(files):
+        raise ValueError("Schema version differs from migration history")
+    for path, row in zip(files, applied, strict=True):
+        digest = hashlib.sha256(path.read_text(encoding="utf-8").encode()).hexdigest()
+        if row[1] != digest:
+            raise ValueError(f"Applied migration changed: {path.name}")
+    if db.execute("PRAGMA foreign_key_check").fetchall():
+        raise ValueError("Foreign-key violations present")
+    integrity = db.execute("PRAGMA integrity_check").fetchone()[0]
+    if integrity != "ok":
+        raise ValueError(f"Database integrity check failed: {integrity}")
+    return {"integrity": integrity, "schema_version": len(files), "migration_count": len(files)}

@@ -11,11 +11,12 @@ const allowed = new Set([
   'docs/coordination/PROJECT-BOOTSTRAP.md',
   'docs/architecture/beta-2-planning-handoff.md',
   '.github/ISSUE_TEMPLATE/scoped-task.md', '.github/pull_request_template.md',
-  'research/__init__.py', 'research/__main__.py', 'research/db.py',
+  'research/__init__.py', 'research/__main__.py', 'research/db.py', 'research/intake.py',
   'research/mapping.py', 'research/store.py', 'research/operator.py', 'research/migrations/001_foundation.sql',
   'tests/__init__.py', 'tests/research_fixtures.py', 'tests/test_research.py', 'tests/test_legacy_contract.py',
+  'tests/test_csv_intake.py',
   'tests/test_operator.py', 'tests/test_identity_bootstrap.py', 'docs/research/R0-foundation.md',
-  'docs/research/legacy-csv-compatibility.md',
+  'docs/research/legacy-csv-compatibility.md', 'docs/research/csv-intake.md',
   'docs/research/R1-operator-interface.md', 'docs/research/R2-identity-bootstrap.md',
 ]);
 const staged = process.argv.includes('--staged');
