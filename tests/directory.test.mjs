@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createApplication } from "../dist/application.js";
 import { migrateWebsiteDatabase } from "../dist/database/migrations.js";
 import { openWebsiteDatabase } from "../dist/database/sqlite.js";
+import { CountyOverviewInputError } from "../dist/services/county-overview.js";
 import { DirectoryInputError } from "../dist/services/directory.js";
 import { createServices } from "../dist/services/index.js";
 
@@ -216,5 +218,83 @@ test("empty pages, unknown counties, validation, stable continuation and read-on
         .count,
       auditCount,
     );
+  });
+});
+
+test("county overview aggregates distinct organizations and documented role records", async () => {
+  await fixture(async (database, services) => {
+    seed(database);
+    database
+      .prepare(
+        "INSERT INTO positions (id,organization_id,title) VALUES ('position-5','adams-health','Synthetic Health Director')",
+      )
+      .run();
+    database
+      .prepare(
+        `INSERT INTO person_roles
+         (id,person_id,position_id,source_id,start_date,end_date,source_checked_at)
+         VALUES ('role-5','person-a','position-5','source-1',NULL,NULL,'2026-10-05T00:00:00Z')`,
+      )
+      .run();
+
+    assert.deepEqual(services.getCountyOverview({ countyFips: "08001" }), {
+      county: { fips: "08001", name: "Adams" },
+      organizationCounts: { total: 5, direct: 3, affiliated: 3 },
+      documentedRoleCount: 4,
+    });
+    assert.deepEqual(services.getCountyOverview({ countyFips: "08015" }), {
+      county: { fips: "08015", name: "Chaffee" },
+      organizationCounts: { total: 0, direct: 0, affiliated: 0 },
+      documentedRoleCount: 0,
+    });
+    assert.equal(services.getCountyOverview({ countyFips: "08999" }), null);
+    assert.throws(
+      () => services.getCountyOverview({ countyFips: "0800x" }),
+      CountyOverviewInputError,
+    );
+  });
+});
+
+test("county overview HTTP endpoint validates responses, methods, and identifiers", async () => {
+  await fixture(async (database, services) => {
+    seed(database);
+    const application = createApplication(services);
+    const request = (path, method = "GET") =>
+      application.fetch(
+        new Request(`https://watchdog.test${path}`, { method }),
+      );
+
+    const response = await request("/api/counties/08001");
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), {
+      county: { fips: "08001", name: "Adams" },
+      organizationCounts: { total: 5, direct: 3, affiliated: 3 },
+      documentedRoleCount: 3,
+    });
+
+    const empty = await request("/api/counties/08015");
+    assert.equal(empty.status, 200);
+    assert.deepEqual((await empty.json()).organizationCounts, {
+      total: 0,
+      direct: 0,
+      affiliated: 0,
+    });
+
+    const unknown = await request("/api/counties/08999");
+    assert.equal(unknown.status, 404);
+    assert.deepEqual(await unknown.json(), { error: "not_found" });
+
+    const invalid = await request("/api/counties/0800x");
+    assert.equal(invalid.status, 400);
+    assert.deepEqual(await invalid.json(), { error: "invalid_request" });
+
+    const query = await request("/api/counties/08001?limit=1");
+    assert.equal(query.status, 400);
+    assert.deepEqual(await query.json(), { error: "unexpected_query" });
+
+    const wrongMethod = await request("/api/counties/08001", "POST");
+    assert.equal(wrongMethod.status, 405);
+    assert.equal(wrongMethod.headers.get("allow"), "GET");
   });
 });

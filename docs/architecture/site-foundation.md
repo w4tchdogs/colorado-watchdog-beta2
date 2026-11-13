@@ -149,6 +149,31 @@ and tested using SQL.js only.
 - Synthetic Website tests exercise the local SQL.js adapter. Hosted D1 and
   production deployment compatibility remain unverified.
 
+## M1-E public county overview
+
+- `GET /api/counties/{countyFips}` returns the stored five-digit Colorado
+  county FIPS code and name, `organizationCounts` (`total`, `direct`, and
+  `affiliated`), and `documentedRoleCount`. It is read-only and uses only
+  Website database records.
+- `direct` counts distinct organizations whose `county_fips` names the county.
+  `affiliated` counts distinct organizations with an explicit county
+  affiliation. An organization associated both ways contributes to both
+  subtotals but only once to `total`, which counts the union.
+- `documentedRoleCount` counts source-backed role records associated with any
+  organization in that union. It counts role records, not unique people, and
+  includes records regardless of stored end date. The totals describe records
+  in the Website database; they do not measure real-world staffing or
+  completeness, imply current employment or vacancies, or classify a regional
+  affiliate as a county department.
+- A malformed or non-Colorado FIPS value returns 400 `invalid_request`; a
+  well-formed but unknown county returns 404 `not_found`. Query parameters are
+  not accepted. The existing county organization/role, person-profile, and
+  organization-profile reads remain unchanged.
+- The overview uses aggregate SQL over Website tables and does not read the
+  separate private Profiles database. Synthetic Website tests use the local
+  SQL.js adapter; hosted D1 and production deployment compatibility remain
+  unverified.
+
 ## Deferred milestones
 
 - **M1:** attach organization, person, employment, and role-source tables to
