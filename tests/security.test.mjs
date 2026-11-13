@@ -7,6 +7,11 @@ import {
   createServices,
   createTestHumanIdentityAdapter,
 } from "../dist/services/index.js";
+import { resolvePrincipal } from "../dist/services/security.js";
+import {
+  createSyncAuthorization,
+  syncCapabilityFor,
+} from "../dist/services/sync-authorization.js";
 
 async function createFixture() {
   const database = await openWebsiteDatabase();
@@ -119,6 +124,82 @@ test("human sign-in resolves one account and capability checks deny unknown and 
       ),
       null,
     );
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("sync capabilities are separated and default-deny current principals", async () => {
+  const fixture = await createFixture();
+  try {
+    fixture.database.exec(`
+      INSERT INTO accounts (id, kind, role, display_name)
+      VALUES ('synthetic-agent', 'agent', 'administrator', 'Synthetic Agent');
+      INSERT INTO identities (id, account_id, provider, subject)
+      VALUES ('identity-agent', 'synthetic-agent', 'test-human', 'subject-agent');
+    `);
+    const agentAdapter = createTestHumanIdentityAdapter({
+      agent: "subject-agent",
+    });
+    const agent = await resolvePrincipal(
+      fixture.database,
+      new Request("https://watchdog.test/", {
+        headers: { "x-test-human-subject": "agent" },
+      }),
+      agentAdapter,
+    );
+    const principals = [
+      await fixture.principalFor("owner-login"),
+      await fixture.principalFor("admin-login"),
+      await fixture.principalFor("contributor-login"),
+      agent,
+    ];
+    const authorize = createSyncAuthorization(fixture.database);
+    const operations = ["dry_run", "lookup", "commit", "reverse"];
+
+    assert.deepEqual(
+      operations.map((operation) => syncCapabilityFor(operation)),
+      ["sync.read", "sync.read", "sync.apply", "sync.revert"],
+    );
+    for (const principal of principals) {
+      for (const operation of operations) {
+        assert.equal(authorize(principal, operation), false);
+      }
+    }
+
+    const cachedOwner = principals[0];
+    fixture.database
+      .prepare(
+        "UPDATE identities SET revoked_at = '2026-11-13T00:00:00Z', version = version + 1 WHERE id = ?",
+      )
+      .run(cachedOwner.identityId);
+    assert.equal(
+      fixture.services.hasCapability(cachedOwner, "sync.read"),
+      false,
+    );
+
+    const cachedAdmin = principals[1];
+    fixture.database
+      .prepare(
+        "UPDATE identities SET expires_at = '2000-01-01T00:00:00Z', version = version + 1 WHERE id = ?",
+      )
+      .run(cachedAdmin.identityId);
+    assert.equal(
+      fixture.services.hasCapability(cachedAdmin, "sync.apply"),
+      false,
+    );
+
+    const cachedContributor = principals[2];
+    fixture.database
+      .prepare(
+        "UPDATE accounts SET role = 'administrator', version = version + 1 WHERE id = ?",
+      )
+      .run(cachedContributor.accountId);
+    assert.equal(
+      fixture.services.hasCapability(cachedContributor, "sync.read"),
+      false,
+    );
+    assert.equal(authorize(cachedContributor, "lookup"), false);
   } finally {
     await fixture.close();
   }

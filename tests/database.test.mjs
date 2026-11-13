@@ -130,6 +130,119 @@ test("migrations produce the same schema and are safe to reapply", async () => {
   });
 });
 
+test("M2 schema constraints and local commit, batch, and audit rollback hold", async () => {
+  await withDatabase((database) => {
+    migrate(database);
+    assert.equal(database.pragma("foreign_keys", { simple: true }), 1);
+    insertAccount(database, "synthetic-sync-actor");
+
+    const insertBatch = (id, actorId, key) =>
+      database
+        .prepare(
+          `INSERT INTO sync_batches
+             (id, actor_account_id, idempotency_key, request_fingerprint,
+              contract_version, request_id, status, committed_at, result_json)
+           VALUES (?, ?, ?, ?, 'm2-sync/v1', ?, 'committed', ?, '{}')`,
+        )
+        .run(
+          id,
+          actorId,
+          key,
+          "a".repeat(64),
+          `request-${id}`,
+          "2026-11-13T00:00:00.000Z",
+        );
+
+    assert.throws(() =>
+      insertBatch(
+        "missing-actor-batch",
+        "missing-account",
+        "missing-actor-key",
+      ),
+    );
+
+    const transact = database.transaction(() => {
+      database
+        .prepare(
+          "UPDATE accounts SET display_name = ?, version = version + 1 WHERE id = ?",
+        )
+        .run("Partially Committed", "synthetic-sync-actor");
+      insertBatch("rolled-back-batch", "synthetic-sync-actor", "rollback-key");
+      database
+        .prepare(
+          `INSERT INTO audit_events
+             (id, actor_account_id, action, target_type, target_id, summary)
+           VALUES ('rolled-back-audit', 'synthetic-sync-actor',
+                   'sync.batch.commit', 'sync_batch', 'rolled-back-batch', 'Synthetic commit')`,
+        )
+        .run();
+      throw new Error("synthetic failure after writes");
+    });
+    assert.throws(transact, /synthetic failure/);
+    assert.equal(
+      database
+        .prepare("SELECT display_name FROM accounts WHERE id = ?")
+        .get("synthetic-sync-actor").display_name,
+      "Synthetic User",
+    );
+    assert.equal(
+      database
+        .prepare("SELECT COUNT(*) AS count FROM sync_batches WHERE id = ?")
+        .get("rolled-back-batch").count,
+      0,
+    );
+    assert.equal(
+      database
+        .prepare("SELECT COUNT(*) AS count FROM audit_events WHERE id = ?")
+        .get("rolled-back-audit").count,
+      0,
+    );
+
+    insertBatch("unique-batch-1", "synthetic-sync-actor", "shared-key");
+    assert.throws(() =>
+      insertBatch("unique-batch-2", "synthetic-sync-actor", "shared-key"),
+    );
+    assert.equal(database.prepare("PRAGMA foreign_key_check").all().length, 0);
+  });
+});
+
+test("M2 migrations add schema without changing existing M1 rows", async () => {
+  await withDatabase((database) => {
+    const migrations = loadWebsiteMigrations();
+    migrateWebsiteDatabase(database, migrations.slice(0, 4));
+    insertAccount(database, "pre-m2-account");
+    const before = database
+      .prepare(
+        "SELECT id, role, display_name, version FROM accounts WHERE id = ?",
+      )
+      .get("pre-m2-account");
+
+    migrateWebsiteDatabase(database, migrations);
+
+    assert.deepEqual(
+      database
+        .prepare(
+          "SELECT id, role, display_name, version FROM accounts WHERE id = ?",
+        )
+        .get("pre-m2-account"),
+      before,
+    );
+    assert.deepEqual(
+      database
+        .prepare("SELECT version FROM schema_migrations ORDER BY version")
+        .all()
+        .map((row) => row.version),
+      [1, 2, 3, 4, 5, 6, 7, 8],
+    );
+    assert.equal(
+      database.prepare("SELECT COUNT(*) AS count FROM sync_batches").get()
+        .count,
+      0,
+    );
+    assert.equal(database.prepare("PRAGMA foreign_key_check").all().length, 0);
+  });
+});
+
 test("a local Website database file persists across open and close", async () => {
   const directory = mkdtempSync(join(tmpdir(), "watchdog-website-db-"));
   const filename = join(directory, "website.sqlite");
