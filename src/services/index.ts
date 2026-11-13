@@ -1,5 +1,9 @@
 import type { CheckpointService } from "../contracts/checkpoints.js";
 import type { DirectoryPageRequest } from "../contracts/directory.js";
+import type {
+  OrganizationProfilePageRequest,
+  OrganizationRolePageRequest,
+} from "../contracts/organization-profile.js";
 import type { PersonProfilePageRequest } from "../contracts/person-profile.js";
 import type { StorageProbe } from "../contracts/storage.js";
 import { StorageUnavailableError } from "../contracts/storage.js";
@@ -17,6 +21,10 @@ import {
 import { listAuditEvents } from "./audit.js";
 import { listCountyOrganizations, listCountyRoleEntries } from "./directory.js";
 import { createOperation } from "./operations.js";
+import {
+  getOrganizationProfile,
+  listOrganizationRoleEntries,
+} from "./organization-profile.js";
 import { getPersonProfile } from "./person-profile.js";
 import {
   type Capability,
@@ -93,6 +101,12 @@ export interface ApplicationServices {
   listCountyRoleEntries(
     input: DirectoryPageRequest,
   ): ReturnType<typeof listCountyRoleEntries>;
+  getOrganizationProfile(
+    input: OrganizationProfilePageRequest,
+  ): ReturnType<typeof getOrganizationProfile>;
+  listOrganizationRoleEntries(
+    input: OrganizationRolePageRequest,
+  ): ReturnType<typeof listOrganizationRoleEntries>;
   getPersonProfile(
     input: PersonProfilePageRequest,
   ): ReturnType<typeof getPersonProfile>;
@@ -131,7 +145,7 @@ export function createServices(
     return { status: "ready" as const };
   };
 
-  return {
+  const services = {
     liveness() {
       return { status: "ok" };
     },
@@ -219,6 +233,12 @@ export function createServices(
     listCountyRoleEntries(input) {
       return listCountyRoleEntries(requireDatabase(), input);
     },
+    getOrganizationProfile(input) {
+      return getOrganizationProfile(requireDatabase(), input);
+    },
+    listOrganizationRoleEntries(input) {
+      return listOrganizationRoleEntries(requireDatabase(), input);
+    },
     getPersonProfile(input) {
       return getPersonProfile(requireDatabase(), input);
     },
@@ -228,7 +248,18 @@ export function createServices(
       }
       return dependencies.checkpoints;
     },
-  };
+  } as ApplicationServices;
+
+  for (const key of Object.keys(services)) {
+    Object.defineProperty(services, key, {
+      value: services[key as keyof ApplicationServices],
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  return services;
 }
 
 export type { Capability, HumanIdentityAdapter, TrustedPrincipal };
