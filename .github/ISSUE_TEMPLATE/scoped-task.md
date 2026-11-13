@@ -1,29 +1,19 @@
 ---
-name: Scoped beta-2 task
-about: Track an authorized, bounded task and its AI handoffs
+name: Task or collaboration thread
+about: Share a useful task, decision or AI handoff
 title: ""
 labels: []
 assignees: []
 ---
 
-## Authorization and scope
+## Goal
 
-Owner instruction or reference:
-In scope:
-Out of scope:
+What should this task accomplish?
 
-## Current baseline
+## Context
 
-Main/branch SHA:
-Relevant source/decision links:
-Constraints (beta-1 separate, $0 incremental, private-data restrictions):
+Useful references and decisions:
 
-## Done criteria and checks
+## Progress and handoffs
 
-- [ ] Specific expected result documented
-- [ ] Applicable checks completed and linked
-- [ ] Limitations and unverified claims stated
-
-## Continuation / handoff
-
-Use `docs/coordination/HANDOFF-TEMPLATE.md` for concise handoff comments. An issue or handoff does **not** independently authorize additional scope.
+Use issue comments for progress and, when needed, `docs/coordination/HANDOFF-TEMPLATE.md` for a concise AI-to-AI handoff.

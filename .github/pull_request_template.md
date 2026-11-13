@@ -1,20 +1,12 @@
-## Scope and authority
+## Changes
 
-Authorized task/Issue:
-What changed:
-What explicitly did not change:
+What useful work does this PR complete? Link an Issue or decision when relevant.
 
 ## Verification
 
-- [ ] Current base / other changes reconciled
-- [ ] Applicable checks run for this head revision (link exact results)
-- [ ] Diff checked for secrets, private CSVs, evidence and beta-1 materials
-- [ ] Cost, permissions, accounts and deployment impact stated
-- [ ] Pending checks or limitations described
+Checks performed and results:
+Remaining limitations or follow-up:
 
-## Handoff / continuation
+## Continuity
 
-Where to find accepted decisions or latest handoff:
-Remaining work (not automatically authorized):
-
-No second-AI reviewer or routine owner approval gate is implied by this template.
+Relevant decision or handoff location for the next collaborator:
