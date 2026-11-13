@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import date
 from urllib.parse import urlsplit
@@ -20,6 +21,26 @@ FIELDS_17 = (
     "county_fips", "county", "full_name", "nicknames", "display_group", "grouping_basis",
     "department", "division", "program_location", "title", "responsibility",
     "listing_status", "source_title", "source_url", "source_date", "checked_date", "private_note",
+)
+HEADERS_11 = (
+    "County FIPS", "County", "Full name", "Department / office", "Position / title",
+    "Listing status", "Official source title", "Official source URL", "Source date",
+    "Checked date", "Private review note",
+)
+FIELDS_11 = (
+    "county_fips", "county", "full_name", "department", "title", "listing_status",
+    "source_title", "source_url", "source_date", "checked_date", "private_note",
+)
+HEADERS_16 = (
+    "County FIPS", "County", "Full name", "Display group (proposed)", "Grouping basis",
+    "Department / office", "Division / unit", "Program / location", "Position / title",
+    "Other documented responsibility", "Listing status", "Official source title",
+    "Official source URL", "Source date", "Checked date", "Private review note",
+)
+FIELDS_16 = (
+    "county_fips", "county", "full_name", "display_group", "grouping_basis", "department",
+    "division", "program_location", "title", "responsibility", "listing_status",
+    "source_title", "source_url", "source_date", "checked_date", "private_note",
 )
 # Public geographic identifiers, not county research or a statewide office template.
 COUNTIES = dict(zip(
@@ -39,6 +60,9 @@ class MappingSpec:
     version: str
     headers: tuple
     fields: tuple
+    county_name_policy: str = "exact"
+    legacy_field_limits: bool = False
+    grouping_basis_policy: str = "r0"
 
     def __post_init__(self):
         required = {"county_fips", "county", "full_name", "listing_status", "source_url"}
@@ -50,10 +74,33 @@ class MappingSpec:
             raise ValueError("Unknown or repeated destination fields")
         if not required <= set(self.fields):
             raise ValueError("Mapping omits a required field")
+        if self.county_name_policy not in ("exact", "beta1"):
+            raise ValueError("Unknown county-name policy")
+        if self.grouping_basis_policy not in ("r0", "raw"):
+            raise ValueError("Unknown grouping-basis policy")
+        if self.legacy_field_limits and self.version == "legacy-17/v1":
+            raise ValueError("The existing 17-column mapping cannot change validation policy")
 
 
 LEGACY_17 = MappingSpec("legacy-17/v1", HEADERS_17, FIELDS_17)
-MAPPINGS = {LEGACY_17.version: LEGACY_17}
+LEGACY_11 = MappingSpec("legacy-11/v1", HEADERS_11, FIELDS_11, "beta1", True, "raw")
+LEGACY_16 = MappingSpec("legacy-16/v1", HEADERS_16, FIELDS_16, "beta1", True, "raw")
+MAPPINGS = {spec.version: spec for spec in (LEGACY_17, LEGACY_11, LEGACY_16)}
+
+
+def _normalize_county_name(value):
+    return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+
+def _county_name_matches(fips, value, policy):
+    if policy == "exact":
+        return value == COUNTIES[fips]
+    name = COUNTIES[fips]
+    aliases = {name, name + " County"}
+    if name in ("Denver", "Broomfield"):
+        aliases.add("City and County of " + name)
+    normalized = _normalize_county_name(value)
+    return any(normalized == _normalize_county_name(alias) for alias in aliases)
 
 
 def register_mapping(spec, registry):
@@ -95,14 +142,20 @@ def parse_csv(payload, version="legacy-17/v1", registry=None):
                 raise ValueError(f"Record {record_number}: expected {len(spec.headers)} fields, got {len(cells)}")
             values = dict.fromkeys(FIELDS_17)
             values.update(zip(spec.fields, cells, strict=True))
+            if spec.legacy_field_limits:
+                for field in ("county_fips", "county", "full_name", "department", "title",
+                              "listing_status", "source_title", "source_url", "source_date",
+                              "checked_date", "private_note"):
+                    if values[field] is not None:
+                        values[field] = values[field].strip()
             fips = values["county_fips"]
-            if fips not in COUNTIES or values["county"] != COUNTIES[fips]:
+            if fips not in COUNTIES or not _county_name_matches(fips, values["county"], spec.county_name_policy):
                 raise ValueError(f"Record {record_number}: county/FIPS mismatch")
             if not values["full_name"].strip():
                 raise ValueError(f"Record {record_number}: missing published name")
             if values["listing_status"] not in ("Listed in official source", "Explicitly former", "Unclear"):
                 raise ValueError(f"Record {record_number}: invalid listing status")
-            if values["grouping_basis"] is not None and values["grouping_basis"] not in (
+            if spec.grouping_basis_policy == "r0" and values["grouping_basis"] is not None and values["grouping_basis"] not in (
                 "Official county structure", "Directory display fallback", "Needs editorial review",
             ):
                 raise ValueError(f"Record {record_number}: invalid grouping basis")
@@ -113,6 +166,16 @@ def parse_csv(payload, version="legacy-17/v1", registry=None):
             checked_precision = date_precision(values["checked_date"])
             if checked_precision not in (None, "day"):
                 raise ValueError(f"Record {record_number}: checked date must be a full date")
+            if spec.legacy_field_limits:
+                limits = {"full_name": 200, "department": 200, "title": 200,
+                          "source_title": 2000, "source_url": 2000, "private_note": 8000,
+                          "display_group": 2000, "grouping_basis": 2000,
+                          "division": 2000, "program_location": 2000,
+                          "responsibility": 2000}
+                for field, limit in limits.items():
+                    value = values[field]
+                    if value is not None and len(value) > limit:
+                        raise ValueError(f"Record {record_number}: {field} exceeds {limit} characters")
             rows.append({
                 "record_number": record_number, "line_start": previous_line + 1,
                 "line_end": line_end, "raw_text": "".join(lines[previous_line:line_end]),

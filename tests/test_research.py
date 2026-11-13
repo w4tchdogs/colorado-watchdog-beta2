@@ -9,13 +9,25 @@ from pathlib import Path
 
 from research.db import connect, migrate, validate_database, MIGRATIONS
 from research.mapping import (
-    parse_csv, date_precision, HEADERS_17, FIELDS_17, LEGACY_17,
+    parse_csv, date_precision, HEADERS_11, FIELDS_11, LEGACY_11, HEADERS_16, FIELDS_16, LEGACY_16,
+    HEADERS_17, FIELDS_17, LEGACY_17,
     MappingSpec, register_mapping, COUNTIES,
 )
 from research.store import ingest_csv, set_parent
 from tests.research_fixtures import observation, csv_bytes
 
 NOW = "2026-11-12T12:00:00+00:00"
+
+
+def legacy_payload(spec, fips="08107", **changes):
+    values = dict.fromkeys(FIELDS_17, "")
+    values.update(county_fips=fips, county=COUNTIES[fips], full_name="Synthetic Casey Example",
+                  department="Fixture Department", title="Fixture Role",
+                  listing_status="Listed in official source", source_title="Invented source",
+                  source_url=f"https://example.invalid/{fips}/legacy", source_date="2025-03",
+                  checked_date="2026-11-12", private_note="synthetic only")
+    values.update(changes)
+    return csv_bytes([[values[field] for field in spec.fields]], spec.headers)
 
 
 class DatabaseCase(unittest.TestCase):
@@ -206,8 +218,116 @@ class MappingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MappingSpec("bad", HEADERS_17, ("full_name",) * 17)
 
+    def test_verified_legacy_11_header_mapping_and_historical_county_names(self):
+        values = dict.fromkeys(FIELDS_17, "")
+        values.update(county_fips=" 08031 ", county=" City and County of Denver ",
+                      full_name=" Synthetic Rowan Example ", listing_status=" Listed in official source ",
+                      source_title="", source_url="https://example.invalid/denver/people",
+                      source_date="2025", checked_date="", private_note="synthetic note")
+        payload = b"\xef\xbb\xbf" + csv_bytes([[values[field] for field in FIELDS_11]], HEADERS_11)
+        parsed = parse_csv(payload, LEGACY_11.version)
+        row = parsed["rows"][0]
+        self.assertEqual(parsed["mapping"], LEGACY_11)
+        self.assertIsNone(row["values"]["nicknames"])
+        self.assertIsNone(row["values"]["display_group"])
+        self.assertEqual(row["values"]["source_date"], "2025")
+        self.assertEqual(row["source_date_precision"], "year")
+        self.assertEqual(row["values"]["private_note"], "synthetic note")
+        self.assertEqual(row["cells"], [values[field] for field in FIELDS_11])
+        self.assertEqual(row["values"]["county_fips"], "08031")
+        self.assertEqual(row["values"]["full_name"], "Synthetic Rowan Example")
+        self.assertEqual(row["line_start"], 2)
+
+    def test_verified_legacy_16_mapping_preserves_extended_labels(self):
+        values = dict.fromkeys(FIELDS_17, "")
+        values.update(county_fips="08014", county="Broomfield County",
+                      full_name="Synthetic Jordan Example", display_group="Fixture display",
+                      grouping_basis="Fixture grouping wording", department="Fixture Office",
+                      division="Fixture Division", program_location="Fixture Site",
+                      title="Fixture Coordinator", responsibility="Invented responsibility",
+                      listing_status="Unclear", source_title="Invented source",
+                      source_url="https://example.invalid/broomfield/source", source_date="2025-02-03",
+                      checked_date="2026-11-12", private_note="synthetic only")
+        parsed = parse_csv(csv_bytes([[values[field] for field in FIELDS_16]], HEADERS_16), LEGACY_16.version)
+        row = parsed["rows"][0]
+        self.assertEqual(parsed["mapping"], LEGACY_16)
+        self.assertEqual(row["values"]["display_group"], "Fixture display")
+        self.assertEqual(row["values"]["grouping_basis"], "Fixture grouping wording")
+        self.assertEqual(row["values"]["division"], "Fixture Division")
+        self.assertEqual(row["values"]["program_location"], "Fixture Site")
+        self.assertEqual(row["values"]["responsibility"], "Invented responsibility")
+        self.assertIsNone(row["values"]["nicknames"])
+        self.assertEqual(row["source_date_precision"], "day")
+
+    def test_legacy_mappings_reject_variations_bad_values_and_oversized_fields(self):
+        for spec, fields, changes in (
+            (LEGACY_11, FIELDS_11, {"county": "Boulder"}),
+            (LEGACY_11, FIELDS_11, {"listing_status": "Listed"}),
+            (LEGACY_16, FIELDS_16, {"source_date": "2025-02-30"}),
+            (LEGACY_11, FIELDS_11, {"full_name": "x" * 201}),
+            (LEGACY_16, FIELDS_16, {"responsibility": "x" * 2001}),
+        ):
+            values = dict.fromkeys(FIELDS_17, "")
+            values.update(county_fips="08107", county="Routt", full_name="Synthetic Example",
+                          listing_status="Listed in official source", source_url="https://example.invalid/source")
+            values.update(changes)
+            payload = csv_bytes([[values[field] for field in fields]], spec.headers)
+            with self.subTest(version=spec.version, changes=tuple(changes)), self.assertRaises(ValueError):
+                parse_csv(payload, spec.version)
+        valid = dict.fromkeys(FIELDS_17, "")
+        valid.update(county_fips="08107", county="Routt", full_name="Synthetic Example",
+                     listing_status="Listed in official source", source_url="https://example.invalid/source")
+        cells = [valid[field] for field in FIELDS_11]
+        for altered in (HEADERS_11[:-1], HEADERS_11[1:] + HEADERS_11[:1], HEADERS_11 + ("Extra",)):
+            with self.assertRaises(ValueError):
+                parse_csv(csv_bytes([cells], altered), LEGACY_11.version)
+
 
 class ProvenanceTests(DatabaseCase):
+    def test_legacy_versions_ingest_with_raw_provenance_and_lineage(self):
+        original = ingest_csv(self.db, legacy_payload(LEGACY_11), file_name="legacy11.csv",
+                              version_label="legacy-fixture-v1", version=LEGACY_11.version,
+                              provenance="synthetic", selected=True)
+        first_claim = self.db.execute("SELECT id FROM role_claims").fetchone()[0]
+        corrected = ingest_csv(self.db, legacy_payload(LEGACY_11, title="Corrected fixture title"),
+                               file_name="legacy11-corrected.csv", version_label="legacy-fixture-v2",
+                               version=LEGACY_11.version, provenance="synthetic", lineage_kind="corrected",
+                               parent_batch_id=original, supersedes={1: first_claim}, selected=False)
+        self.assertEqual(self.db.execute("SELECT mapping_version FROM scrape_batches WHERE id=?", (original,)).fetchone()[0],
+                         "legacy-11/v1")
+        self.assertEqual(self.db.execute("SELECT count(*) FROM selected_role_claims").fetchone()[0], 1)
+        mapping_json = json.loads(self.db.execute("SELECT mapping_json FROM scrape_batches WHERE id=?", (original,)).fetchone()[0])
+        self.assertEqual(mapping_json["headers"], list(HEADERS_11))
+        self.assertEqual(mapping_json["county_name_policy"], "beta1")
+        evidence = self.db.execute("SELECT * FROM evidence_links WHERE batch_id=?", (original,)).fetchone()
+        self.assertEqual(json.loads(evidence["raw_record_json"])["headers"], list(HEADERS_11))
+        self.assertEqual(json.loads(evidence["occurrences_json"])[0]["record_number"], 1)
+        self.assertIsNone(evidence["source_version_key"])
+        self.assertEqual(self.db.execute("SELECT count(*) FROM source_visits").fetchone()[0], 0)
+        self.assertEqual(ingest_csv(self.db, legacy_payload(LEGACY_11), file_name="legacy11.csv",
+                                    version_label="legacy-fixture-v1", version=LEGACY_11.version,
+                                    provenance="synthetic", selected=True), original)
+
+        complementary = ingest_csv(self.db, legacy_payload(LEGACY_16, fips="08031", county="Denver",
+                                                           full_name="Synthetic Morgan Example"),
+                                   file_name="legacy16.csv", version_label="legacy16-v1",
+                                   version=LEGACY_16.version, provenance="synthetic",
+                                   lineage_kind="complementary", selected=True)
+        self.assertEqual(self.db.execute("SELECT mapping_version FROM scrape_batches WHERE id=?", (complementary,)).fetchone()[0],
+                         "legacy-16/v1")
+        self.assertEqual(self.db.execute("SELECT count(*) FROM research_people").fetchone()[0], 0)
+
+    def test_legacy_parse_failure_writes_nothing(self):
+        before = {table: self.db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+                  for table in ("scrape_batches", "research_runs", "sources", "evidence_links", "role_claims")}
+        payload = legacy_payload(LEGACY_11, listing_status="Unknown status")
+        with self.assertRaisesRegex(ValueError, "listing status"):
+            ingest_csv(self.db, payload, file_name="bad-legacy.csv", version_label="bad",
+                       version=LEGACY_11.version, provenance="synthetic")
+        after = {table: self.db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+                 for table in before}
+        self.assertEqual(after, before)
+
     def test_alternative_version_preserves_selected_original(self):
         original = self.ingest()
         alternative = self.ingest([observation(source_title="Alternative source title")],
