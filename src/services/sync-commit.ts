@@ -20,6 +20,7 @@ import {
   type VersionedValue,
 } from "../database/versioned-writes.js";
 import { insertAuditEvent } from "./audit.js";
+import { insertBatchDuplicateFlags } from "./duplicate-flags.js";
 import { hasCapability, newId, type TrustedPrincipal } from "./security.js";
 import { planSyncChangeset } from "./sync-planner.js";
 
@@ -190,6 +191,18 @@ export async function commitSyncChangeset(
         currentPlan.items,
         items,
       );
+      const flags = insertBatchDuplicateFlags(
+        database,
+        principal,
+        batchId,
+        request.duplicateFlags,
+        new Map(
+          items.flatMap((item) =>
+            item.clientRef ? [[item.clientRef, item.websiteId] as const] : [],
+          ),
+        ),
+        committedAt,
+      );
       insertAuditEvent(
         database,
         { principal },
@@ -198,7 +211,12 @@ export async function commitSyncChangeset(
           targetType: "sync_batch",
           targetId: batchId,
           summary: "Committed a Website synchronization batch",
-          details: { itemCount: items.length, requestId: request.requestId },
+          details: {
+            itemCount: items.length,
+            requestId: request.requestId,
+            duplicateFlagsCreated: flags.created,
+            duplicateFlagsExisting: flags.existing,
+          },
         },
       );
       return { committed: stored };

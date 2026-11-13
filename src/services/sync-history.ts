@@ -1,6 +1,10 @@
 import type { SyncEntity } from "../contracts/sync.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
 import { insertAuditEvent } from "./audit.js";
+import {
+  assertBatchDuplicateFlagsReversible,
+  removeBatchDuplicateFlags,
+} from "./duplicate-flags.js";
 import { hasCapability, newId, type TrustedPrincipal } from "./security.js";
 
 const MAX_BATCH_ITEMS = 200;
@@ -259,6 +263,26 @@ export async function reverseSyncBatch(
           throw new Error("unsafe_inverse");
       }
       validateWholeBatch(database, items);
+      assertBatchDuplicateFlagsReversible(
+        database,
+        batchId,
+        items
+          .filter(
+            (item) => item.outcome === "created" && item.entity === "people",
+          )
+          .map((item) => item.targetId),
+        items
+          .filter(
+            (item) =>
+              item.outcome === "created" && item.entity === "role_sources",
+          )
+          .map((item) => item.targetId),
+      );
+      const flagsRemoved = removeBatchDuplicateFlags(
+        database,
+        principal,
+        batchId,
+      );
       for (const item of [...items].reverse()) applyInverse(database, item);
       const result: SyncBatchReversalResult = {
         status: "reverted",
@@ -288,7 +312,7 @@ export async function reverseSyncBatch(
           targetType: "sync_batch",
           targetId: batchId,
           summary: "Reversed a Website synchronization batch",
-          details: { itemCount: items.length, reversalId },
+          details: { itemCount: items.length, reversalId, flagsRemoved },
         },
       );
       return result;
