@@ -1,6 +1,6 @@
 # Colorado Watchdog beta-2
 
-Shared AI-first project for ChatGPT, Codex, Claude and the owner. The repository includes the collaboration pipeline and a separate [local SQLite research foundation (R0)](docs/research/R0-foundation.md), validated with synthetic fixtures.
+Shared AI-first project for ChatGPT, Codex, Claude and the owner. The repository includes the beta-2 Website application foundation and a separate [local SQLite Profiles research foundation (R0)](docs/research/R0-foundation.md), validated with synthetic fixtures.
 
 **Start:** [Coordination](docs/coordination/START.md) · [Decisions](docs/decisions.md) · [Architecture handoff](docs/architecture/beta-2-planning-handoff.md)
 
@@ -14,11 +14,38 @@ GitHub Issues hold progress and session handoffs. Common instructions are in [AG
 
 Reference Windows checkout: `D:\ChatGPT\Watchdog\colorado-watchdog-beta2`. A collaborator can use a connected GitHub integration or local checkout.
 
-## Existing development checks
+## Website application
+
+The Worker-compatible Fetch entrypoint is `src/worker.ts`; request dispatch
+delegates to the shared service layer. The internal health route is only a
+boundary check, not public Website functionality. Runtime compatibility with
+ChatGPT Sites is not verified. See
+[Website foundation status](docs/architecture/site-foundation.md) for what is
+implemented and deferred.
+
+Use Node.js 22 and the committed npm lockfile:
+
+```text
+npm ci
+npm run dev
+npm run format:check
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+The local adapter is a deterministic fake; M0-A does not create or access a
+Website database, Profiles database, or hosted service.
+
+## Repository checks
 
 Run `node scripts/check.mjs` with Node 22 or later and Git. It checks tracked file paths, formatting, whitespace, conflict markers and common credential patterns. Enable the optional local commit hook with `git config --local core.hooksPath .githooks`.
 
-[GitHub Actions](.github/workflows/check.yml) runs the same checker and `python3 -B -m unittest discover -s tests -v` on pushes and PRs. The Python standard-library suite validates migrations and synthetic research scenarios.
+[GitHub Actions](.github/workflows/check.yml) runs the repository checker, the
+Profiles Python suite, and Website formatting, lint, type, test, and build
+checks on pushes and PRs. The Python standard-library suite validates only the
+separate Profiles research system.
 
 ## Collaboration history
 
