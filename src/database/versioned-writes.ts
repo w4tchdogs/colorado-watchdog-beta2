@@ -1,7 +1,7 @@
 import type { WebsiteDatabase } from "./sqlite.js";
 
 const MUTABLE_COLUMNS = {
-  accounts: ["display_name", "email", "status", "preferences"],
+  accounts: ["display_name", "email", "role", "status", "preferences"],
   identities: ["expires_at", "revoked_at"],
   operations: [
     "status",
