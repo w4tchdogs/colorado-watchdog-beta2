@@ -1,0 +1,378 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { ContentAction } from "../contracts/content.js";
+import { migrateWebsiteDatabase } from "../database/migrations.js";
+import {
+  openWebsiteDatabase,
+  type WebsiteDatabase,
+} from "../database/sqlite.js";
+import { createContentService } from "../services/content.js";
+import {
+  createTestHumanIdentityAdapter,
+  resolvePrincipal,
+  type TrustedPrincipal,
+} from "../services/security.js";
+import {
+  CONTENT_API_PATHS,
+  createContentApiTransport,
+  createContentTransportOperations,
+} from "../transport/content-api.js";
+
+/**
+ * Local, disposable editorial sandbox. It is a development tool only: it owns a
+ * fresh in-memory Website database, never reads DATABASE_PATH or any other
+ * environment, and is never imported by the public application or Worker.
+ */
+export const SANDBOX_TOKEN_HEADER = "x-editor-token";
+export const SANDBOX_ACCOUNT_HEADER = "x-test-human-subject";
+export const SANDBOX_INFO_PATH = "/sandbox/info";
+export const TOKEN_PLACEHOLDER = "__EDITOR_TOKEN__";
+
+/** Sandbox account key -> synthetic identity subject. */
+const SUBJECTS = {
+  author: "sandbox-subject-author",
+  editor: "sandbox-subject-editor",
+  readonly: "sandbox-subject-readonly",
+  retired: "sandbox-subject-retired",
+} as const;
+
+export const SANDBOX_ACCOUNTS = [
+  { key: "author", label: "Avery Author (can edit)", accountId: "sbx-author" },
+  { key: "editor", label: "Eli Editor (can edit)", accountId: "sbx-editor" },
+  {
+    key: "readonly",
+    label: "Riley Reader (no editorial permission)",
+    accountId: "sbx-readonly",
+  },
+  {
+    key: "retired",
+    label: "Rene Retired (disabled account)",
+    accountId: "sbx-retired",
+  },
+] as const;
+
+/** Development-only policy: only these two synthetic accounts may edit. */
+const EDITING_ACCOUNT_IDS: ReadonlySet<string> = new Set([
+  "sbx-author",
+  "sbx-editor",
+]);
+const sandboxPolicy = (
+  principal: TrustedPrincipal,
+  _action?: ContentAction | string,
+): boolean =>
+  principal.provider === "test-human" &&
+  EDITING_ACCOUNT_IDS.has(principal.accountId);
+
+export const FICTIONAL_PEOPLE = [
+  { id: "sbx-person-1", name: "Fictional Person One" },
+  { id: "sbx-person-2", name: "Fictional Person Two" },
+  { id: "sbx-person-3", name: "Fictional Person Three" },
+] as const;
+export const FICTIONAL_ORGANIZATIONS = [
+  { id: "sbx-org-1", name: "Fictional Records Office" },
+  { id: "sbx-org-2", name: "Fictional Regional Board" },
+] as const;
+
+export interface EditorSandboxOptions {
+  /** Directory holding index.html and editor.css. */
+  readonly staticDirectory: string;
+  /** Directory holding the compiled browser modules (dist/editor). */
+  readonly scriptDirectory: string;
+  /** Exact host:port values accepted in the Host header. */
+  readonly allowedHosts: readonly string[];
+  readonly token?: string;
+}
+
+export interface EditorSandbox {
+  readonly token: string;
+  readonly database: WebsiteDatabase;
+  fetch(request: Request): Promise<Response>;
+  close(): void;
+}
+
+const SECURITY_HEADERS = {
+  "cache-control": "no-store",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+  "cross-origin-resource-policy": "same-origin",
+  "cross-origin-opener-policy": "same-origin",
+  "content-security-policy":
+    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+} as const;
+
+export function sandboxJson(status: number, value: unknown): Response {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: {
+      ...SECURITY_HEADERS,
+      "content-type": "application/json; charset=utf-8",
+    },
+  });
+}
+
+function tokensEqual(expected: string, presented: string | null): boolean {
+  if (presented === null) return false;
+  const a = Buffer.from(expected);
+  const b = Buffer.from(presented);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+const STATIC_FILES: Readonly<
+  Record<string, { directory: "static" | "script"; file: string; type: string }>
+> = {
+  "/": {
+    directory: "static",
+    file: "index.html",
+    type: "text/html; charset=utf-8",
+  },
+  "/editor.css": {
+    directory: "static",
+    file: "editor.css",
+    type: "text/css; charset=utf-8",
+  },
+  "/app/main.js": {
+    directory: "script",
+    file: "main.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/app.js": {
+    directory: "script",
+    file: "app.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/api-client.js": {
+    directory: "script",
+    file: "api-client.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/diff.js": {
+    directory: "script",
+    file: "diff.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/dom.js": {
+    directory: "script",
+    file: "dom.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/markdown.js": {
+    directory: "script",
+    file: "markdown.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/preview.js": {
+    directory: "script",
+    file: "preview.js",
+    type: "text/javascript; charset=utf-8",
+  },
+};
+
+export async function createEditorSandbox(
+  options: EditorSandboxOptions,
+): Promise<EditorSandbox> {
+  // Always a fresh in-memory database. No path, URL or environment is read.
+  const database = await openWebsiteDatabase(":memory:");
+  migrateWebsiteDatabase(database);
+  seedAccountsAndDirectory(database);
+
+  const service = createContentService(database, { authorize: sandboxPolicy });
+  const adapter = createTestHumanIdentityAdapter(SUBJECTS);
+  const token = options.token ?? randomBytes(32).toString("base64url");
+  const allowedHosts = new Set(
+    options.allowedHosts.map((h) => h.toLowerCase()),
+  );
+
+  const transport = createContentApiTransport({
+    resolvePrincipal: (request) => resolvePrincipal(database, request, adapter),
+    authorize: (principal) => sandboxPolicy(principal),
+    operations: createContentTransportOperations(service),
+  });
+
+  await seedContent(database, service);
+
+  const info = () => {
+    const counties = database
+      .prepare("SELECT fips, name FROM counties ORDER BY name")
+      .all()
+      .map((row) => ({ fips: String(row.fips), name: String(row.name) }));
+    return {
+      sandbox: true as const,
+      accounts: SANDBOX_ACCOUNTS.map(({ key, label }) => ({ key, label })),
+      counties,
+      directory: {
+        people: FICTIONAL_PEOPLE,
+        organizations: FICTIONAL_ORGANIZATIONS,
+      },
+    };
+  };
+
+  async function serveStatic(pathname: string): Promise<Response> {
+    const entry = STATIC_FILES[pathname];
+    if (!entry) return sandboxJson(404, { error: "not_found" });
+    const directory =
+      entry.directory === "static"
+        ? options.staticDirectory
+        : options.scriptDirectory;
+    let text: string;
+    try {
+      text = await readFile(join(directory, entry.file), "utf8");
+    } catch {
+      return sandboxJson(503, { error: "operation_unavailable" });
+    }
+    if (pathname === "/") text = text.replaceAll(TOKEN_PLACEHOLDER, token);
+    return new Response(text, {
+      status: 200,
+      headers: { ...SECURITY_HEADERS, "content-type": entry.type },
+    });
+  }
+
+  async function handle(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    // DNS-rebinding defense: only the exact local origins are served.
+    if (!allowedHosts.has(url.host.toLowerCase())) {
+      return sandboxJson(403, { error: "forbidden" });
+    }
+    const isApi =
+      url.pathname === SANDBOX_INFO_PATH ||
+      Object.values(CONTENT_API_PATHS).includes(
+        url.pathname as (typeof CONTENT_API_PATHS)[keyof typeof CONTENT_API_PATHS],
+      );
+    if (!isApi) {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return sandboxJson(405, { error: "method_not_allowed" });
+      }
+      return serveStatic(url.pathname);
+    }
+
+    // Cross-origin defense for every API call, including reads.
+    const fetchSite = request.headers.get("sec-fetch-site");
+    if (fetchSite !== null && fetchSite !== "same-origin") {
+      return sandboxJson(403, { error: "forbidden" });
+    }
+    const origin = request.headers.get("origin");
+    if (origin !== null && origin !== url.origin) {
+      return sandboxJson(403, { error: "forbidden" });
+    }
+    if (request.method === "POST" && origin === null && fetchSite === null) {
+      return sandboxJson(403, { error: "forbidden" });
+    }
+    if (!tokensEqual(token, request.headers.get(SANDBOX_TOKEN_HEADER))) {
+      return sandboxJson(403, { error: "forbidden" });
+    }
+    if (url.pathname === SANDBOX_INFO_PATH) {
+      if (request.method !== "GET") {
+        return sandboxJson(405, { error: "method_not_allowed" });
+      }
+      return sandboxJson(200, info());
+    }
+    const response = await transport.fetch(request);
+    const headers = new Headers(response.headers);
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+      headers.set(name, value);
+    }
+    return new Response(response.body, { status: response.status, headers });
+  }
+
+  return {
+    token,
+    database,
+    fetch: handle,
+    close: () => database.close(),
+  };
+}
+
+function seedAccountsAndDirectory(database: WebsiteDatabase): void {
+  database.exec(`
+    INSERT INTO accounts (id, kind, role, display_name, email, status)
+    VALUES ('sbx-author','human','contributor','Avery Author','author@example.invalid','active'),
+           ('sbx-editor','human','contributor','Eli Editor','editor@example.invalid','active'),
+           ('sbx-readonly','human','contributor','Riley Reader',NULL,'active'),
+           ('sbx-retired','human','contributor','Rene Retired',NULL,'disabled');
+    INSERT INTO identities (id, account_id, provider, subject)
+    VALUES ('sbx-id-author','sbx-author','test-human','${SUBJECTS.author}'),
+           ('sbx-id-editor','sbx-editor','test-human','${SUBJECTS.editor}'),
+           ('sbx-id-readonly','sbx-readonly','test-human','${SUBJECTS.readonly}'),
+           ('sbx-id-retired','sbx-retired','test-human','${SUBJECTS.retired}');
+    INSERT INTO organizations (id, name, organization_type, county_fips)
+    VALUES ('sbx-org-1','Fictional Records Office','office','08001'),
+           ('sbx-org-2','Fictional Regional Board','regional',NULL);
+    INSERT INTO people (id, display_name)
+    VALUES ('sbx-person-1','Fictional Person One'),
+           ('sbx-person-2','Fictional Person Two'),
+           ('sbx-person-3','Fictional Person Three');
+  `);
+}
+
+const SAMPLE_BODY = [
+  "## Overview",
+  "",
+  "This is **fictional** sandbox text with *emphasis* and a",
+  "[sample link](https://example.invalid/sandbox).",
+  "",
+  "- First point",
+  "- Second point",
+  "",
+  "> A fictional quotation for preview testing.",
+  "",
+  "Inline `code` is supported.",
+].join("\n");
+
+async function seedContent(
+  database: WebsiteDatabase,
+  service: ReturnType<typeof createContentService>,
+): Promise<void> {
+  const adapter = createTestHumanIdentityAdapter(SUBJECTS);
+  const as = async (key: keyof typeof SUBJECTS) => {
+    const principal = await resolvePrincipal(
+      database,
+      new Request("http://sandbox.invalid", {
+        headers: { [SANDBOX_ACCOUNT_HEADER]: key },
+      }),
+      adapter,
+    );
+    if (!principal) throw new Error("Sandbox seed account is unavailable");
+    return principal;
+  };
+  const author = await as("author");
+  const editor = await as("editor");
+
+  const ids: string[] = [];
+  for (let index = 1; index <= 14; index += 1) {
+    const isPost = index % 2 === 1;
+    const created = service.createDraft(author, {
+      contentType: isPost ? "post" : "story",
+      title: `${isPost ? "Fictional Post" : "Fictional Story"} ${index}`,
+      summary: `Sandbox ${isPost ? "post" : "story"} number ${index}.`,
+      body: `${SAMPLE_BODY}\n\nItem number ${index}.`,
+      relationships:
+        index % 3 === 0
+          ? {
+              countyFips: ["08001"],
+              personIds: ["sbx-person-1"],
+              organizationIds: ["sbx-org-1"],
+            }
+          : { countyFips: [], personIds: [], organizationIds: [] },
+    });
+    ids.push(created.id);
+  }
+  // A few edits so revision history has something to show.
+  const first = ids[0];
+  if (first) {
+    let current = service.getDraft(author, first);
+    if (current) {
+      current = service.updateDraft(editor, first, current.version, {
+        body: `${SAMPLE_BODY}\n\nSecond edit by the sandbox editor.`,
+      });
+      current = service.updateDraft(author, first, current.version, {
+        title: "Fictional Post 1 (revised)",
+      });
+    }
+  }
+  // Two archived items.
+  for (const id of [ids[3], ids[7]]) {
+    if (!id) continue;
+    const current = service.getDraft(author, id);
+    if (current) service.archiveDraft(author, id, current.version);
+  }
+}
