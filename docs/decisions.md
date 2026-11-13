@@ -1,5 +1,7 @@
 # Current decisions — November 12, 2026
 
+Current technical assessment: [Fable assessment revision 4](https://drive.google.com/file/d/1ux9NG09zr9DkztRGYtc-Z3uXBZ81ncI0/view). See the [revision 4 section](#revision-4-technical-assessment-november-12-2026) below. The first two sections are the earlier decision records and remain as written.
+
 Authority: [Fable assessment revision 3](https://drive.google.com/file/d/1W8STh6s2qJWrDUELR66djYzzfJelt4g_/view), read through the connected Drive account. The owner's bootstrap request determines this task's scope and resolves conflicting recommendations or residual tables in older documents.
 
 | Topic | Current direction | Superseded choice |
@@ -30,3 +32,29 @@ These decisions describe intended architecture and collaboration; they do **not*
 | Chat titles | Circles for conversational AI and squares for Codex, each green/yellow/orange/red by low/medium/high/extra-high thinking, followed by actual model name; no Max tier |
 
 See [sanitized architecture handoff](architecture/beta-2-planning-handoff.md). Any later implementation still requires a scoped task; keep the initial beta-2 database empty.
+
+## Revision 4 technical assessment (November 12, 2026)
+
+[Fable assessment revision 4](https://drive.google.com/file/d/1ux9NG09zr9DkztRGYtc-Z3uXBZ81ncI0/view) is the current technical assessment. It supersedes the recommendations of [revision 3](https://drive.google.com/file/d/1W8STh6s2qJWrDUELR66djYzzfJelt4g_/view) where they differ. Revision 3 stays as history.
+
+Revision 4 restates the owner decisions recorded above and adds technical proposals. A proposal is not an owner decision. It is the working design and can change through normal scoped work. Nothing in this section is implemented.
+
+| Area | Owner decision already recorded above | Revision 4 technical proposal |
+| --- | --- | --- |
+| Import | Research, screening and identity analysis in the local SQLite database. Version-checked changesets to the Site. The Site assigns profile IDs | The Site keeps a paged read API with row versions, one changeset endpoint with dry run and safe retries, sync batch records with revert, rule checks only, and a public source citation per role. Revision 3's Site-side CSV import pipeline is withdrawn |
+| Backup | Cover D1, R2 and the deployable application version. Automated encrypted off-site copies. Tested restore. Destination and schedule open | A producer on the Site, a restore-based verifier and a swappable destination adapter. Revision 3's GitHub release destination is withdrawn as a fixed choice |
+| Accounts | Early unified accounts for guests, contributors, editors, administrators, owner and attributable AI agents | An account has a kind (human or agent) and a role. Full model in the schema from the start. Stage A: owner, administrators and agents. Stage B: contributors and submissions. Stage C: guest submissions and reports |
+| Identity | Pre-import screening. Nonblocking possible-duplicate flags. Evidence-supported maintenance. Name or nickname similarity never proves identity | Revision 3's exact-name association rule is removed. Local claims stay distinct. The Site stores duplicate flags and reversible merge redirects. A default evidence standard applies |
+| Site schema and roadmap | One typed relational D1 database. Empty start | A smaller Site schema. A sync API milestone plus a separate local research tooling track |
+
+### Remaining owner choices
+
+None of these blocks current work. Each has a default or is needed only at the stated point.
+
+| Choice | Needed | Default until chosen |
+| --- | --- | --- |
+| Off-site backup location | Before a backup destination is configured | Build the producer and verifier. Keep the on-Site copy. Configure no off-site destination |
+| Evidence standard for treating two observations as one person | Before real county data is screened | The default in revision 4 section M |
+| Contributor sign-in method | Before stage B | Not needed for the first release |
+| Beta-1 hosting after January 1, 2027 | When Sites hosting becomes metered | Beta-1 unchanged |
+| When to create the beta-2 Site | Before milestone M0 | Not created |

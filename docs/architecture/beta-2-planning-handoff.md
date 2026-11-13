@@ -2,6 +2,7 @@
 
 **Prepared:** November 12, 2026. **Status: planning and owner decisions, not implemented features.**
 **Audience:** Codex, Claude, ChatGPT and later collaborators. **Authority:** [Fable v3](https://drive.google.com/file/d/1W8STh6s2qJWrDUELR66djYzzfJelt4g_/view) as starting architecture, updated by explicit owner choices summarized in [decisions](../decisions.md). This file is not a substitute for the original detailed planning conversation or a migration instruction.
+**Later assessment:** [Fable v4](https://drive.google.com/file/d/1ux9NG09zr9DkztRGYtc-Z3uXBZ81ncI0/view) reconciles revision 3 with these decisions. [Decisions](../decisions.md) separates owner decisions from revision 4 proposals.
 
 ## Verified collaboration baseline
 
