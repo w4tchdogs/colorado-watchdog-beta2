@@ -2,10 +2,15 @@ import {
   type DirectoryPageRequest,
   MAX_DIRECTORY_PAGE_SIZE,
 } from "./contracts/directory.js";
+import type {
+  OrganizationProfilePageRequest,
+  OrganizationRolePageRequest,
+} from "./contracts/organization-profile.js";
 import type { PersonProfilePageRequest } from "./contracts/person-profile.js";
 import { StorageUnavailableError } from "./contracts/storage.js";
 import { InvalidInputError } from "./services/accounts.js";
 import type { ApplicationServices } from "./services/index.js";
+import { OrganizationProfileInputError } from "./services/organization-profile.js";
 import { PersonProfileInputError } from "./services/person-profile.js";
 import { AuthorizationError } from "./services/security.js";
 
@@ -17,6 +22,8 @@ const ACCOUNTS_PATH = "/api/accounts";
 const COUNTY_DIRECTORY_PATH =
   /^\/api\/counties\/([^/]+)\/(organizations|roles)$/;
 const PEOPLE_PROFILE_PATH = /^\/api\/people\/(.*)$/;
+const ORGANIZATION_PROFILE_PATH = /^\/api\/organizations(?:\/([^/]*))?$/;
+const ORGANIZATION_ROLES_PATH = /^\/api\/organizations\/([^/]+)\/roles$/;
 
 export function createApplication(services: ApplicationServices) {
   return {
@@ -48,6 +55,8 @@ async function dispatch(
 
   const directoryMatch = pathname.match(COUNTY_DIRECTORY_PATH);
   const personProfileMatch = pathname.match(PEOPLE_PROFILE_PATH);
+  const organizationProfileMatch = pathname.match(ORGANIZATION_PROFILE_PATH);
+  const organizationRolesMatch = pathname.match(ORGANIZATION_ROLES_PATH);
   const directoryCountyFips = directoryMatch?.[1];
   const directoryResource = directoryMatch?.[2];
   if (
@@ -59,7 +68,9 @@ async function dispatch(
       ACCOUNTS_PATH,
     ].includes(pathname) &&
     !directoryMatch &&
-    !personProfileMatch
+    !personProfileMatch &&
+    !organizationProfileMatch &&
+    !organizationRolesMatch
   ) {
     return jsonResponse(404, { error: "not_found" });
   }
@@ -73,7 +84,13 @@ async function dispatch(
     );
   }
 
-  if (!directoryMatch && !personProfileMatch && url.search !== "") {
+  if (
+    !directoryMatch &&
+    !personProfileMatch &&
+    !organizationProfileMatch &&
+    !organizationRolesMatch &&
+    url.search !== ""
+  ) {
     return jsonResponse(400, { error: "unexpected_query" });
   }
 
@@ -93,6 +110,33 @@ async function dispatch(
     ? parsePersonProfileRequest(personProfileMatch[1], url.searchParams)
     : null;
   if (personProfileMatch && !personProfileRequest) {
+    const supportedParameters = new Set(["limit", "afterRoleId"]);
+    const hasUnsupportedParameter = [...url.searchParams.keys()].some(
+      (key) => !supportedParameters.has(key),
+    );
+    return jsonResponse(400, {
+      error: hasUnsupportedParameter ? "unexpected_query" : "invalid_request",
+    });
+  }
+  const organizationProfileRequest = organizationProfileMatch
+    ? parseOrganizationProfileRequest(
+        organizationProfileMatch[1],
+        url.searchParams,
+      )
+    : null;
+  if (organizationProfileMatch && !organizationProfileRequest) {
+    const supportedParameters = new Set(["limit", "afterPositionId"]);
+    const hasUnsupportedParameter = [...url.searchParams.keys()].some(
+      (key) => !supportedParameters.has(key),
+    );
+    return jsonResponse(400, {
+      error: hasUnsupportedParameter ? "unexpected_query" : "invalid_request",
+    });
+  }
+  const organizationRoleRequest = organizationRolesMatch
+    ? parseOrganizationRoleRequest(organizationRolesMatch[1], url.searchParams)
+    : null;
+  if (organizationRolesMatch && !organizationRoleRequest) {
     const supportedParameters = new Set(["limit", "afterRoleId"]);
     const hasUnsupportedParameter = [...url.searchParams.keys()].some(
       (key) => !supportedParameters.has(key),
@@ -137,6 +181,22 @@ async function dispatch(
         ? jsonResponse(200, { ...profile })
         : jsonResponse(404, { error: "not_found" });
     }
+    if (organizationProfileRequest) {
+      const profile = services.getOrganizationProfile(
+        organizationProfileRequest,
+      );
+      return profile
+        ? jsonResponse(200, { ...profile })
+        : jsonResponse(404, { error: "not_found" });
+    }
+    if (organizationRoleRequest) {
+      const roles = services.listOrganizationRoleEntries(
+        organizationRoleRequest,
+      );
+      return roles
+        ? jsonResponse(200, { ...roles })
+        : jsonResponse(404, { error: "not_found" });
+    }
 
     return await createAccount(request, services);
   } catch (error) {
@@ -152,8 +212,117 @@ async function dispatch(
     if (error instanceof PersonProfileInputError) {
       return jsonResponse(400, { error: "invalid_request" });
     }
+    if (error instanceof OrganizationProfileInputError) {
+      return jsonResponse(400, { error: "invalid_request" });
+    }
     return jsonResponse(500, { error: "internal_error" });
   }
+}
+
+function parseOrganizationProfileRequest(
+  organizationId: string | undefined,
+  searchParams: URLSearchParams,
+): OrganizationProfilePageRequest | null {
+  if (
+    typeof organizationId !== "string" ||
+    organizationId.length < 1 ||
+    organizationId.length > 128 ||
+    !/^[A-Za-z0-9._:-]+$/.test(organizationId)
+  ) {
+    return null;
+  }
+
+  const allowedParameters = new Set(["limit", "afterPositionId"]);
+  const keys = [...searchParams.keys()];
+  if (
+    keys.some((key) => !allowedParameters.has(key)) ||
+    keys.some((key) => searchParams.getAll(key).length !== 1)
+  ) {
+    return null;
+  }
+
+  const limitValue = searchParams.get("limit");
+  let limit: number | undefined;
+  if (limitValue !== null) {
+    if (!/^\d+$/.test(limitValue)) return null;
+    limit = Number(limitValue);
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > MAX_DIRECTORY_PAGE_SIZE
+    ) {
+      return null;
+    }
+  }
+
+  const afterPositionId = searchParams.get("afterPositionId");
+  if (
+    afterPositionId !== null &&
+    (afterPositionId.length < 1 ||
+      afterPositionId.length > 128 ||
+      !/^[A-Za-z0-9._:-]+$/.test(afterPositionId))
+  ) {
+    return null;
+  }
+
+  return {
+    organizationId,
+    ...(limit === undefined ? {} : { limit }),
+    ...(afterPositionId === null ? {} : { afterPositionId }),
+  };
+}
+
+function parseOrganizationRoleRequest(
+  organizationId: string | undefined,
+  searchParams: URLSearchParams,
+): OrganizationRolePageRequest | null {
+  if (
+    typeof organizationId !== "string" ||
+    organizationId.length < 1 ||
+    organizationId.length > 128 ||
+    !/^[A-Za-z0-9._:-]+$/.test(organizationId)
+  ) {
+    return null;
+  }
+
+  const allowedParameters = new Set(["limit", "afterRoleId"]);
+  const keys = [...searchParams.keys()];
+  if (
+    keys.some((key) => !allowedParameters.has(key)) ||
+    keys.some((key) => searchParams.getAll(key).length !== 1)
+  ) {
+    return null;
+  }
+
+  const limitValue = searchParams.get("limit");
+  let limit: number | undefined;
+  if (limitValue !== null) {
+    if (!/^\d+$/.test(limitValue)) return null;
+    limit = Number(limitValue);
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > MAX_DIRECTORY_PAGE_SIZE
+    ) {
+      return null;
+    }
+  }
+
+  const afterRoleId = searchParams.get("afterRoleId");
+  if (
+    afterRoleId !== null &&
+    (afterRoleId.length < 1 ||
+      afterRoleId.length > 128 ||
+      !/^[A-Za-z0-9._:-]+$/.test(afterRoleId))
+  ) {
+    return null;
+  }
+
+  return {
+    organizationId,
+    ...(limit === undefined ? {} : { limit }),
+    ...(afterRoleId === null ? {} : { afterRoleId }),
+  };
 }
 
 function parsePersonProfileRequest(
