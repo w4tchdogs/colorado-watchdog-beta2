@@ -89,11 +89,14 @@ const allowed = new Set([
   "research/mapping.py",
   "research/quarantine.py",
   "research/store.py",
+  "research/submission.py",
   "research/operator.py",
   "research/migrations/001_foundation.sql",
+  "research/migrations/002_durable_site_submissions.sql",
   "tests/__init__.py",
   "tests/research_fixtures.py",
   "tests/test_research.py",
+  "tests/test_submission.py",
   "tests/test_legacy_contract.py",
   "tests/test_csv_intake.py",
   "tests/test_readiness.py",
@@ -108,6 +111,7 @@ const allowed = new Set([
   "docs/research/R2-identity-bootstrap.md",
   "docs/research/R4-H1-intake-hardening.md",
   "docs/research/R5A-local-database-readiness.md",
+  "docs/research/R6-durable-submission-client.md",
 ]);
 const staged = process.argv.includes("--staged");
 const git = (...args) =>
