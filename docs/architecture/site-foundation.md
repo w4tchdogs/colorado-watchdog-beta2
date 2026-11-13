@@ -174,6 +174,33 @@ and tested using SQL.js only.
   SQL.js adapter; hosted D1 and production deployment compatibility remain
   unverified.
 
+## M1-F public directory discovery
+
+- `GET /api/people?query=...` and `GET /api/organizations?query=...` search
+  stored Website display names. `query` is required and trimmed; it must
+  contain 2–100 characters. `limit` defaults to 25 and is capped at 100;
+  `cursor` continues the matching collection and query using the previous
+  `nextCursor`. Responses use `items`, `hasMore`, and `nextCursor`.
+- People results contain only stable ID, stored display name, and version.
+  Organization results contain stable ID, stored name, organization type, and
+  version; they do not imply county department status or include county
+  relationships. Existing person and organization profile routes retain their
+  detailed records.
+- Results are ordered by name using SQLite `NOCASE`, then stable ID using
+  binary ordering. Keyset cursors are opaque and bound to the exact trimmed
+  query and collection; malformed, stale, or mismatched cursors return 400.
+  Each response is bounded, but pagination across concurrent record changes
+  does not provide a point-in-time snapshot.
+- Name matching uses parameterized SQLite `LIKE` with `%`, `_`, and the escape
+  character treated literally in caller input. SQLite's default case
+  insensitivity covers ASCII, not general Unicode case folding. Substring
+  matching uses a leading wildcard and has no supporting index or FTS
+  migration, so database work can scan and sort matching rows.
+- These read-only endpoints use only Website records, do not match identities,
+  merge identical names, or access the private Profiles database. Local
+  synthetic tests exercise SQL.js; hosted D1 and production deployment
+  compatibility remain unverified.
+
 ## Deferred milestones
 
 - **M1:** attach organization, person, employment, and role-source tables to

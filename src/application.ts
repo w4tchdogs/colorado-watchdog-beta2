@@ -2,6 +2,7 @@ import {
   type DirectoryPageRequest,
   MAX_DIRECTORY_PAGE_SIZE,
 } from "./contracts/directory.js";
+import type { DirectorySearchRequest } from "./contracts/directory-search.js";
 import type {
   OrganizationProfilePageRequest,
   OrganizationRolePageRequest,
@@ -10,6 +11,7 @@ import type { PersonProfilePageRequest } from "./contracts/person-profile.js";
 import { StorageUnavailableError } from "./contracts/storage.js";
 import { InvalidInputError } from "./services/accounts.js";
 import { CountyOverviewInputError } from "./services/county-overview.js";
+import { DirectorySearchInputError } from "./services/directory-search.js";
 import type { ApplicationServices } from "./services/index.js";
 import { OrganizationProfileInputError } from "./services/organization-profile.js";
 import { PersonProfileInputError } from "./services/person-profile.js";
@@ -20,6 +22,8 @@ const LIVE_PATH = "/_internal/live";
 const READY_PATH = "/_internal/ready";
 const PRINCIPAL_PATH = "/_internal/principal";
 const ACCOUNTS_PATH = "/api/accounts";
+const PEOPLE_COLLECTION_PATH = "/api/people";
+const ORGANIZATIONS_COLLECTION_PATH = "/api/organizations";
 const COUNTY_OVERVIEW_PATH = /^\/api\/counties\/([^/]+)$/;
 const COUNTY_DIRECTORY_PATH =
   /^\/api\/counties\/([^/]+)\/(organizations|roles)$/;
@@ -57,8 +61,14 @@ async function dispatch(
 
   const countyOverviewMatch = pathname.match(COUNTY_OVERVIEW_PATH);
   const directoryMatch = pathname.match(COUNTY_DIRECTORY_PATH);
-  const personProfileMatch = pathname.match(PEOPLE_PROFILE_PATH);
-  const organizationProfileMatch = pathname.match(ORGANIZATION_PROFILE_PATH);
+  const peopleCollection = pathname === PEOPLE_COLLECTION_PATH;
+  const organizationsCollection = pathname === ORGANIZATIONS_COLLECTION_PATH;
+  const personProfileMatch = peopleCollection
+    ? null
+    : pathname.match(PEOPLE_PROFILE_PATH);
+  const organizationProfileMatch = organizationsCollection
+    ? null
+    : pathname.match(ORGANIZATION_PROFILE_PATH);
   const organizationRolesMatch = pathname.match(ORGANIZATION_ROLES_PATH);
   const directoryCountyFips = directoryMatch?.[1];
   const directoryResource = directoryMatch?.[2];
@@ -70,6 +80,8 @@ async function dispatch(
       PRINCIPAL_PATH,
       ACCOUNTS_PATH,
     ].includes(pathname) &&
+    !peopleCollection &&
+    !organizationsCollection &&
     !countyOverviewMatch &&
     !directoryMatch &&
     !personProfileMatch &&
@@ -103,6 +115,8 @@ async function dispatch(
     !personProfileMatch &&
     !organizationProfileMatch &&
     !organizationRolesMatch &&
+    !peopleCollection &&
+    !organizationsCollection &&
     !countyOverviewMatch &&
     url.search !== ""
   ) {
@@ -120,6 +134,18 @@ async function dispatch(
     return jsonResponse(400, {
       error: hasUnsupportedParameter ? "unexpected_query" : "invalid_request",
     });
+  }
+  const peopleSearchRequest = peopleCollection
+    ? parseDirectorySearchRequest(url.searchParams)
+    : null;
+  if (peopleCollection && !peopleSearchRequest) {
+    return invalidDirectorySearchRequest(url.searchParams);
+  }
+  const organizationsSearchRequest = organizationsCollection
+    ? parseDirectorySearchRequest(url.searchParams)
+    : null;
+  if (organizationsCollection && !organizationsSearchRequest) {
+    return invalidDirectorySearchRequest(url.searchParams);
   }
   const personProfileRequest = personProfileMatch
     ? parsePersonProfileRequest(personProfileMatch[1], url.searchParams)
@@ -196,6 +222,16 @@ async function dispatch(
           : services.listCountyRoleEntries(directoryRequest);
       return jsonResponse(200, { ...page });
     }
+    if (peopleSearchRequest) {
+      return jsonResponse(200, {
+        ...services.searchPeople(peopleSearchRequest),
+      });
+    }
+    if (organizationsSearchRequest) {
+      return jsonResponse(200, {
+        ...services.searchOrganizations(organizationsSearchRequest),
+      });
+    }
     if (personProfileRequest) {
       const profile = services.getPersonProfile(personProfileRequest);
       return profile
@@ -239,6 +275,9 @@ async function dispatch(
     if (error instanceof CountyOverviewInputError) {
       return jsonResponse(400, { error: "invalid_request" });
     }
+    if (error instanceof DirectorySearchInputError) {
+      return jsonResponse(400, { error: "invalid_request" });
+    }
     return jsonResponse(500, { error: "internal_error" });
   }
 }
@@ -249,6 +288,57 @@ function parseCountyOverviewRequest(
   return typeof countyFips === "string" && /^08\d{3}$/.test(countyFips)
     ? { countyFips }
     : null;
+}
+
+function parseDirectorySearchRequest(
+  searchParams: URLSearchParams,
+): DirectorySearchRequest | null {
+  const allowedParameters = new Set(["query", "limit", "cursor"]);
+  const keys = [...searchParams.keys()];
+  if (
+    keys.some((key) => !allowedParameters.has(key)) ||
+    keys.some((key) => searchParams.getAll(key).length !== 1)
+  ) {
+    return null;
+  }
+
+  const queryValue = searchParams.get("query");
+  if (queryValue === null) return null;
+  const query = queryValue.trim();
+  if (query.length < 2 || query.length > 100) return null;
+
+  const limitValue = searchParams.get("limit");
+  let limit: number | undefined;
+  if (limitValue !== null) {
+    if (!/^\d+$/.test(limitValue)) return null;
+    limit = Number(limitValue);
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > MAX_DIRECTORY_PAGE_SIZE
+    ) {
+      return null;
+    }
+  }
+
+  const cursor = searchParams.get("cursor");
+  return {
+    query,
+    ...(limit === undefined ? {} : { limit }),
+    ...(cursor === null ? {} : { cursor }),
+  };
+}
+
+function invalidDirectorySearchRequest(
+  searchParams: URLSearchParams,
+): Response {
+  const supportedParameters = new Set(["query", "limit", "cursor"]);
+  const hasUnsupportedParameter = [...searchParams.keys()].some(
+    (key) => !supportedParameters.has(key),
+  );
+  return jsonResponse(400, {
+    error: hasUnsupportedParameter ? "unexpected_query" : "invalid_request",
+  });
 }
 
 function parseOrganizationProfileRequest(
