@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from research import operator
+from research import identity
 from research.backup import backup_database, restore_database
 from research.db import connect, migrate, seed_counties, validate_database, validate_migration_history
 from research.intake import preview_csv, quarantine_validation_report
@@ -113,6 +114,20 @@ def parser_for():
     associate.add_argument("--rationale", required=True)
     associate.add_argument("--actor", required=True)
 
+    connection = database_command("associate-claim-by-connection", "associate a role through an explicit official identity connection")
+    connection.add_argument("--claim-id", required=True)
+    connection.add_argument("--person-id", required=True)
+    connection.add_argument("--evidence-id", required=True)
+    connection.add_argument("--rationale", required=True)
+    connection.add_argument("--actor", required=True)
+
+    correction_link = database_command("associate-claim-by-correction-lineage", "associate a corrected observation through its selected source lineage")
+    correction_link.add_argument("--claim-id", required=True)
+    correction_link.add_argument("--person-id", required=True)
+    correction_link.add_argument("--anchor-claim-id", required=True)
+    correction_link.add_argument("--rationale", required=True)
+    correction_link.add_argument("--actor", required=True)
+
     bootstrap = database_command("bootstrap-person", "create a source-supported person and assign one claim atomically")
     bootstrap.add_argument("--county-fips", required=True)
     bootstrap.add_argument("--claim-id", required=True)
@@ -180,6 +195,18 @@ def parser_for():
 
     structure_verify = database_command("verify-structure", "verify a completed organization and position application")
     structure_verify.add_argument("--plan", type=Path, required=True)
+
+    identity_preview = database_command("preview-identity", "create a private county-scoped evidence-based identity plan")
+    identity_preview.add_argument("--output", type=Path, required=True,
+                                  help="New private plan path outside the source checkout")
+
+    identity_apply = database_command("apply-identity", "apply one hash-checked identity plan by county")
+    identity_apply.add_argument("--plan", type=Path, required=True)
+    identity_apply.add_argument("--expect-plan-sha256", required=True)
+    identity_apply.add_argument("--actor", default=identity.ACTOR_DEFAULT)
+
+    identity_verify = database_command("verify-identity", "verify a completed identity plan and audit history")
+    identity_verify.add_argument("--plan", type=Path, required=True)
     return parser
 
 
@@ -390,9 +417,15 @@ def main(argv=None):
     if args.command == "preview-structure":
         _absolute_external_path(args.database, parser, "Research database")
         _absolute_external_path(args.output, parser, "Private structure plan")
+    if args.command == "preview-identity":
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.output, parser, "Private identity plan")
     if args.command in {"apply-structure", "verify-structure"}:
         _absolute_external_path(args.database, parser, "Research database")
         _absolute_external_path(args.plan, parser, "Private structure plan")
+    if args.command in {"apply-identity", "verify-identity"}:
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.plan, parser, "Private identity plan")
     if args.command == "quarantine-invalid":
         _external_path(args.root, parser, "Quarantine roots")
     if args.command == "init":
@@ -467,6 +500,49 @@ def main(argv=None):
             print(json.dumps(_json_error(args.command, "structure_operation_failed", str(error)),
                              ensure_ascii=False, sort_keys=True))
             return 2
+    if args.command == "preview-identity":
+        try:
+            db = _read_only(path)
+            try:
+                plan = identity.build_identity_plan(db)
+            finally:
+                db.close()
+            file_sha256 = identity.write_identity_plan(
+                plan, args.output, repository_root=Path(__file__).resolve().parents[1])
+            print(json.dumps({"mode": args.command, "status": "previewed",
+                              "plan_path": str(args.output.resolve()),
+                              "plan_sha256": plan["plan_sha256"], "file_sha256": file_sha256,
+                              **plan["summary"]}, ensure_ascii=False, sort_keys=True))
+            return 0
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "identity_preview_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command in {"apply-identity", "verify-identity"}:
+        try:
+            plan = identity.read_identity_plan(args.plan, repository_root=Path(__file__).resolve().parents[1])
+            if args.command == "verify-identity":
+                db = _read_only(path)
+                try:
+                    result = identity.verify_identity_application(db, plan)
+                finally:
+                    db.close()
+            else:
+                if not re.fullmatch(r"[0-9a-fA-F]{64}", args.expect_plan_sha256):
+                    raise ValueError("--expect-plan-sha256 must be a 64-character SHA-256 value")
+                db = connect(path)
+                try:
+                    result = identity.apply_identity_plan(db, plan,
+                                                          expected_sha256=args.expect_plan_sha256.lower(),
+                                                          actor=args.actor)
+                finally:
+                    db.close()
+            print(json.dumps({"mode": args.command, **result}, ensure_ascii=False, sort_keys=True))
+            return 0
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "identity_operation_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
     try:
         if args.command == "seed-counties":
             db = connect(path)
@@ -525,6 +601,14 @@ def main(argv=None):
                     result = operator.associate_claim(db, claim_id=args.claim_id, person_id=args.person_id,
                                                       evidence_id=args.evidence_id, rationale=args.rationale,
                                                       actor=args.actor)
+                elif args.command == "associate-claim-by-connection":
+                    result = operator.associate_claim_by_connection(
+                        db, claim_id=args.claim_id, person_id=args.person_id, evidence_id=args.evidence_id,
+                        rationale=args.rationale, actor=args.actor)
+                elif args.command == "associate-claim-by-correction-lineage":
+                    result = operator.associate_claim_by_correction_lineage(
+                        db, claim_id=args.claim_id, person_id=args.person_id,
+                        anchor_claim_id=args.anchor_claim_id, rationale=args.rationale, actor=args.actor)
                 elif args.command == "bootstrap-person":
                     result = operator.bootstrap_person(db, county_fips=args.county_fips, claim_id=args.claim_id,
                                                        published_name=args.published_name, evidence_id=args.evidence_id, actor=args.actor,

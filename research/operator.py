@@ -279,6 +279,112 @@ def _associate_claim_in_transaction(db, *, claim_id, person_id, evidence_id, rat
                                        "supporting_evidence_id": evidence_id, "rationale": rationale})
 
 
+def _correction_ancestry(db, claim_id):
+    chain = []
+    seen = set()
+    current_id = claim_id
+    while current_id:
+        if current_id in seen:
+            raise ValueError("Correction lineage contains a cycle")
+        seen.add(current_id)
+        row = db.execute(
+            "SELECT c.id,c.county_fips,c.evidence_id,c.supersedes_id,b.family_id,b.lineage_kind,b.selected "
+            "FROM role_claims c JOIN evidence_links e ON e.id=c.evidence_id "
+            "LEFT JOIN scrape_batches b ON b.id=e.batch_id WHERE c.id=?", (current_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError("Correction lineage references a missing claim")
+        chain.append(dict(row))
+        if not row["supersedes_id"]:
+            break
+        if row["lineage_kind"] != "corrected" or not row["selected"]:
+            raise ValueError("Only selected corrected-batch lineage can support identity association")
+        parent = db.execute(
+            "SELECT c.id,c.county_fips,b.family_id FROM role_claims c "
+            "JOIN evidence_links e ON e.id=c.evidence_id LEFT JOIN scrape_batches b ON b.id=e.batch_id "
+            "WHERE c.id=?", (row["supersedes_id"],)
+        ).fetchone()
+        if (parent is None or parent["county_fips"] != row["county_fips"] or
+                parent["family_id"] != row["family_id"]):
+            raise ValueError("Correction lineage crosses a county or batch family")
+        current_id = row["supersedes_id"]
+    return chain
+
+
+def validate_correction_lineage_association(db, *, claim_id, person_id, anchor_claim_id):
+    """Validate that two same-county claims are one explicitly linked corrected observation."""
+    claim = db.execute("SELECT id,county_fips,person_id FROM role_claims WHERE id=?", (claim_id,)).fetchone()
+    anchor = db.execute("SELECT id,county_fips,person_id FROM role_claims WHERE id=?", (anchor_claim_id,)).fetchone()
+    person = db.execute("SELECT id,county_fips FROM research_people WHERE id=?", (person_id,)).fetchone()
+    if claim is None or anchor is None or person is None:
+        raise ValueError("Unknown correction-linked claim or research person")
+    if claim["person_id"] is not None:
+        raise ValueError("Claim is already assigned; identity operations do not reassign records")
+    if claim["county_fips"] != anchor["county_fips"] or claim["county_fips"] != person["county_fips"]:
+        raise ValueError("Claim, anchor, and person must belong to the same county")
+    if anchor["person_id"] != person_id:
+        raise ValueError("Correction-lineage anchor must already be assigned to the selected person")
+    claim_chain = _correction_ancestry(db, claim_id)
+    anchor_chain = _correction_ancestry(db, anchor_claim_id)
+    claim_ids, anchor_ids = {row["id"] for row in claim_chain}, {row["id"] for row in anchor_chain}
+    if claim_id not in anchor_ids and anchor_claim_id not in claim_ids:
+        raise ValueError("Claims are not joined by one directed correction lineage")
+    support = _claim_evidence(db, county_fips=claim["county_fips"], claim_id=claim_id,
+                              published_name=db.execute("SELECT published_name FROM role_claims WHERE id=?",
+                                                         (claim_id,)).fetchone()[0],
+                              evidence_id=db.execute("SELECT evidence_id FROM role_claims WHERE id=?",
+                                                     (claim_id,)).fetchone()[0])
+    anchor_row = db.execute("SELECT published_name,evidence_id FROM role_claims WHERE id=?",
+                            (anchor_claim_id,)).fetchone()
+    _claim_evidence(db, county_fips=anchor["county_fips"], claim_id=anchor_claim_id,
+                    published_name=anchor_row["published_name"], evidence_id=anchor_row["evidence_id"],
+                    allow_assigned_person_id=person_id)
+    return {"claim_id": claim_id, "person_id": person_id, "anchor_claim_id": anchor_claim_id,
+            "lineage_claim_ids": sorted(claim_ids | anchor_ids), "support": support}
+
+
+def _associate_claim_by_correction_lineage_in_transaction(db, *, claim_id, person_id,
+                                                           anchor_claim_id, rationale, actor, run):
+    validated = validate_correction_lineage_association(
+        db, claim_id=claim_id, person_id=person_id, anchor_claim_id=anchor_claim_id)
+    db.execute("UPDATE role_claims SET person_id=? WHERE id=? AND person_id IS NULL",
+               (person_id, claim_id))
+    if db.execute("SELECT changes()").fetchone()[0] != 1:
+        raise ValueError("Claim assignment changed during the operation")
+    _event(db, run=run, actor=actor, kind="claim_person_associated", entity_type="role_claims",
+           entity_id=claim_id, detail={"before": {"person_id": None}, "after": {"person_id": person_id},
+                                      "supporting_evidence_id": validated["support"][1]["id"],
+                                      "anchor_claim_id": anchor_claim_id,
+                                      "lineage_claim_ids": validated["lineage_claim_ids"],
+                                      "decision_basis": "selected_corrected_batch_lineage",
+                                      "rationale": rationale})
+
+
+def associate_claim_by_correction_lineage(db, *, claim_id, person_id, anchor_claim_id, rationale, actor):
+    """Associate only when a selected corrected batch explicitly links the claim to its anchor."""
+    if not all(isinstance(value, str) and value.strip()
+               for value in (claim_id, person_id, anchor_claim_id, rationale, actor)):
+        raise ValueError("Claim, person, anchor, rationale, and operator are required")
+    if db.in_transaction:
+        raise ValueError("Finish the current transaction before an operator update")
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        validated = validate_correction_lineage_association(
+            db, claim_id=claim_id, person_id=person_id, anchor_claim_id=anchor_claim_id)
+        evidence = validated["support"][1]
+        run = _create_screening_run(db, provenance=evidence["provenance"], actor=actor,
+                                    note="R2 direct corrected-batch identity association")
+        _associate_claim_by_correction_lineage_in_transaction(
+            db, claim_id=claim_id, person_id=person_id, anchor_claim_id=anchor_claim_id,
+            rationale=rationale, actor=actor, run=run)
+        db.commit()
+        return {"claim_id": claim_id, "person_id": person_id, "anchor_claim_id": anchor_claim_id,
+                "run_id": run["id"]}
+    except Exception:
+        db.rollback()
+        raise
+
+
 def associate_claim(db, *, claim_id, person_id, evidence_id, rationale, actor):
     """Assign an existing unassigned claim to an explicitly selected, evidenced person."""
     if not all(isinstance(v, str) and v.strip() for v in (claim_id, person_id, evidence_id, rationale, actor)):
@@ -295,6 +401,94 @@ def associate_claim(db, *, claim_id, person_id, evidence_id, rationale, actor):
                                         rationale=rationale, actor=actor, run=run)
         db.commit()
         return {"claim_id": claim_id, "person_id": person_id, "run_id": run["id"]}
+    except Exception:
+        db.rollback()
+        raise
+
+
+_ROLE_CONNECTION_CUES = (
+    "also serves as", "also holds", "also works as", "also listed as", "in addition to",
+    "same person as", "is the same person", "serves in both", "holds both roles",
+)
+
+
+def validate_claim_connection(db, *, claim_id, person_id, evidence_id):
+    """Require one official record to name the person, claim role, and direct link between them."""
+    claim = db.execute("SELECT id,county_fips,evidence_id,person_id,published_name,published_title,responsibility "
+                       "FROM role_claims WHERE id=?", (claim_id,)).fetchone()
+    person = db.execute("SELECT id,county_fips,display_name FROM research_people WHERE id=?", (person_id,)).fetchone()
+    evidence = db.execute("SELECT e.id,e.source_id,e.raw_record_json,e.quotation,e.observed_title,e.batch_id,"
+                          "s.official_status,b.county_fips AS batch_county,r.provenance "
+                          "FROM evidence_links e JOIN sources s ON s.id=e.source_id "
+                          "JOIN research_runs r ON r.id=e.run_id LEFT JOIN scrape_batches b ON b.id=e.batch_id "
+                          "WHERE e.id=?", (evidence_id,)).fetchone()
+    if claim is None or person is None or evidence is None:
+        raise ValueError("Unknown claim, person, or identity-link evidence")
+    if claim["person_id"] is not None:
+        raise ValueError("Claim is already assigned; identity operations do not reassign records")
+    if claim["county_fips"] != person["county_fips"]:
+        raise ValueError("Claim and person must belong to the same county")
+    if evidence["official_status"] != "official":
+        raise ValueError("Identity-link evidence must come from a source classified as official")
+    if evidence["batch_county"] is not None and evidence["batch_county"] != person["county_fips"]:
+        raise ValueError("Identity-link evidence belongs to a different county")
+    if evidence["batch_county"] is None:
+        linked = db.execute(
+            "SELECT 1 FROM name_variants n JOIN evidence_links known ON known.id=n.evidence_id "
+            "WHERE n.person_id=? AND known.source_id=? UNION ALL "
+            "SELECT 1 FROM source_unit_links l JOIN org_units u ON u.id=l.unit_id "
+            "WHERE l.evidence_id=? AND u.county_fips=? LIMIT 1",
+            (person_id, evidence["source_id"], evidence_id, person["county_fips"]),
+        ).fetchone()
+        if linked is None:
+            linked = db.execute(
+                "SELECT 1 FROM role_claims c JOIN evidence_links known ON known.id=c.evidence_id "
+                "WHERE known.source_id=? GROUP BY known.source_id "
+                "HAVING count(DISTINCT c.county_fips)=1 AND min(c.county_fips)=?",
+                (evidence["source_id"], person["county_fips"]),
+            ).fetchone()
+        if linked is None:
+            raise ValueError("Identity-link evidence is not established in this person’s county context")
+    known_names = {person["display_name"]}
+    known_names.update(row[0] for row in db.execute("SELECT published_name FROM name_variants WHERE person_id=?",
+                                                    (person_id,)))
+    text = _evidence_text(evidence)
+    role_values = [value for value in (claim["published_title"], claim["responsibility"]) if value]
+    if claim["published_name"] not in text or not any(value in text for value in role_values):
+        raise ValueError("Identity-link evidence must contain the exact claim name and documented role")
+    if not any(name in text for name in known_names):
+        raise ValueError("Identity-link evidence must name the established person")
+    folded = text.casefold()
+    if not any(cue in folded for cue in _ROLE_CONNECTION_CUES):
+        raise ValueError("Identity-link evidence must explicitly connect the person to the role")
+    return claim, person, evidence
+
+
+def associate_claim_by_connection(db, *, claim_id, person_id, evidence_id, rationale, actor):
+    """Associate a role only when official evidence explicitly connects both names and roles."""
+    if not all(isinstance(value, str) and value.strip()
+               for value in (claim_id, person_id, evidence_id, rationale, actor)):
+        raise ValueError("Claim, person, identity-link evidence, rationale, and operator are required")
+    if db.in_transaction:
+        raise ValueError("Finish the current transaction before an operator update")
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        claim, person, evidence = validate_claim_connection(
+            db, claim_id=claim_id, person_id=person_id, evidence_id=evidence_id)
+        run = _create_screening_run(db, provenance=evidence["provenance"], actor=actor,
+                                    note="R2 direct official role-connection association")
+        db.execute("UPDATE role_claims SET person_id=? WHERE id=? AND person_id IS NULL",
+                   (person_id, claim_id))
+        if db.execute("SELECT changes()").fetchone()[0] != 1:
+            raise ValueError("Claim assignment changed during the operation")
+        _event(db, run=run, actor=actor, kind="claim_person_associated", entity_type="role_claims",
+               entity_id=claim_id, detail={"before": {"person_id": None}, "after": {"person_id": person_id},
+                                          "supporting_evidence_id": evidence_id,
+                                          "decision_basis": "explicit_official_role_connection",
+                                          "rationale": rationale})
+        db.commit()
+        return {"claim_id": claim_id, "person_id": person_id, "evidence_id": evidence_id,
+                "run_id": run["id"]}
     except Exception:
         db.rollback()
         raise
@@ -320,7 +514,8 @@ def _evidence_text(evidence):
     return "\n".join(parts)
 
 
-def _claim_evidence(db, *, county_fips, claim_id, published_name, evidence_id):
+def _claim_evidence(db, *, county_fips, claim_id, published_name, evidence_id,
+                    allow_assigned_person_id=None):
     evidence = db.execute("SELECT e.id,e.source_id,e.raw_record_json,e.quotation,e.observed_title,e.run_id,"
                           "e.batch_id,s.official_status,r.provenance,b.county_fips AS batch_county "
                           "FROM evidence_links e JOIN sources s ON s.id=e.source_id "
@@ -336,7 +531,7 @@ def _claim_evidence(db, *, county_fips, claim_id, published_name, evidence_id):
         raise ValueError("Selected claim does not belong to the explicit county")
     if claim["published_name"] != published_name:
         raise ValueError("Published name must exactly preserve the selected claim’s source wording")
-    if claim["person_id"] is not None:
+    if claim["person_id"] is not None and claim["person_id"] != allow_assigned_person_id:
         raise ValueError("Claim is already assigned; R2 bootstrap requires an unassigned claim")
     if evidence is None:
         raise ValueError("Unknown supporting evidence")
@@ -402,6 +597,52 @@ _NAME_LINK_WORDS = (
     "previously known as", "formerly listed as", "previously listed as", "listed as",
     "name changed from", "changed name from", "renamed from", "née", "nee",
 )
+
+
+def _nickname_field_link(evidence, known_names, candidate):
+    if not evidence["raw_record_json"]:
+        return False
+    try:
+        record = json.loads(evidence["raw_record_json"])
+    except (TypeError, json.JSONDecodeError):
+        return False
+    headers, cells = record.get("headers"), record.get("cells")
+    if not isinstance(headers, list) or not isinstance(cells, list) or len(headers) != len(cells):
+        return False
+    fields = dict(zip(headers, cells, strict=True))
+    full_name, nicknames = fields.get("Full name"), fields.get("Nicknames")
+    if not isinstance(full_name, str) or full_name not in known_names or not isinstance(nicknames, str):
+        return False
+    parts = [part.strip() for part in re.split(r"\s*(?:;|\||/|,|\band\b|&)\s*", nicknames, flags=re.IGNORECASE)
+             if part.strip()]
+    return candidate in parts
+
+
+def validate_nickname_field_variant(db, *, person_id, published_name, evidence_id):
+    """Check a Nicknames-cell link without changing data; safe inside a caller transaction."""
+    person = db.execute("SELECT id,county_fips,display_name FROM research_people WHERE id=?", (person_id,)).fetchone()
+    if person is None:
+        raise ValueError("Unknown research person")
+    evidence = db.execute("SELECT e.id,e.source_id,e.raw_record_json,e.batch_id,s.official_status,"
+                          "b.county_fips AS batch_county FROM evidence_links e "
+                          "JOIN sources s ON s.id=e.source_id LEFT JOIN scrape_batches b ON b.id=e.batch_id "
+                          "WHERE e.id=?", (evidence_id,)).fetchone()
+    if evidence is None or evidence["official_status"] != "official":
+        raise ValueError("Name-variant evidence must come from a source classified as official")
+    if evidence["batch_county"] is not None and evidence["batch_county"] != person["county_fips"]:
+        raise ValueError("Name-variant evidence belongs to a different county")
+    known_names = {person["display_name"]}
+    known_names.update(row[0] for row in db.execute("SELECT published_name FROM name_variants WHERE person_id=?",
+                                                    (person_id,)))
+    if evidence["batch_county"] is None:
+        linked = db.execute("SELECT 1 FROM name_variants n JOIN evidence_links known ON known.id=n.evidence_id "
+                            "WHERE n.person_id=? AND known.source_id=? LIMIT 1",
+                            (person_id, evidence["source_id"])).fetchone()
+        if linked is None:
+            raise ValueError("Evidence is not established in this person’s county context")
+    if not _nickname_field_link(evidence, known_names, published_name):
+        raise ValueError("Official evidence must list the exact nickname in a Nicknames field alongside an established name")
+    return {"person_id": person_id, "published_name": published_name, "evidence_id": evidence_id}
 
 
 def _explicit_name_link(text, known_names, candidate):
@@ -480,7 +721,9 @@ def add_name_variant(db, *, person_id, published_name, kind, evidence_id, actor,
         known_names = [person["display_name"]]
         known_names.extend(row[0] for row in db.execute("SELECT published_name FROM name_variants WHERE person_id=?",
                                                          (person_id,)))
-        if not _explicit_name_link(text, known_names, published_name):
+        nickname_field_link = (kind == "nickname" and
+                               _nickname_field_link(evidence, set(known_names), published_name))
+        if not _explicit_name_link(text, known_names, published_name) and not nickname_field_link:
             raise ValueError("Official evidence must explicitly connect the exact variant to an established name for this person")
         duplicate = db.execute("SELECT id FROM name_variants WHERE person_id=? AND published_name=? AND kind=? AND evidence_id=?",
                                (person_id, published_name, kind, evidence_id)).fetchone()
