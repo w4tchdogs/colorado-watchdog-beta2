@@ -201,6 +201,26 @@ class CsvIntakeCase(unittest.TestCase):
         self.assertFalse(replay_result["selected"])
         self.assertEqual(self.counts(), before)
 
+    def test_replay_with_logically_incomplete_delivery_fails_sanitized(self):
+        self.write_csv(fixture_csv())
+        self.assertEqual(self.call_cli(*self.intake_args()).returncode, 0)
+        db = connect(self.database)
+        db.execute("DELETE FROM role_claims")
+        db.commit()
+        before = self.counts()
+        with self.assertRaisesRegex(ValueError, "missing a claim"):
+            ingest_csv(db, fixture_csv(), file_name="fixture.csv", version_label="fixture-v1",
+                       provenance="legacy_delivery")
+        self.assertEqual(self.counts(), before)
+        db.close()
+        completed = self.call_cli(*self.intake_args())
+        self.assertEqual(completed.returncode, 2)
+        result = self.result(completed)
+        self.assertEqual(result["errors"][0]["category"], "replay_conflict")
+        self.assertNotIn("Traceback", completed.stderr)
+        self.assertNotIn("Synthetic Riley Example", completed.stdout)
+        self.assertEqual(self.counts(), before)
+
     def test_conflicting_replay_metadata_is_rejected_without_writes(self):
         self.write_csv(fixture_csv())
         self.assertEqual(self.call_cli(*self.intake_args()).returncode, 0)
@@ -394,6 +414,42 @@ class CsvIntakeCase(unittest.TestCase):
         self.assertEqual(invalid.returncode, 2)
         self.assertEqual(self.result(invalid)["errors"][0]["category"], "invalid_correction_reference")
         self.assertEqual(self.counts(), before)
+
+    def test_invalid_correction_targets_do_not_create_secondary_conflicts(self):
+        parent_path = self.root / "parent.csv"
+        parent_path.write_bytes(fixture_csv(rows=[fixture_row(title="Parent role one"),
+                                                   fixture_row(title="Parent role two")]))
+        original = self.result(self.call_cli(*self.intake_args(path=parent_path, label="parent-v1")))
+        db = connect(self.database)
+        valid_claims = [row[0] for row in db.execute("SELECT id FROM role_claims ORDER BY id")]
+        db.close()
+
+        duplicate_path = self.root / "duplicate.csv"
+        duplicate_path.write_bytes(fixture_csv(rows=[fixture_row(title="Same fixture role"),
+                                                      fixture_row(title="Same fixture role")]))
+
+        invalid_links = self.root / "invalid-links.json"
+        invalid_links.write_text(json.dumps({"1": "claim_fixture_missing_a", "2": "claim_fixture_missing_b"}),
+                                 encoding="utf-8")
+        invalid = self.call_cli(*self.preview_args(kind="corrected", path=duplicate_path,
+                                                   extra=("--parent-batch-id", original["batch_id"],
+                                                          "--supersedes-json", invalid_links)))
+        self.assertEqual(invalid.returncode, 1)
+        invalid_errors = self.result(invalid)["errors"]
+        self.assertEqual(sum(error["category"] == "invalid_correction_reference" for error in invalid_errors), 2)
+        self.assertFalse(any(error["category"] == "duplicate_correction_conflict" for error in invalid_errors))
+
+        valid_links = self.root / "valid-links.json"
+        valid_links.write_text(json.dumps({"1": valid_claims[0], "2": valid_claims[1]}), encoding="utf-8")
+        conflicting = self.call_cli(*self.preview_args(kind="corrected", path=duplicate_path,
+                                                       extra=("--parent-batch-id", original["batch_id"],
+                                                              "--supersedes-json", valid_links)))
+        self.assertEqual(conflicting.returncode, 1)
+        self.assertTrue(any(error["category"] == "duplicate_correction_conflict"
+                            for error in self.result(conflicting)["errors"]))
+        self.assertEqual(self.counts(), {"scrape_batches": 1, "research_runs": 1, "sources": 1,
+                                         "evidence_links": 2, "role_claims": 2, "research_events": 1,
+                                         "source_visits": 0, "research_people": 0})
 
     def test_read_only_migration_history_validation_rejects_incomplete_db(self):
         bad_path = self.root / "unmanaged.sqlite"

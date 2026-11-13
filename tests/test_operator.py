@@ -165,6 +165,27 @@ class OperatorCase(unittest.TestCase):
         self.assertEqual(self.db.execute("SELECT count(*) FROM source_visits").fetchone()[0], 0)
         self.assertEqual(self.db.execute("SELECT count(*) FROM research_events").fetchone()[0], self.event_count)
 
+    def test_nested_visit_and_coverage_updates_refuse_without_caller_rollback(self):
+        self.db.execute("BEGIN IMMEDIATE")
+        self.db.execute("INSERT INTO counties VALUES ('08001','Adams')")
+        with self.assertRaisesRegex(ValueError, "Finish the current transaction"):
+            record_visit(self.db, source_id=self.source_id, run_id=self.run_id, provenance="observed",
+                         outcome="blocked", actor="operator")
+        with self.assertRaisesRegex(ValueError, "Finish the current transaction"):
+            update_coverage(self.db, unit_id="unit-1", axis="structure", status="partial",
+                            evidence_id=self.claim["evidence_id"], run_id=self.run_id,
+                            actor="operator", rationale="nested fixture")
+        self.assertTrue(self.db.in_transaction)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM counties WHERE fips='08001'").fetchone()[0], 1)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM source_visits").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM research_events").fetchone()[0], self.event_count)
+        self.db.commit()
+        self.assertEqual(self.db.execute("SELECT count(*) FROM counties WHERE fips='08001'").fetchone()[0], 1)
+        visit = record_visit(self.db, source_id=self.source_id, run_id=self.run_id, provenance="observed",
+                             outcome="blocked", actor="synthetic-operator")
+        self.assertEqual(self.db.execute("SELECT count(*) FROM source_visits WHERE id=?",
+                                         (visit["visit_id"],)).fetchone()[0], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -79,6 +79,7 @@ def preview_csv(db, payload, *, file_name, version, version_label=None,
                           record_number=record_number, field="supersedes",
                           line_start=row_by_number[record_number]["line_start"],
                           line_end=row_by_number[record_number]["line_end"])
+                continue
             grouped_targets[row_by_number[record_number]["row_sha256"]].add(claim_id)
         for digest, targets in grouped_targets.items():
             if len(targets) > 1:

@@ -89,6 +89,8 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
                     "WHERE e.batch_id=? AND e.raw_record_sha256=?",
                     (existing["id"], digest),
                 ).fetchone()
+                if prior is None:
+                    raise ValueError("Recorded delivery is missing a claim for one of this file's observations")
                 if prior[0] != correction_links[digest]:
                     raise ValueError("Replay correction links differ from recorded lineage")
             if return_result:

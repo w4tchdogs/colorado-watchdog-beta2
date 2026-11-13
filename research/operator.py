@@ -445,6 +445,8 @@ def record_visit(db, *, source_id, run_id, provenance, outcome, actor, evidence_
         raise ValueError("Invalid source visit provenance or outcome")
     if not isinstance(actor, str) or not actor.strip():
         raise ValueError("Operator is required")
+    if db.in_transaction:
+        raise ValueError("Finish the current transaction before an operator update")
     try:
         db.execute("BEGIN IMMEDIATE")
         run = _run(db, run_id)
@@ -488,6 +490,8 @@ def update_coverage(db, *, unit_id, axis, status, evidence_id, run_id, actor, ra
         raise ValueError("A research run is required to audit a coverage update")
     if status != "not_started" and not evidence_id:
         raise ValueError("Coverage other than not_started requires evidence and a research run")
+    if db.in_transaction:
+        raise ValueError("Finish the current transaction before an operator update")
     try:
         db.execute("BEGIN IMMEDIATE")
         unit = db.execute("SELECT id FROM org_units WHERE id=?", (unit_id,)).fetchone()
