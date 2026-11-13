@@ -1,8 +1,8 @@
 # Website foundation status
 
-This document describes the implemented M0-A application boundary and M0-B
-local database foundation. It is not evidence that the full M0 foundation, a
-hosted Site, or production D1 exists.
+This document describes the implemented M0-A application boundary, M0-B local
+database foundation, and M0-C accounts, identities, authorization, and auditing.
+It is not evidence that M0-D, a hosted Site, or production D1 exists.
 
 ## M0-A application
 
@@ -26,7 +26,9 @@ hosting environment remains unverified.
 
 - `website/migrations/` contains ordered, checksummed SQL migrations for the
   six Website tables: counties, accounts, identities, audit events, operations,
-  and checkpoints. The first migration seeds the public 64-county FIPS registry.
+  and checkpoints. The first migration seeds the public 64-county FIPS registry;
+  migration 0003 adds the Colorado `08` FIPS-prefix constraint without changing
+  the accepted M0-B migrations.
 - `src/database/migrations.ts` validates contiguous versions, stored checksums,
   and unmanaged or incompatible databases. Each migration and its history row
   is applied in a local SQLite transaction; changed applied migrations are
@@ -48,15 +50,55 @@ The migration SQL is exercised with SQLite compiled to WebAssembly. Its use of
 SQLite-compatible DDL is intended to support D1, but no live D1 execution or
 ChatGPT Sites runtime compatibility has been verified. SQL.js and the local
 migration tooling are development/test dependencies; the Worker entrypoint
-does not import them. The migration history, version helper and append-only
-audit-table constraints are foundations, not M0-C audit service behavior.
+does not import them.
+
+## M0-C accounts, identities, and audit
+
+- One account model represents human and agent accounts. Human sign-in is
+  behind an injectable identity adapter; only a test adapter is implemented.
+  A request resolves to one active account or no principal.
+- Agent credentials are 256-bit random bearer values with a `cwa_` prefix.
+  Only their SHA-256 hashes are stored. The secret is returned only by the
+  issuing call; identity subject, audit events, summaries, and logs never
+  contain it. Credential identities support expiry and versioned revocation.
+- Capability checks are centralized and default deny. The owner and
+  administrator roles have the M0-D checkpoint capabilities
+  `checkpoint.create`, `checkpoint.verify`, and `checkpoint.read`.
+  `checkpoint.prune` is denied even to the owner. Contributor/editor roles have
+  no capabilities in M0-C.
+- The internal principal endpoint derives identity from authentication, never
+  from a caller-supplied account ID. Account creation is routed through the
+  shared service layer; account and identity services re-check the active
+  account and capability before mutation.
+- `runAuditedMutation` executes a mutation and its single audit event in one
+  transaction. It accepts a trusted actor and optional operation ID, so M0-D
+  can attribute checkpoint actions without a new transaction/audit mechanism.
+  Account creation/updates, role changes, identity linking/issuance/revocation,
+  and operation creation are audited. Audit rows are append-only and do not
+  include PII or credentials.
+- Account role updates use the existing optimistic version helper. M0-C
+  extends its allowlist to `accounts.role`; schema triggers still require each
+  mutable-row version to advance exactly once.
+- `/_internal/live` reports process liveness without dependencies.
+  `/_internal/ready` requires the local database/storage dependency;
+  `/_internal/health` remains a readiness-compatible alias. The local harness
+  forwards request headers and bodies. Worker and local-harness failures return
+  sanitized responses and do not log exception details.
+- Bootstrap of the first owner remains an environment-specific operation and
+  is not exposed as an unauthenticated route. Tests seed only synthetic owners,
+  accounts, and keys.
+
+This adds no D1 binding or hosted compatibility claim. The Worker package still
+uses the platform-standard Fetch surface; local database services are injected
+and tested using SQL.js only.
 
 ## Deferred milestones
 
-- **M0-C:** account and identity services, human/agent authentication,
-  default-deny capabilities, and transactional audit writes.
-- **M0-D:** checkpoint production, restore verification, and local destination
-  adapter. Off-site destination remains undecided until one is configured.
+- **M0-D:** checkpoint production, verification/restore, and local destination
+  adapter. Only the authorization and transactional audit extension contract
+  is present; no checkpoint producer, verifier, restore path, destination
+  adapter, or prune operation is implemented. Off-site destination remains
+  undecided until one is configured.
 - **M1:** attach organization, person, employment, and role-source tables to
   the Website schema using its version convention. County organizations can
   retain their own structures; regional or partner offices can serve a county

@@ -11,13 +11,24 @@ import worker from "../dist/worker.js";
 const healthRequest = (url = "https://watchdog.test/_internal/health") =>
   new Request(url);
 
-test("Worker entrypoint initializes without external services", async () => {
-  const response = await worker.fetch(healthRequest(), {
-    APP_ENV: "test",
-  });
+test("Worker liveness is independent and readiness requires its dependency", async () => {
+  const live = await worker.fetch(
+    healthRequest("https://watchdog.test/_internal/live"),
+    {
+      APP_ENV: "test",
+    },
+  );
+  const ready = await worker.fetch(
+    healthRequest("https://watchdog.test/_internal/ready"),
+    {
+      APP_ENV: "test",
+    },
+  );
 
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { status: "ok" });
+  assert.equal(live.status, 200);
+  assert.deepEqual(await live.json(), { status: "ok" });
+  assert.equal(ready.status, 503);
+  assert.deepEqual(await ready.json(), { error: "dependency_unavailable" });
 });
 
 test("request dispatch reaches services with an injectable local adapter", async () => {
@@ -107,7 +118,7 @@ test("unexpected adapter errors are not converted into success responses", async
   };
   const application = createApplication(createServices({ storage }));
 
-  await assert.rejects(application.fetch(healthRequest()), {
-    message: "unexpected adapter failure",
-  });
+  const response = await application.fetch(healthRequest());
+  assert.equal(response.status, 500);
+  assert.deepEqual(await response.json(), { error: "internal_error" });
 });

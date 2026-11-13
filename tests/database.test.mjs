@@ -120,7 +120,7 @@ test("migrations produce the same schema and are safe to reapply", async () => {
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
           .count,
-        2,
+        3,
       );
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM counties").get().count,
@@ -181,6 +181,28 @@ test("the public seed contains exactly 64 counties with their correct FIPS keys"
       database.prepare("SELECT name FROM counties WHERE fips = '08014'").get()
         .name,
       "Broomfield",
+    );
+  });
+});
+
+test("county FIPS values must remain five-digit Colorado codes", async () => {
+  await withDatabase((database) => {
+    migrate(database);
+    assert.throws(() =>
+      database
+        .prepare(
+          "INSERT INTO counties (fips, name) VALUES ('01001', 'Invalid')",
+        )
+        .run(),
+    );
+    assert.throws(() =>
+      database
+        .prepare("UPDATE counties SET fips = '08A01' WHERE fips = '08001'")
+        .run(),
+    );
+    assert.equal(
+      database.prepare("SELECT COUNT(*) AS count FROM counties").get().count,
+      64,
     );
   });
 });

@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { Readable } from "node:stream";
 import { createApplication } from "../dist/application.js";
 import { migrateWebsiteDatabase } from "../dist/database/migrations.js";
 import { openWebsiteDatabase } from "../dist/database/sqlite.js";
@@ -17,22 +18,54 @@ const database = await openWebsiteDatabase(
 );
 migrateWebsiteDatabase(database);
 const application = createApplication(
-  createServices({ storage: createLocalStorageProbe(database) }),
+  createServices({
+    database,
+    storage: createLocalStorageProbe(database),
+  }),
 );
 
 const server = createServer(async (incoming, outgoing) => {
   try {
+    const method = incoming.method ?? "GET";
+    const headers = new Headers();
+    const hopByHopHeaders = new Set([
+      "connection",
+      "host",
+      "keep-alive",
+      "proxy-authenticate",
+      "proxy-authorization",
+      "te",
+      "trailer",
+      "transfer-encoding",
+      "upgrade",
+    ]);
+    for (const [name, value] of Object.entries(incoming.headers)) {
+      if (value === undefined || hopByHopHeaders.has(name)) {
+        continue;
+      }
+      for (const entry of Array.isArray(value) ? value : [value]) {
+        headers.append(name, entry);
+      }
+    }
+    const hasBody = method !== "GET" && method !== "HEAD";
     const request = new Request(
       `http://${host}:${port}${incoming.url ?? "/"}`,
-      { method: incoming.method },
+      {
+        method,
+        headers,
+        ...(hasBody ? { body: Readable.toWeb(incoming), duplex: "half" } : {}),
+      },
     );
     const response = await application.fetch(request);
 
     outgoing.writeHead(response.status, Object.fromEntries(response.headers));
     outgoing.end(await response.text());
-  } catch (error) {
-    console.error("Local request failed", error);
-    outgoing.writeHead(500, { "content-type": "application/json" });
+  } catch {
+    outgoing.writeHead(500, {
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8",
+      "x-content-type-options": "nosniff",
+    });
     outgoing.end(JSON.stringify({ error: "internal_error" }));
   }
 });
@@ -57,7 +90,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     server.close((error) => {
       closeDatabase();
       if (error) {
-        console.error("Could not stop the local server cleanly", error);
+        console.error("Could not stop the local server cleanly");
         process.exitCode = 1;
       }
     });
