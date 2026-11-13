@@ -155,6 +155,14 @@ def _identity_connection_edges(db, county_fips, rows, *, planned_sources, allow_
     by_name = defaultdict(list)
     for row in candidates:
         by_name[row["published_name"]].append(row)
+    names_by_first_word = defaultdict(list)
+    first_word_patterns = {}
+    for name in by_name:
+        first_word = name.split(maxsplit=1)[0].casefold()
+        names_by_first_word[first_word].append(name)
+        first_word_patterns.setdefault(
+            first_word, re.compile(r"(?<!\w)" + re.escape(first_word) + r"(?!\w)")
+        )
     edges = {}
     for evidence in _connection_evidence_rows(db, county_fips):
         if evidence["official_status"] != "official" and not (
@@ -166,33 +174,37 @@ def _identity_connection_edges(db, county_fips, rows, *, planned_sources, allow_
         folded = text.casefold()
         if not any(cue in folded for cue in _ROLE_CUES):
             continue
-        for name, named_rows in by_name.items():
-            if name not in text:
+        for first_word, pattern in first_word_patterns.items():
+            if not pattern.search(folded):
                 continue
-            supported = []
-            supported_roles = {}
-            for row in named_rows:
-                roles = [role for role in _role_values(row) if role in text]
-                if roles:
-                    supported.append(row)
-                    for role in roles:
-                        supported_roles.setdefault(role, []).append(row)
-            if len(supported) < 2:
-                continue
-            # Identical repeated titles do not identify which source entry the
-            # official connection describes.
-            if any(len(set(row["id"] for row in role_rows)) > 1 for role_rows in supported_roles.values()):
-                continue
-            unique_roles = list(supported_roles)
-            for index, first_role in enumerate(unique_roles):
-                for second_role in unique_roles[index + 1:]:
-                    if not (_cue_between(text, name, first_role) or _cue_between(text, name, second_role)):
-                        continue
-                    first = supported_roles[first_role][0]
-                    second = supported_roles[second_role][0]
-                    if first["id"] == second["id"]:
-                        continue
-                    edges[tuple(sorted((first["id"], second["id"])))] = evidence["id"]
+            for name in names_by_first_word[first_word]:
+                if name.casefold() not in folded:
+                    continue
+                supported = []
+                supported_roles = {}
+                for row in by_name[name]:
+                    roles = [role for role in _role_values(row) if role.casefold() in folded]
+                    if roles:
+                        supported.append(row)
+                        for role in roles:
+                            supported_roles.setdefault(role, []).append(row)
+                if len(supported) < 2:
+                    continue
+                # Identical repeated titles do not identify which source entry the
+                # official connection describes.
+                if any(len({row["id"] for row in role_rows}) > 1
+                       for role_rows in supported_roles.values()):
+                    continue
+                unique_roles = list(supported_roles)
+                for index, first_role in enumerate(unique_roles):
+                    for second_role in unique_roles[index + 1:]:
+                        if not (_cue_between(text, name, first_role) or _cue_between(text, name, second_role)):
+                            continue
+                        first = supported_roles[first_role][0]
+                        second = supported_roles[second_role][0]
+                        if first["id"] == second["id"]:
+                            continue
+                        edges[tuple(sorted((first["id"], second["id"])))] = evidence["id"]
     return edges
 
 
