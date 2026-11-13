@@ -182,6 +182,37 @@ export function hasCapability(
   );
 }
 
+/**
+ * Rechecks that the principal still names an active account and an unrevoked,
+ * unexpired identity with the same kind and role. Grants no capability.
+ */
+export function isCurrentPrincipal(
+  database: WebsiteDatabase,
+  principal: TrustedPrincipal | null,
+): principal is TrustedPrincipal {
+  if (principal?.[principalBrand] !== true) {
+    return false;
+  }
+  const current = database
+    .prepare(
+      `SELECT accounts.kind, accounts.role, identities.expires_at
+       FROM identities
+       JOIN accounts ON accounts.id = identities.account_id
+       WHERE accounts.id = ? AND identities.id = ?
+         AND identities.provider = ? AND identities.revoked_at IS NULL
+         AND accounts.status = 'active'`,
+    )
+    .get(principal.accountId, principal.identityId, principal.provider);
+  return (
+    !!current &&
+    isAccountKind(current.kind) &&
+    isAccountRole(current.role) &&
+    hasUnexpiredIdentity(current.expires_at, new Date()) &&
+    current.kind === principal.kind &&
+    current.role === principal.role
+  );
+}
+
 export function requireCapability(
   database: WebsiteDatabase,
   principal: TrustedPrincipal,
