@@ -9,7 +9,8 @@ import sys
 from pathlib import Path
 
 from research import operator
-from research.db import connect, migrate, validate_database, validate_migration_history
+from research.backup import backup_database, restore_database
+from research.db import connect, migrate, seed_counties, validate_database, validate_migration_history
 from research.intake import preview_csv, quarantine_validation_report
 from research.mapping import CsvHeaderMismatch, CsvStructureError, MAPPINGS
 from research.quarantine import quarantine_invalid_original
@@ -27,6 +28,11 @@ def parser_for():
 
     database_command("init", "exclusively create and initialize an empty database")
     database_command("check", "validate an existing database without writing")
+    database_command("seed-counties", "explicitly seed the canonical public Colorado county registry")
+    backup = database_command("backup", "create an authenticated SQLite-consistent encrypted backup")
+    backup.add_argument("destination", type=Path, help="New encrypted artifact path outside the checkout")
+    restore = database_command("restore", "verify and restore an authenticated encrypted backup")
+    restore.add_argument("destination", type=Path, help="New restored database path outside the checkout")
 
     def csv_intake(name, help_text):
         command = database_command(name, help_text)
@@ -171,6 +177,12 @@ def _external_path(candidate, parser, label):
     if path == repo or repo in path.parents:
         parser.error(f"{label} must be outside the source checkout")
     return path
+
+
+def _absolute_external_path(candidate, parser, label):
+    if not candidate.is_absolute():
+        parser.error(f"{label} must be an explicit absolute path")
+    return _external_path(candidate, parser, label)
 
 
 def _read_only(path):
@@ -352,6 +364,13 @@ def main(argv=None):
     parser = parser_for()
     args = parser.parse_args(argv)
     path = _path(args, parser)
+    if args.command == "seed-counties":
+        _absolute_external_path(args.database, parser, "Research database")
+    if args.command in {"backup", "restore"}:
+        _absolute_external_path(args.database, parser,
+                                "Research database" if args.command == "backup" else "Encrypted backup")
+        args.destination = _absolute_external_path(
+            args.destination, parser, "Backup destination" if args.command == "backup" else "Restore destination")
     if args.command == "quarantine-invalid":
         _external_path(args.root, parser, "Quarantine roots")
     if args.command == "init":
@@ -384,6 +403,22 @@ def main(argv=None):
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return status
     try:
+        if args.command == "seed-counties":
+            db = connect(path)
+            try:
+                result = seed_counties(db)
+            finally:
+                db.close()
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            return 2 if result["status"] == "conflict" else 0
+        if args.command == "backup":
+            result = backup_database(path, args.destination)
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            return 0
+        if args.command == "restore":
+            result = restore_database(path, args.destination)
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            return 0
         if args.command in {"check", "counties", "units", "people", "claims", "unassigned", "sources",
                             "matches", "coverage", "events"}:
             db = _read_only(path)
