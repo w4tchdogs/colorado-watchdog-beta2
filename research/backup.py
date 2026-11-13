@@ -256,9 +256,11 @@ def _explicit_external_path(value, label, *, must_exist=False):
     raw = Path(value)
     if not raw.is_absolute() or ".." in raw.parts:
         raise ValueError(f"{label} must be an explicit absolute path without traversal")
-    # Inspect each lexical component before resolving; resolve() would follow
-    # a symlink and hide the unsafe path the caller actually supplied.
-    for component in (raw, *raw.parents):
+    # Walk the caller's lexical path before resolving; resolve() follows
+    # symlinks and can hide an unsafe parent component.
+    component = Path(raw.anchor)
+    for part in raw.parts[1:]:
+        component /= part
         if _is_reparse(component):
             raise ValueError(f"{label} cannot include symbolic links or reparse points")
     path = raw.resolve(strict=must_exist)
