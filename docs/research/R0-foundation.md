@@ -74,3 +74,5 @@ The historical 11- and 16-column beta-1 contracts are now implemented as explici
 ## Statewide organizational and position foundation
 
 The reusable evidence-led planner and transactional operator are documented in [organizational-positions.md](organizational-positions.md). It reuses the existing schema and migration, preserves source/version history, and has a private inspectable preview plus idempotent apply and verification commands. Tests use only synthetic evidence; a separately authorized local execution may apply the reviewed preview to the permanent Profiles database.
+
+The county-scoped evidence-based people and identity planner reuses the same database and is documented in [identity-foundation.md](identity-foundation.md). It preserves uncertain claims, uses direct official evidence for associations, and does not infer identity from names or roles alone.
