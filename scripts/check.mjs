@@ -178,7 +178,10 @@ for (const file of files) {
   if (!["100644", "100755"].includes(mode))
     errors.push(`Non-regular file: ${file}`);
   const bytes = staged ? git("show", `:${file}`) : readFileSync(file);
-  if (bytes.length > 64 * 1024) errors.push(`File exceeds 64 KiB: ${file}`);
+  // The generated npm lockfile is the only file allowed to exceed 64 KiB.
+  const sizeLimit = file === "package-lock.json" ? 256 * 1024 : 64 * 1024;
+  if (bytes.length > sizeLimit)
+    errors.push(`File exceeds ${sizeLimit / 1024} KiB: ${file}`);
   let content;
   try {
     content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
