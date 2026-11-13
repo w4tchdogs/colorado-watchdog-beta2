@@ -99,7 +99,7 @@ class IdentityFoundationTests(unittest.TestCase):
                                             published_name=claims[0]["published_name"], evidence_id=claims[0]["evidence_id"],
                                             actor="fixture-operator", rationale="Synthetic official role listing")
         link = self.quote_evidence(claims[0]["source_id"],
-                                   "Synthetic Rowan Example, Fixture Treasurer, also serves as Fixture Coordinator.")
+                                   "Synthetic Rowan Example, Fixture Treasurer, also serves as fixture coordinator.")
         associated = operator.associate_claim_by_connection(
             self.db, claim_id=claims[1]["id"], person_id=created["person_id"], evidence_id=link,
             actor="fixture-operator", rationale="One official record explicitly connects the person to the second role")
@@ -115,7 +115,7 @@ class IdentityFoundationTests(unittest.TestCase):
         self.db.execute("UPDATE sources SET official_status='official' WHERE id=?", (claims[0]["source_id"],))
         self.db.commit()
         self.quote_evidence(claims[0]["source_id"],
-                            "Synthetic Rowan Example, Fixture Treasurer, also serves as Fixture Coordinator.")
+                            "Synthetic Rowan Example, Fixture Treasurer, also serves as fixture coordinator.")
         plan = identity.build_identity_plan(self.db)
         self.assertEqual(plan["summary"]["new_research_people"], 1)
         self.assertEqual(plan["summary"]["claims_associated"], 2)
@@ -124,6 +124,25 @@ class IdentityFoundationTests(unittest.TestCase):
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
         self.assertEqual(self.db.execute("SELECT count(DISTINCT person_id) FROM role_claims WHERE person_id IS NOT NULL").fetchone()[0], 1)
         self.assertEqual(self.db.execute("SELECT count(*) FROM role_claims WHERE person_id IS NOT NULL").fetchone()[0], 2)
+
+    def test_generic_responsibility_is_not_identity_linked_as_a_role(self):
+        _, claims = self.add_batch([
+            {"full_name": "Synthetic Rowan Example", "title": "Fixture Treasurer",
+             "responsibility": "Listed in official source"},
+            {"full_name": "Synthetic Rowan Example", "title": "Fixture Coordinator",
+             "responsibility": "Listed in official source"},
+        ])
+        self.db.execute("UPDATE sources SET official_status='official' WHERE id=?", (claims[0]["source_id"],))
+        self.db.commit()
+        self.quote_evidence(claims[0]["source_id"],
+                            "Synthetic Rowan Example, Fixture Treasurer, also listed as Listed in official source.")
+        plan = identity.build_identity_plan(self.db)
+        self.assertEqual(plan["summary"]["claims_associated"], 0)
+        self.assertEqual(plan["summary"]["new_research_people"], 0)
+        self.assertEqual(plan["summary"]["unresolved_claims"], 2)
+        identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
+        self.assertEqual(self.db.execute("SELECT count(*) FROM research_people").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM role_claims WHERE person_id IS NOT NULL").fetchone()[0], 0)
 
     def test_same_name_different_people_remains_unassigned_without_identity_proof(self):
         _, claims = self.add_batch([

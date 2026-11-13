@@ -410,6 +410,13 @@ _ROLE_CONNECTION_CUES = (
     "also serves as", "also holds", "also works as", "also listed as", "in addition to",
     "same person as", "is the same person", "serves in both", "holds both roles",
 )
+_NONROLE_RESPONSIBILITIES = {"listed in official source"}
+
+
+def _documented_role_values(claim):
+    return [value for value in (claim["published_title"], claim["responsibility"])
+            if isinstance(value, str) and value.strip()
+            and value.strip().casefold() not in _NONROLE_RESPONSIBILITIES]
 
 
 def validate_claim_connection(db, *, claim_id, person_id, evidence_id):
@@ -453,12 +460,12 @@ def validate_claim_connection(db, *, claim_id, person_id, evidence_id):
     known_names.update(row[0] for row in db.execute("SELECT published_name FROM name_variants WHERE person_id=?",
                                                     (person_id,)))
     text = _evidence_text(evidence)
-    role_values = [value for value in (claim["published_title"], claim["responsibility"]) if value]
-    if claim["published_name"] not in text or not any(value in text for value in role_values):
+    role_values = _documented_role_values(claim)
+    folded = text.casefold()
+    if claim["published_name"] not in text or not any(value.casefold() in folded for value in role_values):
         raise ValueError("Identity-link evidence must contain the exact claim name and documented role")
     if not any(name in text for name in known_names):
         raise ValueError("Identity-link evidence must name the established person")
-    folded = text.casefold()
     if not any(cue in folded for cue in _ROLE_CONNECTION_CUES):
         raise ValueError("Identity-link evidence must explicitly connect the person to the role")
     return claim, person, evidence
@@ -544,8 +551,9 @@ def _claim_evidence(db, *, county_fips, claim_id, published_name, evidence_id,
     cells = _flatten_text(json.loads(evidence["raw_record_json"])) if evidence["raw_record_json"] else []
     quote = evidence["quotation"] or ""
     supports_name = claim["published_name"] in cells or claim["published_name"] in quote
-    role_values = [value for value in (claim["published_title"], claim["responsibility"]) if value]
-    supports_position = any(value in cells or value in quote for value in role_values)
+    role_values = _documented_role_values(claim)
+    folded_cells_and_quote = "\n".join([*cells, quote]).casefold()
+    supports_position = any(value.casefold() in folded_cells_and_quote for value in role_values)
     if not supports_name or not supports_position:
         raise ValueError("Official evidence must contain the claim’s exact published name and a documented position")
     return claim, evidence
