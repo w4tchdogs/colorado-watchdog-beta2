@@ -132,6 +132,23 @@ and tested using SQL.js only.
   production D1 or ChatGPT Sites hosting. No public HTTP routes or hosted
   deployment are included.
 
+## M1-C public person-profile reads
+
+- `GET /api/people/{personId}` reads a person by stable Website ID and returns
+  the display name and row version with a bounded page of documented roles.
+  `limit` defaults to 25 and is capped at 100; `afterRoleId` continues in
+  binary role-ID order.
+- Role projections include stored role dates, source-check timestamp, position,
+  organization, source citation, and row versions. Direct organization county
+  assignments and explicit county affiliations are represented separately;
+  affiliation IDs, relationship types, and versions are retained. No county
+  membership is inferred from organizational hierarchy.
+- Missing people return 404, malformed IDs or parameters return 400, and
+  unsupported methods return 405. These public reads do not authenticate,
+  mutate records, write audit events, or determine current employment.
+- Synthetic Website tests exercise the local SQL.js adapter. Hosted D1 and
+  production deployment compatibility remain unverified.
+
 ## Deferred milestones
 
 - **M1:** attach organization, person, employment, and role-source tables to

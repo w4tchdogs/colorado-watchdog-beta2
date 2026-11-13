@@ -1,5 +1,11 @@
 # Website synchronization contract (M2-A)
 
+## Authorization and D1 readiness (M2-F)
+
+The sync transport remains internal and unregistered. Its deny-by-default
+authorization mapping, current-principal checks, and local-only D1 readiness
+evidence are documented in [d1-readiness.md](d1-readiness.md).
+
 **Status: M2-A design, M2-B dry-run planning, M2-C commit/replay, M2-D local batch lookup/reversal, and M2-E duplicate-flag persistence are implemented.** These services remain internal: no route, ApplicationServices entry, production authorization, or hosted D1 behavior is enabled. Hosted compatibility remains unverified.
 
 ## M2-C local commit implementation

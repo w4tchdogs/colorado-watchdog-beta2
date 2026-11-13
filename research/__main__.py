@@ -491,7 +491,8 @@ def main(argv=None):
                 if args.command == "check":
                     result = validate_database(db)
                     print(json.dumps(result, sort_keys=True))
-                    return 0 if result["integrity"] == "ok" and not result["foreign_keys"] and result["schema_version"] == 1 else 1
+                    validate_migration_history(db)
+                    return 0 if result["integrity"] == "ok" and not result["foreign_keys"] else 1
                 limit = operator._limit(args.limit)
                 if args.command == "counties":
                     result = operator.inspect_counties(db, county=args.county, limit=limit)

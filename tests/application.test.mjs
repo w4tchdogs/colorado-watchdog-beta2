@@ -72,9 +72,14 @@ test("unsupported routes and methods fail predictably", async () => {
   const wrongMethod = await application.fetch(
     new Request("https://watchdog.test/_internal/health", { method: "POST" }),
   );
+  const syncPath = await application.fetch(
+    healthRequest("https://watchdog.test/internal/sync/batches/lookup"),
+  );
 
   assert.equal(missing.status, 404);
   assert.deepEqual(await missing.json(), { error: "not_found" });
+  assert.equal(syncPath.status, 404);
+  assert.deepEqual(await syncPath.json(), { error: "not_found" });
   assert.equal(wrongMethod.status, 405);
   assert.equal(wrongMethod.headers.get("allow"), "GET");
 });

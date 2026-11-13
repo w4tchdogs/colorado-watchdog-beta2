@@ -29,7 +29,7 @@ The parent directory must exist. Initialization exclusively creates an empty dat
 | County structure | counties, org_units, org_names, role_targets, unit_coverage, source_unit_links |
 | People/identity | research_people, name_variants, role_claims, possible_matches |
 | Sources/provenance | sources, evidence_links, scrape_batches, research_runs, source_visits |
-| Future Site exchange/audit | site_links, sync_batches, sync_items, research_events |
+| Future Site exchange/audit | site_links, sync_batches, sync_items, sync_submissions, research_events |
 
 `schema_migrations` is a separate infrastructure table. Migrations are transactional and checksum-verified, normalizing LF across Windows/Linux. Unknown history, changed applied migrations, inconsistent versions and unmanaged databases are rejected. STRICT types, foreign keys, unique indexes and focused relationship constraints protect relational integrity.
 
@@ -53,7 +53,7 @@ Claims start unassigned to people/units for later evidence-led screening; labels
 - Units have one current evidenced parent edge: administrative, statutory or navigation. Cross-county parents, cycles and reporting authority through navigation containers are rejected. `set_parent` transactionally records old/new edges and evidence in research_events. This is an initial tree model, not a complete temporal organizational graph.
 - Structure, leadership, named_staff and positions have independent coverage rows. Reviewed does not mean exhaustive. Position occupancy defaults to unknown; explicit vacancy requires evidence.
 - People can hold several roles. Possible-match pairs are unique and county-scoped. Resolution needs evidence and a supported decision basis; recording it never merges/deletes people. R0 records decisions, but does not perform AI screening or verify a citation's truth. Direct SQL changes are not automatically audited; use the provided transactional operations where available.
-- Site tables are forward-compatible scaffolding, empty after mapping. They represent external IDs, expected/result versions, client batch IDs and future receipts, with basic update preconditions. No transport or remote-version verification is implemented.
+- Site tables are forward-compatible scaffolding, empty after mapping. They represent external IDs, expected/result versions, client batch IDs and future receipts, with basic update preconditions. The durable local submission client stores an exact prepared Website request, canonical fingerprint and idempotency key before transport; only an injected transport is supported. See [R6 durable submission client](R6-durable-submission-client.md). No production transport or remote-version verification is enabled.
 
 ## Verification and continuation
 
