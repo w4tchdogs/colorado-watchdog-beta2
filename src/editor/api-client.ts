@@ -1,10 +1,4 @@
 import type {
-  DirectoryLookupRequest,
-  DirectoryLookupResult,
-  OrganizationLookupItem,
-  PersonLookupItem,
-} from "../contracts/editor-lookup.js";
-import type {
   ContentDraftChanges,
   ContentItem,
   ContentListRequest,
@@ -15,6 +9,12 @@ import type {
   ContentRevisionPage,
   NewContentDraft,
 } from "../contracts/content.js";
+import type {
+  DirectoryLookupRequest,
+  DirectoryLookupResult,
+  OrganizationLookupItem,
+  PersonLookupItem,
+} from "../contracts/editor-lookup.js";
 
 /**
  * Browser-side client for the internal editorial API. It only builds requests

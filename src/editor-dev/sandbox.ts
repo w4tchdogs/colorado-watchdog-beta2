@@ -8,7 +8,6 @@ import {
   type WebsiteDatabase,
 } from "../database/sqlite.js";
 import { createContentService } from "../services/content.js";
-import { LookupRequestError, parseLookupRequest, runLookup } from "./lookup.js";
 import {
   createTestHumanIdentityAdapter,
   resolvePrincipal,
@@ -19,6 +18,7 @@ import {
   createContentApiTransport,
   createContentTransportOperations,
 } from "../transport/content-api.js";
+import { LookupRequestError, parseLookupRequest, runLookup } from "./lookup.js";
 
 /**
  * Local, disposable editorial sandbox. It is a development tool only: it owns a
