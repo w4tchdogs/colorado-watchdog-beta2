@@ -107,6 +107,31 @@ and tested using SQL.js only.
   transaction. No HTTP route exposes checkpoints. See
   [checkpoints](checkpoints.md) for format, guarantees and limits.
 
+## M1-B bounded directory reads
+
+- `src/contracts/directory.ts` defines page inputs and typed public projections.
+  `src/services/directory.ts` exposes `listCountyOrganizations` and
+  `listCountyRoleEntries` through the shared `ApplicationServices` boundary.
+- Both operations validate a five-digit Colorado FIPS value against the seeded
+  public county registry, default to 25 rows, cap requests at 100, and return
+  deterministic keyset pages ordered by binary stable ID. `nextCursor` is the
+  last returned organization ID or person-role ID; pass it back as `afterId`.
+  An unknown but well-formed county returns an empty page. Pagination across
+  concurrent writes does not provide a single point-in-time snapshot.
+- Organizations report direct county membership separately from explicit
+  county affiliation types. An organization reached by both paths appears once
+  with both facts. `reports_to` and `grouped_under` remain the stored hierarchy
+  relationship; a regional or partner affiliation does not imply reporting.
+- Role entries preserve distinct role and person IDs, including same-name
+  people and multiple roles. Projections include display name, role dates and
+  source check date, position title, organization county association, public
+  source title/URL/type, and stable IDs and row versions. No absent end date is
+  interpreted as proof of current employment.
+- These reads are read-only and add no audit events or row changes. Local tests
+  use SQL.js and synthetic records; that does not prove compatibility with
+  production D1 or ChatGPT Sites hosting. No public HTTP routes or hosted
+  deployment are included.
+
 ## Deferred milestones
 
 - **M1:** attach organization, person, employment, and role-source tables to
@@ -119,9 +144,10 @@ and tested using SQL.js only.
   people, positions, public role sources, and source-backed person-role
   associations. These tables contain no seeded personnel data and have no
   identity-merge, UI, or hosted-service behavior.
-- **M2:** add bounded reads and version-checked changesets, sync batches,
-  duplicate flags, and reversible operations using versions, operations, and
-  audit events through the shared service layer.
+- **M2:** add version-checked changesets, sync batches, duplicate flags, and
+  reversible operations using versions, operations, and audit events through
+  the shared service layer. M1-B supplies reads only; it does not implement
+  synchronization or writes.
 
 These are scope boundaries, not claims that the deferred capabilities exist.
 

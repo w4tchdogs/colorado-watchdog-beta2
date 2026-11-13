@@ -1,4 +1,5 @@
 import type { CheckpointService } from "../contracts/checkpoints.js";
+import type { DirectoryPageRequest } from "../contracts/directory.js";
 import type { StorageProbe } from "../contracts/storage.js";
 import { StorageUnavailableError } from "../contracts/storage.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
@@ -13,6 +14,7 @@ import {
   updateAccount,
 } from "./accounts.js";
 import { listAuditEvents } from "./audit.js";
+import { listCountyOrganizations, listCountyRoleEntries } from "./directory.js";
 import { createOperation } from "./operations.js";
 import {
   type Capability,
@@ -83,6 +85,12 @@ export interface ApplicationServices {
     principal: TrustedPrincipal,
     limit?: number,
   ): ReadonlyArray<Record<string, unknown>>;
+  listCountyOrganizations(
+    input: DirectoryPageRequest,
+  ): ReturnType<typeof listCountyOrganizations>;
+  listCountyRoleEntries(
+    input: DirectoryPageRequest,
+  ): ReturnType<typeof listCountyRoleEntries>;
   /** Checkpoint operations. Each call checks its own checkpoint capability. */
   checkpoints(): CheckpointService;
 }
@@ -199,6 +207,12 @@ export function createServices(
     },
     listAuditEvents(principal, limit) {
       return listAuditEvents(requireDatabase(), principal, limit);
+    },
+    listCountyOrganizations(input) {
+      return listCountyOrganizations(requireDatabase(), input);
+    },
+    listCountyRoleEntries(input) {
+      return listCountyRoleEntries(requireDatabase(), input);
     },
     checkpoints() {
       if (!dependencies.checkpoints) {
