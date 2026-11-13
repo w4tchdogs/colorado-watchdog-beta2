@@ -315,7 +315,8 @@ function encodeCell(
     return ["i", value];
   }
   if (type === "real" && typeof value === "number" && !Number.isNaN(value)) {
-    return ["r", String(value)];
+    // String(-0) is "0", which would silently restore positive zero.
+    return ["r", Object.is(value, -0) ? "-0" : String(value)];
   }
   if (type === "blob" && typeof value === "string") {
     return ["b", value];
@@ -440,7 +441,9 @@ function insertRows(database: WebsiteDatabase, table: RestoreTable): void {
         parameters.push(text);
       } else if (tag === "r") {
         placeholders.push("CAST(? AS REAL)");
-        parameters.push(Number(text));
+        // The adapter binds a numeric -0 as integer zero and drops the sign.
+        // Text cast to REAL keeps it.
+        parameters.push(text === "-0" ? "-0" : Number(text));
       } else if (tag === "t") {
         placeholders.push("?");
         parameters.push(text);

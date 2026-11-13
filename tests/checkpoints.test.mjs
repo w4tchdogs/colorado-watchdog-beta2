@@ -17,9 +17,13 @@ import {
 import { openWebsiteDatabase } from "../dist/database/sqlite.js";
 import {
   canonicalJson,
+  decodeRowLine,
   tableMemberPath,
 } from "../dist/local/checkpoints/core.js";
-import { captureDatabaseSnapshot } from "../dist/local/checkpoints/database-snapshot.js";
+import {
+  captureDatabaseSnapshot,
+  restoreDatabaseSnapshot,
+} from "../dist/local/checkpoints/database-snapshot.js";
 import { LocalFileStore } from "../dist/local/checkpoints/file-store.js";
 import {
   prepareCheckpoint,
@@ -585,6 +589,170 @@ test("new tables and unusual values are captured automatically and exactly", asy
   const report = await verify(fixture);
   assert.deepEqual(report.failures, []);
   assert.equal(report.restored.tables, manifest.totals.tables);
+});
+
+test("negative zero survives capture, validation, restore and verification", async (t) => {
+  const fixture = await createFixture(t);
+  // Untyped columns keep negative zero. SQLite normalizes it to positive zero
+  // in REAL and NUMERIC affinity columns, so only these can hold it.
+  fixture.database.exec(`
+    CREATE TABLE m0d_zero (id INTEGER PRIMARY KEY, v);
+    INSERT INTO m0d_zero (id, v) VALUES
+      (1, CAST('-0.0' AS REAL)), (2, CAST('0.0' AS REAL)), (3, -1.5),
+      (4, 1.5), (5, 5e-324), (6, -5e-324), (7, 1.7976931348623157e308),
+      (8, 9e999), (9, -9e999), (10, 0.1);
+    CREATE TABLE m0d_zero_strict (id INTEGER PRIMARY KEY, v ANY) STRICT;
+    INSERT INTO m0d_zero_strict VALUES (1, CAST('-0.0' AS REAL));
+  `);
+  const read = (database, table) =>
+    database.prepare(`SELECT id, v FROM ${table} ORDER BY id`).all();
+  const stored = read(fixture.database, "m0d_zero");
+  assert.ok(Object.is(stored[0].v, -0), "source holds negative zero");
+  assert.ok(Object.is(stored[1].v, 0), "source holds positive zero");
+  assert.ok(
+    Object.is(read(fixture.database, "m0d_zero_strict")[0].v, -0),
+    "STRICT ANY column holds negative zero",
+  );
+
+  const { manifest } = await produce(fixture);
+  const exported = readFileSync(
+    fixture.bundlePath(ID, "db", "tables", "m0d_zero.jsonl"),
+    "utf8",
+  );
+  const lines = exported.trimEnd().split("\n");
+  assert.ok(lines.includes('[["i","1"],["r","-0"]]'));
+  assert.ok(lines.includes('[["i","2"],["r","0"]]'));
+  assert.ok(lines.includes('[["i","3"],["r","-1.5"]]'));
+  assert.ok(lines.includes('[["i","5"],["r","5e-324"]]'));
+  assert.ok(lines.includes('[["i","8"],["r","Infinity"]]'));
+  assert.ok(lines.includes('[["i","9"],["r","-Infinity"]]'));
+  assert.ok(lines.includes('[["i","10"],["r","0.1"]]'));
+  assert.equal(
+    manifest.database.tables.find((item) => item.name === "m0d_zero").rows,
+    10,
+  );
+
+  // Every row passes canonical cell validation, then restores exactly.
+  const columns = [
+    { name: "id", type: "INTEGER", notnull: false, pk: 1 },
+    { name: "v", type: "", notnull: false, pk: 0 },
+  ];
+  const scratch = await openWebsiteDatabase(":memory:");
+  t.after(() => scratch.close());
+  restoreDatabaseSnapshot(
+    scratch,
+    {
+      user_version: 0,
+      objects: [
+        {
+          type: "table",
+          name: "m0d_zero",
+          tbl_name: "m0d_zero",
+          sql: "CREATE TABLE m0d_zero (id INTEGER PRIMARY KEY, v)",
+        },
+      ],
+    },
+    [
+      {
+        name: "m0d_zero",
+        columns,
+        rows: lines.map((line) => decodeRowLine(line, 2, "m0d_zero")),
+      },
+    ],
+  );
+  const restored = read(scratch, "m0d_zero");
+  assert.equal(restored.length, stored.length);
+  for (const [index, row] of restored.entries()) {
+    assert.ok(
+      Object.is(row.v, stored[index].v),
+      `row ${row.id}: ${row.v} vs ${stored[index].v}`,
+    );
+  }
+  assert.ok(Object.is(restored[0].v, -0));
+  assert.ok(Object.is(restored[1].v, 0));
+
+  // Full verification of the correct bundle succeeds, and the verifier's own
+  // scratch restore re-exports negative zero identically.
+  const report = await verify(fixture);
+  assert.deepEqual(report.failures, []);
+  assert.equal(report.ok, true);
+});
+
+test("REAL-affinity columns store negative zero as positive zero", async (t) => {
+  const fixture = await createFixture(t);
+  fixture.database.exec(
+    "CREATE TABLE m0d_real (id INTEGER PRIMARY KEY, r REAL); INSERT INTO m0d_real VALUES (1, CAST('-0.0' AS REAL));",
+  );
+  // SQLite normalizes the value at storage, so the source never holds -0 here
+  // and "0" is the exact representation of what is stored.
+  const row = fixture.database.prepare("SELECT r FROM m0d_real").get();
+  assert.ok(Object.is(row.r, 0));
+  await produce(fixture);
+  assert.equal(
+    readFileSync(
+      fixture.bundlePath(ID, "db", "tables", "m0d_real.jsonl"),
+      "utf8",
+    ),
+    '[["i","1"],["r","0"]]\n',
+  );
+  assert.deepEqual((await verify(fixture)).failures, []);
+});
+
+test("hostile identifiers in a bundle never reach restore diagnostics", async (t) => {
+  const hostile = '<script>alert("x")</script>';
+  const fixture = await createFixture(t);
+  fixture.database.exec(`
+    CREATE TABLE m0d_hostile (
+      id INTEGER PRIMARY KEY,
+      n INTEGER,
+      CONSTRAINT "${hostile.replaceAll('"', '""')}" CHECK (n > 0)
+    );
+    INSERT INTO m0d_hostile VALUES (1, 5);
+  `);
+  await produce(fixture);
+  const path = fixture.bundlePath(ID, "db", "tables", "m0d_hostile.jsonl");
+  const text = readFileSync(path, "utf8").replace('["i","5"]', '["i","-5"]');
+  overwrite(path, text);
+  rewriteManifest(fixture, ID, (manifest) => {
+    const entry = manifest.database.tables.find(
+      (item) => item.name === "m0d_hostile",
+    );
+    entry.sha256 = sha256(text);
+    entry.bytes = Buffer.byteLength(text);
+  });
+
+  const report = await verify(fixture);
+  assert.equal(report.ok, false);
+  assert.deepEqual(codes(report), ["restore_failed"]);
+  assertFailed(report, "restore_failed", /CHECK constraint failed/);
+  const serialized = JSON.stringify(report);
+  assert.ok(!serialized.includes("script"));
+  assert.ok(!serialized.includes("alert"));
+  assert.ok(!serialized.includes("<"));
+  for (const failure of report.failures) {
+    assert.equal(failure.subject, "database");
+    assert.ok(failure.detail.length <= 200);
+  }
+  // An unrecognized engine error is reported with fixed text as well.
+  const unknown = await createFixture(t);
+  unknown.database.exec(
+    `CREATE TABLE "${hostile.replaceAll('"', '""')}" (id INTEGER PRIMARY KEY)`,
+  );
+  await produce(unknown);
+  const schemaPath = unknown.bundlePath(ID, "db", "schema.json");
+  const schema = JSON.parse(readFileSync(schemaPath, "utf8"));
+  const duplicate = schema.objects.find((item) => item.name === hostile);
+  schema.objects.push({ ...duplicate, type: "table" });
+  const schemaText = canonicalJson(schema);
+  overwrite(schemaPath, schemaText);
+  rewriteManifest(unknown, ID, (manifest) => {
+    manifest.database.schema.sha256 = sha256(schemaText);
+    manifest.database.schema.bytes = Buffer.byteLength(schemaText);
+  });
+  const second = await verify(unknown);
+  assert.equal(second.ok, false);
+  assert.ok(codes(second).length > 0);
+  assert.ok(!JSON.stringify(second).includes("script"));
 });
 
 test("table digests do not depend on physical row order", async () => {
