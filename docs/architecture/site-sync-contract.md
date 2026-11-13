@@ -1,6 +1,22 @@
 # Website synchronization contract (M2-A)
 
-**Status: M2-A proposed design only.** This document specifies a future synchronization contract; it does not implement synchronization, a runtime API, database migrations, or a Website schema change.
+**Status: M2-A design with M2-B local validation/planning implemented.** The M2-B planner is an internal, read-only development function. It exposes no route, service-layer entry, commit behavior, persistent sync state, Website ID generation, or production authorization. Hosted D1 compatibility remains unverified.
+
+## M2-B pinned request and planning contract
+
+This section resolves M2-A acceptance findings M2A-ACC-1 through 4 and 10 and is authoritative over conflicting proposed wire details below. Requests use `contractVersion: "m2-sync/v1"`, a UUID `requestId`, `intent: "dry_run"`, 1–200 ordered `changes`, and optional advisory `duplicateFlags`. Unknown envelope and item keys are rejected; the envelope-level `expectedVersions` map and transport fields such as `idempotencyKey`, `actorId`, `originSystem`, and `createdAt` are not part of this M2-B shape. `commit` intent is structurally recognized but returns `commit_not_supported` without planning writes.
+
+Create items use `{op, entity, clientRef, fields}`. `entity` must match the operation's one M1-A table. The create operations are `create_organization`, `add_county_affiliation`, `create_person`, `create_position`, `register_source`, and `create_person_role`. Create items never accept persistent IDs. Relationship fields use the existing ID (`*_id`) or same-request temporary reference (`*_ref`) spelling. A pair supplies exactly one form, except an organization root may omit its optional parent fields or set both parent ID and relationship to null. A temporary ref must name one unique, compatible create item earlier in array order; forward, self, unknown, duplicate and wrong-entity refs are rejected. Plans preserve input order and return dependency refs. References to existing records are checked for existence and relationship validity; they need no version pin unless updated.
+
+An update item is exactly `{"op":"update_record","entity":"organizations","targetId":"existing-website-id","expectedVersion":3,"fields":{"name":"Updated organization name"}}`. Its target must already exist; its expected version is a positive integer; one target may be updated only once per changeset. Duplicate targets return `duplicate_target`; a stale version returns `stale_version` with only the safe current version. Missing targets never become creates. The shared `MUTABLE_COLUMNS` object is not a sync allowlist. Permitted update fields are: organizations `name`, `organization_type`, `county_fips`, `parent_organization_id`, `parent_relationship`; people `display_name`; positions `title`; role_sources `title`; person_roles `start_date`, `end_date`, `source_checked_at`, and `source_id` only when a valid replacement source and new `source_checked_at` are supplied. Affiliations have no update fields. `update_organization` is superseded by `update_record`. All other tables and fields, including account/security fields and relationship retargeting, are rejected.
+
+Dates are real calendar dates in `YYYY-MM-DD`; role end dates cannot precede start dates. `source_checked_at` is RFC 3339 UTC, is evidence-check time rather than employment time, and cannot exceed the injected trusted clock by more than five minutes. This skew is a local validator default, not an approved production freshness policy. Source URLs must be absolute HTTP(S), contain a host, contain no userinfo, and fit 2,048 UTF-8 bytes. URLs are syntax-checked only; the planner never fetches them. `example.invalid` is accepted for synthetic fixtures. Source reuse compares the exact supplied URL bytes and requires identical title and source type; conflicting metadata is a safe conflict. No URL normalization is used for identity. Source types follow the M1-A enum.
+
+Limits apply together: 512 KiB total request, 1–200 changes, 32 KiB per change, 25 source citations, 20 duplicate flags, and at most 200 planned changed rows. Field caps are 500 UTF-8 bytes for names/titles/reasons and 128 ASCII bytes for IDs and client refs. The planner performs bounded primary-key/county/uniqueness lookups and organization walks up to 64 ancestors; no write transaction is used. Results contain ordered `would_create`, `would_update`, `would_reuse` or `invalid` items, existing IDs only when already persisted, and bounded sanitized errors. Dry runs do not write rows, versions, audits, operations, sync state, flags or idempotency state, and generate no persistent Website IDs.
+
+Duplicate flags are optional advisory input. Only bounded, well-formed person flags with `nonblocking: true` are accepted; their references are checked and summaries may be returned in the plan. M2-B does not persist flags or implement their lifecycle.
+
+M2-B keeps validation/planning as internal functions with no principal parameter. It does not modify `security.ts`, capability grants, `ApplicationServices`, migrations, routes, hosted integrations, or Profiles. Stale conflicts include no row projection. The M2-B dry-run portion covers acceptance matrix cases 1–10, 16, 22 and 23; commit IDs, writes, atomicity and replay remain future M2-C behavior.
 
 The design is grounded in the accepted Website foundation at M1-A/M1-B and the owner directions in [decisions.md](../decisions.md). Owner directions include local research and screening, Website-assigned public IDs, version-checked changesets, one verified official county webpage directly connecting a person's name to a role as sufficient source evidence, and nonblocking duplicate flags. Technical choices below are recommendations, not new owner policy. The document is for the Website track; it does not authorize or require changes to Profiles.
 
@@ -78,7 +94,7 @@ Required envelope fields:
 - `createdAt`: RFC 3339 UTC timestamp
 - `intent`: `"dry_run" | "commit"`
 - `changes`: ordered array of change items; length must be 1..200
-- `expectedVersions`: optional map from an existing Website entity reference to its expected integer version; every update must provide one
+- M2-B updates carry their required positive `expectedVersion` on each update item; no envelope-level version map is accepted
 - Each create item must have a unique request-local `clientRef`; references may be used only by dependent items in the same request
 - Public source metadata is carried by an allowlisted `register_source` or `use_existing_source` item and referenced by `source_ref` on a role
 
@@ -119,10 +135,6 @@ These defaults should be enforced by the Website before database writes begin.
 {
   "contractVersion": "m2-sync/v1",
   "requestId": "6b5f57a2-84b7-4a4d-b300-33aea9feeb19",
-  "idempotencyKey": "profiles-batch-2026-11-13-0771",
-  "originSystem": "profiles-research",
-  "researchBatchId": "rb-2026-11-13-001",
-  "createdAt": "2026-11-13T04:15:00Z",
   "intent": "dry_run",
   "changes": [
     {
@@ -178,7 +190,6 @@ These defaults should be enforced by the Website before database writes begin.
       }
     }
   ],
-  "expectedVersions": {},
   "duplicateFlags": [
     {
       "targetType": "person",
@@ -193,23 +204,22 @@ These defaults should be enforced by the Website before database writes begin.
 }
 ```
 
-This is a fictional example, not a valid submission: the `example.invalid` citation cannot pass source verification. The example uses a five-digit Colorado FIPS value (`08013`) and consistent temporary references. A real request would use verified public source metadata. `expectedVersions` is empty because this example creates records; an update request must include the target Website ID and its current expected version.
+This is a synthetic dry-run example. The reserved `example.invalid` host is accepted as syntactically valid test data; the planner does not fetch or verify URLs. A real public citation must be verified by the local research process. The example uses a five-digit Colorado FIPS value (`08013`) and earlier same-request temporary references. An update item carries its own `targetId` and positive `expectedVersion` as described in the M2-B pinned section; there is no envelope-level `expectedVersions` map.
 
 ## Supported entity operations
 
 The initial implementation should allow only a small, allowlisted operation set that maps directly to the accepted M1 schema and the existing optimistic version conventions.
 
-### Proposed initial operation set (future implementation; not implemented by M2-A)
+### Initial operation set
 
 1. `create_organization`
    - creates a row in `organizations`
    - requires a valid `name`, `organization_type`, and county rule compliance
    - does not accept unbounded `details_json` or arbitrary schema extension
 
-2. `update_organization`
-   - updates an existing `organizations` row by record ID and expected version
-   - supported fields only: `name`, `organization_type`, `county_fips`, `parent_organization_id`, `parent_relationship`
-   - rejects stale version, invalid hierarchy, or forbidden table mutation
+2. `update_record`
+   - canonical version-checked update operation for the per-entity fields pinned above
+   - supersedes `update_organization`; no second update operation is supported
 
 3. `add_county_affiliation`
    - creates a row in `organization_county_affiliations`
@@ -228,8 +238,7 @@ The initial implementation should allow only a small, allowlisted operation set 
 6. `register_source`
    - creates or reuses a row in `role_sources`
    - requires `url`, `title`, and `source_type`
-   - URL must be HTTP or HTTPS and unique in the Website table; same-URL, same-metadata reuse resolves to the existing Website source ID, while conflicting metadata returns `duplicate_key`
-   - `use_existing_source` may reference a source by Website ID or a temporary ref; it does not change source metadata
+   - URL is bounded and syntax-checked as absolute HTTP(S); same exact URL and same metadata can be planned as reuse, while conflicting metadata returns `source_metadata_conflict`
 
 7. `create_person_role`
    - creates the source-backed `person_roles` row
@@ -237,11 +246,11 @@ The initial implementation should allow only a small, allowlisted operation set 
    - source_checked_at is required; no role can be created without a citation
 
 8. `update_record`
-   - generic version-checked update for any allowlisted M1 table
-   - only fields from the corresponding `MUTABLE_COLUMNS` allowlist are allowed
-   - not a general-purpose backdoor into unknown table writes
+   - generic version-checked update only for the narrow per-entity field table in the M2-B pinned section
+   - does not use or expose the broader `MUTABLE_COLUMNS` allowlist
+   - affiliations, security tables and relationship-retargeting fields cannot be updated
 
-`update_record` is a service-level dispatch over a fixed entity/field allowlist, not a caller-selected SQL table or column. Updates require a persistent Website ID and expected version. Create operations use temporary refs only; they never accept caller-selected Website IDs. Existing source URLs may be referenced by `use_existing_source` (or discovered by a bounded lookup); changed source metadata must use a version-checked source update and must not silently change historical role facts.
+`update_record` is an internal dispatch over a fixed entity/field allowlist, not a caller-selected SQL table or column. Updates require a persistent Website ID and per-item expected version. Create operations use temporary refs only; they never accept caller-selected Website IDs. Existing source URLs may be reused by exact bounded lookup; changed source metadata must not silently change historical role facts.
 
 ### Deferred for later milestones
 
@@ -289,7 +298,7 @@ Required preflight checks:
 - each organization, position, person, or source record passes table-specific validation
 - every `source_ref` resolves to a valid `role_sources` row or newly created source
 - every `person_role` has at least one public source citation and date semantics are valid
-- `expectedVersions` match the current Website row version before write
+- each update item's `expectedVersion` matches the current Website row version before any future write
 - duplicates and possible-match flags are advisory only and do not trigger a merge
 - `dry_run` simulates all reads and validation without writing the database
 
@@ -532,7 +541,7 @@ This preserves the current separation between the local Profiles research worksp
 
 ## Acceptance testing
 
-This matrix is proposed for future implementation; it is not evidence that synchronization has been tested. Use synthetic data, `example.invalid` sources, and service/database/security test layers as appropriate.
+Use synthetic data and `example.invalid` sources. M2-B locally exercises dry-run planning for cases 1–10, 16, 22 and 23; its focused tests include same-target updates, source-integrity rejection, dry-run state preservation, and representative planner/SQLite constraint parity. The matrix's commit, replay, authorization and reversal outcomes remain future milestones. Local SQL.js tests do not establish hosted D1 behavior.
 
 | # | Synthetic scenario / invariant | Expected outcome | Suggested test layer |
 |---|---|---|---|
@@ -561,7 +570,7 @@ This matrix is proposed for future implementation; it is not evidence that synch
 | 23 | Request contains private Profiles notes/captures | Reject unsupported/private fields; never persist, log or return their values | Contract + security |
 | 24 | Retry after uncertain result or transaction rollback | Committed result replays; rolled-back request can safely retry | Service + DB |
 
-Acceptance requires all applicable rows to pass in their future implementation layer, in addition to the repository checks for that batch. Do not treat this design matrix as executed synchronization tests.
+Acceptance of a future milestone requires all applicable rows to pass in that implementation layer. M2-B completion does not claim that commit, replay, production authorization or reversal has been executed.
 
 ## Design decisions and assumptions
 
