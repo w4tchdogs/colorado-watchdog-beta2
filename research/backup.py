@@ -312,8 +312,8 @@ def backup_database(database, destination):
     destination = _destination(destination, "Backup destination")
     if database == destination:
         raise ValueError("Backup destination must differ from the source database")
-    _protect(b"DPAPI readiness check", _MANIFEST_ENTROPY)
     with _temporary_directory(prefix="cw-r5a-snapshot-") as temporary_root:
+        _protect(b"DPAPI readiness check", _MANIFEST_ENTROPY)
         snapshot_path = Path(temporary_root) / "snapshot.sqlite"
         _copy_database(database, snapshot_path)
         with closing(_read_only(snapshot_path)) as snapshot_db:
