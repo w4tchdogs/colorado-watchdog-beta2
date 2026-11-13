@@ -114,10 +114,11 @@ and tested using SQL.js only.
   retain their own structures; regional or partner offices can serve a county
   without being county departments.
 - **M1-A:** migration 0004 adds county-scoped organization hierarchies with
-  explicit reporting or grouping relationships, separate regional/partner
-  county affiliations, people, positions, public role sources, and
-  source-backed person-role associations. These tables contain no seeded
-  personnel data and have no identity-merge, UI, or hosted-service behavior.
+  county-government records bound to their county, explicit reporting or
+  grouping relationships, separate regional/partner county affiliations,
+  people, positions, public role sources, and source-backed person-role
+  associations. These tables contain no seeded personnel data and have no
+  identity-merge, UI, or hosted-service behavior.
 - **M2:** add bounded reads and version-checked changesets, sync batches,
   duplicate flags, and reversible operations using versions, operations, and
   audit events through the shared service layer.
