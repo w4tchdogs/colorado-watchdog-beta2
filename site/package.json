@@ -1,0 +1,27 @@
+{
+  "name": "colorado-watchdog-beta2-site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "format": "biome format --write .",
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --disable-warning=ExperimentalWarning \"tests/**/*.test.ts\"",
+    "db:generate": "drizzle-kit generate",
+    "db:check": "drizzle-kit generate && git diff --exit-code -- migrations && test -z \"$(git status --porcelain -- migrations)\"",
+    "build": "node scripts/build.mjs",
+    "verify": "npm run lint && npm run typecheck && npm run test && npm run db:check && npm run build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.7",
+    "@types/node": "22.20.5",
+    "drizzle-kit": "0.31.11",
+    "drizzle-orm": "0.45.4",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}
