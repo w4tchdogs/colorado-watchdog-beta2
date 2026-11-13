@@ -156,13 +156,12 @@ def _identity_connection_edges(db, county_fips, rows, *, planned_sources, allow_
     for row in candidates:
         by_name[row["published_name"]].append(row)
     names_by_first_word = defaultdict(list)
-    first_word_patterns = {}
     for name in by_name:
         first_word = name.split(maxsplit=1)[0].casefold()
         names_by_first_word[first_word].append(name)
-        first_word_patterns.setdefault(
-            first_word, re.compile(r"(?<!\w)" + re.escape(first_word) + r"(?!\w)")
-        )
+    first_words = sorted(names_by_first_word, key=lambda value: (-len(value), value))
+    first_words_pattern = (re.compile(r"(?<!\w)(?:" + "|".join(re.escape(value) for value in first_words)
+                                      + r")(?!\w)") if first_words else None)
     edges = {}
     for evidence in _connection_evidence_rows(db, county_fips):
         if evidence["official_status"] != "official" and not (
@@ -174,9 +173,9 @@ def _identity_connection_edges(db, county_fips, rows, *, planned_sources, allow_
         folded = text.casefold()
         if not any(cue in folded for cue in _ROLE_CUES):
             continue
-        for first_word, pattern in first_word_patterns.items():
-            if not pattern.search(folded):
-                continue
+        mentioned_first_words = ({match.group(0) for match in first_words_pattern.finditer(folded)}
+                                 if first_words_pattern else set())
+        for first_word in mentioned_first_words:
             for name in names_by_first_word[first_word]:
                 if name.casefold() not in folded:
                     continue
