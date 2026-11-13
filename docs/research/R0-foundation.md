@@ -66,3 +66,7 @@ Next useful work: a bounded local operator interface for evidence-led person/cla
 ## R0 legacy-contract follow-up
 
 The merged foundation was checked against the consolidated legacy reference. This follow-up corrects the Elbert/El Paso FIPS association, accepts the exact source-listing status, and rejects unsupported grouping-basis values before writes. It preserves the original migration checksum and raw source fields. Five regression tests extend the suite to 43 passing tests, including rejection without partial ingestion. Database contents remain synthetic only.
+
+## R3 legacy CSV compatibility
+
+The historical 11- and 16-column beta-1 contracts are now implemented as explicit `legacy-11/v1` and `legacy-16/v1` mappings. See the [compatibility guide](legacy-csv-compatibility.md) for the evidence, exact crosswalk, validation behavior, and limitations. The existing `legacy-17/v1` mapping and migration checksum remain unchanged.

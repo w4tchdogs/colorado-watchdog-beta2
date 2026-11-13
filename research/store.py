@@ -27,7 +27,12 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
         raise ValueError("Finish current transaction before ingest")
     parsed = parse_csv(payload, version, registry)
     spec = parsed["mapping"]
-    mapping_json = canonical_json({"headers": spec.headers, "fields": spec.fields})
+    mapping_definition = {"headers": spec.headers, "fields": spec.fields}
+    if spec.version != "legacy-17/v1":
+        mapping_definition["county_name_policy"] = spec.county_name_policy
+        mapping_definition["legacy_field_limits"] = spec.legacy_field_limits
+        mapping_definition["grouping_basis_policy"] = spec.grouping_basis_policy
+    mapping_json = canonical_json(mapping_definition)
     rows = parsed["rows"]
     counties = {r["values"]["county_fips"] for r in rows}
     if len(counties) != 1:
