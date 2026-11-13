@@ -15,29 +15,46 @@ export type SyncEntity =
   | "role_sources"
   | "person_roles";
 
+type ExistingIdOrReference<IdKey extends string, RefKey extends string> =
+  | (Readonly<Record<IdKey, string>> & { readonly [Key in RefKey]?: never })
+  | (Readonly<Record<RefKey, string>> & { readonly [Key in IdKey]?: never });
+type OrganizationParent =
+  | Readonly<{
+      parent_organization_id?: null;
+      parent_organization_ref?: never;
+      parent_relationship?: null;
+    }>
+  | Readonly<{
+      parent_organization_id: string;
+      parent_organization_ref?: never;
+      parent_relationship: "reports_to" | "grouped_under";
+    }>
+  | Readonly<{
+      parent_organization_id?: never;
+      parent_organization_ref: string;
+      parent_relationship: "reports_to" | "grouped_under";
+    }>;
+
 export interface CreateOrganization {
   readonly op: "create_organization";
   readonly entity: "organizations";
   readonly clientRef: string;
-  readonly fields: {
-    readonly name: string;
-    readonly organization_type: OrganizationType;
-    readonly county_fips?: string | null;
-    readonly parent_organization_id?: string | null;
-    readonly parent_organization_ref?: string;
-    readonly parent_relationship?: "reports_to" | "grouped_under" | null;
-  };
+  readonly fields: Readonly<{
+    name: string;
+    organization_type: OrganizationType;
+    county_fips?: string | null;
+  }> &
+    OrganizationParent;
 }
 export interface CreateAffiliation {
   readonly op: "add_county_affiliation";
   readonly entity: "organization_county_affiliations";
   readonly clientRef: string;
-  readonly fields: {
-    readonly organization_id?: string;
-    readonly organization_ref?: string;
-    readonly county_fips: string;
-    readonly relationship_type: CountyAffiliationType;
-  };
+  readonly fields: Readonly<{
+    county_fips: string;
+    relationship_type: CountyAffiliationType;
+  }> &
+    ExistingIdOrReference<"organization_id", "organization_ref">;
 }
 export interface CreatePerson {
   readonly op: "create_person";
@@ -49,11 +66,8 @@ export interface CreatePosition {
   readonly op: "create_position";
   readonly entity: "positions";
   readonly clientRef: string;
-  readonly fields: {
-    readonly organization_id?: string;
-    readonly organization_ref?: string;
-    readonly title: string;
-  };
+  readonly fields: Readonly<{ title: string }> &
+    ExistingIdOrReference<"organization_id", "organization_ref">;
 }
 export interface CreateRoleSource {
   readonly op: "register_source";
@@ -69,25 +83,57 @@ export interface CreatePersonRole {
   readonly op: "create_person_role";
   readonly entity: "person_roles";
   readonly clientRef: string;
-  readonly fields: {
-    readonly person_id?: string;
-    readonly person_ref?: string;
-    readonly position_id?: string;
-    readonly position_ref?: string;
-    readonly source_id?: string;
-    readonly source_ref?: string;
-    readonly start_date?: string | null;
-    readonly end_date?: string | null;
-    readonly source_checked_at: string;
-  };
+  readonly fields: Readonly<{
+    start_date?: string | null;
+    end_date?: string | null;
+    source_checked_at: string;
+  }> &
+    ExistingIdOrReference<"person_id", "person_ref"> &
+    ExistingIdOrReference<"position_id", "position_ref"> &
+    ExistingIdOrReference<"source_id", "source_ref">;
 }
-export interface UpdateRecord {
+interface UpdateRecordBase {
   readonly op: "update_record";
-  readonly entity: SyncEntity;
   readonly targetId: string;
   readonly expectedVersion: number;
-  readonly fields: Readonly<Record<string, unknown>>;
 }
+export type UpdateRecord =
+  | (UpdateRecordBase & {
+      readonly entity: "organizations";
+      readonly fields: Readonly<{
+        name?: string;
+        organization_type?: OrganizationType;
+        county_fips?: string | null;
+        parent_organization_id?: string | null;
+        parent_relationship?: "reports_to" | "grouped_under" | null;
+      }>;
+    })
+  | (UpdateRecordBase & {
+      readonly entity: "people";
+      readonly fields: Readonly<{ display_name?: string }>;
+    })
+  | (UpdateRecordBase & {
+      readonly entity: "positions" | "role_sources";
+      readonly fields: Readonly<{ title?: string }>;
+    })
+  | (UpdateRecordBase & {
+      readonly entity: "person_roles";
+      readonly fields: Readonly<{
+        start_date?: string | null;
+        end_date?: string | null;
+        source_checked_at?: string;
+        source_id?: never;
+      }>;
+    })
+  | (UpdateRecordBase & {
+      readonly entity: "person_roles";
+      readonly fields: Readonly<{
+        start_date?: string | null;
+        end_date?: string | null;
+        source_checked_at: string;
+        source_id: string;
+      }>;
+    });
 export type SyncChange =
   | CreateOrganization
   | CreateAffiliation

@@ -701,10 +701,11 @@ function validateCreateFields(
       add("invalid_field", i, ref);
       ok = false;
     }
-    if (
-      (f.parent_organization_id == null) !==
-      (f.parent_relationship == null)
-    ) {
+    const hasParent =
+      f.parent_organization_ref !== undefined
+        ? f.parent_organization_ref != null
+        : f.parent_organization_id != null;
+    if (hasParent !== (f.parent_relationship != null)) {
       add("relationship_conflict", i, ref);
       ok = false;
     }

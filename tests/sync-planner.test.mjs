@@ -147,6 +147,9 @@ test("allowlists updates, rejects duplicate targets and returns safe stale versi
       }),
       update("audit_events", "audit-a", 1, { summary: "changed" }),
       update("counties", "08001", 1, { name: "changed" }),
+      update("organizations; DROP TABLE people", "org-a", 1, {
+        name: "changed",
+      }),
       update("organizations", "org-a", 1, { actor_id: "secret-actor" }),
       update("positions", "position-a", 1, { organization_id: "org-b" }),
       update("role_sources", "source-a", 1, {
@@ -400,6 +403,42 @@ test("rejects invalid and forward references, entity mismatch, and resolves earl
     assert.ok(
       wrongEntity.errors.some((x) => x.code === "wrong_entity_reference"),
     );
+    const plannedParent = planSyncChangeset(
+      db,
+      request([
+        validOrg("planned-parent"),
+        create("create_organization", "organizations", "planned-child", {
+          name: "Synthetic child",
+          organization_type: "department",
+          county_fips: "08001",
+          parent_organization_ref: "planned-parent",
+          parent_relationship: "reports_to",
+        }),
+      ]),
+    );
+    assert.equal(
+      plannedParent.eligible,
+      true,
+      JSON.stringify(plannedParent.errors),
+    );
+    const plannedCountyMismatch = planSyncChangeset(
+      db,
+      request([
+        validOrg("planned-parent"),
+        create("create_organization", "organizations", "planned-child", {
+          name: "Synthetic child",
+          organization_type: "department",
+          county_fips: "08013",
+          parent_organization_ref: "planned-parent",
+          parent_relationship: "reports_to",
+        }),
+      ]),
+    );
+    assert.ok(
+      plannedCountyMismatch.errors.some(
+        (x) => x.code === "hierarchy_county_mismatch",
+      ),
+    );
     const idSlot = planSyncChangeset(
       db,
       request([
@@ -597,6 +636,40 @@ test("enforces request bounds, strict unknown keys, advisory flags and dry-run n
     );
     assert.equal(flags.eligible, true);
     assert.equal(flags.duplicateFlags.length, 1);
+    const blockingFlag = planSyncChangeset(
+      db,
+      request([validOrg()], {
+        duplicateFlags: [
+          {
+            targetType: "person",
+            targetRef: "person-a",
+            possibleDuplicateOf: "person-b",
+            category: "possible_match",
+            reason: "Synthetic",
+            nonblocking: false,
+          },
+        ],
+      }),
+    );
+    assert.ok(
+      blockingFlag.errors.some((x) => x.code === "duplicate_flag_invalid"),
+    );
+    const tooManyFlags = planSyncChangeset(
+      db,
+      request([validOrg()], {
+        duplicateFlags: Array.from({ length: 21 }, () => ({
+          targetType: "person",
+          targetRef: "person-a",
+          possibleDuplicateOf: "person-b",
+          category: "possible_match",
+          reason: "Synthetic",
+          nonblocking: true,
+        })),
+      }),
+    );
+    assert.ok(
+      tooManyFlags.errors.some((x) => x.code === "too_many_duplicate_flags"),
+    );
     const initial = planSyncChangeset(
       db,
       request([
