@@ -866,7 +866,11 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                 db.execute("INSERT INTO name_variants(id,person_id,published_name,kind,evidence_id) VALUES (?,?,?,?,?)",
                            (variant["variant_id"], variant["person_id"], variant["published_name"],
                             variant["kind"], variant["evidence_id"]))
-            for association in planned_county["associations"]:
+            association_order = {"bootstrap": 0, "correction_lineage": 1, "official_connection": 2}
+            for association in sorted(
+                planned_county["associations"],
+                key=lambda item: (association_order.get(item["method"], 3), item["claim_id"]),
+            ):
                 if association["method"] == "correction_lineage":
                     research_operator.validate_correction_lineage_association(
                         db, claim_id=association["claim_id"], person_id=association["person_id"],
