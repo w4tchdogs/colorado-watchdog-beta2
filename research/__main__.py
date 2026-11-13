@@ -15,6 +15,8 @@ from research.intake import preview_csv, quarantine_validation_report
 from research.mapping import CsvHeaderMismatch, CsvStructureError, MAPPINGS
 from research.quarantine import quarantine_invalid_original
 from research.store import ingest_csv
+from research.structure import (ACTOR_DEFAULT, apply_structure_plan, build_structure_plan,
+                                read_plan, verify_structure_application, write_plan)
 
 
 def parser_for():
@@ -164,6 +166,20 @@ def parser_for():
     coverage_set.add_argument("--assessed-at")
     coverage_set.add_argument("--limitations")
     coverage_set.add_argument("--next-task")
+
+    structure_preview = database_command("preview-structure", "create a private, inspectable statewide organization and position plan")
+    structure_preview.add_argument("--output", type=Path, required=True,
+                                   help="New private plan path outside the source checkout")
+
+    structure_apply = database_command("apply-structure", "apply one exact reviewed statewide structure plan")
+    structure_apply.add_argument("--plan", type=Path, required=True)
+    structure_apply.add_argument("--expect-plan-sha256", required=True)
+    structure_apply.add_argument("--actor", default=ACTOR_DEFAULT)
+    structure_apply.add_argument("--apply", action="store_true", required=True,
+                                 help="Required explicit confirmation to write the reviewed plan")
+
+    structure_verify = database_command("verify-structure", "verify a completed organization and position application")
+    structure_verify.add_argument("--plan", type=Path, required=True)
     return parser
 
 
@@ -371,6 +387,12 @@ def main(argv=None):
                                 "Research database" if args.command == "backup" else "Encrypted backup")
         args.destination = _absolute_external_path(
             args.destination, parser, "Backup destination" if args.command == "backup" else "Restore destination")
+    if args.command == "preview-structure":
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.output, parser, "Private structure plan")
+    if args.command in {"apply-structure", "verify-structure"}:
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.plan, parser, "Private structure plan")
     if args.command == "quarantine-invalid":
         _external_path(args.root, parser, "Quarantine roots")
     if args.command == "init":
@@ -402,6 +424,49 @@ def main(argv=None):
         result, status = _run_csv_command(args, path)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return status
+    if args.command == "preview-structure":
+        try:
+            db = _read_only(path)
+            try:
+                plan = build_structure_plan(db)
+            finally:
+                db.close()
+            file_sha256 = write_plan(plan, args.output, repository_root=Path(__file__).resolve().parents[1])
+            print(json.dumps({"mode": args.command, "status": "previewed",
+                              "plan_path": str(args.output.resolve()),
+                              "plan_sha256": plan["plan_sha256"],
+                              "file_sha256": file_sha256, **plan["summary"]},
+                             ensure_ascii=False, sort_keys=True))
+            return 0
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "structure_preview_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command in {"apply-structure", "verify-structure"}:
+        try:
+            plan = read_plan(args.plan, repository_root=Path(__file__).resolve().parents[1])
+            if args.command == "verify-structure":
+                db = _read_only(path)
+                try:
+                    result = verify_structure_application(db, plan)
+                finally:
+                    db.close()
+            else:
+                if not re.fullmatch(r"[0-9a-fA-F]{64}", args.expect_plan_sha256):
+                    raise ValueError("--expect-plan-sha256 must be a 64-character SHA-256 value")
+                db = connect(path)
+                try:
+                    result = apply_structure_plan(db, plan,
+                                                  expected_sha256=args.expect_plan_sha256.lower(),
+                                                  actor=args.actor)
+                finally:
+                    db.close()
+            print(json.dumps({"mode": args.command, **result}, ensure_ascii=False, sort_keys=True))
+            return 0
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "structure_operation_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
     try:
         if args.command == "seed-counties":
             db = connect(path)
