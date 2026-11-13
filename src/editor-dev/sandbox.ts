@@ -8,6 +8,7 @@ import {
   type WebsiteDatabase,
 } from "../database/sqlite.js";
 import { createContentService } from "../services/content.js";
+import { LookupRequestError, parseLookupRequest, runLookup } from "./lookup.js";
 import {
   createTestHumanIdentityAdapter,
   resolvePrincipal,
@@ -27,6 +28,8 @@ import {
 export const SANDBOX_TOKEN_HEADER = "x-editor-token";
 export const SANDBOX_ACCOUNT_HEADER = "x-test-human-subject";
 export const SANDBOX_INFO_PATH = "/sandbox/info";
+export const SANDBOX_LOOKUP_PATH = "/sandbox/lookup";
+const MAX_LOOKUP_BODY_BYTES = 4096;
 export const TOKEN_PLACEHOLDER = "__EDITOR_TOKEN__";
 
 /** Sandbox account key -> synthetic identity subject. */
@@ -63,16 +66,6 @@ const sandboxPolicy = (
 ): boolean =>
   principal.provider === "test-human" &&
   EDITING_ACCOUNT_IDS.has(principal.accountId);
-
-export const FICTIONAL_PEOPLE = [
-  { id: "sbx-person-1", name: "Fictional Person One" },
-  { id: "sbx-person-2", name: "Fictional Person Two" },
-  { id: "sbx-person-3", name: "Fictional Person Three" },
-] as const;
-export const FICTIONAL_ORGANIZATIONS = [
-  { id: "sbx-org-1", name: "Fictional Records Office" },
-  { id: "sbx-org-2", name: "Fictional Regional Board" },
-] as const;
 
 export interface EditorSandboxOptions {
   /** Directory holding index.html and editor.css. */
@@ -161,6 +154,21 @@ const STATIC_FILES: Readonly<
     file: "markdown.js",
     type: "text/javascript; charset=utf-8",
   },
+  "/app/relationships.js": {
+    directory: "script",
+    file: "relationships.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/picker.js": {
+    directory: "script",
+    file: "picker.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/relationship-format.js": {
+    directory: "script",
+    file: "relationship-format.js",
+    type: "text/javascript; charset=utf-8",
+  },
   "/app/preview.js": {
     directory: "script",
     file: "preview.js",
@@ -200,10 +208,6 @@ export async function createEditorSandbox(
       sandbox: true as const,
       accounts: SANDBOX_ACCOUNTS.map(({ key, label }) => ({ key, label })),
       counties,
-      directory: {
-        people: FICTIONAL_PEOPLE,
-        organizations: FICTIONAL_ORGANIZATIONS,
-      },
     };
   };
 
@@ -227,6 +231,42 @@ export async function createEditorSandbox(
     });
   }
 
+  /**
+   * Bounded read-only lookup of the fictional people and organizations. It is
+   * gated like the editorial API: a trusted principal and the sandbox policy.
+   */
+  async function handleLookup(request: Request): Promise<Response> {
+    if (request.method !== "POST") {
+      return sandboxJson(405, { error: "method_not_allowed" });
+    }
+    const principal = await resolvePrincipal(database, request, adapter);
+    if (!principal)
+      return sandboxJson(401, { error: "authentication_required" });
+    if (!sandboxPolicy(principal, "content.read")) {
+      return sandboxJson(403, { error: "forbidden" });
+    }
+    if (
+      !(request.headers.get("content-type") ?? "")
+        .toLowerCase()
+        .startsWith("application/json")
+    ) {
+      return sandboxJson(400, { error: "invalid_request" });
+    }
+    const text = await request.text();
+    if (Buffer.byteLength(text) > MAX_LOOKUP_BODY_BYTES) {
+      return sandboxJson(413, { error: "request_too_large" });
+    }
+    try {
+      const parsed = parseLookupRequest(JSON.parse(text));
+      return sandboxJson(200, runLookup(database, parsed));
+    } catch (error) {
+      if (error instanceof LookupRequestError || error instanceof SyntaxError) {
+        return sandboxJson(400, { error: "invalid_request" });
+      }
+      return sandboxJson(500, { error: "internal_error" });
+    }
+  }
+
   async function handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
     // DNS-rebinding defense: only the exact local origins are served.
@@ -235,6 +275,7 @@ export async function createEditorSandbox(
     }
     const isApi =
       url.pathname === SANDBOX_INFO_PATH ||
+      url.pathname === SANDBOX_LOOKUP_PATH ||
       Object.values(CONTENT_API_PATHS).includes(
         url.pathname as (typeof CONTENT_API_PATHS)[keyof typeof CONTENT_API_PATHS],
       );
@@ -266,6 +307,9 @@ export async function createEditorSandbox(
       }
       return sandboxJson(200, info());
     }
+    if (url.pathname === SANDBOX_LOOKUP_PATH) {
+      return handleLookup(request);
+    }
     const response = await transport.fetch(request);
     const headers = new Headers(response.headers);
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
@@ -296,11 +340,34 @@ function seedAccountsAndDirectory(database: WebsiteDatabase): void {
            ('sbx-id-retired','sbx-retired','test-human','${SUBJECTS.retired}');
     INSERT INTO organizations (id, name, organization_type, county_fips)
     VALUES ('sbx-org-1','Fictional Records Office','office','08001'),
-           ('sbx-org-2','Fictional Regional Board','regional',NULL);
+           ('sbx-org-2','Fictional Regional Board','regional',NULL),
+           ('sbx-org-3','Fictional County Government','county_government','08001'),
+           ('sbx-org-5','Fictional Records Office','office','08005'),
+           ('sbx-org-6','Fictional Community Partner','partner',NULL),
+           ('sbx-org-7','Fictional Shared Services Group','other',NULL);
+    INSERT INTO organizations (id, name, organization_type, county_fips, parent_organization_id, parent_relationship)
+    VALUES ('sbx-org-4','Fictional Records Department','department','08001','sbx-org-3','reports_to');
+    INSERT INTO organization_county_affiliations (id, organization_id, county_fips, relationship_type)
+    VALUES ('sbx-aff-1','sbx-org-2','08001','serves'),
+           ('sbx-aff-2','sbx-org-2','08005','serves'),
+           ('sbx-aff-3','sbx-org-6','08001','partner_for'),
+           ('sbx-aff-4','sbx-org-7','08001','shared_service'),
+           ('sbx-aff-5','sbx-org-7','08005','shared_service');
     INSERT INTO people (id, display_name)
     VALUES ('sbx-person-1','Fictional Person One'),
            ('sbx-person-2','Fictional Person Two'),
-           ('sbx-person-3','Fictional Person Three');
+           ('sbx-person-3','Fictional Person Three'),
+           ('sbx-person-4','Fictional Person One'),
+           ('sbx-person-5','Fictional Person Five');
+    INSERT INTO positions (id, organization_id, title)
+    VALUES ('sbx-pos-1','sbx-org-1','Fictional Records Clerk'),
+           ('sbx-pos-2','sbx-org-5','Fictional Records Analyst');
+    INSERT INTO role_sources (id, url, title, source_type)
+    VALUES ('sbx-src-1','https://example.invalid/sandbox-source-1','Fictional source one','other_public'),
+           ('sbx-src-2','https://example.invalid/sandbox-source-2','Fictional source two','other_public');
+    INSERT INTO person_roles (id, person_id, position_id, source_id, source_checked_at)
+    VALUES ('sbx-role-1','sbx-person-1','sbx-pos-1','sbx-src-1','2026-01-01'),
+           ('sbx-role-2','sbx-person-4','sbx-pos-2','sbx-src-2','2026-01-01');
   `);
 }
 

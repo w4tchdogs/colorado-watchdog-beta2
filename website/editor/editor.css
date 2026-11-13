@@ -558,3 +558,123 @@ div.rel-group {
     columns: 1;
   }
 }
+
+/* Relationship discovery (M3-E) */
+.picker {
+  margin: 0.5rem 0;
+}
+
+.picker input[role="combobox"] {
+  width: 100%;
+  max-width: 34rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--muted);
+  border-radius: 4px;
+  background: var(--paper);
+}
+
+.picker-status {
+  margin: 0.35rem 0;
+  min-height: 1.5rem;
+}
+
+.picker-list {
+  list-style: none;
+  margin: 0.25rem 0 0.5rem;
+  padding: 0;
+  max-width: 34rem;
+  max-height: 18rem;
+  overflow: auto;
+  border: 1px solid var(--muted);
+  border-radius: 4px;
+  background: var(--paper);
+}
+
+.picker-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  border-left: 4px solid transparent;
+  cursor: pointer;
+}
+
+.picker-option:last-child {
+  border-bottom: 0;
+}
+
+.picker-option:hover {
+  background: var(--wash);
+}
+
+.picker-option.is-active {
+  background: #fffaf0;
+  outline: 3px solid var(--focus);
+  outline-offset: -3px;
+}
+
+.picker-option.is-selected {
+  border-left-color: var(--ok);
+}
+
+.opt-id {
+  color: var(--muted);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.85em;
+}
+
+.opt-flag {
+  color: var(--ok);
+  font-weight: 700;
+}
+
+.opt-detail {
+  display: block;
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
+.selected-list {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.selected-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--wash);
+}
+
+.selected-row.is-unavailable {
+  border-color: var(--danger);
+  background: #fdf3f3;
+}
+
+.sel-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.sel-warning {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.sel-group h4 {
+  margin: 0.75rem 0 0;
+  font-size: 1rem;
+}
+
+.rel-count {
+  margin: 0.5rem 0 0;
+}

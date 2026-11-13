@@ -17,6 +17,7 @@ import {
 import { diffLines, hasChanges } from "./diff.js";
 import { clear, el, replaceChildren } from "./dom.js";
 import { renderMarkdownInto } from "./preview.js";
+import { createRelationshipsPanel, type Rel } from "./relationships.js";
 
 export interface EditorSession {
   /** Sandbox account key sent with each request. */
@@ -29,6 +30,8 @@ export interface EditorAppOptions {
   readonly session: EditorSession;
   readonly pageSize?: number;
   readonly previewDelayMs?: number;
+  /** Delay before a relationship search runs after typing. */
+  readonly searchDelayMs?: number;
   /** Used only when leaving an article that has unsaved changes. */
   readonly confirmLeave?: (message: string) => boolean;
 }
@@ -42,11 +45,6 @@ type Route =
   | { readonly name: "new"; readonly type: ContentType }
   | { readonly name: "item"; readonly id: string };
 
-type Rel = {
-  countyFips: string[];
-  personIds: string[];
-  organizationIds: string[];
-};
 type RelLike = {
   readonly countyFips: readonly string[];
   readonly personIds: readonly string[];
@@ -56,8 +54,6 @@ type NoticeKind = "info" | "success" | "error";
 
 /** Mirrors MAX_CONTENT_SEARCH_LENGTH. Types only cross the browser boundary. */
 const MAX_CONTENT_SEARCH_LENGTH = 100;
-const ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
-const MAX_PER_KIND = 50;
 const MAX_BODY_CHARACTERS = 200_000;
 const REVISION_PAGE_SIZE = 10;
 
@@ -81,6 +77,7 @@ export function mountEditorApp(
   const session = options.session;
   const pageSize = options.pageSize ?? 10;
   const previewDelay = options.previewDelayMs ?? 120;
+  const searchDelay = options.searchDelayMs ?? 150;
   const confirmLeave =
     options.confirmLeave ??
     ((message: string) => win?.confirm(message) ?? true);
@@ -718,19 +715,6 @@ export function mountEditorApp(
     let revisionsState: "idle" | "loading" | "error" = "idle";
     let previewTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const countyNames = new Map(
-      (info?.counties ?? []).map((county) => [county.fips, county.name]),
-    );
-    const personNames = new Map(
-      (info?.directory.people ?? []).map((person) => [person.id, person.name]),
-    );
-    const organizationNames = new Map(
-      (info?.directory.organizations ?? []).map((organization) => [
-        organization.id,
-        organization.name,
-      ]),
-    );
-
     const isDirty = (): boolean => {
       if (!item) {
         return (
@@ -850,11 +834,18 @@ export function mountEditorApp(
     const historicalSlot = h("div", { id: "historical-slot" });
 
     // relationships panel
-    const relationshipsSlot = h("section", {
-      class: "panel",
-      id: "relationships-panel",
-      "aria-labelledby": `${idPrefix}-rel-h`,
+    const relationships = createRelationshipsPanel({
+      doc,
+      client,
+      idPrefix,
+      searchDelayMs: searchDelay,
+      counties: info?.counties ?? [],
+      getRel: () => draft.rel,
+      isLocked: () => readOnly() || saving || working,
+      onChange: () => updateStatus(),
+      nextId,
     });
+    const relationshipsSlot = relationships.element;
     // revisions panel
     const revisionsSlot = h("section", {
       class: "panel",
@@ -957,7 +948,7 @@ export function mountEditorApp(
           ),
         );
       }
-      renderRelationships();
+      relationships.render();
       renderRevisionsPanel();
     }
 
@@ -1098,6 +1089,12 @@ export function mountEditorApp(
         ) {
           await handleConflict();
         } else {
+          if (
+            error instanceof EditorApiError &&
+            error.code === "invalid_relationship"
+          ) {
+            relationships.recheckSelected();
+          }
           notice(
             messages,
             "error",
@@ -1312,270 +1309,6 @@ export function mountEditorApp(
       return list;
     }
 
-    // --- relationships
-    const countyFilter = h("input", {
-      id: `${idPrefix}-county-filter`,
-      type: "search",
-      autocomplete: "off",
-    });
-    let countyQuery = "";
-    countyFilter.addEventListener("input", () => {
-      countyQuery = countyFilter.value.trim().toLowerCase();
-      renderRelationships();
-    });
-    const personInput = h("input", {
-      id: `${idPrefix}-person-id`,
-      type: "text",
-      autocomplete: "off",
-      maxlength: 128,
-    });
-    const organizationInput = h("input", {
-      id: `${idPrefix}-org-id`,
-      type: "text",
-      autocomplete: "off",
-      maxlength: 128,
-    });
-    const relMessage = h("p", {
-      class: "help",
-      id: "relationship-message",
-      role: "status",
-    });
-
-    function chip(
-      label: string,
-      removeLabel: string,
-      onRemove: () => void,
-      disabled: boolean,
-    ): HTMLElement {
-      const remove = h(
-        "button",
-        {
-          type: "button",
-          class: "chip-remove",
-          "aria-label": removeLabel,
-          disabled,
-        },
-        "×",
-      );
-      remove.addEventListener("click", onRemove);
-      return h("li", { class: "chip" }, h("span", {}, label), remove);
-    }
-
-    function addId(
-      kind: "personIds" | "organizationIds",
-      raw: string,
-      input: HTMLInputElement,
-    ): void {
-      const value = raw.trim();
-      relMessage.textContent = "";
-      if (!ID_PATTERN.test(value)) {
-        relMessage.textContent =
-          "Enter a valid ID (letters, numbers, dot, dash, underscore or colon).";
-        return;
-      }
-      if (draft.rel[kind].includes(value)) {
-        relMessage.textContent = "That ID is already selected.";
-        return;
-      }
-      if (draft.rel[kind].length >= MAX_PER_KIND) {
-        relMessage.textContent = `At most ${MAX_PER_KIND} can be linked.`;
-        return;
-      }
-      draft.rel[kind].push(value);
-      input.value = "";
-      updateStatus();
-      input.focus();
-    }
-
-    function renderRelationships(): void {
-      const locked = readOnly() || saving || working;
-      const countyList = h("ul", {
-        class: "check-list",
-        "aria-label": "Counties",
-      });
-      const counties = (info?.counties ?? []).filter(
-        (county) =>
-          countyQuery === "" ||
-          county.name.toLowerCase().includes(countyQuery) ||
-          county.fips.includes(countyQuery),
-      );
-      for (const county of counties) {
-        const id = `${idPrefix}-c-${county.fips}`;
-        const box = h("input", {
-          type: "checkbox",
-          id,
-          value: county.fips,
-          disabled: locked,
-        });
-        box.checked = draft.rel.countyFips.includes(county.fips);
-        box.addEventListener("change", () => {
-          draft.rel.countyFips = box.checked
-            ? draft.rel.countyFips.length >= MAX_PER_KIND
-              ? draft.rel.countyFips
-              : [...draft.rel.countyFips, county.fips]
-            : draft.rel.countyFips.filter((entry) => entry !== county.fips);
-          updateStatus();
-        });
-        countyList.appendChild(
-          h("li", {}, box, h("label", { for: id }, `${county.name} County`)),
-        );
-      }
-      if (counties.length === 0) {
-        countyList.appendChild(
-          h("li", { class: "empty" }, "No counties match."),
-        );
-      }
-      const selectedCounties = h("ul", {
-        class: "chips",
-        id: "selected-counties",
-        "aria-label": "Selected counties",
-      });
-      for (const fips of [...draft.rel.countyFips].sort()) {
-        const name = countyNames.get(fips) ?? fips;
-        selectedCounties.appendChild(
-          chip(
-            `${name} County`,
-            `Remove ${name} County`,
-            () => {
-              draft.rel.countyFips = draft.rel.countyFips.filter(
-                (entry) => entry !== fips,
-              );
-              updateStatus();
-            },
-            locked,
-          ),
-        );
-      }
-      const directoryChoices = (
-        kind: "personIds" | "organizationIds",
-        entries: readonly { id: string; name: string }[],
-        label: string,
-        input: HTMLInputElement,
-      ) => {
-        const select = h(
-          "select",
-          { "aria-label": label, disabled: locked, "data-directory": kind },
-          h("option", { value: "" }, label),
-        );
-        for (const entry of entries) {
-          select.appendChild(
-            h("option", { value: entry.id }, `${entry.name} (${entry.id})`),
-          );
-        }
-        const add = h(
-          "button",
-          { type: "button", disabled: locked },
-          "Add from sandbox directory",
-        );
-        add.addEventListener("click", () => {
-          if (select.value) addId(kind, select.value, input);
-        });
-        return h("div", { class: "row" }, select, add);
-      };
-      const idList = (
-        kind: "personIds" | "organizationIds",
-        names: ReadonlyMap<string, string>,
-        noun: string,
-        listId: string,
-      ) => {
-        const list = h("ul", {
-          class: "chips",
-          id: listId,
-          "aria-label": `Selected ${noun}s`,
-        });
-        for (const id of draft.rel[kind]) {
-          const name = names.get(id);
-          list.appendChild(
-            chip(
-              name ? `${name} (${id})` : id,
-              `Remove ${noun} ${id}`,
-              () => {
-                draft.rel[kind] = draft.rel[kind].filter(
-                  (entry) => entry !== id,
-                );
-                updateStatus();
-              },
-              locked,
-            ),
-          );
-        }
-        return list;
-      };
-      const addPerson = h(
-        "button",
-        { type: "button", id: "add-person", disabled: locked },
-        "Add person",
-      );
-      addPerson.addEventListener("click", () =>
-        addId("personIds", personInput.value, personInput),
-      );
-      const addOrganization = h(
-        "button",
-        { type: "button", id: "add-organization", disabled: locked },
-        "Add organization",
-      );
-      addOrganization.addEventListener("click", () =>
-        addId("organizationIds", organizationInput.value, organizationInput),
-      );
-      personInput.disabled = locked;
-      organizationInput.disabled = locked;
-      countyFilter.disabled = false;
-
-      replaceChildren(
-        doc,
-        relationshipsSlot,
-        h("h2", { id: `${idPrefix}-rel-h` }, "Relationships"),
-        h(
-          "p",
-          { class: "help" },
-          "Links use explicit Website IDs for navigation only. They never claim employment, identity or any fact about a person, and nothing is linked automatically from the text.",
-        ),
-        h(
-          "fieldset",
-          { class: "rel-group", disabled: locked },
-          h("legend", {}, "Counties"),
-          h("label", { for: `${idPrefix}-county-filter` }, "Filter counties"),
-          countyFilter,
-          countyList,
-          selectedCounties,
-        ),
-        h(
-          "div",
-          { class: "rel-group" },
-          h("h3", {}, "People"),
-          h("label", { for: `${idPrefix}-person-id` }, "Person ID"),
-          h("div", { class: "row" }, personInput, addPerson),
-          directoryChoices(
-            "personIds",
-            info?.directory.people ?? [],
-            "Choose a fictional person",
-            personInput,
-          ),
-          idList("personIds", personNames, "person", "selected-people"),
-        ),
-        h(
-          "div",
-          { class: "rel-group" },
-          h("h3", {}, "Organizations"),
-          h("label", { for: `${idPrefix}-org-id` }, "Organization ID"),
-          h("div", { class: "row" }, organizationInput, addOrganization),
-          directoryChoices(
-            "organizationIds",
-            info?.directory.organizations ?? [],
-            "Choose a fictional organization",
-            organizationInput,
-          ),
-          idList(
-            "organizationIds",
-            organizationNames,
-            "organization",
-            "selected-organizations",
-          ),
-        ),
-        relMessage,
-      );
-    }
-
     // --- revisions
     async function loadRevisions(reset: boolean): Promise<void> {
       if (!item) return;
@@ -1697,6 +1430,10 @@ export function mountEditorApp(
       if (!item) return;
       try {
         historical = await client.getRevision(item.id, version);
+        await relationships.ensureResolved(
+          historical.relationships.personIds,
+          historical.relationships.organizationIds,
+        );
         confirming = null;
         renderHistorical();
         grid.hidden = true;
@@ -1806,12 +1543,20 @@ export function mountEditorApp(
             revision.editedByAccountId,
             ` - state at the time: ${revision.status}`,
           ),
-          relList("Counties", revision.relationships.countyFips, countyNames),
-          relList("People", revision.relationships.personIds, personNames),
+          relList(
+            "Counties",
+            revision.relationships.countyFips,
+            relationships.countyNames,
+          ),
+          relList(
+            "People",
+            revision.relationships.personIds,
+            relationships.personNames,
+          ),
           relList(
             "Organizations",
             revision.relationships.organizationIds,
-            organizationNames,
+            relationships.organizationNames,
           ),
           h("div", { class: "preview", id: "historical-preview" }, body),
           h(
@@ -1898,7 +1643,7 @@ export function mountEditorApp(
           "Counties",
           revision.relationships.countyFips,
           draft.rel.countyFips,
-          countyNames,
+          relationships.countyNames,
         ),
       );
       wrap.appendChild(
@@ -1906,7 +1651,7 @@ export function mountEditorApp(
           "People",
           revision.relationships.personIds,
           draft.rel.personIds,
-          personNames,
+          relationships.personNames,
         ),
       );
       wrap.appendChild(
@@ -1914,7 +1659,7 @@ export function mountEditorApp(
           "Organizations",
           revision.relationships.organizationIds,
           draft.rel.organizationIds,
-          organizationNames,
+          relationships.organizationNames,
         ),
       );
       const diff = diffLines(revision.body, draft.body);
