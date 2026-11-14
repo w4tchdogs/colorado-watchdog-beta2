@@ -229,6 +229,11 @@ def parser_for():
         command.add_argument("--site-key", required=True)
         command.add_argument("--max-changes", type=int, default=200)
 
+    database_command(
+        "mcp-readiness-summary",
+        "return a read-only, privacy-bounded Profiles synchronization summary",
+    )
+
     prepare = database_command("sync-prepare", "durably prepare one explicitly selected Website changeset")
     prepare.add_argument("--site-key", required=True)
     prepare.add_argument("--idempotency-key", required=True)
@@ -271,6 +276,75 @@ def _sync_preview(db, site_key, max_changes):
                    separators=(",", ":"), allow_nan=False).encode("utf-8")
     ).hexdigest()
     return generated, fingerprint
+
+
+def _profiles_readiness_summary(db):
+    """Aggregate the R7/R8 read-only preview without returning request records."""
+    history = validate_migration_history(db)
+    generated = sync.build_changeset(
+        db, "colorado_watchdog_alpha1", max_changes=200
+    )
+    changes = generated["request"]["changes"]
+    eligible_by_entity = {}
+    for change in changes:
+        entity = change.get("entity")
+        if entity not in {
+            "organizations",
+            "organization_county_affiliations",
+            "people",
+            "positions",
+            "role_sources",
+            "person_roles",
+        }:
+            raise ValueError("Unexpected entity in synchronization preview")
+        eligible_by_entity[entity] = eligible_by_entity.get(entity, 0) + 1
+    excluded_by_reason = {}
+    for item in generated["excluded"]:
+        reason = item.get("reason")
+        if not isinstance(reason, str) or len(reason) > 96:
+            raise ValueError("Unexpected exclusion reason")
+        excluded_by_reason[reason] = excluded_by_reason.get(reason, 0) + 1
+    selected_counties = [
+        row["county_fips"]
+        for row in db.execute(
+            "SELECT DISTINCT county_fips FROM scrape_batches WHERE selected = 1 "
+            "ORDER BY county_fips LIMIT 64"
+        )
+        if isinstance(row["county_fips"], str)
+        and len(row["county_fips"]) == 5
+        and row["county_fips"].isdigit()
+    ]
+    mapped_count = db.execute(
+        "SELECT COUNT(*) FROM site_entity_links "
+        "WHERE site_key = ? AND link_state = 'active'",
+        ("colorado_watchdog_alpha1",),
+    ).fetchone()[0]
+    request_size = len(
+        json.dumps(
+            generated["request"],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    )
+    return {
+        "databaseReadiness": "ready",
+        "schemaVersion": history["schema_version"],
+        "migrationCount": history["migration_count"],
+        "selectedCountyFips": selected_counties,
+        "eligibleEntityCounts": eligible_by_entity,
+        "eligibleCount": generated["eligible_count"],
+        "excludedCount": len(generated["excluded"]),
+        "excludedCountsByReason": excluded_by_reason,
+        "changesetSizeBytes": request_size,
+        "changesetLimit": {"maxChanges": 200, "maxRequestBytes": 524288},
+        "previewTruncated": bool(generated["truncated"]),
+        "websiteMappingsPresent": int(mapped_count) > 0,
+        "websiteMappingCount": int(mapped_count),
+        "readOnlyPreviewPossible": True,
+        "privateInformation": "person_records_notes_source_content_and_request_payloads_omitted",
+    }
 
 
 def _sync_command(args, path):
@@ -538,6 +612,8 @@ def main(argv=None):
         _absolute_external_path(args.plan, parser, "Private identity plan")
     if args.command.startswith("sync-"):
         _absolute_external_path(args.database, parser, "Research database")
+    if args.command == "mcp-readiness-summary":
+        _absolute_external_path(args.database, parser, "Research database")
     if args.command == "quarantine-invalid":
         _external_path(args.root, parser, "Quarantine roots")
     if args.command == "init":
@@ -576,6 +652,18 @@ def main(argv=None):
             )
             print(json.dumps(_json_error(args.command, "sync_operation_failed", message),
                              ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command == "mcp-readiness-summary":
+        try:
+            db = _read_only(path)
+            try:
+                result = _profiles_readiness_summary(db)
+            finally:
+                db.close()
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            return 0
+        except Exception:
+            print(json.dumps({"error": "profiles_database_unavailable"}, sort_keys=True))
             return 2
     if args.command in {"preview-csv", "intake-csv"}:
         result, status = _run_csv_command(args, path)

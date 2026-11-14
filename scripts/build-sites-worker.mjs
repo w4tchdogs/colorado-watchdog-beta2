@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { cp, mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -82,6 +83,25 @@ if (
     "Sites project_id in hosting.json must be a non-empty string",
   );
 }
+const migrations = (await readdir(join(root, "website", "migrations")))
+  .filter((name) => /^\d{4}_[a-z0-9_]+\.sql$/.test(name))
+  .sort();
+if (migrations.at(-1) !== "0016_banner_homepage_curation.sql") {
+  throw new Error("Sites artifact must include Website migration 0016");
+}
+const migrationCatalog = await Promise.all(
+  migrations.map(async (name) => {
+    const version = Number(name.slice(0, 4));
+    const sql = (
+      await readFile(join(root, "website", "migrations", name), "utf8")
+    ).replace(/\r\n?/g, "\n");
+    return {
+      version,
+      name,
+      sha256: createHash("sha256").update(sql, "utf8").digest("hex"),
+    };
+  }),
+);
 
 await build({
   entryPoints: [join(root, "src", "worker.ts")],
@@ -93,17 +113,12 @@ await build({
   define: {
     __WATCHDOG_SITE_ASSETS__: JSON.stringify(assetData),
     __WATCHDOG_SITES_PROJECT_ID__: JSON.stringify(hosting.project_id ?? null),
+    __WATCHDOG_WEBSITE_MIGRATIONS__: JSON.stringify(migrationCatalog),
   },
   logLevel: "info",
 });
 
 await cp(join(root, ".openai", "hosting.json"), join(metadata, "hosting.json"));
-const migrations = (await readdir(join(root, "website", "migrations")))
-  .filter((name) => /^\d{4}_[a-z0-9_]+\.sql$/.test(name))
-  .sort();
-if (migrations.at(-1) !== "0016_banner_homepage_curation.sql") {
-  throw new Error("Sites artifact must include Website migration 0016");
-}
 for (const migration of migrations) {
   await cp(
     join(root, "website", "migrations", migration),

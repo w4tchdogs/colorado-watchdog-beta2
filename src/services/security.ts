@@ -1,6 +1,7 @@
 import type { WebsiteDatabase } from "../database/sqlite.js";
 
 export type Capability =
+  | "d1.inspect"
   | "account.read"
   | "account.create"
   | "account.update"
@@ -57,6 +58,7 @@ const ROLE_CAPABILITIES: Readonly<
   contributor: [],
   editor: ["report.review"],
   administrator: [
+    "d1.inspect",
     "account.read",
     "account.create",
     "account.update",
@@ -71,6 +73,7 @@ const ROLE_CAPABILITIES: Readonly<
     "report.review",
   ],
   owner: [
+    "d1.inspect",
     "account.read",
     "account.create",
     "account.update",
