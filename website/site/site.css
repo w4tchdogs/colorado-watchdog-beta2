@@ -1232,6 +1232,80 @@ img {
 }
 
 /* County directory */
+.county-map-figure {
+  margin: var(--space-5) auto var(--space-6);
+  max-width: 62rem;
+}
+.county-map-skip {
+  display: inline-block;
+  margin-bottom: var(--space-2);
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+  color: var(--ink);
+}
+.county-map-frame {
+  overflow: hidden;
+  padding: clamp(0.5rem, 2vw, 1.25rem);
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 0.35rem 1.5rem rgb(23 23 23 / 8%);
+}
+.county-map {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: min(70vh, 39rem);
+  margin-inline: auto;
+}
+.county-map-link {
+  color: var(--ink);
+  outline: none;
+}
+.county-map-link path {
+  fill: #eeeee9;
+  stroke: #171717;
+  stroke-width: 0.8px;
+  vector-effect: non-scaling-stroke;
+  transition:
+    fill 120ms ease,
+    stroke-width 120ms ease;
+}
+.county-map-link.is-match path {
+  fill: #f4cccc;
+}
+.county-map-link:hover path,
+.county-map-link.is-active path {
+  fill: var(--red);
+  stroke: #171717;
+  stroke-width: 1.6px;
+}
+.county-map-link:focus-visible path {
+  fill: var(--red);
+  stroke: #ffffff;
+  stroke-width: 3px;
+  filter: drop-shadow(0 0 1.5px #171717);
+}
+.county-map-caption {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  color: var(--ink-soft);
+  font-size: var(--step--1);
+}
+.county-map-caption [data-map-status] {
+  color: var(--ink);
+  font-weight: 700;
+}
+.county-map-fallback {
+  margin-block: var(--space-4);
+  padding: var(--space-3);
+  border-inline-start: 4px solid var(--red);
+  background: var(--surface);
+}
+#county-directory > h2 {
+  margin-block: var(--space-5) var(--space-2);
+}
 .letter-nav ul {
   display: flex;
   flex-wrap: wrap;
@@ -1297,6 +1371,10 @@ img {
 .county-list a:hover {
   border-color: var(--ink);
 }
+.county-list li.is-active a {
+  border-color: var(--red);
+  box-shadow: inset 0 0 0 1px var(--red);
+}
 .county-name {
   font-weight: 700;
   text-decoration: underline;
@@ -1304,8 +1382,22 @@ img {
   text-underline-offset: 0.18em;
 }
 @media (max-width: 30rem) {
+  .county-map-figure {
+    margin-block: var(--space-4);
+  }
+  .county-map-frame {
+    padding: 0.25rem;
+  }
+  .county-map {
+    max-height: none;
+  }
   .county-group {
     grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .county-map-link path {
+    transition: none;
   }
 }
 

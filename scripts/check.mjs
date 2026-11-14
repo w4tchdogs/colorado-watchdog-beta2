@@ -25,6 +25,7 @@ const allowed = new Set([
   "docs/coordination/HANDOFF-TEMPLATE.md",
   "docs/coordination/PROJECT-BOOTSTRAP.md",
   "docs/architecture/beta-2-planning-handoff.md",
+  "docs/architecture/county-map-geometry.md",
   ".github/ISSUE_TEMPLATE/scoped-task.md",
   ".github/pull_request_template.md",
   "package.json",
@@ -55,6 +56,9 @@ const allowed = new Set([
   "website/site/BRAND-ASSETS.md",
   "src/site/pages/home.ts",
   "src/site/pages/counties.ts",
+  "src/site/county-map.ts",
+  "src/site/colorado-county-map-source.json",
+  "src/site/colorado-county-map.json",
   "src/site/pages/county.ts",
   "src/site/pages/directory.ts",
   "src/site/pages/person.ts",
@@ -330,8 +334,13 @@ for (const file of files) {
   if (!["100644", "100755"].includes(mode))
     errors.push(`Non-regular file: ${file}`);
   const bytes = staged ? git("show", `:${file}`) : readFileSync(file);
-  // The generated npm lockfile is the only file allowed to exceed 64 KiB.
-  const sizeLimit = file === "package-lock.json" ? 256 * 1024 : 64 * 1024;
+  // Large files have scoped limits: the lockfile and bundled county geometry.
+  const sizeLimit =
+    file === "package-lock.json"
+      ? 256 * 1024
+      : file === "src/site/colorado-county-map.json"
+        ? 1024 * 1024
+        : 64 * 1024;
   if (bytes.length > sizeLimit)
     errors.push(`File exceeds ${sizeLimit / 1024} KiB: ${file}`);
   let content;

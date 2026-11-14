@@ -1,4 +1,5 @@
 import { emptyState, pageHeader, searchForm } from "../components.js";
+import { renderCountyMap } from "../county-map.js";
 import { countyTitle } from "../format.js";
 import { html, path, trusted } from "../html.js";
 import type { Page, SiteContext } from "../types.js";
@@ -28,7 +29,17 @@ export async function countiesPage(
   const counties = { length: shown.size };
   const hiddenUnless = (visible: boolean) => (visible ? "" : trusted("hidden"));
   const groups = new Map<string, typeof all>();
-  for (const county of all) {
+  const alphabetic = [...all].sort((left, right) => {
+    const sortName = (name: string) =>
+      countyTitle(name)
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+    return (
+      sortName(left.name).localeCompare(sortName(right.name), "en") ||
+      left.fips.localeCompare(right.fips)
+    );
+  });
+  for (const county of alphabetic) {
     const letter = county.name.charAt(0).toUpperCase();
     groups.set(letter, [...(groups.get(letter) ?? []), county]);
   }
@@ -43,6 +54,7 @@ export async function countiesPage(
     undefined,
     `${all.length} counties \u00b7 one statewide record`,
   )}
+  ${renderCountyMap(all, shown)}
   ${searchForm({
     action: "/counties",
     id: "county-search",
@@ -66,6 +78,8 @@ export async function countiesPage(
       html`<a class="button button-quiet" href="/counties">Show all counties</a>`,
     )}
   </div>
+  <section id="county-directory" aria-labelledby="county-directory-title">
+  <h2 id="county-directory-title">Search and browse all counties</h2>
   ${
     letters.length > 1
       ? html`<nav class="letter-nav" aria-label="Jump to letter" data-letter-nav><ul>
@@ -95,12 +109,14 @@ export async function countiesPage(
     )}
   </div>`;
 
+  const completeBody = html`${body}</section>`;
+
   return {
     title: "Colorado counties",
     description:
       "Directory of all 64 Colorado counties with FIPS codes and links to documented organizations and roles.",
     section: "counties",
     breadcrumbs: [{ label: "Home", href: "/" }, { label: "Counties" }],
-    body,
+    body: completeBody,
   };
 }
