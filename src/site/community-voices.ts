@@ -67,9 +67,11 @@ export const FILTER_PARAMETERS = [
   "pathway",
   "series",
   "topic",
+  "q",
 ] as const;
 
 export interface EditorialFilters {
+  readonly q?: string;
   readonly county?: string;
   readonly pathway?: EditorialPathway;
   readonly series?: string;
@@ -96,11 +98,17 @@ export function parseEditorialFilters(
   parameters: URLSearchParams,
 ): EditorialFilters | null {
   const filters: {
+    q?: string;
     county?: string;
     pathway?: EditorialPathway;
     series?: string;
     topic?: string;
   } = {};
+  const query = parameters.get("q")?.trim();
+  if (query) {
+    if (query.length > 200) return null;
+    filters.q = query;
+  }
   const county = parameters.get("county");
   if (county) {
     if (!isCountyFips(county)) return null;
@@ -126,6 +134,31 @@ export function parseEditorialFilters(
 
 export function hasFilters(filters: EditorialFilters): boolean {
   return FILTER_PARAMETERS.some((name) => filters[name] !== undefined);
+}
+
+function searchableText(article: EditorialArticle): string {
+  const pathway = PATHWAYS.find(
+    (entry) => entry.slug === article.pathway,
+  )?.title;
+  return [
+    article.title,
+    article.summary,
+    article.byline,
+    ...article.body.flatMap((block) =>
+      block.kind === "list" ? block.items : [block.text],
+    ),
+    pathway,
+    seriesOf(article)?.label,
+    ...topicsOf(article).map((topic) => topic.label),
+    ...article.related.counties.map((county) => county.name),
+    ...article.related.people.map((person) => person.displayName),
+    ...article.related.organizations.map((organization) => organization.name),
+    ...article.sources.map((source) => source.title),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join("\n")
+    .normalize("NFC")
+    .toLocaleLowerCase("en-US");
 }
 
 function filterQuery(filters: EditorialFilters): Record<string, string> {
@@ -173,18 +206,30 @@ export function filterArticles(
   articles: readonly EditorialArticle[],
   filters: EditorialFilters,
 ): EditorialArticle[] {
+  const seen = new Set<string>();
   return sortArticles(
-    articles.filter(
-      (article) =>
-        (filters.county === undefined ||
-          article.related.counties.some((c) => c.fips === filters.county)) &&
-        (filters.pathway === undefined ||
-          article.pathway === filters.pathway) &&
-        (filters.series === undefined ||
-          seriesOf(article)?.slug === filters.series) &&
-        (filters.topic === undefined ||
-          topicsOf(article).some((topic) => topic.slug === filters.topic)),
-    ),
+    articles
+      .filter(
+        (article) =>
+          (filters.q === undefined ||
+            searchableText(article).includes(
+              filters.q.normalize("NFC").toLocaleLowerCase("en-US"),
+            )) &&
+          (filters.county === undefined ||
+            article.related.counties.some((c) => c.fips === filters.county)) &&
+          (filters.pathway === undefined ||
+            article.pathway === filters.pathway) &&
+          (filters.series === undefined ||
+            seriesOf(article)?.slug === filters.series) &&
+          (filters.topic === undefined ||
+            topicsOf(article).some((topic) => topic.slug === filters.topic)),
+      )
+      .filter((article) => {
+        const key = `${article.type}:${article.slug}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }),
   );
 }
 
@@ -242,7 +287,7 @@ export interface ListingKind {
   readonly base: string;
 }
 
-const ARROW = trusted('<span aria-hidden="true">→</span>');
+const ARROW = trusted('<span aria-hidden="true">&nbsp;→</span>');
 const WRAPPED_ARROW = trusted('<span aria-hidden="true">&nbsp;→</span>');
 
 /**
@@ -254,6 +299,7 @@ export function pathwayCards(
   listingBase: string,
   listingPlural: string,
   active?: EditorialPathway,
+  filters: EditorialFilters = {},
 ): SafeHtml {
   return html`<section class="cv-pathways" aria-labelledby="cv-pathways-heading">
     <h2 class="visually-hidden" id="cv-pathways-heading">Community Voices pathways</h2>
@@ -265,8 +311,8 @@ export function pathwayCards(
           <p class="cv-pathway-eyebrow">${pathway.number} · ${pathway.eyebrow}</p>
           <h3 class="cv-pathway-title">${pathway.title}</h3>
           <p class="cv-pathway-description">${pathway.description}</p>
-          <a class="cv-pathway-link" href="${withQuery(listingBase, { pathway: pathway.slug }, "cv-results")}"
-            ${active === pathway.slug ? html`aria-current="true"` : ""}>${pathway.action}<span class="visually-hidden"> in ${listingPlural}</span> ${pathway.slug === "statewide-issues" ? WRAPPED_ARROW : ARROW}</a>
+          <a class="cv-pathway-link" href="${withQuery(listingBase, { ...filterQuery(filters), pathway: pathway.slug }, "cv-results")}"
+            ${active === pathway.slug ? html`aria-current="true"` : ""}>${pathway.action}<span class="visually-hidden"> in ${listingPlural}</span>${pathway.slug === "statewide-issues" ? WRAPPED_ARROW : ARROW}</a>
         </li>`,
       )}
     </ul>
@@ -344,6 +390,10 @@ export function filterForm(
   const noun = kind.plural.toLowerCase();
   return html`<form class="cv-filters" action="${kind.base}" method="get" aria-labelledby="cv-filters-heading">
     <h2 class="visually-hidden" id="cv-filters-heading">Filter ${noun}</h2>
+    <div class="cv-field cv-search-field">
+      <label for="cv-filter-q">Search ${noun}</label>
+      <input id="cv-filter-q" name="q" type="search" maxlength="200" value="${filters.q ?? ""}" autocomplete="off" placeholder="Search titles, summaries and text">
+    </div>
     <div class="cv-field-grid">
       ${selectField(
         "pathway",
@@ -381,6 +431,7 @@ export function filterForm(
     <div class="cv-filter-actions">
       <button class="button" type="submit">Filter ${noun}</button>
       <a class="button button-quiet" href="${kind.base}">Clear filters</a>
+      ${filters.q ? html`<a class="button button-quiet" href="${withQuery(kind.base, { ...filterQuery(filters), q: undefined }, "cv-results")}">Clear search</a>` : ""}
     </div>
   </form>`;
 }
@@ -391,10 +442,14 @@ export function resultSummary(
   shown: number,
   total: number,
   filtered: boolean,
+  query?: string,
 ): string | null {
   if (total === 0) return null;
   const noun = (count: number) =>
     `${count} ${count === 1 ? kind.singular : kind.plural}`.toLowerCase();
+  if (query) {
+    return `${shown} ${(shown === 1 ? kind.singular : kind.plural).toLowerCase()} ${shown === 1 ? "matches" : "match"} “${query}”.`;
+  }
   if (!filtered) return `Showing all ${noun(total)}.`;
   return `${shown} of ${noun(total)} ${shown === 1 ? "matches" : "match"} the selected filters.`;
 }

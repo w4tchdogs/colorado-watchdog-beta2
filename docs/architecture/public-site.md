@@ -101,7 +101,7 @@ and [D1 readiness](d1-readiness.md).
 | `/people/{personId}`                                     | Person profile (`getPersonProfile`)                                                                                     |
 | `/organizations?query=&cursor=`                          | Organization search (`searchOrganizations`)                                                                             |
 | `/organizations/{organizationId}`                        | Organization profile, positions and roles                                                                               |
-| `/stories`, `/posts`, `/stories/{slug}`, `/posts/{slug}` | Editorial listing and article templates                                                                                 |
+| `/stories?q=`, `/posts?q=`, `/stories/{slug}`, `/posts/{slug}` | Editorial listing and article templates                                                                                 |
 | `/about`, `/reading-records`                             | Supporting pages                                                                                                        |
 | `/admin/reports`                                          | ACCT-1 protected private staff report review workspace                                                                  |
 | `/counties?county={countyFips}`                          | County switcher; redirects to the county page                                                                           |
@@ -111,6 +111,26 @@ Lists use the services' keyset cursors with bounded page sizes (25, or 50 for
 county organizations). Paging is forward-only with a link back to the first
 page, matching the cursor contracts. Unknown routes return an HTML 404,
 malformed parameters a 400, a missing database a 503.
+
+### Stories and Posts search
+
+The server-rendered Stories and Posts listings accept an optional `q` query
+parameter (maximum 200 characters after trimming). Matching is case-insensitive
+literal substring search with Unicode NFC normalization. Search composes with
+county, pathway, series and topic filters; results retain the existing
+newest-first/date-and-slug order and duplicate type/slug entries are collapsed.
+The GET form keeps the query in the URL, clear-search removes only `q`, and
+clear-filters returns to the unfiltered listing. Query/type links and pathway
+links retain the active search and filters.
+
+Search reads only the same public `EditorialSource.list(type)` presentation
+objects as the directory. It searches title, summary, public byline, published
+body blocks, explicit pathway/series/topic and related county/person/organization
+labels, and public source titles. Source URLs and non-presentation/private
+fields are not searched or rendered. No editorial table or separate index is
+queried. Production currently supplies an empty editorial source; local preview
+uses fictional records. Draft and archived database records remain outside the
+public source contract. Matching is substring-based without fuzzy ranking.
 
 ## Officials directory (M4-D)
 
