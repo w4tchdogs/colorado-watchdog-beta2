@@ -1,5 +1,15 @@
 # Beta-2 architecture — sanitized planning handoff
 
+**Current-state notice (November 14, 2026):** this entire document is
+historical planning context from November 12, 2026. For what is actually
+implemented, merged, deployed and hosted-verified today, read
+[CURRENT](../coordination/CURRENT.md) first. In particular, the "Website
+direction (not built)" and "Status / next safe use" sections below describe
+the state on November 12; the beta-2 Alpha-1 Site has since been created and
+deployed, and most of the Website foundation listed as a direction here has
+since merged — see CURRENT's component matrix for current status. This
+notice corrects present-tense drift without rewriting the plan below.
+
 **R0 implementation update:** [Local research foundation](../research/R0-foundation.md) implements the initial 19-table SQLite model and synthetic mapping tests. The earlier planning text below remains historical context; consult R0 for the implemented boundary and remaining work.
 
 **Prepared:** November 12, 2026. **Status: planning and owner decisions, not implemented features.**

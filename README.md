@@ -2,7 +2,9 @@
 
 Shared AI-first project for ChatGPT, Codex, Claude and the owner. The repository includes the beta-2 Website application foundation and a separate [local SQLite Profiles research foundation (R0)](docs/research/R0-foundation.md), validated with synthetic fixtures. The evidence-led [organizational and position foundation](docs/research/organizational-positions.md) builds county-scoped structures from imported claims without changing identities or the Website.
 
-**Start:** [Coordination](docs/coordination/START.md) · [Decisions](docs/decisions.md) · [Architecture handoff](docs/architecture/beta-2-planning-handoff.md)
+**Current state (read first):** [docs/coordination/CURRENT.md](docs/coordination/CURRENT.md) — what is merged, deployed and hosted-verified, separately. The architecture handoff below is historical planning, not a current-status document.
+
+**Start:** [Coordination](docs/coordination/START.md) · [Current state](docs/coordination/CURRENT.md) · [Decisions](docs/decisions.md) · [Architecture handoff](docs/architecture/beta-2-planning-handoff.md)
 
 Current architecture reference: [Fable v4](https://drive.google.com/file/d/1ux9NG09zr9DkztRGYtc-Z3uXBZ81ncI0/view). Beta-1 is the separate existing website and technical history. The current M2-A design for the Website synchronization contract is in [Website synchronization contract](docs/architecture/site-sync-contract.md).
 
@@ -18,8 +20,11 @@ Reference Windows checkout: `D:\ChatGPT\Watchdog\colorado-watchdog-beta2`. A col
 
 The Worker-compatible Fetch entrypoint is `src/worker.ts`; request dispatch
 delegates to the shared service layer. The internal health route is only a
-boundary check, not public Website functionality. Runtime compatibility with
-ChatGPT Sites is not verified. See
+boundary check, not public Website functionality. A beta-2 Alpha-1 Site has
+been created and deployed (see [CURRENT](docs/coordination/CURRENT.md)
+section D for the last-verified deployment evidence); local Wrangler/D1
+checks and that hosted deployment are separate kinds of evidence, and a
+newer merge to `main` is never assumed to already be live there. See
 [Website foundation status](docs/architecture/site-foundation.md) for what is
 implemented and deferred.
 
@@ -46,8 +51,11 @@ Worker entrypoint, and no hosted D1/R2 service or credentials are required.
 `npm run site:dev` serves the M4 public website alpha at
 `http://127.0.0.1:8790/` with fictional demonstration data in a disposable
 in-memory database. `npm run site:dev:empty` shows the same site with an empty
-database. Nothing is deployed. See
-[public website alpha](docs/architecture/public-site.md).
+database. This local preview deploys nothing; see
+[CURRENT](docs/coordination/CURRENT.md) for the separate hosted Alpha-1
+deployment status. See
+[public website alpha](docs/architecture/public-site.md) for what the preview
+covers.
 
 ## Repository checks
 

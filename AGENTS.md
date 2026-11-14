@@ -28,4 +28,13 @@ Preserve original evidence, source lineage, historical distinctions, unresolved 
 
 ## Shared Context
 
-Use current repository decisions and relevant project documents when needed. Start with [coordination/START.md](docs/coordination/START.md).
+Start with [coordination/START.md](docs/coordination/START.md), which points
+to [CURRENT](docs/coordination/CURRENT.md) (current architecture,
+implementation and deployment snapshot) and [decisions](docs/decisions.md)
+(binding owner decisions) before track-specific documents. Use current
+repository decisions and relevant project documents when needed; treat
+implementation, deployment and hosted verification as separate claims. Update
+CURRENT or decisions only for a material cross-project change (a decision
+change, a milestone changing state, a blocker resolving, or ownership of
+overlapping work changing) — not for routine PRs, minor refactors or
+completed tasks that do not affect another workstream.

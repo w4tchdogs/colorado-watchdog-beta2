@@ -8,7 +8,7 @@ This project participates in Colorado Watchdog's shared AI collaboration system.
 
 **Entry point:** https://github.com/w4tchdogs/colorado-watchdog-beta2/blob/main/docs/coordination/START.md
 
-Read current instructions, decisions and handoffs when relevant. Work autonomously, make routine decisions independently and avoid needless approval workflows.
+Read START, then [CURRENT](https://github.com/w4tchdogs/colorado-watchdog-beta2/blob/main/docs/coordination/CURRENT.md) (current architecture/implementation/deployment snapshot), then [decisions](https://github.com/w4tchdogs/colorado-watchdog-beta2/blob/main/docs/decisions.md), before substantial new work. Work autonomously, make routine decisions independently and avoid needless approval workflows. GitHub changes do not automatically update these ChatGPT Project instructions — recopy this block here after a material change to START/CURRENT.
 
 **Chat naming:** Propose a concise title in the first response of each new development chat. Standard: `model | description`. Archon: `💠model | description`. Chat mode without an explicitly specified model: `💠| description`. Use lowercase model names and descriptions; never guess an unspecified model. Include a batch ID in the description only when useful. Do not use colored thinking-level circles or squares, mandatory batch IDs, or unnecessary prefixes.
 
