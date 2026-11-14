@@ -14,6 +14,7 @@ if (root) {
   mountReportInterface(root, {
     counties,
     trackingHref: "/track-report",
+    submissionsEnabled: enabled,
     demoNotice: enabled
       ? "Local fictional-data test only. Do not enter real information."
       : "Report submission is currently unavailable. Do not enter real information.",
