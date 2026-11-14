@@ -14,12 +14,18 @@ import {
   trusted,
 } from "./html.js";
 
+export function eyebrow(text: string): SafeHtml {
+  return html`<p class="eyebrow">${text}</p>`;
+}
+
 export function pageHeader(
   title: string,
   intro?: SafeHtml | string,
   meta?: SafeHtml,
+  eyebrowText?: string,
 ): SafeHtml {
   return html`<header class="page-header">
+    ${eyebrowText ? eyebrow(eyebrowText) : ""}
     <h1>${title}</h1>
     ${meta ? html`<div class="page-meta">${meta}</div>` : ""}
     ${intro ? html`<p class="lede">${intro}</p>` : ""}

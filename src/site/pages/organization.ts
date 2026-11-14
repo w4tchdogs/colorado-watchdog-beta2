@@ -71,7 +71,7 @@ export function organizationPage(
 
   const body = html`
   <header class="page-header profile-header type-edge edge-${organizationTypeClass(organization.type)}">
-    <p class="profile-kind">${organizationTypeLabel(organization.type)}</p>
+    <p class="eyebrow">${organizationTypeLabel(organization.type)}</p>
     <h1>${organization.name}</h1>
     <div class="page-meta">${organizationTypeBadge(organization.type)} ${recordId(organization.id)}</div>
   </header>

@@ -10,13 +10,12 @@ const NAVIGATION = [
   { key: "about", label: "About", href: "/about" },
 ] as const;
 
-/** The state outline (a rectangle) with one marked survey point. */
-const MARK = trusted(
-  '<svg class="brand-mark" viewBox="0 0 44 32" width="44" height="32" aria-hidden="true" focusable="false">' +
-    '<rect x="1.5" y="1.5" width="41" height="29" fill="none" stroke="currentColor" stroke-width="3"/>' +
-    '<path d="M1.5 11.5h41M1.5 21h41M15 1.5v29M29 1.5v29" stroke="currentColor" stroke-width="1" opacity=".45"/>' +
-    '<circle class="brand-mark-point" cx="22" cy="16" r="4.5"/></svg>',
-);
+export const TAGLINE = "Accountability Starts with Being Heard";
+
+/** The owner's white dog-and-mountains logo, decorative beside the name. */
+function logo(size: number): SafeHtml {
+  return html`<img class="brand-logo" src="/assets/brand-logo-white.png" alt="" width="${size}" height="${Math.round((size * 184) / 192)}">`;
+}
 
 function breadcrumbs(items: readonly Breadcrumb[] | undefined): SafeHtml {
   if (!items || items.length === 0) return html``;
@@ -42,7 +41,8 @@ export function renderDocument(page: Page, preview: boolean): string {
 <title>${title}</title>
 ${page.description ? html`<meta name="description" content="${page.description}">` : ""}
 ${preview ? html`<meta name="robots" content="noindex, nofollow">` : ""}
-<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/assets/favicon-light.png" type="image/png" media="(prefers-color-scheme: light)">
+<link rel="icon" href="/assets/favicon-dark.png" type="image/png" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/assets/site.css">
 <script type="module" src="/assets/site.js"></script>
 </head>
@@ -55,7 +55,7 @@ ${
 }
 <header class="site-header">
   <div class="wrap site-header-inner">
-    <a class="brand" href="/">${MARK}<span class="brand-name">Colorado Watchdog</span></a>
+    <a class="brand" href="/">${logo(56)}<span class="brand-text"><span class="brand-name">Colorado Watchdog</span><span class="brand-tagline">${TAGLINE}</span></span></a>
     <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" hidden>Menu</button>
     <nav id="site-nav" class="site-nav" aria-label="Main">
       <ul>
@@ -67,6 +67,8 @@ ${
     </nav>
   </div>
 </header>
+<p class="site-strip"><strong>Records cite public sources. They are not findings of fact.</strong> <span>Independent</span> <span>Community-run</span></p>
+${page.subnav ?? ""}
 <main id="main" tabindex="-1">
 ${page.lead ?? ""}
 <div class="wrap main-column">
@@ -77,7 +79,7 @@ ${page.body}
 <footer class="site-footer">
   <div class="wrap footer-grid">
     <div>
-      <p class="footer-brand">${MARK}<span>Colorado Watchdog</span></p>
+      <p class="footer-brand">${logo(44)}<span class="brand-text"><span class="brand-name">Colorado Watchdog</span><span class="brand-tagline">${TAGLINE}</span></span></p>
       <p>An independent public-information project documenting Colorado county government from cited public sources.</p>
     </div>
     <nav aria-label="Directories">
@@ -88,8 +90,8 @@ ${page.body}
         <li><a href="/organizations">Organizations</a></li>
       </ul>
     </nav>
-    <nav aria-label="Reporting">
-      <h2>Reporting</h2>
+    <nav aria-label="Community Voices">
+      <h2>Community Voices</h2>
       <ul>
         <li><a href="/stories">Stories</a></li>
         <li><a href="/posts">Posts</a></li>

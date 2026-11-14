@@ -35,8 +35,10 @@ export function countiesPage(context: SiteContext, query: string): Page {
 
   const body = html`
   ${pageHeader(
-    "Colorado counties",
+    "Explore Colorado's counties",
     `All ${all.length} counties from the public county registry, each with its five-digit FIPS code.`,
+    undefined,
+    `${all.length} counties \u00b7 one statewide record`,
   )}
   ${searchForm({
     action: "/counties",

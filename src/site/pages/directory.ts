@@ -162,6 +162,6 @@ export function directoryPage(
     description: copy.intro,
     section: collection,
     breadcrumbs: [{ label: "Home", href: "/" }, { label: copy.title }],
-    body: html`${pageHeader(copy.title, copy.intro)}${form}<section class="section results" aria-label="Search results">${outcome}</section>`,
+    body: html`${pageHeader(copy.title, copy.intro, undefined, "Statewide directory")}${form}<section class="section results" aria-label="Search results">${outcome}</section>`,
   };
 }

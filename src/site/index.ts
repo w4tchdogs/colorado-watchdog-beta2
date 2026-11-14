@@ -1,4 +1,7 @@
+import { emptyBannerSource } from "./banner.js";
 import { emptyEditorialSource } from "./editorial-source.js";
+import { isCountyFips } from "./format.js";
+import { html, path } from "./html.js";
 import { renderDocument } from "./layout.js";
 import { countiesPage } from "./pages/counties.js";
 import { countyPage } from "./pages/county.js";
@@ -23,21 +26,27 @@ import {
   type SiteContext,
 } from "./types.js";
 
+export type { BannerPresentation, BannerSource } from "./banner.js";
 export type { EditorialSource } from "./editorial-source.js";
 export type { PublicSiteOptions, SiteAssets } from "./types.js";
 
 const MAX_PATH_LENGTH = 300;
 const MAX_QUERY_LENGTH = 1024;
-const ASSET_PATH = /^\/assets\/([a-z0-9-]+\.(?:css|js|svg))$/;
+const ASSET_PATH = /^\/assets\/([a-z0-9][a-z0-9.-]{0,80}\.(?:css|js|svg|png))$/;
 
-const SECURITY_HEADERS = {
-  "x-content-type-options": "nosniff",
-  "referrer-policy": "strict-origin-when-cross-origin",
-  "x-frame-options": "DENY",
-  "cross-origin-opener-policy": "same-origin",
-  "content-security-policy":
-    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-} as const;
+function securityHeaders(bannerOrigins: readonly string[]) {
+  // Only well-formed https origins may be added for banner images.
+  const origins = bannerOrigins.filter((origin) =>
+    /^https:\/\/[a-z0-9.-]+(?::\d{1,5})?$/i.test(origin),
+  );
+  return {
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "strict-origin-when-cross-origin",
+    "x-frame-options": "DENY",
+    "cross-origin-opener-policy": "same-origin",
+    "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'self'; img-src ${["'self'", ...origins].join(" ")}; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`,
+  } as const;
+}
 
 /** Rejects repeated parameters and anything outside the page's allowlist. */
 function checkedParameters(
@@ -65,11 +74,25 @@ function route(context: SiteContext, url: URL, pathname: string): Page {
   }
   if (second === undefined) {
     switch (first) {
-      case "counties":
-        return countiesPage(
-          context,
-          checkedParameters(url, ["q"], "/counties").get("q") ?? "",
-        );
+      case "counties": {
+        const parameters = checkedParameters(url, ["q", "county"], "/counties");
+        // The county switcher submits a FIPS code; send it to that county.
+        const county = parameters.get("county");
+        if (county !== null) {
+          if (
+            !isCountyFips(county) ||
+            !context.services.listCounties().some((c) => c.fips === county)
+          ) {
+            throw new BadRequest("/counties");
+          }
+          return {
+            title: "Redirect",
+            body: html``,
+            redirect: path("counties", county),
+          };
+        }
+        return countiesPage(context, parameters.get("q") ?? "");
+      }
       case "people":
       case "organizations":
         return directoryPage(
@@ -141,18 +164,28 @@ export function createPublicSite(options: PublicSiteOptions) {
   const editorial = options.editorial ?? emptyEditorialSource;
   const preview = options.preview === true;
   const clock = options.now ?? (() => new Date());
-  const countyBanner = options.countyBanner ?? (() => null);
+  const banners = options.banners ?? emptyBannerSource;
+  const SECURITY_HEADERS = securityHeaders(options.bannerOrigins ?? []);
 
   const respond = (page: Page, head: boolean, extra = {}): Response =>
-    new Response(head ? null : renderDocument(page, preview), {
-      status: page.status ?? 200,
-      headers: {
-        ...SECURITY_HEADERS,
-        "cache-control": "no-store",
-        "content-type": "text/html; charset=utf-8",
-        ...extra,
-      },
-    });
+    page.redirect
+      ? new Response(null, {
+          status: 303,
+          headers: {
+            ...SECURITY_HEADERS,
+            location: page.redirect,
+            "cache-control": "no-store",
+          },
+        })
+      : new Response(head ? null : renderDocument(page, preview), {
+          status: page.status ?? 200,
+          headers: {
+            ...SECURITY_HEADERS,
+            "cache-control": "no-store",
+            "content-type": "text/html; charset=utf-8",
+            ...extra,
+          },
+        });
 
   return {
     async fetch(request: Request): Promise<Response> {
@@ -179,7 +212,7 @@ export function createPublicSite(options: PublicSiteOptions) {
         if (asset?.[1]) {
           const file = await options.assets.get(asset[1]);
           if (!file) return respond(notFoundPage("page"), head);
-          return new Response(head ? null : file.body, {
+          return new Response(head ? null : (file.body as BodyInit), {
             status: 200,
             headers: {
               ...SECURITY_HEADERS,
@@ -194,7 +227,7 @@ export function createPublicSite(options: PublicSiteOptions) {
           editorial,
           preview,
           now: clock(),
-          countyBanner,
+          banners,
         };
         return respond(route(context, url, pathname), head);
       } catch (error) {

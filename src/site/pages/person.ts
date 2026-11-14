@@ -68,7 +68,7 @@ export function personPage(
   const name = profile.person.displayName;
   const body = html`
   <header class="page-header profile-header">
-    <p class="profile-kind">Person</p>
+    <p class="eyebrow">Person</p>
     <h1>${name}</h1>
     <div class="page-meta">${recordId(profile.person.id)}</div>
     <p class="lede">This profile lists the roles documented for this record. Another record with the same name is a different documented person unless evidence shows otherwise.</p>

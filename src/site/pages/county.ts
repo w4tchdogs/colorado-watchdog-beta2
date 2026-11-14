@@ -2,6 +2,7 @@ import type {
   CountyOrganization,
   CountyRoleEntry,
 } from "../../contracts/directory.js";
+import { bannerHero } from "../banner.js";
 import {
   citation,
   END_DATE_NOTE,
@@ -20,7 +21,7 @@ import {
   isStableId,
   parentRelationshipLabel,
 } from "../format.js";
-import { html, path, type SafeHtml, withQuery } from "../html.js";
+import { html, path, type SafeHtml, trusted, withQuery } from "../html.js";
 import { BadRequest, NotFound, type Page, type SiteContext } from "../types.js";
 
 const ORGANIZATION_PAGE_SIZE = 50;
@@ -110,7 +111,6 @@ export function countyPage(
     (o) => !o.countyAssociation.direct,
   );
   const counts = overview.organizationCounts;
-  const banner = context.countyBanner(countyFips);
   const empty = counts.total === 0 && overview.documentedRoleCount === 0;
 
   const organizationPager = pager({
@@ -134,17 +134,40 @@ export function countyPage(
       : null,
   });
 
-  const body = html`
-  <header class="county-header">
-    <div class="county-banner${banner ? " has-image" : ""}" data-banner-slot>
-      ${banner ? html`<img src="${banner.src}" alt="${banner.alt}" width="1600" height="400">` : ""}
-    </div>
-    <div class="county-identity">
-      <h1>${title}</h1>
-      <p class="page-meta"><span class="fips">FIPS ${overview.county.fips}</span> <span>Colorado</span></p>
-    </div>
-  </header>
+  const lead = bannerHero({
+    variant: "county",
+    banners: context.banners.forCounty(countyFips),
+    countyFips,
+    eyebrow: `Colorado Watchdog \u00b7 ${title}`,
+    title,
+    meta: html`<span class="fips">FIPS ${overview.county.fips}</span> <span>Colorado</span>`,
+    lede: "County organizations, affiliated bodies and documented public roles, with sources.",
+  });
 
+  const subnav = html`<nav class="county-nav" aria-label="${title}">
+    <div class="wrap county-nav-inner">
+      <span class="county-nav-name">${title}</span>
+      <ul>
+        <li><a href="#main" aria-current="true">County home</a></li>
+        ${empty ? "" : html`<li><a href="#organizations">Organizations</a></li><li><a href="#roles">Roles and people</a></li>`}
+      </ul>
+      <form class="county-switch" action="/counties" method="get">
+        <label class="visually-hidden" for="county-switch">Switch county</label>
+        <select id="county-switch" name="county">
+          ${context.services
+            .listCounties()
+            .map(
+              (county) =>
+                html`<option value="${county.fips}"${county.fips === countyFips ? trusted(" selected") : ""}>${countyTitle(county.name)}</option>`,
+            )}
+        </select>
+        <button class="button button-quiet button-small" type="submit">Go</button>
+      </form>
+      <a class="county-nav-all" href="/counties">All counties</a>
+    </div>
+  </nav>`;
+
+  const body = html`
   <section class="section" aria-labelledby="overview-heading">
     <h2 id="overview-heading">Overview</h2>
     ${
@@ -214,6 +237,8 @@ export function countyPage(
       { label: "Counties", href: "/counties" },
       { label: title },
     ],
+    subnav,
+    lead,
     body,
   };
 }

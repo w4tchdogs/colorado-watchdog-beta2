@@ -7,11 +7,13 @@ import {
   type WebsiteDatabase,
 } from "../database/sqlite.js";
 import { createServices } from "../services/index.js";
+import type { BannerSource } from "../site/banner.js";
 import {
   createPublicSite,
   createWebsite,
   type SiteAssets,
 } from "../site/index.js";
+import { bannerFixtureAsset, fixtureBannerSource } from "./banner-fixtures.js";
 import {
   fictionalEditorialSource,
   seedFictionalDirectory,
@@ -25,7 +27,13 @@ import {
 const ASSET_TYPES: Readonly<Record<string, string>> = {
   "site.css": "text/css; charset=utf-8",
   "site.js": "text/javascript; charset=utf-8",
-  "favicon.svg": "image/svg+xml",
+  "brand-logo-white.png": "image/png",
+  "brand-logo-white-large.png": "image/png",
+  "brand-mascot-standing.png": "image/png",
+  "brand-mascot-lying.png": "image/png",
+  "brand-mascot-sit-alert.png": "image/png",
+  "favicon-light.png": "image/png",
+  "favicon-dark.png": "image/png",
 };
 
 export function createFileAssets(directory: string): SiteAssets {
@@ -34,8 +42,11 @@ export function createFileAssets(directory: string): SiteAssets {
       const contentType = ASSET_TYPES[name];
       if (!contentType) return null;
       try {
+        const bytes = await readFile(join(directory, name));
         return {
-          body: await readFile(join(directory, name), "utf8"),
+          body: contentType.startsWith("text/")
+            ? bytes.toString("utf8")
+            : new Uint8Array(bytes),
           contentType,
         };
       } catch {
@@ -45,11 +56,27 @@ export function createFileAssets(directory: string): SiteAssets {
   };
 }
 
+/** Adds the generated synthetic banner test patterns to the static files. */
+function withBannerFixtures(assets: SiteAssets): SiteAssets {
+  return {
+    async get(name) {
+      const pattern = bannerFixtureAsset(name);
+      return pattern === null
+        ? assets.get(name)
+        : { body: pattern, contentType: "image/svg+xml" };
+    },
+  };
+}
+
 export interface SitePreviewOptions {
   /** Directory holding site.css and site.js (website/site). */
   readonly staticDirectory: string;
   /** "fictional" seeds demonstration records; "empty" leaves only counties. */
   readonly data?: "fictional" | "empty";
+  /** Show synthetic banner test patterns on a few counties. */
+  readonly bannerFixtures?: boolean;
+  /** Banner records to render instead of the built-in fixtures (tests). */
+  readonly banners?: BannerSource;
   readonly now?: () => Date;
 }
 
@@ -68,11 +95,17 @@ export async function createSitePreview(
   if (fictional) seedFictionalDirectory(database);
 
   const services = createServices({ database });
+  const files = createFileAssets(options.staticDirectory);
   const website = createWebsite({
     application: createApplication(services),
     site: createPublicSite({
       services,
-      assets: createFileAssets(options.staticDirectory),
+      assets: options.bannerFixtures ? withBannerFixtures(files) : files,
+      ...(options.banners
+        ? { banners: options.banners }
+        : options.bannerFixtures
+          ? { banners: fixtureBannerSource }
+          : {}),
       preview: fictional,
       ...(fictional ? { editorial: fictionalEditorialSource } : {}),
       ...(options.now ? { now: options.now } : {}),

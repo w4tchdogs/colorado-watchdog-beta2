@@ -2,6 +2,7 @@ import {
   citation,
   countyLink,
   emptyState,
+  eyebrow,
   organizationLink,
   pageHeader,
   personLink,
@@ -20,6 +21,7 @@ const KINDS = {
     plural: "Stories",
     singular: "Story",
     base: "stories",
+    heading: "Stories worth hearing.",
     intro:
       "Longer reported pieces about Colorado county government, each linked to the counties, people and organizations it covers and to its sources.",
     empty:
@@ -29,6 +31,7 @@ const KINDS = {
     plural: "Posts",
     singular: "Post",
     base: "posts",
+    heading: "Posts from the record.",
     intro:
       "Shorter updates and notes from the project, with the same source references as longer stories.",
     empty:
@@ -87,7 +90,7 @@ export function editorialListPage(
     description: kind.intro,
     section: kind.base,
     breadcrumbs: [{ label: "Home", href: "/" }, { label: kind.plural }],
-    body: html`${pageHeader(kind.plural, kind.intro)}
+    body: html`${pageHeader(kind.heading, kind.intro, undefined, `Community Voices \u00b7 ${kind.plural}`)}
       <section class="section" aria-label="${kind.plural}">
         ${
           articles.length === 0
@@ -126,6 +129,7 @@ export function articlePage(
     ],
     body: html`<article class="article">
       <header class="article-header">
+        ${eyebrow(`Community Voices \u00b7 ${kind.singular}`)}
         ${fictionalFlag(article)}
         <h1>${article.title}</h1>
         <p class="article-standfirst">${article.summary}</p>

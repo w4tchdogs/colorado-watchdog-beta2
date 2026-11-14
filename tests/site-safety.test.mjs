@@ -102,7 +102,12 @@ test("hostile stored content is rendered as inert text", async () => {
       assert.equal(page.status, 200, path);
       assert.equal(page.$$("script").length, 1, path);
       assert.equal(page.$("script").getAttribute("src"), "/assets/site.js");
-      assert.equal(page.$$("img").length, 0, path);
+      assert.ok(
+        page
+          .$$("img")
+          .every((img) => img.getAttribute("src").startsWith("/assets/brand-")),
+        path,
+      );
       assert.equal(
         page.$$("[onerror],[onmouseover],[onclick],[onload]").length,
         0,
@@ -186,7 +191,19 @@ test("responses carry security headers and the site is read-only", async () => {
     assert.match(css.headers.get("content-type"), /text\/css/);
     const js = await get(preview, "/assets/site.js");
     assert.match(js.headers.get("content-type"), /javascript/);
-    assert.equal((await get(preview, "/assets/favicon.svg")).status, 200);
+    for (const name of [
+      "favicon-light.png",
+      "favicon-dark.png",
+      "brand-logo-white.png",
+    ]) {
+      const image = await preview.fetch(
+        new Request(`http://127.0.0.1:8790/assets/${name}`),
+      );
+      assert.equal(image.status, 200, name);
+      assert.equal(image.headers.get("content-type"), "image/png");
+      const bytes = new Uint8Array(await image.arrayBuffer());
+      assert.deepEqual([...bytes.slice(0, 4)], [0x89, 0x50, 0x4e, 0x47], name);
+    }
     for (const path of [
       "/assets/../package.json",
       "/assets/%2e%2e%2fpackage.json",

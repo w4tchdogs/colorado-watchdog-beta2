@@ -160,7 +160,7 @@ test("organization directory and profiles distinguish types and relationships", 
       works.$("h1").textContent,
       "Fictional Public Works Department",
     );
-    assert.match(works.$(".profile-kind").textContent, /Department/);
+    assert.match(works.$(".profile-header .eyebrow").textContent, /Department/);
     assert.ok(works.$(".profile-header").classList.contains("edge-department"));
     assert.match(
       works.main(),

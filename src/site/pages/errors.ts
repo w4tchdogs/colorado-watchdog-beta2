@@ -18,7 +18,8 @@ function errorPage(
     status,
     title,
     body: html`<section class="error-page">
-      <p class="error-code">Error ${status}</p>
+      <img class="mascot" src="/assets/brand-mascot-lying.png" alt="" width="210" height="183">
+      <p class="eyebrow">Error ${status}</p>
       <h1>${title}</h1>
       <p class="lede">${detail}</p>
       ${extra}

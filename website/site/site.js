@@ -61,3 +61,19 @@ if (filter) {
   };
   filter.addEventListener("input", apply);
 }
+
+// Banner artwork: if an image is missing or fails to load, drop it and let the
+// branded placeholder underneath show. The 3:1 frame keeps its size either way.
+for (const image of document.querySelectorAll("[data-banner-image]")) {
+  const frame = image.closest("[data-banner-frame]");
+  const useFallback = () => {
+    image.hidden = true;
+    frame?.classList.remove("has-image");
+    frame?.setAttribute("data-banner-state", "unavailable");
+  };
+  if (image.complete && image.naturalWidth === 0) {
+    useFallback();
+  } else {
+    image.addEventListener("error", useFallback, { once: true });
+  }
+}

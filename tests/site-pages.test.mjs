@@ -37,6 +37,12 @@ test("homepage renders navigation, discovery entry points and honest content", a
     assert.ok(page.$('form[action="/counties"] input[name="q"]'));
     assert.equal(page.$$(".county-card").length, 6);
     assert.match(page.$(".preview-notice").textContent, /fictional/);
+    assert.equal(
+      page.$("h1").textContent,
+      "Community Voices. Government Accountability.",
+    );
+    // Nothing unimplemented is advertised.
+    assert.doesNotMatch(page.text, /submit a report|log in|sign up|grievance/i);
     assert.ok(page.$$(".article-card").length > 0);
     assert.ok(
       page
@@ -144,9 +150,16 @@ test("county page separates county organizations from affiliated ones", async ()
     const page = await get(preview, "/counties/08001");
     assert.equal(page.status, 200);
     assert.equal(page.$("h1").textContent, "Adams County");
-    assert.match(page.$(".county-identity").textContent, /FIPS 08001/);
-    assert.ok(page.$("[data-banner-slot]"));
-    assert.equal(page.$("[data-banner-slot] img"), null);
+    assert.match(page.$(".hero").textContent, /FIPS 08001/);
+    assert.ok(page.$(".hero [data-banner-frame] .banner-placeholder"));
+    assert.equal(page.$("[data-banner-frame] img"), null);
+    assert.deepEqual(
+      page.$$(".county-nav ul a").map((a) => a.getAttribute("href")),
+      ["#main", "#organizations", "#roles"],
+    );
+    assert.equal(page.$$("#county-switch option").length, 64);
+    assert.equal(page.$("#county-switch option[selected]").value, "08001");
+    assert.ok(page.$('.county-nav a[href="/counties"]'));
 
     const stats = Object.fromEntries(
       page

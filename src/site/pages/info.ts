@@ -12,7 +12,10 @@ export function aboutPage(): Page {
     body: html`${pageHeader(
       "About Colorado Watchdog",
       "An independent public-information project about county government in Colorado.",
+      undefined,
+      "Independent \u00b7 Community-run",
     )}
+    <img class="mascot mascot-aside" src="/assets/brand-mascot-sit-alert.png" alt="" width="210" height="212">
     <div class="prose">
       <h2>What this site documents</h2>
       <p>Colorado has 64 counties, and each one organizes its government differently. Colorado Watchdog records the organizations that make up or serve each county, the positions documented within them, and the people public sources name in those positions.</p>
@@ -48,6 +51,8 @@ export function readingRecordsPage(): Page {
     body: html`${pageHeader(
       "How to read these records",
       "What a documented role, a citation and each date on this site do and do not tell you.",
+      undefined,
+      "Public records, cited sources",
     )}
     <div class="prose">
       <h2>Documented roles</h2>

@@ -17,10 +17,12 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error("SITE_PORT must be an integer between 1 and 65535");
 }
 const empty = process.argv.includes("--empty");
+const bannerFixtures = process.argv.includes("--banner-fixtures");
 
 const preview = await createSitePreview({
   staticDirectory: fileURLToPath(new URL("../website/site/", import.meta.url)),
   data: empty ? "empty" : "fictional",
+  bannerFixtures,
 });
 
 const server = createServer(async (incoming, outgoing) => {
@@ -44,7 +46,9 @@ const server = createServer(async (incoming, outgoing) => {
       }),
     );
     outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-    outgoing.end(method === "HEAD" ? undefined : await response.text());
+    outgoing.end(
+      method === "HEAD" ? undefined : Buffer.from(await response.arrayBuffer()),
+    );
   } catch {
     outgoing.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
     outgoing.end("Internal error");
@@ -58,6 +62,11 @@ server.listen(port, host, () => {
       : "Colorado Watchdog public site preview (fictional data, in-memory):",
   );
   console.log(`  http://${host}:${port}/`);
+  if (bannerFixtures) {
+    console.log(
+      "  Synthetic banner test patterns are shown for Adams, Boulder, Larimer and Weld counties.",
+    );
+  }
   console.log("Press Ctrl+C to stop. All preview data is discarded on exit.");
 });
 
