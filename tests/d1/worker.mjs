@@ -272,12 +272,12 @@ export default {
     ).all();
     check(
       "ordered custom migration history and checksums",
-      history.results?.length === 11 &&
+      history.results?.length === 12 &&
         history.results.every(
           (row, index) =>
             row.version === index + 1 &&
             row.name ===
-              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation"][index]}.sql` &&
+              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets"][index]}.sql` &&
             /^[0-9a-f]{64}$/.test(row.sha256),
         ),
     );
@@ -617,10 +617,10 @@ export default {
       },
     );
     check(
-      "0011 installs all 66 triggers across every application table",
-      generationTriggers.results?.length === 66 &&
-        dependencyTables.results?.length === 22 &&
-        triggerCoverage.size === 22 &&
+      "0011 and 0012 install all 75 generation triggers across Website tables",
+      generationTriggers.results?.length === 75 &&
+        dependencyTables.results?.length === 25 &&
+        triggerCoverage.size === 25 &&
         completeCoverage,
     );
     await env.DB.prepare(`INSERT INTO accounts (id, kind, role, display_name)
