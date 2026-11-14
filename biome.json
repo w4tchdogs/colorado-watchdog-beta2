@@ -1,4 +1,7 @@
 {
+  "files": {
+    "includes": ["**", "!!src/site/colorado-county-map.json"]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",

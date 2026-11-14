@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { JSDOM } from "jsdom";
 import { createContentService } from "../dist/services/content.js";
+import {
+  COUNTY_MAP,
+  renderCountyMap,
+  validateCountyMap,
+} from "../dist/site/county-map.js";
 import {
   allowSynthetic,
   principalFactory,
@@ -203,6 +210,304 @@ test("county search works by name and FIPS, with and without JavaScript", async 
     live.type(input, "");
     assert.equal(visible(live).length, 64);
     assert.equal(live.$("[data-county-empty]").hidden, true);
+  });
+});
+
+test("county map geometry covers the public registry with canonical accessible links", async () => {
+  await withPreview("empty", async (preview) => {
+    const page = await get(preview, "/counties?q=San");
+    const registry = preview.database
+      .prepare("SELECT fips, name FROM counties ORDER BY fips")
+      .all();
+    assert.equal(COUNTY_MAP.counties.length, 64);
+    assert.equal(
+      new Set(COUNTY_MAP.counties.map((region) => region.fips)).size,
+      64,
+    );
+    assert.match(
+      COUNTY_MAP.viewBox,
+      /^-?\d+(?:\.\d+)?\s+-?\d+(?:\.\d+)?\s+\d+(?:\.\d+)?\s+\d+(?:\.\d+)?$/,
+    );
+    assert.ok(
+      COUNTY_MAP.counties.every(
+        (region) =>
+          /^M[\d.,\s-]+(?:[MLZ][\d.,\s-]*)+$/.test(region.path) &&
+          region.path.endsWith("Z"),
+      ),
+    );
+    assert.equal(validateCountyMap(registry), true);
+    assert.equal(page.$$("[data-map-county]").length, 64);
+    assert.deepEqual(
+      page.$$("[data-map-county].is-match").map((link) => link.dataset.fips),
+      ["08111", "08113"],
+    );
+    const source = JSON.parse(
+      readFileSync(
+        new URL("../src/site/colorado-county-map-source.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    assert.equal(source.license, "Public Domain");
+    assert.equal(
+      source.fipsReference,
+      "https://tigerweb.geo.census.gov/tigerwebmain/Files/acs26/tigerweb_acs26_county_co.html",
+    );
+    assert.equal(
+      source.attribution,
+      "Colorado Department of Transportation (CDOT), Counties in Colorado.",
+    );
+    assert.equal(
+      registry.find((county) => county.fips === "08065").name,
+      "Lake",
+    );
+    assert.equal(
+      registry.find((county) => county.fips === "08067").name,
+      "La Plata",
+    );
+    assert.equal(
+      COUNTY_MAP.counties.find((region) => region.slug === "lake").fips,
+      "08065",
+    );
+    assert.equal(
+      COUNTY_MAP.counties.find((region) => region.slug === "la-plata").fips,
+      "08067",
+    );
+    const mapDom = new JSDOM(
+      `<main>${renderCountyMap(registry, new Set(["08069"])).value}</main>`,
+    );
+    const mapLinks = [
+      ...mapDom.window.document.querySelectorAll("[data-map-county]"),
+    ];
+    assert.equal(mapLinks.length, 64);
+    const countyByFips = new Map(
+      registry.map((county) => [county.fips, county]),
+    );
+    assert.deepEqual(
+      mapLinks.map((link) => link.getAttribute("data-fips")).sort(),
+      registry.map((county) => county.fips).sort(),
+    );
+    for (const link of mapLinks) {
+      const fips = link.getAttribute("data-fips");
+      const countyName = countyByFips.get(fips).name;
+      assert.equal(link.getAttribute("href"), `/counties/${fips}`);
+      assert.equal(
+        link.getAttribute("aria-label"),
+        `${countyName} County, FIPS ${fips}. Open county directory page.`,
+      );
+      assert.equal(
+        link.querySelector("title").textContent,
+        `${countyName} County · FIPS ${fips}`,
+      );
+    }
+    for (const fips of ["08001", "08069", "08111", "08113"]) {
+      assert.equal(
+        mapDom.window.document
+          .querySelector(`[data-map-county="${fips}"]`)
+          .getAttribute("href"),
+        `/counties/${fips}`,
+      );
+    }
+    assert.deepEqual(
+      mapLinks
+        .filter((link) => link.classList.contains("is-match"))
+        .map((link) => link.getAttribute("data-fips")),
+      ["08069"],
+    );
+    assert.match(
+      mapDom.window.document.querySelector(".county-map-caption").textContent,
+      /Source: Colorado Department of Transportation/,
+    );
+
+    const reversedRegistry = registry.map((county) =>
+      county.fips === "08065"
+        ? { ...county, name: "La Plata" }
+        : county.fips === "08067"
+          ? { ...county, name: "Lake" }
+          : county,
+    );
+    assert.equal(validateCountyMap(reversedRegistry), false);
+    const reversedFallback = renderCountyMap(reversedRegistry, new Set()).value;
+    assert.match(reversedFallback, /map is temporarily unavailable/);
+    assert.doesNotMatch(reversedFallback, /data-map-county/);
+    const malformed = {
+      ...COUNTY_MAP,
+      counties: [...COUNTY_MAP.counties.slice(0, 63), COUNTY_MAP.counties[0]],
+    };
+    assert.equal(validateCountyMap(registry, malformed), false);
+    assert.doesNotMatch(
+      renderCountyMap(registry, new Set(), malformed).value,
+      /data-map-county/,
+    );
+    const invalidPath = {
+      ...COUNTY_MAP,
+      counties: COUNTY_MAP.counties.map((region, index) =>
+        index === 0 ? { ...region, path: "M1,1L2,2Z" } : region,
+      ),
+    };
+    assert.equal(validateCountyMap(registry, invalidPath), false);
+    assert.doesNotMatch(
+      renderCountyMap(registry, new Set(), invalidPath).value,
+      /data-map-county/,
+    );
+    assert.equal(
+      validateCountyMap(registry, { ...COUNTY_MAP, viewBox: "0 0 0 486" }),
+      false,
+    );
+    assert.match(
+      renderCountyMap(registry.slice(0, 63), new Set()).value,
+      /map is temporarily unavailable/,
+    );
+  });
+});
+
+test("county groups and filtered results are alphabetized by displayed name", async () => {
+  await withPreview("empty", async (preview) => {
+    const page = await get(preview, "/counties");
+    for (const group of page.$$("[data-county-group]")) {
+      const names = [...group.querySelectorAll(".county-name")].map(
+        (item) => item.textContent,
+      );
+      assert.deepEqual(
+        names,
+        [...names].sort((left, right) =>
+          left
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "")
+            .localeCompare(right.toLowerCase().replace(/[^a-z0-9]/g, ""), "en"),
+        ),
+      );
+    }
+    assert.deepEqual(
+      [...page.$('[data-letter="E"]').querySelectorAll(".county-name")].map(
+        (item) => item.textContent,
+      ),
+      ["Eagle County", "Elbert County", "El Paso County"],
+    );
+    const filtered = await get(preview, "/counties?q=e");
+    for (const group of filtered.$$("[data-county-group]")) {
+      const names = [...group.querySelectorAll("[data-county]")]
+        .filter((item) => !item.hidden)
+        .map((item) => item.querySelector(".county-name").textContent);
+      assert.deepEqual(
+        names,
+        [...names].sort((left, right) =>
+          left
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "")
+            .localeCompare(right.toLowerCase().replace(/[^a-z0-9]/g, ""), "en"),
+        ),
+      );
+    }
+    assert.equal(page.$$('[data-county] a[href^="/counties/"]').length, 64);
+  });
+});
+
+test("county search keeps URL, map, result count, reset and history state aligned", async () => {
+  await withPreview("empty", async (preview) => {
+    const live = await getEnhanced(
+      preview,
+      "/counties?q=08069#county-directory",
+    );
+    assert.equal(live.$$("[data-map-county]").length, 64);
+    live.window.eval(
+      readFileSync(new URL("../website/site/site.js", import.meta.url), "utf8"),
+    );
+    const visible = () =>
+      live.$$("[data-county]:not([hidden])").map((item) => item.dataset.fips);
+    const input = live.$("[data-county-filter]");
+    assert.equal(input.value, "08069");
+    assert.equal(live.window.location.search, "?q=08069");
+    assert.deepEqual(visible(), ["08069"]);
+    assert.ok(live.$('[data-map-county="08069"]'));
+
+    live.type(input, " 08111 ");
+    assert.equal(input.value, "08111");
+    assert.equal(live.window.location.search, "?q=08111");
+    assert.equal(live.window.location.hash, "#county-directory");
+    assert.equal(
+      new URLSearchParams(live.window.location.search).getAll("q").length,
+      1,
+    );
+    assert.deepEqual(visible(), ["08111"]);
+    assert.deepEqual(
+      live.$$("[data-map-county].is-match").map((link) => link.dataset.fips),
+      ["08111"],
+    );
+    assert.match(live.$("[data-county-count]").textContent, /1 of 64/);
+
+    const region = live.$('[data-map-county="08069"]');
+    region.dispatchEvent(new live.window.Event("pointerenter"));
+    assert.equal(region.classList.contains("is-active"), true);
+    assert.equal(
+      live.$('[data-map-county="08111"]').classList.contains("is-match"),
+      true,
+    );
+    region.dispatchEvent(new live.window.Event("pointerleave"));
+    assert.equal(region.classList.contains("is-active"), false);
+    const focusedRegion = live.$('[data-map-county="08111"]');
+    focusedRegion.dispatchEvent(
+      new live.window.FocusEvent("focusin", { bubbles: true }),
+    );
+    assert.equal(focusedRegion.classList.contains("is-active"), true);
+    assert.match(live.$("[data-map-status]").textContent, /Press Enter/);
+    focusedRegion.dispatchEvent(
+      new live.window.FocusEvent("focusout", { bubbles: true }),
+    );
+    assert.equal(focusedRegion.classList.contains("is-active"), false);
+
+    live.type(input, "");
+    assert.equal(live.window.location.search, "");
+    assert.equal(live.$("[data-map-county].is-match"), null);
+    assert.equal(visible().length, 64);
+    assert.equal(live.$("[data-county-empty]").hidden, true);
+    const reloaded = await get(
+      preview,
+      `${live.window.location.pathname}${live.window.location.search}${live.window.location.hash}`,
+    );
+    assert.equal(reloaded.$("[data-county-filter]").value, "");
+    assert.equal(reloaded.$$("[data-county]").length, 64);
+
+    live.window.history.pushState({}, "", "/counties?q=08113#county-directory");
+    live.window.dispatchEvent(new live.window.PopStateEvent("popstate"));
+    assert.equal(input.value, "08113");
+    assert.deepEqual(visible(), ["08113"]);
+    assert.deepEqual(
+      live.$$("[data-map-county].is-match").map((link) => link.dataset.fips),
+      ["08113"],
+    );
+    live.window.history.pushState({}, "", "/counties?q=08069#county-directory");
+    live.window.dispatchEvent(new live.window.PopStateEvent("popstate"));
+    assert.equal(input.value, "08069");
+    assert.deepEqual(visible(), ["08069"]);
+  });
+});
+
+test("county search safely normalizes direct empty and special-character URLs", async () => {
+  await withPreview("empty", async (preview) => {
+    const blank = await getEnhanced(
+      preview,
+      "/counties?q=%20%20#county-directory",
+    );
+    blank.window.eval(
+      readFileSync(new URL("../website/site/site.js", import.meta.url), "utf8"),
+    );
+    assert.equal(blank.window.location.search, "");
+    assert.equal(blank.$("[data-county-filter]").value, "");
+    assert.equal(blank.$$("[data-county]:not([hidden])").length, 64);
+
+    const special = await getEnhanced(preview, "/counties");
+    special.window.eval(
+      readFileSync(new URL("../website/site/site.js", import.meta.url), "utf8"),
+    );
+    const query = '<img src=x>&q="other"';
+    special.type(special.$("[data-county-filter]"), query);
+    assert.equal(
+      new URLSearchParams(special.window.location.search).get("q"),
+      query,
+    );
+    assert.equal(special.$("[data-county-count] img"), null);
+    assert.match(special.$("[data-county-count]").textContent, /<img src=x>/);
+    assert.equal(special.$$("[data-county]:not([hidden])").length, 0);
   });
 });
 

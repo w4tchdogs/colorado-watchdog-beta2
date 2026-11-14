@@ -1,0 +1,18 @@
+{
+  "publisher": "Colorado Department of Transportation",
+  "dataset": "Counties in Colorado",
+  "url": "https://data.colorado.gov/Transportation/Counties-in-Colorado/ahgn-r8s5",
+  "license": "Public Domain",
+  "licenseVerified": "2026-11-14",
+  "licenseEvidence": "Dataset metadata at the Colorado Information Marketplace lists Public Domain under Licensing and Attribution.",
+  "fipsReference": "https://tigerweb.geo.census.gov/tigerwebmain/Files/acs26/tigerweb_acs26_county_co.html",
+  "attribution": "Colorado Department of Transportation (CDOT), Counties in Colorado.",
+  "derivedAsset": "Static simplified SVG paths adapted from colorado-watchdog Beta-1 source commit c85f64e9fc420d8b309a844ac5596e4aadb9db13; no runtime data access.",
+  "api": "https://data.colorado.gov/resource/ahgn-r8s5.json?$limit=100",
+  "retrieved": "2026-10-31",
+  "sourceSha256": "90072ccb23ef061baf8ac3535aa12d976efb6c0b88b652e42ab6c3ad1dfed749",
+  "featureCount": 64,
+  "fips": "State FIPS 08 plus zero-padded CDOT co_fips",
+  "projection": "Equirectangular centered on 39 degrees north; identical tenth-pixel quantization, consecutive duplicate removal only; original county polygons and interior rings retained",
+  "use": "Illustrative navigation, not surveying or legal boundaries"
+}
