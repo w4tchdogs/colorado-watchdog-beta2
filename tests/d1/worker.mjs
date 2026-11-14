@@ -65,6 +65,280 @@ export default {
       );
       return json(result, result.status === "reversal_blocked" ? 409 : 200);
     }
+    if (url.pathname === "/sync/reverse-failure" && request.method === "POST") {
+      const batchId = url.searchParams.get("batch");
+      const stage = url.searchParams.get("stage");
+      const triggers = {
+        early: `CREATE TRIGGER d1_reversal_failure_early BEFORE DELETE ON person_roles
+          BEGIN SELECT RAISE(ABORT, 'synthetic early reversal failure'); END`,
+        middle: `CREATE TRIGGER d1_reversal_failure_middle BEFORE DELETE ON positions
+          BEGIN SELECT RAISE(ABORT, 'synthetic middle reversal failure'); END`,
+        final: `CREATE TRIGGER d1_reversal_failure_final BEFORE DELETE ON website_dependency_assertions
+          BEGIN SELECT RAISE(ABORT, 'synthetic final reversal failure'); END`,
+      };
+      if (!batchId || !triggers[stage])
+        return json({ error: "batch and valid stage required" }, 400);
+      await env.DB.prepare(triggers[stage]).run();
+      try {
+        const principal = {
+          accountId: "d1-async-actor",
+          identityId: "d1-async-identity",
+          provider: "synthetic",
+          kind: "human",
+          role: "administrator",
+        };
+        const result = await reverseSyncBatchD1(
+          new AsyncD1Database(env.DB),
+          principal,
+          batchId,
+          `reversal-failure-${stage}`,
+          {
+            authorize: async (_principal, capability) =>
+              capability === "sync.revert",
+          },
+        );
+        return json(result, result.status === "reversal_blocked" ? 409 : 200);
+      } finally {
+        await env.DB.prepare(`DROP TRIGGER d1_reversal_failure_${stage}`).run();
+      }
+    }
+    if (url.pathname === "/sync/reversal-state") {
+      const batchId = url.searchParams.get("batch");
+      if (!batchId) return json({ error: "batch required" }, 400);
+      return json(
+        await env.DB.prepare(`SELECT
+          (SELECT COUNT(*) FROM sync_batch_items WHERE batch_id = ?) AS items,
+          (SELECT COUNT(*) FROM sync_batch_reversals WHERE batch_id = ?) AS receipts,
+          (SELECT COUNT(*) FROM audit_events WHERE action = 'sync.batch.reverse' AND target_id = ?) AS audits,
+          (SELECT COUNT(*) FROM person_duplicate_flags WHERE origin_batch_id = ?) AS flags,
+          (SELECT COUNT(*) FROM person_duplicate_flag_observations WHERE batch_id = ?) AS observations,
+          (SELECT COUNT(*) FROM person_roles WHERE id IN (SELECT target_id FROM sync_batch_items WHERE batch_id = ? AND entity = 'person_roles')) AS roles,
+          (SELECT COUNT(*) FROM positions WHERE id IN (SELECT target_id FROM sync_batch_items WHERE batch_id = ? AND entity = 'positions')) AS positions,
+          (SELECT COUNT(*) FROM people WHERE id IN (SELECT target_id FROM sync_batch_items WHERE batch_id = ? AND entity = 'people')) AS people,
+          (SELECT COUNT(*) FROM role_sources WHERE id IN (SELECT target_id FROM sync_batch_items WHERE batch_id = ? AND entity = 'role_sources')) AS sources,
+          (SELECT COUNT(*) FROM organizations WHERE id IN (SELECT target_id FROM sync_batch_items WHERE batch_id = ? AND entity = 'organizations')) AS organizations,
+          (SELECT COUNT(*) FROM organization_county_affiliations WHERE id IN (SELECT target_id FROM sync_batch_items WHERE batch_id = ? AND entity = 'organization_county_affiliations')) AS affiliations,
+          (SELECT COUNT(*) FROM website_dependency_assertions) AS dependency_assertions,
+          (SELECT COUNT(*) FROM website_write_assertions) AS version_assertions`)
+          .bind(...Array(11).fill(batchId))
+          .first(),
+      );
+    }
+    if (url.pathname === "/sync/reverse-stale" && request.method === "POST") {
+      const batchId = url.searchParams.get("batch");
+      const mode = url.searchParams.get("mode");
+      if (!batchId || !["generation", "version"].includes(mode))
+        return json({ error: "batch and valid mode required" }, 400);
+      const principal = {
+        accountId: "d1-async-actor",
+        identityId: "d1-async-identity",
+        provider: "synthetic",
+        kind: "human",
+        role: "administrator",
+      };
+      const db = new AsyncD1Database(env.DB);
+      if (mode === "version") {
+        const row = await env.DB.prepare(
+          "SELECT entity, target_id FROM sync_batch_items WHERE batch_id = ? ORDER BY item_index LIMIT 1",
+        )
+          .bind(batchId)
+          .first();
+        const allowed = [
+          "organizations",
+          "organization_county_affiliations",
+          "people",
+          "positions",
+          "role_sources",
+          "person_roles",
+        ];
+        if (!row || !allowed.includes(row.entity))
+          return json({ error: "batch item missing" }, 404);
+        await env.DB.prepare(
+          `UPDATE "${row.entity}" SET version = version + 1 WHERE id = ?`,
+        )
+          .bind(row.target_id)
+          .run();
+      } else {
+        const guardedBatch = db.guardedBatch.bind(db);
+        db.guardedBatch = async (...args) => {
+          await env.DB.prepare(
+            "UPDATE accounts SET version = version + 1 WHERE id = 'd1-async-actor'",
+          ).run();
+          return guardedBatch(...args);
+        };
+      }
+      const result = await reverseSyncBatchD1(
+        db,
+        principal,
+        batchId,
+        `stale-${mode}`,
+        {
+          authorize: async (_principal, capability) =>
+            capability === "sync.revert",
+        },
+      );
+      return json(result, result.status === "reversal_blocked" ? 409 : 200);
+    }
+    if (url.pathname === "/sync/reverse-corrupt" && request.method === "POST") {
+      const batchId = url.searchParams.get("batch");
+      if (!batchId) return json({ error: "batch required" }, 400);
+      await env.DB.prepare(
+        "UPDATE sync_batch_items SET inverse_json = '{}' WHERE batch_id = ? AND item_index = (SELECT MIN(item_index) FROM sync_batch_items WHERE batch_id = ?)",
+      )
+        .bind(batchId, batchId)
+        .run();
+      const principal = {
+        accountId: "d1-async-actor",
+        identityId: "d1-async-identity",
+        provider: "synthetic",
+        kind: "human",
+        role: "administrator",
+      };
+      const result = await reverseSyncBatchD1(
+        new AsyncD1Database(env.DB),
+        principal,
+        batchId,
+        "corrupt-inverse-key",
+        {
+          authorize: async (_principal, capability) =>
+            capability === "sync.revert",
+        },
+      );
+      return json(result, result.status === "reversal_blocked" ? 409 : 200);
+    }
+    if (
+      url.pathname === "/sync/reverse-security" &&
+      request.method === "POST"
+    ) {
+      const batchId = url.searchParams.get("batch");
+      const mode = url.searchParams.get("mode");
+      if (!batchId || !["foreign", "inactive", "revoked"].includes(mode))
+        return json({ error: "batch and valid mode required" }, 400);
+      const principal = {
+        accountId: "d1-async-actor",
+        identityId: "d1-async-identity",
+        provider: "synthetic",
+        kind: "human",
+        role: "administrator",
+      };
+      if (mode === "foreign") {
+        await env.DB.prepare(`INSERT INTO accounts
+          (id, kind, role, display_name) VALUES ('d1-foreign-reversal-actor', 'human', 'administrator', 'Synthetic Foreign Actor')`).run();
+        await env.DB.prepare(`INSERT INTO identities
+          (id, account_id, provider, subject) VALUES ('d1-foreign-reversal-identity', 'd1-foreign-reversal-actor', 'synthetic', 'foreign-reversal')`).run();
+        principal.accountId = "d1-foreign-reversal-actor";
+        principal.identityId = "d1-foreign-reversal-identity";
+      } else if (mode === "inactive") {
+        await env.DB.prepare(
+          "UPDATE accounts SET status = 'disabled', version = version + 1 WHERE id = 'd1-async-actor'",
+        ).run();
+      } else {
+        await env.DB.prepare(
+          "UPDATE identities SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), version = version + 1 WHERE id = 'd1-async-identity'",
+        ).run();
+      }
+      try {
+        const result = await reverseSyncBatchD1(
+          new AsyncD1Database(env.DB),
+          principal,
+          batchId,
+          `security-${mode}`,
+          {
+            authorize: async (_principal, capability) =>
+              capability === "sync.revert",
+          },
+        );
+        return json(result, result.status === "reversal_blocked" ? 409 : 200);
+      } catch {
+        return json({ denied: true }, 403);
+      } finally {
+        if (mode === "inactive") {
+          await env.DB.prepare(
+            "UPDATE accounts SET status = 'active', version = version + 1 WHERE id = 'd1-async-actor'",
+          ).run();
+        } else if (mode === "revoked") {
+          await env.DB.prepare(
+            "UPDATE identities SET revoked_at = NULL, version = version + 1 WHERE id = 'd1-async-identity'",
+          ).run();
+        }
+      }
+    }
+    if (
+      url.pathname === "/sync/reverse-protection" &&
+      request.method === "POST"
+    ) {
+      const batchId = url.searchParams.get("batch");
+      const mode = url.searchParams.get("mode");
+      if (
+        !batchId ||
+        !["dependent", "flag-decided", "later-observation"].includes(mode)
+      )
+        return json({ error: "batch and valid mode required" }, 400);
+      if (mode === "dependent") {
+        const organization = await env.DB.prepare(
+          "SELECT target_id FROM sync_batch_items WHERE batch_id = ? AND entity = 'organizations'",
+        )
+          .bind(batchId)
+          .first();
+        if (!organization) return json({ error: "organization missing" }, 404);
+        await env.DB.prepare(`INSERT INTO positions (id, organization_id, title)
+          VALUES ('d1-external-reversal-position', ?, 'Synthetic later position')`)
+          .bind(organization.target_id)
+          .run();
+      } else {
+        const flag = await env.DB.prepare(
+          "SELECT id, pair_low_id, pair_high_id FROM person_duplicate_flags WHERE origin_batch_id = ?",
+        )
+          .bind(batchId)
+          .first();
+        if (!flag) return json({ error: "duplicate flag missing" }, 404);
+        if (mode === "flag-decided") {
+          await env.DB.prepare(
+            "UPDATE person_duplicate_flags SET status = 'dismissed', version = version + 1 WHERE id = ?",
+          )
+            .bind(flag.id)
+            .run();
+        } else {
+          await env.DB.prepare(`INSERT INTO sync_batches
+            (id, actor_account_id, idempotency_key, request_fingerprint,
+             contract_version, request_id, status, committed_at, result_json)
+            VALUES ('d1-later-observation-batch', 'd1-async-actor',
+             'd1-later-observation-key', ?, 'm2-sync/v1',
+             'd1-later-observation-request', 'committed',
+             strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), '{}')`)
+            .bind("a".repeat(64))
+            .run();
+          await env.DB.prepare(`INSERT INTO person_duplicate_flag_observations
+            (id, duplicate_flag_id, pair_low_id, pair_high_id, batch_id,
+             actor_account_id, report_position, reason, evidence_source_ids_json,
+             observed_at)
+            VALUES ('d1-later-flag-observation', ?, ?, ?,
+             'd1-later-observation-batch', 'd1-async-actor', 0,
+             'Synthetic later duplicate report', '[]',
+             strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`)
+            .bind(flag.id, flag.pair_low_id, flag.pair_high_id)
+            .run();
+        }
+      }
+      const principal = {
+        accountId: "d1-async-actor",
+        identityId: "d1-async-identity",
+        provider: "synthetic",
+        kind: "human",
+        role: "administrator",
+      };
+      const result = await reverseSyncBatchD1(
+        new AsyncD1Database(env.DB),
+        principal,
+        batchId,
+        `protection-${mode}`,
+        {
+          authorize: async (_principal, capability) =>
+            capability === "sync.revert",
+        },
+      );
+      return json(result, result.status === "reversal_blocked" ? 409 : 200);
+    }
     if (url.pathname === "/sync/failure" && request.method === "POST") {
       const stage = url.searchParams.get("stage");
       const failureTriggers = {

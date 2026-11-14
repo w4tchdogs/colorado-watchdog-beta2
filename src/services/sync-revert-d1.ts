@@ -121,8 +121,8 @@ export async function reverseSyncBatchD1(
       return blocked();
     return replay(key.result_json, batchId);
   }
-  const batch = await db.first<{ id: unknown }>(
-    "SELECT id FROM sync_batches WHERE id = ? AND actor_account_id = ? AND status = 'committed'",
+  const batch = await db.first<{ id: unknown; result_json: unknown }>(
+    "SELECT id, result_json FROM sync_batches WHERE id = ? AND actor_account_id = ? AND status = 'committed'",
     [batchId, principal.accountId],
   );
   if (!batch) return blocked();
@@ -145,7 +145,35 @@ export async function reverseSyncBatchD1(
   );
   try {
     if (!rows.length || rows.length > MAX_ITEMS) return blocked();
+    const expectedCount = committedItemCount(batch.result_json);
+    if (expectedCount !== rows.length) return blocked();
     const items = rows.map((row) => parseInverse(row));
+    if (
+      items.some(
+        (item, index) =>
+          item.itemIndex !== index ||
+          (item.outcome === "updated" &&
+            Object.keys(item.changedFields).length === 0) ||
+          (item.outcome !== "updated" &&
+            Object.keys(item.changedFields).length !== 0) ||
+          Object.values(item.changedFields).some(
+            (value) =>
+              value !== null &&
+              typeof value !== "string" &&
+              typeof value !== "number",
+          ),
+      )
+    )
+      return blocked();
+    for (const item of items) {
+      if (item.outcome === "reused") {
+        const exists = await db.first<{ found: unknown }>(
+          `SELECT 1 AS found FROM "${item.entity}" WHERE id = ?`,
+          [item.targetId],
+        );
+        if (!exists) return blocked();
+      }
+    }
     const created = new Set(
       items
         .filter((x) => x.outcome === "created")
@@ -361,6 +389,20 @@ function parseInverse(row: Record<string, unknown>): Inverse {
   if (v.outcome !== "updated" && Object.keys(v.changedFields).length)
     throw new Error("unsafe");
   return v as unknown as Inverse;
+}
+function committedItemCount(value: unknown): number | null {
+  if (typeof value !== "string" || value.length > 65536) return null;
+  try {
+    const result = JSON.parse(value) as { status?: unknown; items?: unknown };
+    return result.status === "committed" &&
+      Array.isArray(result.items) &&
+      result.items.length >= 1 &&
+      result.items.length <= MAX_ITEMS
+      ? result.items.length
+      : null;
+  } catch {
+    return null;
+  }
 }
 function validEntity(value: unknown): value is SyncEntity {
   return [
