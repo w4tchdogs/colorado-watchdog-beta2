@@ -33,6 +33,8 @@ function unavailableServices() {
     getPersonProfile: unavailable,
     getOrganizationProfile: unavailable,
     listOrganizationRoleEntries: unavailable,
+    listOfficials: unavailable,
+    getCountyStructure: unavailable,
     hasCapability: unavailable,
     createAccount: unavailable,
     getAccount: unavailable,

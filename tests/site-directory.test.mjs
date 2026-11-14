@@ -24,7 +24,7 @@ test("people directory prompts, searches and bounds its pages", async () => {
     const next = first.$('.pager a[rel="next"]').getAttribute("href");
     assert.match(next, /^\/people\?query=fictional&cursor=/);
     const second = await get(preview, next);
-    assert.equal(second.$$(".record-row").length, 13);
+    assert.equal(second.$$(".record-row").length, 21);
     assert.equal(second.$('.pager a[rel="next"]'), null);
     assert.equal(
       second.$(".pager a").getAttribute("href"),
@@ -32,7 +32,7 @@ test("people directory prompts, searches and bounds its pages", async () => {
     );
     const hrefs = (page) =>
       page.$$(".record-title a").map((a) => a.getAttribute("href"));
-    assert.equal(new Set([...hrefs(first), ...hrefs(second)]).size, 38);
+    assert.equal(new Set([...hrefs(first), ...hrefs(second)]).size, 46);
   });
 });
 

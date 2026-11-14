@@ -95,7 +95,8 @@ and [D1 readiness](d1-readiness.md).
 | `/`                                                      | Homepage with the 64-county index, discovery forms, a county selection, Stories and Posts area                          |
 | `/counties?q=`                                           | County directory with name or FIPS filter and letter navigation                                                         |
 | `/counties/{countyFips}`                                 | Banner hero, county navigation and switcher, overview, county organizations, affiliated organizations, documented roles |
-| `/people?query=&cursor=`                                 | People search (`searchPeople`)                                                                                          |
+| `/officials`                                             | Officials directory: Named profiles and County structure (see below)                                                    |
+| `/people?query=&cursor=`                                 | People name search (`searchPeople`), kept for existing links                                                            |
 | `/people/{personId}`                                     | Person profile (`getPersonProfile`)                                                                                     |
 | `/organizations?query=&cursor=`                          | Organization search (`searchOrganizations`)                                                                             |
 | `/organizations/{organizationId}`                        | Organization profile, positions and roles                                                                               |
@@ -109,6 +110,70 @@ Lists use the services' keyset cursors with bounded page sizes (25, or 50 for
 county organizations). Paging is forward-only with a link back to the first
 page, matching the cursor contracts. Unknown routes return an HTML 404,
 malformed parameters a 400, a missing database a 503.
+
+## Officials directory (M4-D)
+
+`/officials` restores the Beta-1 directory organization: two tabs (Named
+profiles, County structure), search and filter controls, a sortable table on
+desktop and stacked cards on narrow screens. It was modeled on the live Beta-1
+directory as viewed in a browser. No Beta-1 record, count or classification
+was imported.
+
+**Services.** `src/services/officials-directory.ts` adds two read-only
+functions to the shared service layer:
+
+- `listOfficials(request)` browses documented people with no search term
+  required. Filters (county, organization with its documented subunits,
+  organization type, text over person name, position title and organization
+  name), sorting and pagination all run in SQL. Each person appears once, with
+  their most recently source-checked role among those matching the filters and
+  a count of the others. The result carries an exact total from Website
+  records. Page size is at most 100 and page numbers are bounded.
+- `getCountyStructure({ countyFips })` returns a county's direct and
+  affiliated organizations (bounded to 500) with stored parent links, position
+  counts and distinct-people counts that include documented subunits.
+
+**URL state.** Everything is in the query string, so links work without
+JavaScript and the browser back button restores results:
+
+| Parameter | Values |
+| --- | --- |
+| `directoryView` | `people` (default) or `structure` |
+| `county` | Five-digit county FIPS |
+| `office` | An organization ID, or `type:<organization type>` |
+| `q` | Search text, 2 to 100 characters |
+| `sort` | `name`, `county`, `organization`, `title`, `checked`, optionally with `-desc` |
+| `page` | One-based page number |
+
+Beta-1's `view=People` parameter is accepted and ignored. Profile links carry
+the current filters in `from`, which the person page re-validates field by
+field to build a "Back to directory results" link.
+
+**County structure.** Organizations recorded under the county government
+record are grouped into cards by their stored type. A subunit is nested only
+under the parent its record names, with the stored wording ("Reports to" or
+"Grouped under"). Affiliated regional and partner organizations are listed in
+a separate section. Beta-1's category headings such as "Elected Officials" are
+not reproduced because Beta-2 stores no such classification.
+
+**County navigation.** County pages and the county-filtered directory share
+one bar: County home, Officials & employees, County structure, a county
+switcher and All counties. The switcher keeps the visitor in the view they
+are in.
+
+**Differences from Beta-1, by design.**
+
+- No Reports or Grievances columns, "Suggest a missing official" link, or row
+  correction menu: Beta-2 has no intake or allegation records.
+- No "Listed in county directory" status or split into latest and prior
+  employees: Beta-2 does not establish current employment. Rows show
+  "Source-cited role" and any recorded role end date.
+- "Last verified employment" is labelled "Source checked".
+- Filters apply with an Apply button instead of on every selection change, and
+  results use numbered pages instead of "Show more".
+- Long position titles wrap on narrow screens instead of being cut off.
+- No county-level Community Voices link, because no county-filtered stories
+  page exists.
 
 ## Evidence rules in the presentation
 

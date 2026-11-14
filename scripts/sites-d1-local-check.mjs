@@ -259,6 +259,46 @@ async function main() {
     );
     assert.match(await organization.text(), /Synthetic Clerk/);
 
+    // M4-D officials directory through the hosted D1 read path.
+    const officials = await fetch(`${base}/officials`);
+    const officialsHtml = await officials.text();
+    assert.equal(officials.status, 200, officialsHtml);
+    assert.match(officialsHtml, /27 profiles match/);
+    assert.match(officialsHtml, /Page 1 of 2/);
+    const officialsPageTwo = await fetch(`${base}/officials?page=2`);
+    assert.match(await officialsPageTwo.text(), /Showing 26 to 27 of 27/);
+    const countyOfficials = await fetch(
+      `${base}/officials?county=08001&sort=checked-desc`,
+    );
+    const countyOfficialsHtml = await countyOfficials.text();
+    assert.equal(countyOfficials.status, 200, countyOfficialsHtml);
+    assert.match(countyOfficialsHtml, /2 profiles match/);
+    assert.ok(
+      countyOfficialsHtml.indexOf("Synthetic Person B") <
+        countyOfficialsHtml.indexOf("Synthetic Person A"),
+      "county directory sorts by source-check date in D1",
+    );
+    assert.match(countyOfficialsHtml, /Serves<\/span>/);
+    const titleSearch = await fetch(`${base}/officials?q=Liaison`);
+    const titleSearchHtml = await titleSearch.text();
+    assert.match(titleSearchHtml, /1 profile matches/);
+    assert.match(titleSearchHtml, /Synthetic Person B/);
+    const officeFilter = await fetch(
+      `${base}/officials?county=08001&office=d1-test-county-org`,
+    );
+    assert.match(await officeFilter.text(), /1 profile matches/);
+    const structure = await fetch(
+      `${base}/officials?directoryView=structure&county=08001`,
+    );
+    const structureHtml = await structure.text();
+    assert.equal(structure.status, 200, structureHtml);
+    assert.match(structureHtml, /Synthetic Adams County/);
+    assert.match(
+      structureHtml,
+      /Affiliated regional and partner organizations[\s\S]*Synthetic Regional Partner/,
+    );
+    assert.equal((await fetch(`${base}/officials?county=99999`)).status, 400);
+
     for (const [path, type] of [
       ["/assets/site.css", "text/css"],
       ["/assets/site.js", "text/javascript"],

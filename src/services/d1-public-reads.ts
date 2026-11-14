@@ -35,6 +35,11 @@ import type { PublicSiteServiceResults } from "../site/types.js";
 import { CountyOverviewInputError } from "./county-overview.js";
 import { DirectoryInputError } from "./directory.js";
 import { DirectorySearchInputError } from "./directory-search.js";
+import {
+  d1DirectoryRunner,
+  getCountyStructure,
+  listOfficials,
+} from "./officials-directory.js";
 import { OrganizationProfileInputError } from "./organization-profile.js";
 import { PersonProfileInputError } from "./person-profile.js";
 
@@ -501,6 +506,10 @@ export function createD1PublicReadServices(
     getPersonProfile,
     getOrganizationProfile,
     listOrganizationRoleEntries,
+    // The officials directory runs the same SQL on both runtimes.
+    listOfficials: (input) => listOfficials(d1DirectoryRunner(database), input),
+    getCountyStructure: (input) =>
+      getCountyStructure(d1DirectoryRunner(database), input),
   };
 
   async function validateCounty(input: DirectoryPageRequest) {

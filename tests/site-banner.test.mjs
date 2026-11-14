@@ -386,10 +386,14 @@ test("county switcher redirects to the chosen county", async () => {
     assert.equal(form.querySelector("select").name, "county");
     assert.ok(county.$('label[for="county-switch"]'));
     assert.ok(form.querySelector('button[type="submit"]'));
-    // An empty county links only to sections that exist.
+    // County navigation follows the same model on every county.
     assert.deepEqual(
       county.$$(".county-nav ul a").map((a) => a.getAttribute("href")),
-      ["#main"],
+      [
+        "/counties/08069",
+        "/officials?county=08069",
+        "/officials?directoryView=structure&county=08069",
+      ],
     );
   });
 });

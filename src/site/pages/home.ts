@@ -82,16 +82,15 @@ export async function homePage(context: SiteContext): Promise<Page> {
         })}
       </div>
       <div class="card feature-card">
-        <h3>Find a person</h3>
-        <p>Search people documented in public roles. Records that share a name stay separate.</p>
+        <h3>Find an official</h3>
+        <p>Search documented officials and employees by name, title or department. Records that share a name stay separate.</p>
         ${searchForm({
-          action: "/people",
+          action: "/officials",
           id: "home-people",
-          label: "Person name",
-          name: "query",
-          button: "Search people",
-          hint: "Enter at least two characters.",
-          minLength: 2,
+          label: "Name, title, or department",
+          name: "q",
+          button: "Search officials",
+          hint: "Or leave it empty to browse every profile.",
         })}
       </div>
       <div class="card feature-card">

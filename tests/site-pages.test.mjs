@@ -24,7 +24,7 @@ test("homepage renders navigation, discovery entry points and honest content", a
         .map((a) => [a.textContent, a.getAttribute("href")]),
       [
         ["Counties", "/counties"],
-        ["People", "/people"],
+        ["Officials", "/officials"],
         ["Organizations", "/organizations"],
         ["Stories", "/stories"],
         ["Posts", "/posts"],
@@ -32,7 +32,7 @@ test("homepage renders navigation, discovery entry points and honest content", a
       ],
     );
     assert.equal(page.$$(".county-index-grid a").length, 64);
-    assert.ok(page.$('form[action="/people"] input[name="query"]'));
+    assert.ok(page.$('form[action="/officials"] input[name="q"]'));
     assert.ok(page.$('form[action="/organizations"] input[name="query"]'));
     assert.ok(page.$('form[action="/counties"] input[name="q"]'));
     assert.equal(page.$$(".county-card").length, 6);
@@ -155,7 +155,11 @@ test("county page separates county organizations from affiliated ones", async ()
     assert.equal(page.$("[data-banner-frame] img"), null);
     assert.deepEqual(
       page.$$(".county-nav ul a").map((a) => a.getAttribute("href")),
-      ["#main", "#organizations", "#roles"],
+      [
+        "/counties/08001",
+        "/officials?county=08001",
+        "/officials?directoryView=structure&county=08001",
+      ],
     );
     assert.equal(page.$$("#county-switch option").length, 64);
     assert.equal(page.$("#county-switch option[selected]").value, "08001");

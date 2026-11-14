@@ -24,6 +24,12 @@ const PAGES = [
   "/people",
   "/people?query=fictional",
   "/people/demo-person-jordan-a",
+  "/officials",
+  "/officials?county=08069",
+  "/officials?county=08069&directoryView=structure",
+  "/officials?directoryView=structure",
+  "/officials?county=08005",
+  "/officials?q=zzzz",
   "/organizations?query=fictional",
   "/organizations/demo-adams-works",
   "/stories",
@@ -373,7 +379,7 @@ test("every page family is keyboard accessible and semantically structured", asy
           0,
           path,
         );
-        for (const input of page.$$("input")) {
+        for (const input of page.$$("input:not([type=hidden]), select")) {
           assert.ok(page.$(`label[for="${input.id}"]`), `${path} #${input.id}`);
           const described = input.getAttribute("aria-describedby");
           if (described)
@@ -413,7 +419,7 @@ test("every page family is keyboard accessible and semantically structured", asy
       const section = await get(preview, "/people/demo-person-jordan-a");
       assert.equal(
         section.$("#site-nav a[aria-current]").textContent,
-        "People",
+        "Officials",
       );
       assert.equal(
         section.$(".breadcrumbs [aria-current=page]").textContent,
