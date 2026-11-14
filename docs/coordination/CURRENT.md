@@ -100,7 +100,7 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | --- | --- | --- | --- | --- |
 | COORD-1 | Merged | PR #94, `d511c0d2`; Issue #93 closed | — | 2026-11-14 |
 | COORD-1A | Merged | PR #96, `b52020a3` | COORD-1 (merged) | 2026-11-14 |
-| COORD-2 | PR open | PR #97, `coord-2-single-archon-consolidation` | Owner's one-time Claude audit before merge | 2026-11-14 |
+| COORD-2 | Merged | [PR #97](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/97), `e5704436` | — | 2026-11-14 |
 | WSO-1 | Complete; read-only workspace assessment. Filesystem inventory is valid; Git observations came from a stale local checkout at the PR #83 era and do not describe current `main` | Report in owner's Drive folder "Colorado Watchdog - Claude Reports": "Colorado Watchdog Workspace Organization Assessment and Proposed Plan rev2026-11-14 v1.docx" | — | 2026-11-14 |
 | Profiles Archon retired | Complete | Owner decision, 2026-11-14 | — | 2026-11-14 |
 | VIS8-RESTORE-1 | Merged | PR #91, `db2903d1` | — | 2026-11-14 |
