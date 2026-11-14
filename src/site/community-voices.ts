@@ -243,6 +243,7 @@ export interface ListingKind {
 }
 
 const ARROW = trusted('<span aria-hidden="true">→</span>');
+const WRAPPED_ARROW = trusted('<span aria-hidden="true">&nbsp;→</span>');
 
 /**
  * Three pathway cards. Each links to the listing with the pathway filter
@@ -265,7 +266,7 @@ export function pathwayCards(
           <h3 class="cv-pathway-title">${pathway.title}</h3>
           <p class="cv-pathway-description">${pathway.description}</p>
           <a class="cv-pathway-link" href="${withQuery(listingBase, { pathway: pathway.slug }, "cv-results")}"
-            ${active === pathway.slug ? html`aria-current="true"` : ""}>${pathway.action}<span class="visually-hidden"> in ${listingPlural}</span> ${ARROW}</a>
+            ${active === pathway.slug ? html`aria-current="true"` : ""}>${pathway.action}<span class="visually-hidden"> in ${listingPlural}</span> ${pathway.slug === "statewide-issues" ? WRAPPED_ARROW : ARROW}</a>
         </li>`,
       )}
     </ul>
