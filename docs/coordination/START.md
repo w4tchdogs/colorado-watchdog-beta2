@@ -12,10 +12,19 @@ chat response.
 
 Before planning substantial new work: read CURRENT and the relevant binding
 decisions, check current `main` and active overlapping work (CURRENT section
-F), and treat implementation, deployment and hosted verification as separate
-claims (CURRENT's status vocabulary). Preserve accepted work; update CURRENT
-or decisions only when a material cross-project change occurs (see CURRENT's
-own maintenance note), not for routine PRs.
+F), preserve binding architecture rather than reopening it, check for
+conflicts with active work before a major assignment, and treat
+implementation, deployment and hosted verification as separate claims
+(CURRENT's status vocabulary). Preserve accepted work; record consequential
+changes (a decision, a milestone, a blocker, an ownership change) in GitHub —
+update CURRENT or decisions, or note it in the relevant Issue — rather than
+leaving it chat-local; do this only for material cross-project change (see
+CURRENT's own maintenance note), not for routine PRs. See
+[AGENTS.md](../../AGENTS.md)'s "Architectural Continuity and Shared Project
+State" section for the full reasoning, and
+[ARCHON-HANDOFF-REQUEST.md](ARCHON-HANDOFF-REQUEST.md) to produce a complete
+successor handoff when replacing an Archon or ending a long-running
+coordination chat.
 
 ## Shared knowledge
 

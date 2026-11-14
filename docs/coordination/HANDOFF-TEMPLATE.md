@@ -12,6 +12,21 @@ lightweight and chat-local.
 
 Use the 70% preparation and 80% fresh-chat guidelines when context utilization is measurable. Otherwise use progress milestones, visible warnings and task complexity.
 
+## Two kinds of handoff
+
+**Routine task handoff** — the common case. Ending or passing along one
+task or a short session within it. Use the lightweight template below
+as-is; no extra process.
+
+**Archon successor handoff** — a heavier case, needed only when: replacing
+a Website, Profiles, or Visual-Audit Archon; transferring cross-project
+coordination responsibility; or ending a long-running Archon conversation.
+Use [ARCHON-HANDOFF-REQUEST.md](ARCHON-HANDOFF-REQUEST.md) instead — it
+contains the actual reusable prompt that produces a complete,
+twelve-section continuation document for the incoming Archon. Do not use it
+for an ordinary small development task; the template below already covers
+that.
+
 ## Template
 
 ```markdown
