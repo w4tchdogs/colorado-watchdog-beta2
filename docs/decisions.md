@@ -118,3 +118,19 @@ rewriting the history above.
   the MCP endpoint remains not done; see [CURRENT](coordination/CURRENT.md)
   for current detail. This is a status fact, not a reopening of the
   backbone decision.
+
+## Coordination consolidation, November 14, 2026
+
+- One 💠archon coordinates both Website and Profiles. The separate Profiles
+  Archon is retired.
+- Other chats in the project are task chats. They report results to the
+  💠archon through GitHub (Issue, PR, or CURRENT row).
+- The 💠 chat-title prefix is reserved for the single coordinating chat.
+  This supersedes the earlier "Chat titles" row for all other chats, which
+  use the standard `model | description` format.
+- Active county research is paused by the owner because the research database
+  is well seeded.
+- Existing Profiles architecture decisions are unchanged: a separate local
+  SQLite research database, a separate Website D1 database, synchronization
+  only through the accepted R7/R8/M2 architecture, and the existing identity
+  evidence rules.
