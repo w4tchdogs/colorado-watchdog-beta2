@@ -1,4 +1,16 @@
 import {
+  articleTags,
+  COMMUNITY_VOICES_HEAD,
+  contentTypeNav,
+  type EditorialFilters,
+  filterArticles,
+  filterForm,
+  filterOptions,
+  hasFilters,
+  pathwayCards,
+  resultSummary,
+} from "../community-voices.js";
+import {
   citation,
   countyLink,
   emptyState,
@@ -56,6 +68,8 @@ function articleMeta(article: EditorialArticle): SafeHtml {
 export function articleCard(
   article: EditorialArticle,
   level: 2 | 3 = 3,
+  /** Adds explicit pathway, series, topic and county tags (listing pages). */
+  withTags = false,
 ): SafeHtml {
   const link = html`<a href="${path(KINDS[article.type].base, article.slug)}">${article.title}</a>`;
   return html`<article class="article-card article-card-${article.type}">
@@ -63,6 +77,7 @@ export function articleCard(
     ${level === 2 ? html`<h2 class="article-card-title">${link}</h2>` : html`<h3 class="article-card-title">${link}</h3>`}
     <p class="article-summary">${article.summary}</p>
     ${articleMeta(article)}
+    ${withTags ? articleTags(article) : ""}
   </article>`;
 }
 
@@ -82,24 +97,52 @@ function block(item: ArticleBlock): SafeHtml {
 export function editorialListPage(
   context: SiteContext,
   type: EditorialType,
+  filters: EditorialFilters = {},
 ): Page {
   const kind = KINDS[type];
-  const articles = context.editorial.list(type);
+  const base = `/${kind.base}`;
+  // Filters apply to the complete public collection, never a displayed subset.
+  const all = context.editorial.list(type);
+  const matches = filterArticles(all, filters);
+  const filtered = hasFilters(filters);
+  const summary = resultSummary(
+    { plural: kind.plural, singular: kind.singular, base },
+    matches.length,
+    all.length,
+    filtered,
+  );
+  const noun = kind.plural.toLowerCase();
   return {
     title: kind.plural,
     description: kind.intro,
     section: kind.base,
     breadcrumbs: [{ label: "Home", href: "/" }, { label: kind.plural }],
+    head: COMMUNITY_VOICES_HEAD,
     body: html`${pageHeader(kind.heading, kind.intro, undefined, `Community Voices \u00b7 ${kind.plural}`)}
-      <section class="section" aria-label="${kind.plural}">
+      ${pathwayCards(base, kind.plural, filters.pathway)}
+      <section class="cv-browse" aria-label="Browse ${noun}">
+        ${contentTypeNav(type, filters)}
+        ${filterForm({ plural: kind.plural, singular: kind.singular, base }, filterOptions(all), filters)}
+      </section>
+      <section class="cv-results" id="cv-results" aria-labelledby="cv-results-heading">
+        <h2 class="visually-hidden" id="cv-results-heading">${kind.plural} results</h2>
+        ${summary ? html`<p class="cv-count" role="status">${summary}</p>` : ""}
         ${
-          articles.length === 0
+          all.length === 0
             ? emptyState(
-                `No ${kind.plural.toLowerCase()} yet`,
+                `No ${noun} yet`,
                 kind.empty,
                 html`<a class="button button-quiet" href="/counties">Browse county records</a>`,
+                3,
               )
-            : html`<div class="article-list article-list-${type}">${articles.map((article) => articleCard(article, 2))}</div>`
+            : matches.length === 0
+              ? emptyState(
+                  `No ${noun} match these filters`,
+                  `No ${kind.singular.toLowerCase()} has been given this combination of pathway, county, series and topic. Articles without that classification are never matched to it.`,
+                  html`<a class="button button-quiet" href="${base}">Clear filters</a>`,
+                  3,
+                )
+              : html`<div class="article-list article-list-${type}">${matches.map((article) => articleCard(article, 3, true))}</div>`
         }
       </section>`,
   };

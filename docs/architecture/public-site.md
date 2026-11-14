@@ -13,7 +13,8 @@ unverified.
   and no direct database access from page code.
 - Pages work without JavaScript. `website/site/site.js` adds two
   enhancements: the mobile menu toggle and live filtering on the county
-  directory. `website/site/site.css` holds the design tokens and components.
+  directory. `website/site/site.css` holds the design tokens and components, with
+  `website/site/community-voices.css` for the Community Voices listing.
 - `createPublicSite(options)` returns a Fetch handler. `createWebsite` composes
   it with the JSON application: `/api/*`, `/_internal/*` and `/internal/*`
   route to the application; public page routes go to the site.
@@ -195,6 +196,39 @@ whose rows are drafts or archived. Story and Post pages render from an injected
 The default source is empty, so `/stories` and `/posts` show empty states. The
 local preview injects fictional fixtures, each marked "Fictional
 demonstration".
+
+### Community Voices listing (VIS-004)
+
+`/stories` and `/posts` share one layout whether they are empty or populated:
+three pathway cards, Stories/Posts navigation, a filter form and the results.
+Components live in `src/site/community-voices.ts` and are namespaced `cv-` in
+`website/site/community-voices.css`, which the listing pages load through
+`Page.head` (it is in the reviewed asset allowlist and the Sites Worker build).
+
+Classification is explicit. `EditorialArticle` has optional `pathway`
+(`local-series`, `guest-voices` or `statewide-issues`), `series` and `topics`.
+Nothing is inferred from titles, bylines, counties or prose, and an article
+without a value never matches that filter. Counties come from the existing
+related-county records.
+
+| Query parameter | Meaning                                                  |
+| --------------- | -------------------------------------------------------- |
+| `pathway`       | One of the three pathway slugs                           |
+| `county`        | Colorado county FIPS code that exists in the county list |
+| `series`        | Series slug (lowercase letters, digits, hyphens, 60 max) |
+| `topic`         | Topic slug, same format                                  |
+
+Filters are a plain GET form, so they work without JavaScript and survive
+reload and Back/Forward. Duplicate, unknown or malformed parameters return the
+standard 400 page, as do filters on any other route. An empty value means "not
+selected". Filters run over the complete collection from the source, results are
+ordered newest first then by slug, and the count line reports only articles
+supplied by the source. Filter options list only values present in that
+collection, and a control with no values is disabled with an explanation.
+
+The homepage editorial preview does not yet use the pathway cards. `pathwayCards`
+is reusable and can be placed in `src/site/pages/home.ts` once concurrent
+homepage work has merged.
 
 ## Local preview
 

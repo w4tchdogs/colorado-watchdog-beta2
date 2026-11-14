@@ -1,4 +1,9 @@
 import { emptyBannerSource } from "./banner.js";
+import {
+  type EditorialFilters,
+  FILTER_PARAMETERS,
+  parseEditorialFilters,
+} from "./community-voices.js";
 import { emptyEditorialSource } from "./editorial-source.js";
 import { isCountyFips } from "./format.js";
 import { html, path } from "./html.js";
@@ -75,6 +80,29 @@ function checkedParameters(
   return url.searchParams;
 }
 
+/**
+ * Validates the Community Voices filters of /stories and /posts. Malformed
+ * values and unknown Colorado county codes are rejected with a restart link.
+ */
+async function editorialFilters(
+  context: SiteContext,
+  url: URL,
+  listing: "/stories" | "/posts",
+): Promise<EditorialFilters> {
+  const parameters = checkedParameters(url, FILTER_PARAMETERS, listing);
+  const filters = parseEditorialFilters(parameters);
+  if (filters === null) throw new BadRequest(listing);
+  if (
+    filters.county !== undefined &&
+    !(await context.services.listCounties()).some(
+      (county) => county.fips === filters.county,
+    )
+  ) {
+    throw new BadRequest(listing);
+  }
+  return filters;
+}
+
 async function route(
   context: SiteContext,
   url: URL,
@@ -129,11 +157,17 @@ async function route(
           ),
         );
       case "stories":
-        none();
-        return editorialListPage(context, "story");
+        return editorialListPage(
+          context,
+          "story",
+          await editorialFilters(context, url, "/stories"),
+        );
       case "posts":
-        none();
-        return editorialListPage(context, "post");
+        return editorialListPage(
+          context,
+          "post",
+          await editorialFilters(context, url, "/posts"),
+        );
       case "about":
         none();
         return aboutPage();

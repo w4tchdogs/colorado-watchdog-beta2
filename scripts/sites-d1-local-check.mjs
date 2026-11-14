@@ -435,6 +435,7 @@ async function main() {
     for (const [path, type] of [
       ["/assets/site.css", "text/css"],
       ["/assets/site.js", "text/javascript"],
+      ["/assets/community-voices.css", "text/css"],
       ["/assets/report-interface.css", "text/css"],
       ["/assets/report-interface.js", "text/javascript"],
       ["/assets/staff-reports.css", "text/css"],
