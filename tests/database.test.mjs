@@ -120,7 +120,7 @@ test("migrations produce the same schema and are safe to reapply", async () => {
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
           .count,
-        13,
+        14,
       );
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM counties").get().count,
@@ -232,7 +232,7 @@ test("M2 migrations add schema without changing existing M1 rows", async () => {
         .prepare("SELECT version FROM schema_migrations ORDER BY version")
         .all()
         .map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
     );
     assert.equal(
       database.prepare("SELECT COUNT(*) AS count FROM sync_batches").get()
@@ -380,6 +380,7 @@ test("Website schema includes M0, M1-A, M2-D and M2-E tables without Profiles re
       "operations",
       "organization_county_affiliations",
       "organizations",
+      "owner_bootstrap_audit",
       "people",
       "person_duplicate_flag_observations",
       "person_duplicate_flags",
@@ -412,6 +413,7 @@ test("Website schema includes M0, M1-A, M2-D and M2-E tables without Profiles re
       "content_revisions",
       "identities",
       "operations",
+      "owner_bootstrap_audit",
       "organization_county_affiliations",
       "organizations",
       "people",

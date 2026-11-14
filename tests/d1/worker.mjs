@@ -727,12 +727,12 @@ export default {
     ).all();
     check(
       "ordered custom migration history and checksums",
-      history.results?.length === 13 &&
+      history.results?.length === 14 &&
         history.results.every(
           (row, index) =>
             row.version === index + 1 &&
             row.name ===
-              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake"][index]}.sql` &&
+              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake", "owner_bootstrap_audit"][index]}.sql` &&
             /^[0-9a-f]{64}$/.test(row.sha256),
         ),
     );
@@ -1054,7 +1054,8 @@ export default {
         AND name NOT IN ('schema_migrations', 'website_dependency_generation', 'website_dependency_assertions',
           'transaction_guard', 'transaction_guard_assertions', 'guard_probe_writes',
           'website_write_assertions', 'reports', 'report_receipts', 'report_idempotency',
-          'report_evidence', 'report_status_history', 'report_audit')`).all();
+          'report_evidence', 'report_status_history', 'report_audit',
+          'owner_bootstrap_audit')`).all();
     const triggerCoverage = new Map();
     for (const trigger of generationTriggers.results ?? []) {
       const operations = triggerCoverage.get(trigger.tbl_name) ?? new Set();
@@ -1073,7 +1074,7 @@ export default {
       },
     );
     check(
-      "0011 and 0012 install all 75 generation triggers across Website tables",
+      "0011 and 0012 install all 75 generation triggers across application tables",
       generationTriggers.results?.length === 75 &&
         dependencyTables.results?.length === 25 &&
         triggerCoverage.size === 25 &&

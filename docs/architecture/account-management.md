@@ -34,80 +34,50 @@ human provider subject because linking transfers account access.
 
 ## Sites identity boundary
 
-The Beta-2 Worker reads the Sites-forwarded
-`oai-authenticated-user-id`, `oai-authenticated-user-email`, and optional
-`oai-authenticated-user-full-name` fields in the isolated Worker composition
-helper in `src/worker.ts`. Its subject convention is the opaque Sites
-user ID, preserved exactly. The configured `.openai/hosting.json.project_id`
-must equal `appgprj_6af7fb8f615c81918da0e4450ba336de`; the adapter namespaces the
-subject as `chatgpt-sites:<project-id>`. A missing, malformed, or different
-project ID disables Sites human identity resolution. The display name, URL,
-Host, Origin, Referer, forwarding metadata, and client-supplied account or role
-values do not select the provider or subject.
+The Sites identity adapter accepts only a `VerifiedSitesContext` supplied by
+trusted host code. The Beta-2 Worker currently supplies no such context and
+therefore resolves no Sites human principal. It never reads
+`oai-authenticated-user-id`, `oai-authenticated-user-email`, or
+`oai-authenticated-user-full-name` from request headers. Public browsing remains
+available, and all privileged human routes fail closed.
 
-The Worker boundary requires a nonempty user ID and email, enforces field
-length limits, rejects control characters and comma-combined claims, and
-rejects malformed email and optional-name values. Invalid or incomplete input
-returns no identity. The adapter does not derive a subject from email, name,
-cookies, query parameters, or request bodies. Email and full name remain
-metadata only. Identity resolution still requires an exact provider and subject
-link in Website D1; the forwarded values never become an ACCT-1 principal by
-themselves.
+The public [Sites identity guide](https://learn.chatgpt.com/docs/sites/data-and-connections)
+documents forwarded email and optional full name. It does not document a stable
+opaque subject, authenticity guarantees for those headers, stripping or
+replacement of caller-supplied claims, or direct Worker isolation. It does say
+SIWC bypass callers have no signed-in visitor identity and do not receive the
+identity headers. The guide and available Sites tools do not establish whether
+unsigned clients can reach this Worker directly. Email and full name are never
+identity keys. Until Sites exposes a documented authenticated context or
+another verifiable boundary, header-shaped claims are treated as untrusted.
 
-**Residual hosting assumption:** the Worker treats these claims as provisionally
-platform-authenticated only behind the intended ChatGPT Sites gateway. Their
-authenticity depends on the platform preventing client-controlled identity
-header injection and unintended direct Worker access. Those guarantees have
-not been independently established. Parsing and validation reject malformed
-input, but cannot distinguish a genuine forwarded claim from an identical
-attacker-supplied header. The public identity guide documents email and
-optional full name but not the stable-ID header or complete header provenance
-guarantees ([ChatGPT Sites identity docs](https://learn.chatgpt.com/docs/sites/data-and-connections)).
-This is a development-stage dependency, not cryptographic authentication.
+The D1 account service keeps its principal, account-status, identity-revocation,
+expiry, and capability checks. An unlinked subject has no principal; no account,
+identity link, or role is created at sign-in. Malformed Authorization headers
+fail closed without human fallback. A SIWC bypass token only passes the Sites
+access gate; it is not a human identity or ACCT-1 credential.
 
-The D1 account service never parses identity headers and keeps its existing
-principal, account-status, identity-revocation, expiry, and capability checks.
-An unlinked subject has no principal; no account, identity link, or role is
-created at sign-in. Malformed Authorization headers continue to fail closed
-without falling back to a Sites identity. A Sites SIWC bypass token only passes
-the Sites access gate; it is not a human identity or ACCT-1 credential. If no
-usable user-ID claim accompanies a request, no human principal is resolved.
+`npm run test:sites:d1` uses disposable local D1 to verify that complete forged
+headers, malformed and duplicate claims, linked synthetic subjects, and
+identity-less access do not authenticate a human. Agent-key authorization,
+report privacy, and account capabilities continue to be tested independently.
+These tests cannot establish hosted gateway isolation.
 
-The management page shows attributed account audit events at
-`GET /api/admin/accounts/:id/audit`; credentials remain redacted.
+## First-owner bootstrap
 
-## Sites Worker integration
+`src/services/owner-bootstrap.ts` exposes an administrative D1 operation and is
+not mounted as a Worker route. It checks the exact Beta-2 project and `DB`
+binding inputs, verifies all 14 migration names and hashes plus the append-only
+bootstrap audit schema, and supports read-only dry run. The write uses a single
+D1 atomic batch with guarded inserts for one active human owner, the exact
+`chatgpt-sites:<project-id>` subject link, and a distinct
+`trusted_bootstrap_operator` audit event. The event records the administrative
+operator reference and target account, never the subject. Repeating the exact
+completed operation is idempotent; a different owner, conflicting identity,
+or partial state is rejected.
 
-The Sites Worker uses `createD1AccountServices`, an asynchronous implementation
-of the existing account-service contract over the Website D1 binding. It keeps
-the same account and identity tables, policy checks, version guards and
-credential-free audit records. It does not bundle or use SQL.js as a production
-database, and it does not enable synchronization capabilities or routes.
-Agent-key principal resolution and account management use D1's asynchronous
-prepared statements and guarded batch writes.
-
-The Worker supplies `createSitesIdentityAdapter({ siteId, context })` with the
-build-time project ID and the isolated Sites header context. It accepts claims
-only for the configured Beta-2 project above. This composition does not change
-`createD1AccountServices` or make a raw claim a principal: D1 must find the
-exact linked identity and active account, then each protected request checks
-current capabilities again. Disabled accounts, revoked or expired identities,
-and changed roles therefore affect subsequent authorization. Existing agent
-key behavior and account-management safeguards are unchanged.
-
-`npm run test:sites:d1` exercises this bridge with synthetic linked owner,
-administrator, editor, contributor, disabled, expired, revoked, unlinked, and
-other-project identities on disposable local D1, alongside agent-key and
-report-route coverage. Those local tests verify application behavior; they
-cannot establish that hosted Sites prevents identity-header injection or that
-SIWC bypass requests omit identity claims. The residual gateway assumption
-requires separate private hosted verification after the code is merged and
-deployed through a later Sites assignment.
-
-This repository has no self-service first-owner bootstrap route. Because only
-an existing owner can link a human identity, future hosted testing needs a
-separately authorized, attributable operation to provision the first human
-owner account and link its Sites subject in D1. AUTH-1 does not create a live
-account or link the actual owner's identity. The current private Sites
-deployment remains unchanged; a separate assignment must save and verify the
-merged integration there. Beta-1 is a separate public Site and is not modified.
+No live owner was created or linked. The available Sites connector cannot write
+the live D1 database, and no trustworthy stable Sites subject is exposed to the
+Worker. Do not run the bootstrap against production until a verified subject
+and a trusted administrative D1 binding for the intended project are available.
+The current Site and audience remain unchanged. Beta-1 is not modified.
