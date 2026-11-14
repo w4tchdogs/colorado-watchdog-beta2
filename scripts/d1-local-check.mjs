@@ -29,6 +29,7 @@ const migrations = [
   "0008_duplicate_flag_observations.sql",
   "0009_content_foundation.sql",
   "0010_content_revisions.sql",
+  "0011_m2_dependency_generation.sql",
 ];
 
 function runWrangler(args) {
@@ -251,7 +252,7 @@ async function main() {
     "--persist-to",
     freshPersist,
     "--command",
-    `SELECT CASE WHEN (SELECT COUNT(*) FROM schema_migrations) = 10 AND ${historyChecks} AND (SELECT COUNT(*) FROM content_revisions) = 0 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('content_items','content_item_counties','content_item_people','content_item_organizations','content_revisions')) = 5 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='content_revisions_editor') = 1 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('content_revisions_no_update','content_revisions_no_delete','content_revisions_match_current')) = 3 THEN 'PASS fresh migration history, checksums, schema, and empty baseline' ELSE 'FAIL fresh migration verification' END AS result;`,
+    `SELECT CASE WHEN (SELECT COUNT(*) FROM schema_migrations) = 11 AND ${historyChecks} AND (SELECT COUNT(*) FROM content_revisions) = 0 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('content_items','content_item_counties','content_item_people','content_item_organizations','content_revisions')) = 5 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='content_revisions_editor') = 1 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('content_revisions_no_update','content_revisions_no_delete','content_revisions_match_current')) = 3 AND (SELECT generation FROM website_dependency_generation WHERE id = 1) = 0 THEN 'PASS fresh migration history, checksums, schema, and empty baseline' ELSE 'FAIL fresh migration verification' END AS result;`,
   ]);
   if (!freshOutput.includes("PASS fresh migration history")) {
     throw new Error(`Fresh local D1 verification failed:\n${freshOutput}`);
@@ -415,6 +416,329 @@ async function main() {
       "PASS guarded D1 batch commits expected write and audit together",
     );
 
+    const setupAsync = await fetch(`${base}/sync/setup`, { method: "POST" });
+    if (!setupAsync.ok)
+      throw new Error("Could not prepare the synthetic async D1 principal");
+    const asyncBatch = {
+      contractVersion: "m2-sync/v1",
+      requestId: "6b5f57a2-84b7-4a4d-b300-33aea9feeb19",
+      intent: "commit",
+      changes: [
+        {
+          op: "create_organization",
+          entity: "organizations",
+          clientRef: "org",
+          fields: {
+            name: "Synthetic Async Office",
+            organization_type: "office",
+            county_fips: "08001",
+          },
+        },
+        {
+          op: "add_county_affiliation",
+          entity: "organization_county_affiliations",
+          clientRef: "aff",
+          fields: {
+            organization_ref: "org",
+            county_fips: "08013",
+            relationship_type: "serves",
+          },
+        },
+        {
+          op: "create_position",
+          entity: "positions",
+          clientRef: "position",
+          fields: { organization_ref: "org", title: "Synthetic Async Clerk" },
+        },
+        {
+          op: "create_person",
+          entity: "people",
+          clientRef: "person",
+          fields: { display_name: "Fictional Async Person" },
+        },
+        {
+          op: "register_source",
+          entity: "role_sources",
+          clientRef: "source",
+          fields: {
+            url: "https://example.invalid/d1-async",
+            title: "Synthetic async source",
+            source_type: "official_page",
+          },
+        },
+        {
+          op: "create_person_role",
+          entity: "person_roles",
+          clientRef: "role",
+          fields: {
+            person_ref: "person",
+            position_ref: "position",
+            source_ref: "source",
+            source_checked_at: "2026-11-12T12:00:00Z",
+          },
+        },
+      ],
+      duplicateFlags: [
+        {
+          targetType: "person",
+          targetRef: "person",
+          possibleDuplicateOf: "d1-backfill-person-a",
+          category: "possible_match",
+          reason: "Synthetic async local observation",
+          evidenceSourceRefs: ["source"],
+          nonblocking: true,
+        },
+      ],
+    };
+    const asyncCommitResponse = await fetch(
+      `${base}/sync/commit?key=async-commit-key`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(asyncBatch),
+      },
+    );
+    const asyncCommit = await asyncCommitResponse.json();
+    if (
+      !asyncCommitResponse.ok ||
+      asyncCommit.status !== "committed" ||
+      asyncCommit.items?.length !== 6 ||
+      asyncCommit.replayed
+    ) {
+      throw new Error(
+        `Async D1 complete commit failed: ${JSON.stringify(asyncCommit)}`,
+      );
+    }
+    const asyncReplayResponse = await fetch(
+      `${base}/sync/commit?key=async-commit-key`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...asyncBatch,
+          requestId: "7b5f57a2-84b7-4a4d-b300-33aea9feeb20",
+        }),
+      },
+    );
+    const asyncReplay = await asyncReplayResponse.json();
+    if (
+      !asyncReplayResponse.ok ||
+      asyncReplay.batchId !== asyncCommit.batchId ||
+      !asyncReplay.replayed ||
+      JSON.stringify(asyncReplay.items) !== JSON.stringify(asyncCommit.items)
+    ) {
+      throw new Error(
+        `Async D1 durable replay failed: ${JSON.stringify(asyncReplay)}`,
+      );
+    }
+    const persistedAsync = await (
+      await fetch(`${base}/sync/state?key=async-commit-key`)
+    ).json();
+    if (
+      persistedAsync.batches !== 1 ||
+      persistedAsync.items !== 6 ||
+      persistedAsync.audits !== 1 ||
+      persistedAsync.flags !== 1 ||
+      persistedAsync.observations !== 1 ||
+      persistedAsync.dependency_assertions !== 0 ||
+      persistedAsync.version_assertions !== 0
+    ) {
+      throw new Error(
+        `Async D1 commit left inconsistent durable state: ${JSON.stringify(persistedAsync)}`,
+      );
+    }
+    console.log(
+      "PASS production-code async D1 commit persists records, mappings, inverse metadata, audit, and replay",
+    );
+
+    const raceBatch = {
+      ...asyncBatch,
+      requestId: "8b5f57a2-84b7-4a4d-b300-33aea9feeb21",
+      changes: [
+        {
+          op: "create_person",
+          entity: "people",
+          clientRef: "racer",
+          fields: { display_name: "Fictional Async Race Person" },
+        },
+      ],
+      duplicateFlags: [],
+    };
+    const racePayload = {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(raceBatch),
+    };
+    const racedResponses = await Promise.all([
+      fetch(`${base}/sync/commit?key=async-race-key`, racePayload),
+      fetch(`${base}/sync/commit?key=async-race-key`, racePayload),
+    ]);
+    const racedResults = await Promise.all(
+      racedResponses.map((response) => response.json()),
+    );
+    if (
+      racedResponses.some((response) => !response.ok) ||
+      racedResults.some((result) => result.status !== "committed") ||
+      racedResults[0].batchId !== racedResults[1].batchId ||
+      Number(racedResults[0].replayed) + Number(racedResults[1].replayed) !== 1
+    ) {
+      throw new Error(
+        `Async D1 idempotency race did not return one durable winner: ${JSON.stringify(racedResults)}`,
+      );
+    }
+    const persistedRace = await (
+      await fetch(`${base}/sync/state?key=async-race-key`)
+    ).json();
+    if (
+      persistedRace.batches !== 1 ||
+      persistedRace.items !== 1 ||
+      persistedRace.audits !== 1 ||
+      persistedRace.dependency_assertions !== 0 ||
+      persistedRace.version_assertions !== 0
+    ) {
+      throw new Error(
+        `Async D1 idempotency race left inconsistent durable state: ${JSON.stringify(persistedRace)}`,
+      );
+    }
+    console.log(
+      "PASS independent Worker requests racing for one idempotency key return the stored winning result",
+    );
+
+    const asyncOrganizationId = asyncCommit.items.find(
+      (item) => item.entity === "organizations",
+    )?.websiteId;
+    if (!asyncOrganizationId)
+      throw new Error("Async commit did not return its organization mapping");
+    const competingUpdates = [
+      {
+        ...asyncBatch,
+        requestId: "ab5f57a2-84b7-4a4d-b300-33aea9feeb20",
+        duplicateFlags: [],
+        changes: [
+          {
+            op: "update_record",
+            entity: "organizations",
+            targetId: asyncOrganizationId,
+            expectedVersion: 1,
+            fields: { name: "Synthetic Async Winner A" },
+          },
+        ],
+      },
+      {
+        ...asyncBatch,
+        requestId: "bb5f57a2-84b7-4a4d-b300-33aea9feeb20",
+        duplicateFlags: [],
+        changes: [
+          {
+            op: "update_record",
+            entity: "organizations",
+            targetId: asyncOrganizationId,
+            expectedVersion: 1,
+            fields: { name: "Synthetic Async Winner B" },
+          },
+        ],
+      },
+    ];
+    const updateResponses = await Promise.all(
+      competingUpdates.map((body, index) =>
+        fetch(`${base}/sync/commit?key=async-update-${index}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      ),
+    );
+    const updateResults = await Promise.all(
+      updateResponses.map((response) => response.json()),
+    );
+    const finalOrg = await (
+      await fetch(
+        `${base}/sync/record?id=${encodeURIComponent(asyncOrganizationId)}`,
+      )
+    ).json();
+    if (
+      updateResults.filter((result) => result.status === "committed").length !==
+        1 ||
+      updateResults.filter((result) => result.status === "rejected").length !==
+        1 ||
+      finalOrg.version !== 2 ||
+      !["Synthetic Async Winner A", "Synthetic Async Winner B"].includes(
+        finalOrg.name,
+      )
+    ) {
+      throw new Error(
+        `Async D1 competing row updates were not version guarded: ${JSON.stringify({ updateResults, finalOrg })}`,
+      );
+    }
+    console.log(
+      "PASS production-code async D1 same-row updates preserve one expected-version winner",
+    );
+
+    const committedPersonId = asyncCommit.items.find(
+      (item) => item.entity === "people",
+    )?.websiteId;
+    if (!committedPersonId)
+      throw new Error("Async commit did not return its person mapping");
+    const failureStages = ["record", "batch", "duplicate", "audit"];
+    for (const [index, stage] of failureStages.entries()) {
+      const ref = `injected-${stage}`;
+      const failureBatch = {
+        ...asyncBatch,
+        requestId: `9b5f57a2-84b7-4a4d-b300-33aea9feeb2${index}`,
+        changes: [
+          {
+            op: "create_person",
+            entity: "people",
+            clientRef: ref,
+            fields: { display_name: `Injected failure ${stage}` },
+          },
+        ],
+        duplicateFlags:
+          stage === "duplicate"
+            ? [
+                {
+                  targetType: "person",
+                  targetRef: ref,
+                  possibleDuplicateOf: committedPersonId,
+                  category: "possible_match",
+                  reason: "Injected failure duplicate",
+                  evidenceSourceRefs: [],
+                  nonblocking: true,
+                },
+              ]
+            : [],
+      };
+      const failureResponse = await fetch(
+        `${base}/sync/failure?stage=${stage}&key=async-failure-${stage}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(failureBatch),
+        },
+      );
+      const failureResult = await failureResponse.json();
+      const failureState = await (
+        await fetch(`${base}/sync/state?key=async-failure-${stage}`)
+      ).json();
+      if (
+        failureResponse.status !== 409 ||
+        failureResult.status !== "rejected" ||
+        failureState.batches !== 0 ||
+        failureState.items !== 0 ||
+        failureState.audits !== 0 ||
+        failureState.injected_people !== 0 ||
+        failureState.dependency_assertions !== 0 ||
+        failureState.version_assertions !== 0
+      ) {
+        throw new Error(
+          `Async D1 ${stage} failure left partial commit state: ${JSON.stringify({ failureResult, failureState })}`,
+        );
+      }
+    }
+    console.log(
+      "PASS async D1 injected record, batch item, duplicate observation, and audit failures roll back all state",
+    );
+
     const write = await fetch(`${base}/write`, { method: "POST" });
     const inserted = await write.json();
     const read = await fetch(`${base}/read`);
@@ -425,7 +749,7 @@ async function main() {
       );
     }
     console.log(
-      `PASS local Wrangler D1: migrations 0001–0010; ${detail.checks.length} API checks; state persisted across requests`,
+      `PASS local Wrangler D1: migrations 0001–0011; ${detail.checks.length} API checks; state persisted across requests`,
     );
   } finally {
     if (process.platform === "win32" && worker.pid) {

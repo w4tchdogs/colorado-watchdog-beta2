@@ -8,6 +8,13 @@ evidence are documented in [d1-readiness.md](d1-readiness.md).
 
 **Status: M2-A design, M2-B dry-run planning, M2-C commit/replay, M2-D local batch lookup/reversal, and M2-E duplicate-flag persistence are implemented.** These services remain internal: no route, ApplicationServices entry, production authorization, or hosted D1 behavior is enabled. Hosted compatibility remains unverified.
 
+M2-G1's internal asynchronous D1 planner and commit/replay implementation is
+complete and locally verified. Migration 0011 installs a database-enforced
+Website dependency generation; `src/database/d1.ts` defines the distinct
+asynchronous boundary. The engine is unregistered and defaults to deny without
+a `sync.apply` authorizer. Production synchronization, hosted D1 access and D1
+reversal remain disabled.
+
 ## M2-C local commit implementation
 
 The internal `commitSyncChangeset` accepts only the M2-B `m2-sync/v1` commit envelope, a branded active M0-C principal, and a separate bounded idempotency key. It rechecks that principal before replay and again inside the transaction using the existing privileged account check; no sync capability, role grant, transport route, or application service is added. The service is not exported through `src/services/index.ts`.
