@@ -442,16 +442,18 @@ export class BannerAssetService {
         .run(versionId);
     } else transaction();
 
-    this.database
-      .prepare(
-        "UPDATE banner_stage_operations SET state = 'staging', updated_at = ? WHERE id = ?",
-      )
-      .run(this.now(), operationId);
-    this.database
-      .prepare(
-        "UPDATE banner_asset_versions SET state = 'staging' WHERE id = ?",
-      )
-      .run(versionId);
+    if (!retryOperation) {
+      this.database
+        .prepare(
+          "UPDATE banner_stage_operations SET state = 'staging', updated_at = ? WHERE id = ?",
+        )
+        .run(this.now(), operationId);
+      this.database
+        .prepare(
+          "UPDATE banner_asset_versions SET state = 'staging' WHERE id = ?",
+        )
+        .run(versionId);
+    }
     try {
       const result = await this.storage.putIfAbsent(objectKey, input.bytes, {
         sha256: digest,
