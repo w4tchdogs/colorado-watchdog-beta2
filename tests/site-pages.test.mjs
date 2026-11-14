@@ -316,14 +316,14 @@ test("role citations show source, type, host and check date without implying dat
 test("editorial templates show only injected fixtures and never database drafts", async () => {
   await withPreview("fictional", async (preview) => {
     const stories = await get(preview, "/stories");
-    assert.equal(stories.$$(".article-card").length, 2);
+    assert.equal(stories.$$(".article-card").length, 3);
     assert.ok(
       stories
         .$$(".article-card")
         .every((c) => c.querySelector(".fictional-flag")),
     );
     const posts = await get(preview, "/posts");
-    assert.equal(posts.$$(".article-card").length, 3);
+    assert.equal(posts.$$(".article-card").length, 4);
 
     const article = await get(preview, "/stories/fictional-road-budget-review");
     assert.equal(article.status, 200);

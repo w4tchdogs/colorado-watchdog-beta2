@@ -8,6 +8,23 @@
  */
 export type EditorialType = "story" | "post";
 
+/**
+ * Community Voices pathways. A pathway is an explicit editorial
+ * classification supplied with an article. It is never derived from titles,
+ * bylines, counties or prose.
+ */
+export type EditorialPathway =
+  | "local-series"
+  | "guest-voices"
+  | "statewide-issues";
+
+/** An explicitly supplied series or topic. The slug is the filter key. */
+export interface EditorialLabel {
+  /** Lowercase letters, digits and hyphens, 1 to 60 characters. */
+  readonly slug: string;
+  readonly label: string;
+}
+
 export type ArticleBlock =
   | { readonly kind: "paragraph" | "heading" | "quote"; readonly text: string }
   | { readonly kind: "list"; readonly items: readonly string[] };
@@ -29,6 +46,13 @@ export interface EditorialArticle {
     readonly organizations: readonly { id: string; name: string }[];
   };
   readonly sources: readonly { title: string; url: string }[];
+  /**
+   * Optional presentation metadata. Absent means the article is unclassified.
+   * Unclassified articles never match a pathway, series or topic filter.
+   */
+  readonly pathway?: EditorialPathway;
+  readonly series?: EditorialLabel;
+  readonly topics?: readonly EditorialLabel[];
 }
 
 export interface EditorialSource {

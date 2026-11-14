@@ -125,6 +125,9 @@ const ARTICLES: readonly EditorialArticle[] = [
   {
     type: "story",
     slug: "fictional-road-budget-review",
+    pathway: "local-series",
+    series: { slug: "fictional-roads-series", label: "Fictional Roads Series" },
+    topics: [{ slug: "county-budgets", label: "County budgets" }],
     title: "Fictional story: how a county road budget review might be reported",
     summary:
       "A made-up long-form piece that shows headings, quotations, lists, related records and source references.",
@@ -187,6 +190,8 @@ const ARTICLES: readonly EditorialArticle[] = [
   {
     type: "story",
     slug: "fictional-health-district-explainer",
+    pathway: "statewide-issues",
+    topics: [{ slug: "regional-districts", label: "Regional districts" }],
     title:
       "Fictional story: explaining a regional district that serves two counties",
     summary:
@@ -221,6 +226,30 @@ const ARTICLES: readonly EditorialArticle[] = [
       },
     ],
   },
+  {
+    type: "story",
+    slug: "fictional-guest-perspective",
+    pathway: "guest-voices",
+    title: "Fictional story: a resident describes a permit process",
+    summary:
+      "A made-up guest piece with a pathway but no series or topic, to show how missing optional metadata is handled.",
+    date: "2026-01-11",
+    byline: "Fictional guest contributor",
+    fictional: true,
+    body: [
+      { kind: "paragraph", text: NOTE },
+      {
+        kind: "paragraph",
+        text: "A guest piece is written by someone outside the project and is labelled with the pathway editors assigned it to.",
+      },
+    ],
+    related: {
+      counties: [{ fips: "08013", name: "Boulder" }],
+      people: [],
+      organizations: [],
+    },
+    sources: [],
+  },
   ...[
     [
       "fictional-directory-update",
@@ -239,6 +268,16 @@ const ARTICLES: readonly EditorialArticle[] = [
     ],
   ].map(
     ([slug, title, date]): EditorialArticle => ({
+      ...(slug === "fictional-new-county-added"
+        ? {
+            pathway: "local-series" as const,
+            series: {
+              slug: "fictional-roads-series",
+              label: "Fictional Roads Series",
+            },
+            topics: [{ slug: "county-budgets", label: "County budgets" }],
+          }
+        : {}),
       type: "post",
       slug: String(slug),
       title: String(title),
@@ -262,6 +301,31 @@ const ARTICLES: readonly EditorialArticle[] = [
       sources: [],
     }),
   ),
+  {
+    type: "post",
+    slug: "fictional-guest-note",
+    pathway: "guest-voices",
+    topics: [{ slug: "regional-districts", label: "Regional districts" }],
+    title: "Fictional post: a guest note about a regional district",
+    summary:
+      "A made-up short guest note in Denver County, so county and pathway filters have more than one combination to test.",
+    date: "2026-01-14",
+    byline: "Fictional guest contributor",
+    fictional: true,
+    body: [
+      { kind: "paragraph", text: NOTE },
+      {
+        kind: "paragraph",
+        text: "Guest notes are short and say who wrote them.",
+      },
+    ],
+    related: {
+      counties: [{ fips: "08031", name: "Denver" }],
+      people: [],
+      organizations: [],
+    },
+    sources: [],
+  },
 ];
 
 export const fictionalEditorialSource: EditorialSource = {
