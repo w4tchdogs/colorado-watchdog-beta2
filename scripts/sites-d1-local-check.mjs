@@ -72,11 +72,15 @@ async function waitFor(url) {
 async function main() {
   const agentToken = `cwa_${"A".repeat(43)}`;
   const ownerToken = `cwa_${"O".repeat(43)}`;
+  const editorToken = `cwa_${"E".repeat(43)}`;
+  const contributorToken = `cwa_${"C".repeat(43)}`;
   const { hashCredential } = await import(
     pathToFileURL(join(root, "dist", "services", "security.js"))
   );
   const agentHash = await hashCredential(agentToken);
   const ownerHash = await hashCredential(ownerToken);
+  const editorHash = await hashCredential(editorToken);
+  const contributorHash = await hashCredential(contributorToken);
   const migrations = [
     "0001_counties.sql",
     "0002_foundation.sql",
@@ -142,6 +146,12 @@ async function main() {
       ('d1-test-owner','agent','owner','Synthetic Sites Owner');
     INSERT INTO identities (id,account_id,provider,subject,credential_hash) VALUES
       ('d1-test-owner-key','d1-test-owner','agent-key','d1-test-owner-key','${ownerHash}');
+    INSERT INTO accounts (id,kind,role,display_name) VALUES
+      ('d1-test-editor','agent','editor','Synthetic Sites Editor'),
+      ('d1-test-contributor','agent','contributor','Synthetic Sites Contributor');
+    INSERT INTO identities (id,account_id,provider,subject,credential_hash) VALUES
+      ('d1-test-editor-key','d1-test-editor','agent-key','d1-test-editor-key','${editorHash}'),
+      ('d1-test-contributor-key','d1-test-contributor','agent-key','d1-test-contributor-key','${contributorHash}');
   `,
   );
   command([
@@ -191,6 +201,39 @@ async function main() {
     assert.match(homeHtml, /64 counties/);
     assert.match(homeHtml, /data-banner-count="0"/);
 
+    const unauthorizedStaffPage = await fetch(`${base}/admin/reports`);
+    assert.equal(unauthorizedStaffPage.status, 401);
+    assert.match(
+      unauthorizedStaffPage.headers.get("cache-control") ?? "",
+      /no-store, private/,
+    );
+    assert.doesNotMatch(
+      await unauthorizedStaffPage.text(),
+      /report description|reporter@example|staff-reports\.js/,
+    );
+    const forgedStaffPage = await fetch(`${base}/admin/reports`, {
+      headers: {
+        "oai-authenticated-user-id": "forged-staff",
+        "oai-authenticated-user-email": "staff@example.test",
+      },
+    });
+    assert.equal(forgedStaffPage.status, 401);
+    for (const token of [agentToken, ownerToken, editorToken]) {
+      const authorized = await fetch(`${base}/admin/reports`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(authorized.status, 200);
+      assert.match(await authorized.text(), /staff-reports\.js/);
+      assert.match(
+        authorized.headers.get("cache-control") ?? "",
+        /no-store, private/,
+      );
+    }
+    const contributorPage = await fetch(`${base}/admin/reports`, {
+      headers: { authorization: `Bearer ${contributorToken}` },
+    });
+    assert.equal(contributorPage.status, 403);
+
     const county = await fetch(`${base}/counties/08001`);
     const countyHtml = await county.text();
     assert.equal(county.status, 200, countyHtml);
@@ -221,6 +264,8 @@ async function main() {
       ["/assets/site.js", "text/javascript"],
       ["/assets/report-interface.css", "text/css"],
       ["/assets/report-interface.js", "text/javascript"],
+      ["/assets/staff-reports.css", "text/css"],
+      ["/assets/staff-reports.js", "text/javascript"],
       ["/assets/brand-logo-white.png", "image/png"],
       ["/assets/brand-logo-white-large.png", "image/png"],
       ["/assets/brand-mascot-standing.png", "image/png"],
@@ -324,11 +369,33 @@ async function main() {
       (entry) => entry.countyId === "08001",
     );
     assert.ok(storedReport?.id);
+    assert.equal(storedReport.countyName, "Adams");
+    for (const token of [ownerToken, editorToken]) {
+      assert.equal(
+        (
+          await fetch(`${base}/api/v1/reports`, {
+            headers: { authorization: `Bearer ${token}` },
+          })
+        ).status,
+        200,
+      );
+    }
+    const contributorQueue = await fetch(`${base}/api/v1/reports`, {
+      headers: { authorization: `Bearer ${contributorToken}` },
+    });
+    assert.equal(contributorQueue.status, 403);
     const privateRead = await fetch(
       `${base}/api/v1/reports/${storedReport.id}`,
       { headers: staffHeaders },
     );
     assert.equal(privateRead.status, 200);
+    assert.match(
+      privateRead.headers.get("cache-control") ?? "",
+      /no-store, private/,
+    );
+    assert.deepEqual((await privateRead.clone().json()).allowedNextStatuses, [
+      "triage",
+    ]);
     assert.match(
       await privateRead.text(),
       /Synthetic fictional report content/,
@@ -362,6 +429,10 @@ async function main() {
       { headers: staffHeaders },
     );
     assert.equal(history.status, 200);
+    assert.match(
+      history.headers.get("cache-control") ?? "",
+      /no-store, private/,
+    );
     assert.match(await history.text(), /private synthetic staff note/);
     const publicTrackingRequest = () =>
       fetch(`${base}/api/v1/reports/track`, {
@@ -504,6 +575,10 @@ async function main() {
     assert.equal(
       (await fetch(`${base}/_internal/principal`, { headers: agentHeaders }))
         .status,
+      401,
+    );
+    assert.equal(
+      (await fetch(`${base}/api/v1/reports`, { headers: agentHeaders })).status,
       401,
     );
     assert.equal((await fetch(`${base}/assets/not-allowed.txt`)).status, 404);

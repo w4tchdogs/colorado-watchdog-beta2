@@ -53,6 +53,8 @@ export interface PublicSiteOptions {
   readonly bannerOrigins?: readonly string[];
   /** Whether a configured local fictional-report test adapter is available. */
   readonly reportSubmissionsEnabled?: boolean;
+  /** Server-side ACCT-1 check for the private staff review page. */
+  readonly reportReviewAccess?: (request: Request) => Promise<401 | 403 | null>;
 }
 
 export interface SiteContext {

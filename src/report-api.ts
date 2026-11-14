@@ -7,6 +7,7 @@ import type {
 import { ReportIntakeError } from "./contracts/report-intake.js";
 import type { ApplicationServices } from "./services/index.js";
 import {
+  getAllowedReportTransitions,
   getReportForStaff,
   submitReport,
   trackReport,
@@ -30,7 +31,11 @@ export interface ReportApiOptions {
   readonly services: Pick<
     ApplicationServices,
     "resolvePrincipal" | "hasCapability"
-  >;
+  > & {
+    readonly listCounties: () =>
+      | ReturnType<ApplicationServices["listCounties"]>
+      | Promise<ReturnType<ApplicationServices["listCounties"]>>;
+  };
   readonly store: ReportIntakeStore;
   /** Builds a request-bound store so its D1 authorization can re-resolve identity. */
   readonly storeForRequest?: (request: Request) => ReportIntakeStore;
@@ -101,7 +106,16 @@ export function createReportApiModule(options: ReportApiOptions) {
         const commit = await getReportForStaff(store, reportId, actor);
         if (!commit) return json(404, { error: "not_found" });
         if (action === "history") return json(200, { history: commit.history });
-        return json(200, { report: commit.report });
+        const counties = await options.services.listCounties();
+        return json(200, {
+          report: commit.report,
+          countyName:
+            counties.find((county) => county.fips === commit.report.countyId)
+              ?.name ?? commit.report.countyId,
+          allowedNextStatuses: getAllowedReportTransitions(
+            commit.report.status,
+          ),
+        });
       } catch (error) {
         return reportError(error);
       }
@@ -202,7 +216,16 @@ async function listing(
     { limit, after, status: status as ReportStatus | undefined },
     staffActor(principal),
   );
-  return json(200, result);
+  const counties = await options.services.listCounties();
+  return json(200, {
+    ...result,
+    reports: result.reports.map((report) => ({
+      ...report,
+      countyName:
+        counties.find((county) => county.fips === report.countyId)?.name ??
+        report.countyId,
+    })),
+  });
 }
 
 function staffActor(principal: TrustedPrincipal) {

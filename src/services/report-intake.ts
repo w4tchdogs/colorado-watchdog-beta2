@@ -20,6 +20,13 @@ const transitions: Record<ReportStatus, readonly ReportStatus[]> = {
   closed: [],
 };
 
+/** The UI may show only transitions the service already permits. */
+export function getAllowedReportTransitions(
+  status: ReportStatus,
+): readonly ReportStatus[] {
+  return transitions[status];
+}
+
 const id = (prefix: string) =>
   `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
 const digest = async (value: string) => {

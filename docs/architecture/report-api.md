@@ -16,8 +16,11 @@ identity headers.
 - `POST /api/v1/reports/track` — JSON `{reference,recoveryKey}`; returns only
   status, submitted time, and status-only public history.
 - `GET /api/v1/reports?limit=25&after=<id>&status=<status>` — staff queue,
-  capped at 100, metadata only; `next` is the exclusive ID cursor.
-- `GET /api/v1/reports/{id}` — staff-only complete private report.
+  capped at 100, metadata only, including county name; `next` is the exclusive
+  ID cursor.
+- `GET /api/v1/reports/{id}` — staff-only complete private report and the
+  county name and service-approved `allowedNextStatuses` for its current
+  status.
 - `GET /api/v1/reports/{id}/history` — staff-only review history including
   private notes and actors.
 - `PATCH /api/v1/reports/{id}/status` — JSON

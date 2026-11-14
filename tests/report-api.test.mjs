@@ -20,6 +20,9 @@ function setup(role = null, configure = true, sharedStore = null) {
   const api = createReportApiModule({
     store,
     services: {
+      async listCounties() {
+        return [];
+      },
       async resolvePrincipal() {
         return principal;
       },
@@ -173,10 +176,9 @@ test("staff queue is metadata-only and status transitions require an expected ve
     false,
   );
   const detail = await staff(`/api/v1/reports/${reportId}`);
-  assert.equal(
-    (await detail.json()).report.reporter.email,
-    "private@example.invalid",
-  );
+  const detailResult = await detail.json();
+  assert.equal(detailResult.report.reporter.email, "private@example.invalid");
+  assert.deepEqual(detailResult.allowedNextStatuses, ["triage"]);
   const transition = await staff(
     `/api/v1/reports/${reportId}/status`,
     "PATCH",

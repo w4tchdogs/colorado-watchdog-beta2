@@ -3,7 +3,7 @@ import type { ReportIntakeStore } from "./contracts/report-intake.js";
 import type { RuntimeEnvironment } from "./contracts/runtime.js";
 import { StorageUnavailableError } from "./contracts/storage.js";
 import { AsyncD1Database } from "./database/d1.js";
-import { createReportApiModule } from "./report-api.js";
+import { createReportApiModule, type ReportApiOptions } from "./report-api.js";
 import { createD1AccountServices } from "./services/d1-accounts.js";
 import { createD1PublicReadServices } from "./services/d1-public-reads.js";
 import type { ApplicationServices } from "./services/index.js";
@@ -69,7 +69,7 @@ function isLoopbackHostname(hostname: string): boolean {
 
 function reportApi(
   environment: RuntimeEnvironment,
-  services: Pick<ApplicationServices, "resolvePrincipal" | "hasCapability">,
+  services: ReportApiOptions["services"],
   database?: AsyncD1Database,
 ) {
   const testAbuseEnabled =
@@ -124,14 +124,12 @@ const worker = {
       const app = createApplication(fallback as unknown as ApplicationServices);
       const reports = reportApi(
         environment,
-        fallback as unknown as Pick<
-          ApplicationServices,
-          "resolvePrincipal" | "hasCapability"
-        >,
+        fallback as unknown as ReportApiOptions["services"],
       );
       const site = createPublicSite({
         services: fallback as unknown as PublicSiteServices,
         assets: bundledSiteAssets,
+        reportReviewAccess: async () => 401,
       });
       return createWebsite({
         application: app,
@@ -175,6 +173,13 @@ const worker = {
         services: reads,
         assets: bundledSiteAssets,
         reportSubmissionsEnabled: reports.enabled,
+        reportReviewAccess: async (request) => {
+          const principal = await services.resolvePrincipal(request);
+          if (!principal) return 401;
+          return (await services.hasCapability(principal, "report.review"))
+            ? null
+            : 403;
+        },
       });
       return createWebsite({
         application: app,

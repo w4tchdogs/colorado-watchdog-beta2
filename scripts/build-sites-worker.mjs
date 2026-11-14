@@ -21,21 +21,32 @@ await Promise.all([
   mkdir(siteBundle, { recursive: true }),
 ]);
 
-await build({
-  entryPoints: [join(root, "src", "site", "report-browser.ts")],
-  outfile: join(siteBundle, "report-interface.js"),
-  bundle: true,
-  platform: "browser",
-  format: "esm",
-  target: "es2022",
-  logLevel: "info",
-});
+await Promise.all([
+  build({
+    entryPoints: [join(root, "src", "site", "report-browser.ts")],
+    outfile: join(siteBundle, "report-interface.js"),
+    bundle: true,
+    platform: "browser",
+    format: "esm",
+    target: "es2022",
+    logLevel: "info",
+  }),
+  build({
+    entryPoints: [join(root, "src", "site", "staff-report-browser.ts")],
+    outfile: join(siteBundle, "staff-reports.js"),
+    bundle: true,
+    platform: "browser",
+    format: "esm",
+    target: "es2022",
+    logLevel: "info",
+  }),
+]);
 
 const files = (await readdir(assetsDirectory, { withFileTypes: true }))
   .filter(
     (entry) =>
       entry.isFile() &&
-      /^(?:site\.(?:css|js)|report-interface\.css|brand-[a-z-]+\.png|favicon-[a-z-]+\.png)$/.test(
+      /^(?:site\.(?:css|js)|report-interface\.css|staff-reports\.css|brand-[a-z-]+\.png|favicon-[a-z-]+\.png)$/.test(
         entry.name,
       ),
   )
@@ -56,6 +67,9 @@ const assetData = Object.fromEntries(
 );
 assetData["report-interface.js"] = (
   await readFile(join(siteBundle, "report-interface.js"))
+).toString("base64");
+assetData["staff-reports.js"] = (
+  await readFile(join(siteBundle, "staff-reports.js"))
 ).toString("base64");
 const hosting = JSON.parse(
   await readFile(join(root, ".openai", "hosting.json"), "utf8"),
