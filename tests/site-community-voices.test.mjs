@@ -301,7 +301,7 @@ test("invalid, duplicate and unknown parameters are rejected", async () => {
       `/posts?topic=${"a".repeat(61)}`,
       "/stories?county=08001&county=08069",
       "/stories?pathway=local-series&pathway=guest-voices",
-      "/stories?q=roads",
+      `/stories?q=${"x".repeat(201)}`,
       "/posts?type=story",
       "/posts?county=08001&unknown=1",
       "/stories/fictional-road-budget-review?pathway=local-series",
@@ -580,4 +580,118 @@ test("stylesheet is namespaced, allowlisted, bundled and CSP-safe", async () => 
     "utf8",
   );
   assert.ok(worker.includes('"community-voices.css"'));
+});
+
+test("Stories and Posts search published presentation text with combined filters", async () => {
+  await withPreview("fictional", async (preview) => {
+    const title = await get(preview, "/stories?q=%20ROAD%20BUDGET%20");
+    assert.deepEqual(slugs(title), ["fictional-road-budget-review"]);
+    assert.equal(count(title), "1 story matches “ROAD BUDGET”.");
+    assert.equal(title.$("#cv-filter-q").value, "ROAD BUDGET");
+
+    const body = await get(preview, "/stories?q=absence%20from%20a%20record");
+    assert.deepEqual(slugs(body), ["fictional-road-budget-review"]);
+    const summary = await get(preview, "/stories?q=regional%20organization");
+    assert.deepEqual(slugs(summary), ["fictional-health-district-explainer"]);
+    const sourceTitle = await get(
+      preview,
+      "/stories?q=board%20meeting%20minutes",
+    );
+    assert.deepEqual(slugs(sourceTitle), ["fictional-road-budget-review"]);
+
+    const combined = await get(
+      preview,
+      "/stories?county=08001&pathway=local-series&series=fictional-roads-series&topic=county-budgets&q=road",
+    );
+    assert.deepEqual(slugs(combined), ["fictional-road-budget-review"]);
+    const narrowed = await get(preview, "/stories?county=08069&q=road");
+    assert.deepEqual(slugs(narrowed), []);
+    assert.match(
+      narrowed.$(".empty-state").textContent,
+      /No published stories match “road”/,
+    );
+    assert.equal(narrowed.$(".cv-count").getAttribute("role"), "status");
+
+    const posts = await get(preview, "/posts?q=records%20added");
+    assert.deepEqual(slugs(posts), ["fictional-new-county-added"]);
+    assert.equal(count(posts), "1 post matches “records added”.");
+    const noCrossType = await get(preview, "/posts?q=regional%20organization");
+    assert.deepEqual(slugs(noCrossType), []);
+
+    const typeLink = combined.$('.cv-types a[href^="/posts"]');
+    assert.ok(typeLink.getAttribute("href").includes("q=road"));
+    const pathwayLink = combined.$(".cv-pathway-link");
+    assert.ok(pathwayLink.getAttribute("href").includes("q=road"));
+  });
+});
+
+test("search normalization, literal Unicode and duplicate results are safe", async () => {
+  const article = {
+    type: "story",
+    slug: "unicode-story",
+    title: "Café: roads & records",
+    summary: "Public summary",
+    date: "2026-02-01",
+    byline: "Public byline",
+    fictional: true,
+    body: [{ kind: "paragraph", text: "Body-only searchable phrase." }],
+    related: { counties: [], people: [], organizations: [] },
+    sources: [],
+  };
+  assert.deepEqual(filterArticles([article, article], { q: "CAFÉ: ROADS" }), [
+    article,
+  ]);
+  assert.deepEqual(filterArticles([article], { q: "cafe\u0301: roads" }), [
+    article,
+  ]);
+  assert.deepEqual(filterArticles([article], { q: "summary" }), [article]);
+  assert.deepEqual(filterArticles([article], { q: "body-only" }), [article]);
+  assert.deepEqual(filterArticles([article], { q: "roads & records" }), [
+    article,
+  ]);
+  assert.equal(
+    parseEditorialFilters(new URLSearchParams("q=%20%20"))?.q,
+    undefined,
+  );
+  assert.equal(
+    parseEditorialFilters(new URLSearchParams(`q=${"x".repeat(201)}`)),
+    null,
+  );
+
+  await withPreview("fictional", async (preview) => {
+    const page = await get(
+      preview,
+      "/stories?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E",
+    );
+    assert.equal(page.status, 200);
+    assert.equal(page.$("#cv-filter-q").value, "<script>alert(1)</script>");
+    assert.doesNotMatch(page.$("#cv-filter-q").outerHTML, /<script>/);
+    assert.deepEqual(slugs(await get(preview, "/stories?q=%20%20")), [
+      "fictional-road-budget-review",
+      "fictional-guest-perspective",
+      "fictional-health-district-explainer",
+    ]);
+    const queryPlusFilter = await get(preview, "/stories?county=08001&q=road");
+    const clearSearch = queryPlusFilter.$(
+      '.cv-filter-actions a[href*="county="]',
+    );
+    assert.equal(clearSearch.textContent, "Clear search");
+    assert.equal(
+      clearSearch.getAttribute("href"),
+      "/stories?county=08001#cv-results",
+    );
+    assert.equal(
+      queryPlusFilter.$("#cv-filter-q").getAttribute("maxlength"),
+      "200",
+    );
+    assert.equal(
+      queryPlusFilter.$("#cv-filter-q").getAttribute("type"),
+      "search",
+    );
+    assert.ok(queryPlusFilter.$('label[for="cv-filter-q"]'));
+    assert.equal(
+      queryPlusFilter.$("form.cv-filters").getAttribute("method"),
+      "get",
+    );
+  });
 });
