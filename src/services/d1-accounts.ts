@@ -374,7 +374,7 @@ export function createD1AccountServices(
         assertOneChange(`account:${id}`),
       ],
       operationId,
-      "account.role.change",
+      "account.change_role",
     );
     return version;
   }
