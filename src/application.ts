@@ -1,3 +1,4 @@
+import { createAccountAdminModule } from "./account-admin.js";
 import {
   type DirectoryPageRequest,
   MAX_DIRECTORY_PAGE_SIZE,
@@ -22,6 +23,7 @@ const LIVE_PATH = "/_internal/live";
 const READY_PATH = "/_internal/ready";
 const PRINCIPAL_PATH = "/_internal/principal";
 const ACCOUNTS_PATH = "/api/accounts";
+const SELF_ACCOUNT_PATH = "/api/me";
 const PEOPLE_COLLECTION_PATH = "/api/people";
 const ORGANIZATIONS_COLLECTION_PATH = "/api/organizations";
 const COUNTY_OVERVIEW_PATH = /^\/api\/counties\/([^/]+)$/;
@@ -32,9 +34,15 @@ const ORGANIZATION_PROFILE_PATH = /^\/api\/organizations(?:\/([^/]*))?$/;
 const ORGANIZATION_ROLES_PATH = /^\/api\/organizations\/([^/]+)\/roles$/;
 
 export function createApplication(services: ApplicationServices) {
+  const accountAdmin = createAccountAdminModule(services);
   return {
     async fetch(request: Request): Promise<Response> {
       try {
+        if (
+          new URL(request.url).pathname.startsWith("/admin/accounts") ||
+          new URL(request.url).pathname.startsWith("/api/admin/accounts")
+        )
+          return await accountAdmin.fetch(request);
         return await dispatch(request, services);
       } catch {
         return jsonResponse(500, { error: "internal_error" });
@@ -79,6 +87,7 @@ async function dispatch(
       READY_PATH,
       PRINCIPAL_PATH,
       ACCOUNTS_PATH,
+      SELF_ACCOUNT_PATH,
     ].includes(pathname) &&
     !peopleCollection &&
     !organizationsCollection &&
@@ -214,6 +223,12 @@ async function dispatch(
         kind: principal.kind,
         role: principal.role,
       });
+    }
+    if (pathname === SELF_ACCOUNT_PATH) {
+      const principal = await services.resolvePrincipal(request);
+      if (!principal)
+        return jsonResponse(401, { error: "authentication_required" });
+      return jsonResponse(200, { ...services.getOwnAccount(principal) });
     }
     if (directoryResource && directoryRequest) {
       const page =

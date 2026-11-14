@@ -5,6 +5,7 @@ import {
   type AccountKind,
   type AccountRole,
   createAgentCredential,
+  isCurrentPrincipal,
   newId,
   requireCapability,
   type TrustedPrincipal,
@@ -24,6 +25,39 @@ export interface AccountSummary {
   readonly status: "active" | "disabled";
   readonly displayName: string;
   readonly version: number;
+}
+
+export interface AccountFilter {
+  readonly query?: string;
+  readonly kind?: AccountKind;
+  readonly role?: AccountRole;
+  readonly status?: "active" | "disabled";
+  readonly limit?: number;
+  readonly afterId?: string;
+}
+
+export interface AccountDetails extends AccountSummary {
+  readonly email: string | null;
+  readonly preferences: Readonly<Record<string, unknown>>;
+  readonly identities: ReadonlyArray<{
+    readonly id: string;
+    readonly provider: string;
+    readonly subject: string;
+    readonly expiresAt: string | null;
+    readonly revokedAt: string | null;
+    readonly version: number;
+  }>;
+}
+
+const MAX_ACCOUNT_PAGE_SIZE = 100;
+
+/** A signed-in account may inspect its own profile; administrators may inspect any. */
+export function getOwnAccount(
+  database: WebsiteDatabase,
+  principal: TrustedPrincipal,
+): AccountSummary {
+  if (!isCurrentPrincipal(database, principal)) throw new InvalidInputError();
+  return getAccountRow(database, principal.accountId);
 }
 
 export function getAccount(
@@ -61,6 +95,146 @@ export function getAccount(
   };
 }
 
+export function getAccountDetails(
+  database: WebsiteDatabase,
+  principal: TrustedPrincipal,
+  id: string,
+): AccountDetails | null {
+  requireCapability(database, principal, "account.read");
+  const row = database
+    .prepare(
+      `SELECT id, kind, role, status, display_name, email, preferences, version FROM accounts WHERE id = ?`,
+    )
+    .get(id);
+  if (!row) return null;
+  const summary = parseAccountSummary(row);
+  let preferences: unknown;
+  try {
+    preferences = JSON.parse(String(row.preferences));
+  } catch {
+    throw new Error("Invalid account preferences");
+  }
+  if (
+    !preferences ||
+    typeof preferences !== "object" ||
+    Array.isArray(preferences)
+  )
+    throw new Error("Invalid account preferences");
+  const identities = database
+    .prepare(
+      `SELECT id, provider, subject, expires_at, revoked_at, version FROM identities WHERE account_id = ? ORDER BY created_at, id`,
+    )
+    .all(id)
+    .map((identity) => ({
+      id: String(identity.id),
+      provider: String(identity.provider),
+      subject: String(identity.subject),
+      expiresAt:
+        identity.expires_at === null ? null : String(identity.expires_at),
+      revokedAt:
+        identity.revoked_at === null ? null : String(identity.revoked_at),
+      version: Number(identity.version),
+    }));
+  return {
+    ...summary,
+    email: row.email === null ? null : String(row.email),
+    preferences: preferences as Record<string, unknown>,
+    identities,
+  };
+}
+
+export function listAccounts(
+  database: WebsiteDatabase,
+  principal: TrustedPrincipal,
+  filter: AccountFilter = {},
+) {
+  requireCapability(database, principal, "account.read");
+  const limit = filter.limit ?? 50;
+  if (
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > MAX_ACCOUNT_PAGE_SIZE ||
+    (filter.query !== undefined &&
+      (filter.query.trim().length < 1 || filter.query.length > 100)) ||
+    (filter.kind !== undefined &&
+      filter.kind !== "human" &&
+      filter.kind !== "agent") ||
+    (filter.role !== undefined && !isRole(filter.role)) ||
+    (filter.status !== undefined &&
+      filter.status !== "active" &&
+      filter.status !== "disabled") ||
+    (filter.afterId !== undefined &&
+      (filter.afterId.length < 1 || filter.afterId.length > 128))
+  )
+    throw new InvalidInputError();
+  const conditions: string[] = [];
+  const args: (string | number)[] = [];
+  if (filter.query) {
+    conditions.push(
+      "(display_name LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')",
+    );
+    const q = `%${filter.query.trim().replace(/[\\%_]/g, "\\$&")}%`;
+    args.push(q, q);
+  }
+  if (filter.kind) {
+    conditions.push("kind = ?");
+    args.push(filter.kind);
+  }
+  if (filter.role) {
+    conditions.push("role = ?");
+    args.push(filter.role);
+  }
+  if (filter.status) {
+    conditions.push("status = ?");
+    args.push(filter.status);
+  }
+  if (filter.afterId) {
+    conditions.push("id > ?");
+    args.push(filter.afterId);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const rows = database
+    .prepare(
+      `SELECT id, kind, role, status, display_name, version FROM accounts ${where} ORDER BY id LIMIT ?`,
+    )
+    .all(...args, limit + 1);
+  const hasMore = rows.length > limit;
+  return {
+    accounts: rows.slice(0, limit).map(parseAccountSummary),
+    nextAfterId: hasMore ? String(rows[limit - 1]?.id) : null,
+  };
+}
+
+function getAccountRow(database: WebsiteDatabase, id: string): AccountSummary {
+  const row = database
+    .prepare(
+      "SELECT id, kind, role, status, display_name, version FROM accounts WHERE id = ?",
+    )
+    .get(id);
+  if (!row) throw new InvalidInputError();
+  return parseAccountSummary(row);
+}
+
+function parseAccountSummary(row: Record<string, unknown>): AccountSummary {
+  if (
+    typeof row.id !== "string" ||
+    (row.kind !== "human" && row.kind !== "agent") ||
+    !isRole(row.role) ||
+    (row.status !== "active" && row.status !== "disabled") ||
+    typeof row.display_name !== "string" ||
+    typeof row.version !== "number"
+  )
+    throw new Error("Invalid account record");
+  return {
+    id: row.id,
+    kind: row.kind,
+    role: row.role,
+    status: row.status,
+    displayName: row.display_name,
+    version: row.version,
+  };
+}
+
 export class InvalidInputError extends Error {
   constructor() {
     super("Invalid account or identity input");
@@ -76,6 +250,8 @@ export function createAccount(
 ): AccountSummary {
   requireCapability(database, principal, "account.create");
   validateAccountInput(input);
+  if (input.kind === "agent" && input.role === "owner")
+    throw new InvalidInputError();
   if (input.role === "owner" || input.role === "administrator") {
     requireCapability(database, principal, "account.change_role");
   }
@@ -135,11 +311,12 @@ export function updateAccount(
     readonly displayName?: string;
     readonly email?: string | null;
     readonly status?: "active" | "disabled";
+    readonly preferences?: Readonly<Record<string, unknown>>;
   },
   operationId?: string,
 ): number {
   requireCapability(database, principal, "account.update");
-  const values: Record<string, string | null> = {};
+  const values: Record<string, string | number | null> = {};
   if (changes.displayName !== undefined) {
     if (!changes.displayName.trim()) {
       throw new InvalidInputError();
@@ -161,6 +338,16 @@ export function updateAccount(
     }
     values.status = changes.status;
   }
+  if (changes.preferences !== undefined) {
+    if (
+      !changes.preferences ||
+      typeof changes.preferences !== "object" ||
+      Array.isArray(changes.preferences) ||
+      JSON.stringify(changes.preferences).length > 4096
+    )
+      throw new InvalidInputError();
+    values.preferences = JSON.stringify(changes.preferences);
+  }
   if (Object.keys(values).length === 0) {
     throw new InvalidInputError();
   }
@@ -177,7 +364,7 @@ export function updateAccount(
     },
     () => {
       const current = database
-        .prepare("SELECT role, status FROM accounts WHERE id = ?")
+        .prepare("SELECT role, status, kind FROM accounts WHERE id = ?")
         .get(id);
       if (!current) {
         throw new InvalidInputError();
@@ -187,7 +374,7 @@ export function updateAccount(
         current.status === "active" &&
         values.status === "disabled"
       ) {
-        ensureAnotherActiveOwner(database);
+        ensureAnotherActiveOwner(database, id);
       }
       return updateVersionedRow(
         database,
@@ -224,17 +411,19 @@ export function changeAccountRole(
     },
     () => {
       const current = database
-        .prepare("SELECT role, status FROM accounts WHERE id = ?")
+        .prepare("SELECT role, status, kind FROM accounts WHERE id = ?")
         .get(id);
       if (!current) {
         throw new InvalidInputError();
       }
+      if (role === "owner" && current.kind !== "human")
+        throw new InvalidInputError();
       if (
         current.role === "owner" &&
         current.status === "active" &&
         role !== "owner"
       ) {
-        ensureAnotherActiveOwner(database);
+        ensureAnotherActiveOwner(database, id);
       }
       return updateVersionedRow(database, "accounts", id, expectedVersion, {
         role,
@@ -252,6 +441,9 @@ export function createHumanIdentity(
   operationId?: string,
 ): string {
   requireCapability(database, principal, "identity.create");
+  // Identity attachment grants control of the target account. Only an owner can
+  // attach a provider subject, and existing provider subjects cannot be relinked.
+  requireCapability(database, principal, "account.change_role");
   if (!provider.trim() || provider === "agent-key" || !subject.trim()) {
     throw new InvalidInputError();
   }
@@ -273,6 +465,14 @@ export function createHumanIdentity(
       if (account?.kind !== "human") {
         throw new InvalidInputError();
       }
+      if (
+        database
+          .prepare(
+            "SELECT 1 FROM identities WHERE provider = ? AND subject = ?",
+          )
+          .get(provider, subject)
+      )
+        throw new InvalidInputError();
       database
         .prepare(
           `INSERT INTO identities (id, account_id, provider, subject)
@@ -353,10 +553,29 @@ export function revokeIdentity(
     },
     () => {
       const current = database
-        .prepare("SELECT revoked_at FROM identities WHERE id = ?")
+        .prepare(
+          `SELECT i.revoked_at, i.account_id, a.kind, a.role, a.status
+           FROM identities i JOIN accounts a ON a.id = i.account_id WHERE i.id = ?`,
+        )
         .get(identityId);
       if (!current || current.revoked_at !== null) {
         throw new InvalidInputError();
+      }
+      if (
+        current.kind === "human" &&
+        current.role === "owner" &&
+        current.status === "active"
+      ) {
+        const otherIdentityCount = database
+          .prepare(
+            `SELECT COUNT(*) AS count FROM identities
+             WHERE account_id = ? AND id <> ? AND provider <> 'agent-key'
+               AND revoked_at IS NULL
+               AND (expires_at IS NULL OR expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+          )
+          .get(String(current.account_id), identityId)?.count;
+        if (otherIdentityCount === 0)
+          ensureAnotherActiveOwner(database, String(current.account_id));
       }
       return updateVersionedRow(
         database,
@@ -398,13 +617,20 @@ function parseFutureExpiry(
   return new Date(timestamp).toISOString();
 }
 
-function ensureAnotherActiveOwner(database: WebsiteDatabase): void {
+function ensureAnotherActiveOwner(
+  database: WebsiteDatabase,
+  excludingId: string,
+): void {
   const count = database
     .prepare(
-      "SELECT COUNT(*) AS count FROM accounts WHERE role = 'owner' AND status = 'active'",
+      `SELECT COUNT(*) AS count FROM accounts a
+       WHERE a.id <> ? AND a.role = 'owner' AND a.kind = 'human' AND a.status = 'active'
+         AND EXISTS (SELECT 1 FROM identities i WHERE i.account_id = a.id
+           AND i.provider <> 'agent-key' AND i.revoked_at IS NULL
+           AND (i.expires_at IS NULL OR i.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))`,
     )
-    .get()?.count;
-  if (typeof count !== "number" || count <= 1) {
+    .get(excludingId)?.count;
+  if (typeof count !== "number" || count < 1) {
     throw new InvalidInputError();
   }
 }

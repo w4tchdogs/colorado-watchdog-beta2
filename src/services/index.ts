@@ -11,11 +11,15 @@ import type { StorageProbe } from "../contracts/storage.js";
 import { StorageUnavailableError } from "../contracts/storage.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
 import {
+  type AccountFilter,
   changeAccountRole,
   createAccount,
   createHumanIdentity,
   getAccount,
+  getAccountDetails,
+  getOwnAccount,
   issueAgentCredential,
+  listAccounts,
   type NewAccount,
   revokeIdentity,
   updateAccount,
@@ -77,6 +81,15 @@ export interface ApplicationServices {
     principal: TrustedPrincipal,
     id: string,
   ): ReturnType<typeof getAccount>;
+  getOwnAccount(principal: TrustedPrincipal): ReturnType<typeof getOwnAccount>;
+  getAccountDetails(
+    principal: TrustedPrincipal,
+    id: string,
+  ): ReturnType<typeof getAccountDetails>;
+  listAccounts(
+    principal: TrustedPrincipal,
+    filter?: AccountFilter,
+  ): ReturnType<typeof listAccounts>;
   updateAccount(
     principal: TrustedPrincipal,
     id: string,
@@ -202,6 +215,15 @@ export function createServices(
     },
     getAccount(principal, id) {
       return getAccount(requireDatabase(), principal, id);
+    },
+    getOwnAccount(principal) {
+      return getOwnAccount(requireDatabase(), principal);
+    },
+    getAccountDetails(principal, id) {
+      return getAccountDetails(requireDatabase(), principal, id);
+    },
+    listAccounts(principal, filter) {
+      return listAccounts(requireDatabase(), principal, filter);
     },
     updateAccount(principal, id, expectedVersion, changes, operationId) {
       return updateAccount(

@@ -5,6 +5,7 @@ import { migrateWebsiteDatabase } from "../dist/database/migrations.js";
 import { openWebsiteDatabase } from "../dist/database/sqlite.js";
 import { createLocalStorageProbe } from "../dist/local/storage-probe.js";
 import { createServices } from "../dist/services/index.js";
+import { createTestHumanIdentityAdapter } from "../dist/services/security.js";
 
 const host = "127.0.0.1";
 const port = Number(process.env.PORT ?? 8787);
@@ -17,10 +18,32 @@ const database = await openWebsiteDatabase(
   process.env.DATABASE_PATH ?? ":memory:",
 );
 migrateWebsiteDatabase(database);
+const syntheticAuth = process.env.ENABLE_SYNTHETIC_AUTH === "1";
+if (syntheticAuth) {
+  database
+    .prepare(
+      `INSERT OR IGNORE INTO accounts (id, kind, role, display_name)
+       VALUES ('local-synthetic-owner', 'human', 'owner', 'Local Synthetic Owner')`,
+    )
+    .run();
+  database
+    .prepare(
+      `INSERT OR IGNORE INTO identities (id, account_id, provider, subject)
+       VALUES ('local-synthetic-owner-identity', 'local-synthetic-owner', 'test-human', 'local-owner')`,
+    )
+    .run();
+}
 const application = createApplication(
   createServices({
     database,
     storage: createLocalStorageProbe(database),
+    ...(syntheticAuth
+      ? {
+          humanIdentityAdapter: createTestHumanIdentityAdapter({
+            local: "local-owner",
+          }),
+        }
+      : {}),
   }),
 );
 
@@ -47,6 +70,7 @@ const server = createServer(async (incoming, outgoing) => {
         headers.append(name, entry);
       }
     }
+    if (syntheticAuth) headers.set("x-test-human-subject", "local");
     const hasBody = method !== "GET" && method !== "HEAD";
     const request = new Request(
       `http://${host}:${port}${incoming.url ?? "/"}`,
@@ -74,6 +98,11 @@ server.listen(port, host, () => {
   console.log(
     `Local Worker-compatible harness listening at http://${host}:${port} (SQLite: ${process.env.DATABASE_PATH ?? "in-memory"})`,
   );
+  if (syntheticAuth) {
+    console.log(
+      "Synthetic local owner enabled; do not use this mode outside localhost development.",
+    );
+  }
 });
 
 let databaseClosed = false;
