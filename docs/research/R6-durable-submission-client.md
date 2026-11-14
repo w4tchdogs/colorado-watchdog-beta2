@@ -25,6 +25,9 @@ claim state are not rewritten by this module. Website and Profiles databases
 remain separate. Existing local `sync_batches`/`sync_items` remain distinct
 from the new submission-request ledger.
 
+R7 adds the bounded local generator and receipt mapping on top of this client;
+see [R7 Profiles-to-Website integration](R7-profiles-website-integration.md).
+
 Tests use temporary fictional databases and injected callbacks only. They cover
 upgrade from a populated schema at migration 001, persistence before send,
 restart/retry after uncertain delivery, exact payload and key reuse, canonical
