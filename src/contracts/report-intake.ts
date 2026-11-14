@@ -9,7 +9,11 @@ export type ReportStatus =
 
 export type ReportActor =
   | { kind: "reporter"; accountId?: string }
-  | { kind: "staff"; accountId: string; role: "editor" | "administrator" };
+  | {
+      kind: "staff";
+      accountId: string;
+      role: "editor" | "administrator" | "owner";
+    };
 
 export interface ReportSubmission {
   countyId: string;
@@ -72,6 +76,11 @@ export interface IntakeCommit {
   audit: ReportAuditEvent[];
 }
 
+export type ReportQueueItem = Pick<
+  ReportRecord,
+  "id" | "countyId" | "subject" | "status" | "version" | "createdAt"
+>;
+
 export interface ReportIntakeStore {
   validateReferences(input: {
     countyId: string;
@@ -104,6 +113,17 @@ export interface ReportIntakeStore {
     history: ReportStatusEvent;
     audit: ReportAuditEvent;
   }): Promise<boolean>;
+  listPrivate(
+    input: {
+      limit: number;
+      after?: string;
+      status?: ReportStatus;
+    },
+    actor: Extract<ReportActor, { kind: "staff" }>,
+  ): Promise<{
+    reports: ReportQueueItem[];
+    next: string | null;
+  }>;
 }
 
 export type ReportIntakeErrorCode =

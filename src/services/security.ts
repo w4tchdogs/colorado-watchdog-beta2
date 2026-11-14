@@ -16,7 +16,8 @@ export type Capability =
   | "sync.read"
   | "sync.apply"
   | "sync.revert"
-  | "banner.manage";
+  | "banner.manage"
+  | "report.review";
 
 export type AccountKind = "human" | "agent";
 export type AccountRole = "contributor" | "editor" | "administrator" | "owner";
@@ -54,7 +55,7 @@ const ROLE_CAPABILITIES: Readonly<
   Record<AccountRole, readonly Exclude<Capability, "checkpoint.prune">[]>
 > = {
   contributor: [],
-  editor: [],
+  editor: ["report.review"],
   administrator: [
     "account.read",
     "account.create",
@@ -67,6 +68,7 @@ const ROLE_CAPABILITIES: Readonly<
     "checkpoint.verify",
     "checkpoint.read",
     "banner.manage",
+    "report.review",
   ],
   owner: [
     "account.read",
@@ -81,6 +83,7 @@ const ROLE_CAPABILITIES: Readonly<
     "checkpoint.verify",
     "checkpoint.read",
     "banner.manage",
+    "report.review",
   ],
 };
 

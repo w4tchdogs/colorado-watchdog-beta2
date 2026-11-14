@@ -2,6 +2,7 @@ import type {
   IntakeCommit,
   ReportAuditEvent,
   ReportIntakeStore,
+  ReportQueueItem,
   ReportReceipt,
   ReportRecord,
   ReportStatusEvent,
@@ -25,7 +26,7 @@ export class D1ReportIntakeStore implements ReportIntakeStore {
     private readonly authorizeStaff: (actor: {
       kind: "staff";
       accountId: string;
-      role: "editor" | "administrator";
+      role: "editor" | "administrator" | "owner";
     }) => Promise<boolean>,
   ) {}
 
@@ -135,7 +136,7 @@ export class D1ReportIntakeStore implements ReportIntakeStore {
     actor: {
       kind: "staff";
       accountId: string;
-      role: "editor" | "administrator";
+      role: "editor" | "administrator" | "owner";
     },
   ): Promise<IntakeCommit | undefined> {
     if (!(await this.authorizeStaff(actor)))
@@ -166,7 +167,7 @@ export class D1ReportIntakeStore implements ReportIntakeStore {
     actor: {
       kind: "staff";
       accountId: string;
-      role: "editor" | "administrator";
+      role: "editor" | "administrator" | "owner";
     };
     expectedVersion: number;
     next: ReportRecord;
@@ -192,6 +193,51 @@ export class D1ReportIntakeStore implements ReportIntakeStore {
     } catch {
       return false;
     }
+  }
+
+  async listPrivate(
+    input: { limit: number; after?: string; status?: ReportRecord["status"] },
+    actor: {
+      kind: "staff";
+      accountId: string;
+      role: "editor" | "administrator" | "owner";
+    },
+  ): Promise<{ reports: ReportQueueItem[]; next: string | null }> {
+    if (!(await this.authorizeStaff(actor)))
+      throw new ReportIntakeError("NOT_FOUND");
+    const rows = await this.db.all<Row>(
+      `SELECT id, county_fips, subject_kind, subject_id, status, version, created_at
+       FROM reports
+       WHERE (? IS NULL OR status = ?) AND (? IS NULL OR id > ?)
+       ORDER BY id`,
+      input.limit + 1,
+      [
+        input.status ?? null,
+        input.status ?? null,
+        input.after ?? null,
+        input.after ?? null,
+      ],
+    );
+    const more = rows.length > input.limit;
+    const page = rows.slice(0, input.limit);
+    return {
+      reports: page.map((row) => ({
+        id: String(row.id),
+        countyId: String(row.county_fips),
+        ...(row.subject_kind === null
+          ? {}
+          : {
+              subject: {
+                kind: row.subject_kind as "person" | "organization",
+                id: String(row.subject_id),
+              },
+            }),
+        status: row.status as ReportRecord["status"],
+        version: Number(row.version),
+        createdAt: String(row.created_at),
+      })),
+      next: more ? String(page.at(-1)?.id) : null,
+    };
   }
 
   private async replay(

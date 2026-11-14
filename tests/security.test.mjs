@@ -20,17 +20,19 @@ async function createFixture() {
   database
     .prepare(
       `INSERT INTO accounts (id, kind, role, display_name) VALUES
-         ('synthetic-owner', 'human', 'owner', 'Synthetic Owner'),
-         ('synthetic-admin', 'human', 'administrator', 'Synthetic Admin'),
-         ('synthetic-contributor', 'human', 'contributor', 'Synthetic Contributor')`,
+          ('synthetic-owner', 'human', 'owner', 'Synthetic Owner'),
+          ('synthetic-admin', 'human', 'administrator', 'Synthetic Admin'),
+          ('synthetic-editor', 'human', 'editor', 'Synthetic Editor'),
+          ('synthetic-contributor', 'human', 'contributor', 'Synthetic Contributor')`,
     )
     .run();
   database
     .prepare(
       `INSERT INTO identities (id, account_id, provider, subject) VALUES
-         ('identity-owner', 'synthetic-owner', 'test-human', 'subject-owner'),
-         ('identity-admin', 'synthetic-admin', 'test-human', 'subject-admin'),
-         ('identity-contributor', 'synthetic-contributor', 'test-human', 'subject-contributor')`,
+          ('identity-owner', 'synthetic-owner', 'test-human', 'subject-owner'),
+          ('identity-admin', 'synthetic-admin', 'test-human', 'subject-admin'),
+          ('identity-editor', 'synthetic-editor', 'test-human', 'subject-editor'),
+          ('identity-contributor', 'synthetic-contributor', 'test-human', 'subject-contributor')`,
     )
     .run();
 
@@ -40,6 +42,7 @@ async function createFixture() {
     humanIdentityAdapter: createTestHumanIdentityAdapter({
       "owner-login": "subject-owner",
       "admin-login": "subject-admin",
+      "editor-login": "subject-editor",
       "contributor-login": "subject-contributor",
     }),
     now: () => now,
@@ -124,6 +127,26 @@ test("human sign-in resolves one account and capability checks deny unknown and 
         }),
       ),
       null,
+    );
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("report review is explicitly granted only to editor, administrator, and owner", async () => {
+  const fixture = await createFixture();
+  try {
+    const principals = await Promise.all([
+      fixture.principalFor("contributor-login"),
+      fixture.principalFor("editor-login"),
+      fixture.principalFor("admin-login"),
+      fixture.principalFor("owner-login"),
+    ]);
+    assert.deepEqual(
+      principals.map((principal) =>
+        fixture.services.hasCapability(principal, "report.review"),
+      ),
+      [false, true, true, true],
     );
   } finally {
     await fixture.close();
