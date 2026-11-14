@@ -30,6 +30,7 @@ const migrations = [
   "0009_content_foundation.sql",
   "0010_content_revisions.sql",
   "0011_m2_dependency_generation.sql",
+  "0012_banner_assets.sql",
 ];
 
 function runWrangler(args) {
@@ -252,7 +253,7 @@ async function main() {
     "--persist-to",
     freshPersist,
     "--command",
-    `SELECT CASE WHEN (SELECT COUNT(*) FROM schema_migrations) = 11 AND ${historyChecks} AND (SELECT COUNT(*) FROM content_revisions) = 0 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('content_items','content_item_counties','content_item_people','content_item_organizations','content_revisions')) = 5 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='content_revisions_editor') = 1 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('content_revisions_no_update','content_revisions_no_delete','content_revisions_match_current')) = 3 AND (SELECT generation FROM website_dependency_generation WHERE id = 1) = 0 THEN 'PASS fresh migration history, checksums, schema, and empty baseline' ELSE 'FAIL fresh migration verification' END AS result;`,
+    `SELECT CASE WHEN (SELECT COUNT(*) FROM schema_migrations) = 12 AND ${historyChecks} AND (SELECT COUNT(*) FROM content_revisions) = 0 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('content_items','content_item_counties','content_item_people','content_item_organizations','content_revisions')) = 5 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('banner_assets','banner_asset_versions','banner_stage_operations')) = 3 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='content_revisions_editor') = 1 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('content_revisions_no_update','content_revisions_no_delete','content_revisions_match_current')) = 3 AND (SELECT generation FROM website_dependency_generation WHERE id = 1) = 0 THEN 'PASS fresh migration history, checksums, schema, and empty baseline' ELSE 'FAIL fresh migration verification' END AS result;`,
   ]);
   if (!freshOutput.includes("PASS fresh migration history")) {
     throw new Error(`Fresh local D1 verification failed:\n${freshOutput}`);
@@ -749,7 +750,7 @@ async function main() {
       );
     }
     console.log(
-      `PASS local Wrangler D1: migrations 0001–0011; ${detail.checks.length} API checks; state persisted across requests`,
+      `PASS local Wrangler D1: migrations 0001–0012; ${detail.checks.length} API checks; state persisted across requests`,
     );
   } finally {
     if (process.platform === "win32" && worker.pid) {

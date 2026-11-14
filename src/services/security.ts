@@ -15,7 +15,8 @@ export type Capability =
   | "checkpoint.prune"
   | "sync.read"
   | "sync.apply"
-  | "sync.revert";
+  | "sync.revert"
+  | "banner.manage";
 
 export type AccountKind = "human" | "agent";
 export type AccountRole = "contributor" | "editor" | "administrator" | "owner";
@@ -63,6 +64,7 @@ const ROLE_CAPABILITIES: Readonly<
     "checkpoint.create",
     "checkpoint.verify",
     "checkpoint.read",
+    "banner.manage",
   ],
   owner: [
     "account.read",
@@ -76,6 +78,7 @@ const ROLE_CAPABILITIES: Readonly<
     "checkpoint.create",
     "checkpoint.verify",
     "checkpoint.read",
+    "banner.manage",
   ],
 };
 
