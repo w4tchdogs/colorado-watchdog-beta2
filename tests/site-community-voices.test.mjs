@@ -7,16 +7,16 @@ import { createServices } from "../dist/services/index.js";
 import {
   articleTags,
   filterArticles,
-  parseEditorialFilters,
   PATHWAYS,
+  parseEditorialFilters,
 } from "../dist/site/community-voices.js";
 import { emptyEditorialSource } from "../dist/site/editorial-source.js";
 import { createPublicSite } from "../dist/site/index.js";
 import {
   FIXED_NOW,
   get,
-  siteAssets,
   STATIC_DIRECTORY,
+  siteAssets,
   withPreview,
 } from "./site-fixtures.mjs";
 

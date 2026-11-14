@@ -1,13 +1,4 @@
 import {
-  citation,
-  countyLink,
-  emptyState,
-  eyebrow,
-  organizationLink,
-  pageHeader,
-  personLink,
-} from "../components.js";
-import {
   articleTags,
   COMMUNITY_VOICES_HEAD,
   contentTypeNav,
@@ -19,6 +10,15 @@ import {
   pathwayCards,
   resultSummary,
 } from "../community-voices.js";
+import {
+  citation,
+  countyLink,
+  emptyState,
+  eyebrow,
+  organizationLink,
+  pageHeader,
+  personLink,
+} from "../components.js";
 import type {
   ArticleBlock,
   EditorialArticle,
