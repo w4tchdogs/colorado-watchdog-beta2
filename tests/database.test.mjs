@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
   loadWebsiteMigrations,
   migrateWebsiteDatabase,
+  migrationChecksum,
 } from "../dist/database/migrations.js";
 import { openWebsiteDatabase } from "../dist/database/sqlite.js";
 import {
@@ -13,73 +14,12 @@ import {
   updateVersionedRow,
 } from "../dist/database/versioned-writes.js";
 
-const expectedCountyNames = [
-  "Adams",
-  "Alamosa",
-  "Arapahoe",
-  "Archuleta",
-  "Baca",
-  "Bent",
-  "Boulder",
-  "Broomfield",
-  "Chaffee",
-  "Cheyenne",
-  "Clear Creek",
-  "Conejos",
-  "Costilla",
-  "Crowley",
-  "Custer",
-  "Delta",
-  "Denver",
-  "Dolores",
-  "Douglas",
-  "Eagle",
-  "Elbert",
-  "El Paso",
-  "Fremont",
-  "Garfield",
-  "Gilpin",
-  "Grand",
-  "Gunnison",
-  "Hinsdale",
-  "Huerfano",
-  "Jackson",
-  "Jefferson",
-  "Kiowa",
-  "Kit Carson",
-  "La Plata",
-  "Lake",
-  "Larimer",
-  "Las Animas",
-  "Lincoln",
-  "Logan",
-  "Mesa",
-  "Mineral",
-  "Moffat",
-  "Montezuma",
-  "Montrose",
-  "Morgan",
-  "Otero",
-  "Ouray",
-  "Park",
-  "Phillips",
-  "Pitkin",
-  "Prowers",
-  "Pueblo",
-  "Rio Blanco",
-  "Rio Grande",
-  "Routt",
-  "Saguache",
-  "San Juan",
-  "San Miguel",
-  "Sedgwick",
-  "Summit",
-  "Teller",
-  "Washington",
-  "Weld",
-  "Yuma",
-];
-
+const countyReference = JSON.parse(
+  readFileSync(
+    new URL("./fixtures/colorado-counties-acs26.json", import.meta.url),
+    "utf8",
+  ),
+);
 async function withDatabase(callback) {
   const database = await openWebsiteDatabase();
   try {
@@ -120,7 +60,7 @@ test("migrations produce the same schema and are safe to reapply", async () => {
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
           .count,
-        14,
+        15,
       );
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM counties").get().count,
@@ -232,7 +172,7 @@ test("M2 migrations add schema without changing existing M1 rows", async () => {
         .prepare("SELECT version FROM schema_migrations ORDER BY version")
         .all()
         .map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
     );
     assert.equal(
       database.prepare("SELECT COUNT(*) AS count FROM sync_batches").get()
@@ -275,25 +215,241 @@ test("the public seed contains exactly 64 counties with their correct FIPS keys"
     const rows = database
       .prepare("SELECT fips, name FROM counties ORDER BY fips")
       .all();
-    const expectedCodes = Array.from(
-      { length: 63 },
-      (_, index) => `08${String(index * 2 + 1).padStart(3, "0")}`,
-    );
-    expectedCodes.splice(7, 0, "08014");
-
+    const expectedCodes = countyReference.counties.map(([fips]) => fips);
     assert.equal(rows.length, 64);
     assert.deepEqual(
       rows.map((row) => row.fips),
       expectedCodes,
     );
     assert.deepEqual(
-      rows.map((row) => row.name),
-      expectedCountyNames,
+      rows.map(({ fips, name }) => [fips, name]),
+      countyReference.counties,
     );
+    assert.equal(new Set(rows.map((row) => row.fips)).size, 64);
+    assert.equal(new Set(rows.map((row) => row.name)).size, 64);
+    const nameToFips = new Map(rows.map(({ fips, name }) => [name, fips]));
+    const fipsToName = new Map(rows.map(({ fips, name }) => [fips, name]));
+    for (const [fips, name] of countyReference.counties) {
+      assert.equal(nameToFips.get(name), fips);
+      assert.equal(fipsToName.get(fips), name);
+    }
+    assert.equal(nameToFips.get("Lake"), "08065");
+    assert.equal(nameToFips.get("La Plata"), "08067");
+    for (const [name, fips] of [
+      ["Adams", "08001"],
+      ["Broomfield", "08014"],
+      ["Denver", "08031"],
+      ["Larimer", "08069"],
+      ["San Juan", "08111"],
+      ["San Miguel", "08113"],
+    ])
+      assert.equal(nameToFips.get(name), fips);
     assert.equal(
       database.prepare("SELECT name FROM counties WHERE fips = '08014'").get()
         .name,
       "Broomfield",
+    );
+  });
+});
+
+test("0015 corrects only the county names and preserves dependent FIPS references", async () => {
+  await withDatabase((database) => {
+    const migrations = loadWebsiteMigrations();
+    const historicChecksums = migrations
+      .slice(0, 14)
+      .map(({ version, name, sql }) => ({
+        version,
+        name,
+        checksum: migrationChecksum(sql),
+      }));
+    migrateWebsiteDatabase(database, migrations.slice(0, 14));
+    assert.equal(
+      database.prepare("SELECT name FROM counties WHERE fips='08065'").get()
+        .name,
+      "La Plata",
+    );
+    assert.equal(
+      database.prepare("SELECT name FROM counties WHERE fips='08067'").get()
+        .name,
+      "Lake",
+    );
+
+    database.exec(`
+      INSERT INTO accounts (id,kind,role,display_name) VALUES ('fips-actor','human','contributor','Synthetic Actor');
+      INSERT INTO organizations (id,name,organization_type,county_fips) VALUES
+        ('fips-lake-org','Synthetic Lake Organization','county_government','08065'),
+        ('fips-la-plata-org','Synthetic La Plata Organization','county_government','08067');
+      INSERT INTO organization_county_affiliations (id,organization_id,county_fips,relationship_type) VALUES
+        ('fips-aff-lake','fips-lake-org','08065','serves'),
+        ('fips-aff-la-plata','fips-la-plata-org','08067','serves');
+      INSERT INTO people (id,display_name) VALUES ('fips-person','Synthetic Person');
+      INSERT INTO positions (id,organization_id,title) VALUES ('fips-position','fips-lake-org','Synthetic role');
+      INSERT INTO role_sources (id,url,title,source_type) VALUES ('fips-source','https://example.test/source','Synthetic source','official_page');
+      INSERT INTO person_roles (id,person_id,position_id,source_id,source_checked_at) VALUES
+        ('fips-role','fips-person','fips-position','fips-source','2026-11-14');
+      INSERT INTO content_items (id,content_type,title,body,status,created_by_account_id,last_edited_by_account_id)
+        VALUES ('fips-content','post','Synthetic county record','','draft','fips-actor','fips-actor');
+      INSERT INTO content_item_counties (content_id,county_fips) VALUES
+        ('fips-content','08065'),('fips-content','08067');
+      INSERT INTO banner_assets (id,county_fips,source_filename,display_order,created_by_account_id,updated_by_account_id)
+        VALUES ('fips-banner','08065','synthetic-private-master.png',0,'fips-actor','fips-actor');
+      INSERT INTO reports (id,county_fips,private_json,status,version,created_at)
+        VALUES ('fips-report','08067','{}','submitted',1,'2026-11-14T00:00:00Z');
+      INSERT INTO sync_batches (id,actor_account_id,idempotency_key,request_fingerprint,contract_version,request_id,status,committed_at,result_json)
+        VALUES ('fips-batch','fips-actor','fips-key','${"a".repeat(64)}','m2-sync/v1','fips-request','committed','2026-11-14T00:00:00Z','{}');
+      INSERT INTO sync_batch_items (batch_id,item_index,client_ref,entity,operation,target_id,outcome,committed_version,inverse_json)
+        VALUES ('fips-batch',0,'county-org','organizations','create_organization','fips-lake-org','created',1,'{}');
+    `);
+    const dependentBefore = Object.fromEntries(
+      [
+        "organizations",
+        "organization_county_affiliations",
+        "content_item_counties",
+        "banner_assets",
+        "reports",
+        "sync_batches",
+        "sync_batch_items",
+      ].map((table) => [
+        table,
+        database.prepare(`SELECT * FROM ${table} ORDER BY 1`).all(),
+      ]),
+    );
+
+    migrateWebsiteDatabase(database, migrations);
+    assert.equal(
+      database.prepare("SELECT name FROM counties WHERE fips='08065'").get()
+        .name,
+      "Lake",
+    );
+    assert.equal(
+      database.prepare("SELECT name FROM counties WHERE fips='08067'").get()
+        .name,
+      "La Plata",
+    );
+    assert.deepEqual(
+      database.prepare("SELECT fips,name FROM counties ORDER BY fips").all(),
+      countyReference.counties.map(([fips, name]) => ({ fips, name })),
+    );
+    for (const [table, before] of Object.entries(dependentBefore)) {
+      assert.deepEqual(
+        database.prepare(`SELECT * FROM ${table} ORDER BY 1`).all(),
+        before,
+        `${table} preserved`,
+      );
+    }
+    assert.equal(database.prepare("PRAGMA foreign_key_check").all().length, 0);
+    assert.equal(
+      database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
+        .count,
+      15,
+    );
+    assert.deepEqual(
+      database
+        .prepare(
+          "SELECT version,name,sha256 FROM schema_migrations WHERE version <= 14 ORDER BY version",
+        )
+        .all(),
+      historicChecksums.map(({ version, name, checksum }) => ({
+        version,
+        name,
+        sha256: checksum,
+      })),
+    );
+    migrateWebsiteDatabase(database, migrations);
+    assert.equal(
+      database.prepare("SELECT name FROM counties WHERE fips='08065'").get()
+        .name,
+      "Lake",
+    );
+  });
+});
+
+test("0015 accepts an already-correct full registry and rejects unexpected mappings atomically", async () => {
+  for (const corrupt of [
+    (database) =>
+      database
+        .prepare("UPDATE counties SET name='Wrong name' WHERE fips='08001'")
+        .run(),
+    (database) =>
+      database.prepare("DELETE FROM counties WHERE fips='08001'").run(),
+  ]) {
+    await withDatabase((database) => {
+      const migrations = loadWebsiteMigrations();
+      migrateWebsiteDatabase(database, migrations.slice(0, 14));
+      corrupt(database);
+      const before = database
+        .prepare("SELECT fips,name FROM counties ORDER BY fips")
+        .all();
+      assert.throws(() => migrateWebsiteDatabase(database, migrations));
+      assert.deepEqual(
+        database.prepare("SELECT fips,name FROM counties ORDER BY fips").all(),
+        before,
+      );
+      assert.equal(
+        database
+          .prepare("SELECT COUNT(*) AS count FROM schema_migrations")
+          .get().count,
+        14,
+      );
+    });
+  }
+
+  await withDatabase((database) => {
+    const migrations = loadWebsiteMigrations();
+    migrateWebsiteDatabase(database, migrations.slice(0, 14));
+    database.exec(
+      "UPDATE counties SET name='VIS8 temporary county name' WHERE fips='08065'",
+    );
+    database
+      .prepare("UPDATE counties SET name='La Plata' WHERE fips='08067'")
+      .run();
+    database
+      .prepare("UPDATE counties SET name='Lake' WHERE fips='08065'")
+      .run();
+    migrateWebsiteDatabase(database, migrations);
+    assert.deepEqual(
+      database.prepare("SELECT fips,name FROM counties ORDER BY fips").all(),
+      countyReference.counties.map(([fips, name]) => ({ fips, name })),
+    );
+  });
+});
+
+test("0015 rolls back a failure after the temporary name has been written", async () => {
+  await withDatabase((database) => {
+    const migrations = loadWebsiteMigrations();
+    migrateWebsiteDatabase(database, migrations.slice(0, 14));
+    database.exec(`
+      CREATE TRIGGER fail_lake_plata_name_update
+      BEFORE UPDATE OF name ON counties
+      WHEN OLD.fips = '08067' AND NEW.name = 'La Plata'
+      BEGIN SELECT RAISE(ABORT, 'synthetic interrupted name exchange'); END;
+    `);
+    assert.throws(
+      () => migrateWebsiteDatabase(database, migrations),
+      /synthetic interrupted name exchange/,
+    );
+    assert.equal(
+      database.prepare("SELECT name FROM counties WHERE fips='08065'").get()
+        .name,
+      "La Plata",
+    );
+    assert.equal(
+      database.prepare("SELECT name FROM counties WHERE fips='08067'").get()
+        .name,
+      "Lake",
+    );
+    assert.equal(
+      database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
+        .count,
+      14,
+    );
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM sqlite_master WHERE name LIKE 'vis8_fips_%'",
+        )
+        .get().count,
+      0,
     );
   });
 });

@@ -96,6 +96,7 @@ async function main() {
     "0012_banner_assets.sql",
     "0013_private_report_intake.sql",
     "0014_owner_bootstrap_audit.sql",
+    "0015_correct_lake_la_plata_county_names.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(

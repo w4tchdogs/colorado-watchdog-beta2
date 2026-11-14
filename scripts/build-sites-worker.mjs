@@ -101,8 +101,8 @@ await cp(join(root, ".openai", "hosting.json"), join(metadata, "hosting.json"));
 const migrations = (await readdir(join(root, "website", "migrations")))
   .filter((name) => /^\d{4}_[a-z0-9_]+\.sql$/.test(name))
   .sort();
-if (migrations.at(-1) !== "0014_owner_bootstrap_audit.sql") {
-  throw new Error("Sites artifact must include Website migration 0014");
+if (migrations.at(-1) !== "0015_correct_lake_la_plata_county_names.sql") {
+  throw new Error("Sites artifact must include Website migration 0015");
 }
 for (const migration of migrations) {
   await cp(
