@@ -109,6 +109,44 @@ export class MemoryReportIntakeStore implements ReportIntakeStore {
     current.audit.push(structuredClone(input.audit));
     return true;
   }
+
+  async listPrivate(input: {
+    limit: number;
+    after?: string;
+    status?: ReportRecord["status"];
+  }): Promise<{
+    reports: Array<
+      Pick<
+        ReportRecord,
+        "id" | "countyId" | "subject" | "status" | "version" | "createdAt"
+      >
+    >;
+    next: string | null;
+  }> {
+    const rows = [...this.#records.values()]
+      .map(({ report }) => report)
+      .filter((report) => !input.status || report.status === input.status)
+      .filter((report) => !input.after || report.id > input.after)
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const page = rows.slice(0, input.limit + 1);
+    const more = page.length > input.limit;
+    const reports = page.slice(0, input.limit);
+    return {
+      reports: structuredClone(
+        reports.map(
+          ({ id, countyId, subject, status, version, createdAt }) => ({
+            id,
+            countyId,
+            subject,
+            status,
+            version,
+            createdAt,
+          }),
+        ),
+      ),
+      next: more ? (reports.at(-1)?.id ?? null) : null,
+    };
+  }
 }
 
 function constantTimeEqual(left: string, right: string): boolean {
