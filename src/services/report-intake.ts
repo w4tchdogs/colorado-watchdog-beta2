@@ -124,8 +124,8 @@ export async function submitReport(
   const receipt = {
     reportId: id("rpt"),
     reference: `CW-${token(8).toUpperCase()}`,
-    recoveryKey: token(32),
   };
+  const recoveryKey = token(32);
   const report: ReportRecord = {
     id: receipt.reportId,
     countyId: normalized.countyId,
@@ -157,17 +157,13 @@ export async function submitReport(
   const result = await store.create({
     report,
     receipt,
-    receiptDigest: await digest(receipt.recoveryKey),
+    receiptDigest: await digest(recoveryKey),
     idempotencyKey: `${actor.kind}:${actor.accountId ?? "guest"}:${value.idempotencyKey}`,
     fingerprint,
     history: event,
     audit,
   });
-  const {
-    recoveryKey,
-    reportId: _internalReportId,
-    ...safeReceipt
-  } = result.commit.receipt;
+  const { reportId: _internalReportId, ...safeReceipt } = result.commit.receipt;
   return {
     receipt: result.replayed ? safeReceipt : { ...safeReceipt, recoveryKey },
     replayed: result.replayed,
@@ -209,7 +205,7 @@ export async function getReportForStaff(
   actor: ReportActor,
 ): Promise<IntakeCommit> {
   if (actor.kind !== "staff") throw new ReportIntakeError("NOT_FOUND");
-  const commit = await store.getPrivate(reportId);
+  const commit = await store.getPrivate(reportId, actor);
   if (!commit) throw new ReportIntakeError("NOT_FOUND");
   return commit;
 }
@@ -231,7 +227,7 @@ export async function transitionReport(
   ) {
     throw new ReportIntakeError("INVALID_SUBMISSION");
   }
-  const current = await store.getPrivate(reportId);
+  const current = await store.getPrivate(reportId, actor);
   if (!current) throw new ReportIntakeError("NOT_FOUND");
   if (current.report.version !== expectedVersion)
     throw new ReportIntakeError("CONFLICT");
@@ -260,6 +256,7 @@ export async function transitionReport(
   if (
     !(await store.compareAndSet({
       reportId,
+      actor,
       expectedVersion,
       next,
       history,

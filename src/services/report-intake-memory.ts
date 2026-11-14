@@ -53,6 +53,8 @@ export class MemoryReportIntakeStore implements ReportIntakeStore {
       audit: [structuredClone(input.audit)],
     };
     this.#records.set(input.report.id, commit);
+    if (this.#receipts.has(input.receipt.reference))
+      throw new ReportIntakeError("CONFLICT");
     this.#receipts.set(input.receipt.reference, {
       reportId: input.report.id,
       digest: input.receiptDigest,
@@ -64,7 +66,14 @@ export class MemoryReportIntakeStore implements ReportIntakeStore {
     return { commit: structuredClone(commit), replayed: false };
   }
 
-  async getPrivate(reportId: string): Promise<IntakeCommit | undefined> {
+  async getPrivate(
+    reportId: string,
+    _actor: {
+      kind: "staff";
+      accountId: string;
+      role: "editor" | "administrator";
+    },
+  ): Promise<IntakeCommit | undefined> {
     const value = this.#records.get(reportId);
     return value && structuredClone(value);
   }
@@ -74,13 +83,19 @@ export class MemoryReportIntakeStore implements ReportIntakeStore {
     recoveryDigest: string,
   ): Promise<IntakeCommit | undefined> {
     const receipt = this.#receipts.get(reference);
-    if (!receipt || receipt.digest !== recoveryDigest) return undefined;
+    if (!receipt || !constantTimeEqual(receipt.digest, recoveryDigest))
+      return undefined;
     const value = this.#records.get(receipt.reportId);
     return value && structuredClone(value);
   }
 
   async compareAndSet(input: {
     reportId: string;
+    actor: {
+      kind: "staff";
+      accountId: string;
+      role: "editor" | "administrator";
+    };
     expectedVersion: number;
     next: ReportRecord;
     history: ReportStatusEvent;
@@ -94,4 +109,13 @@ export class MemoryReportIntakeStore implements ReportIntakeStore {
     current.audit.push(structuredClone(input.audit));
     return true;
   }
+}
+
+function constantTimeEqual(left: string, right: string): boolean {
+  let difference = left.length ^ right.length;
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1)
+    difference |=
+      (left.charCodeAt(index) || 0) ^ (right.charCodeAt(index) || 0);
+  return difference === 0;
 }

@@ -117,6 +117,8 @@ const allowed = new Set([
   "website/migrations/0010_content_revisions.sql",
   "website/migrations/0011_m2_dependency_generation.sql",
   "website/migrations/0012_banner_assets.sql",
+  "website/migrations/0013_private_report_intake.sql",
+  "src/services/report-intake-d1.ts",
   "src/transport/content-api.ts",
   "tests/content-fixtures.mjs",
   "tests/content-revisions.test.mjs",
@@ -231,6 +233,10 @@ const allowed = new Set([
   "src/services/report-intake.ts",
   "src/services/report-intake-memory.ts",
   "tests/report-intake.test.mjs",
+  "tests/content-revisions.test.mjs",
+  "tests/content.test.mjs",
+  "tests/d1/worker.mjs",
+  "scripts/d1-local-check.mjs",
 ]);
 // Web derivatives of the owner's logo and mascot artwork: the only binary
 // files allowed. Each is a small PNG; masters stay outside this repository.

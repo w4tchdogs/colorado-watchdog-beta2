@@ -63,7 +63,6 @@ export interface ReportAuditEvent {
 export interface ReportReceipt {
   reportId: string;
   reference: string;
-  recoveryKey: string;
 }
 
 export interface IntakeCommit {
@@ -88,13 +87,18 @@ export interface ReportIntakeStore {
     history: ReportStatusEvent;
     audit: ReportAuditEvent;
   }): Promise<{ commit: IntakeCommit; replayed: boolean }>;
-  getPrivate(reportId: string): Promise<IntakeCommit | undefined>;
+  /** actor is supplied by the server-side authorization boundary, never the request body. */
+  getPrivate(
+    reportId: string,
+    actor: Extract<ReportActor, { kind: "staff" }>,
+  ): Promise<IntakeCommit | undefined>;
   findByReceipt(
     reference: string,
     recoveryDigest: string,
   ): Promise<IntakeCommit | undefined>;
   compareAndSet(input: {
     reportId: string;
+    actor: Extract<ReportActor, { kind: "staff" }>;
     expectedVersion: number;
     next: ReportRecord;
     history: ReportStatusEvent;

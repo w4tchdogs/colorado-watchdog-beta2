@@ -1,4 +1,11 @@
 import { AsyncD1Database } from "../../src/database/d1.ts";
+import {
+  getReportForStaff,
+  submitReport,
+  trackReport,
+  transitionReport,
+} from "../../src/services/report-intake.ts";
+import { D1ReportIntakeStore } from "../../src/services/report-intake-d1.ts";
 import { commitSyncChangesetD1 } from "../../src/services/sync-commit-d1.ts";
 import { reverseSyncBatchD1 } from "../../src/services/sync-revert-d1.ts";
 
@@ -11,6 +18,152 @@ const json = (value, status = 200) =>
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === "/reports/verify" && request.method === "POST") {
+      const reporter = { kind: "reporter" };
+      const staff = {
+        kind: "staff",
+        accountId: "synthetic-report-staff",
+        role: "editor",
+      };
+      const store = new D1ReportIntakeStore(
+        new AsyncD1Database(env.DB),
+        async (actor) => actor.accountId === staff.accountId,
+      );
+      const submission = {
+        countyId: "08001",
+        subject: { kind: "person", id: "d1-backfill-person-a" },
+        description: "A fictional D1 report used only in disposable testing.",
+        evidence: [
+          {
+            title: "Synthetic evidence",
+            url: "https://example.invalid/report",
+          },
+        ],
+        reporter: {
+          attribution: "anonymous",
+          confidential: true,
+          contactPreference: "none",
+        },
+        idempotencyKey: "d1-report-create-key",
+      };
+      const first = await submitReport(store, submission, reporter);
+      const replay = await submitReport(store, submission, reporter);
+      const raceSubmission = {
+        ...submission,
+        idempotencyKey: "d1-report-race-key",
+        description: "A fictional concurrent D1 submission race fixture.",
+      };
+      const raced = await Promise.all([
+        submitReport(store, raceSubmission, reporter),
+        submitReport(store, raceSubmission, reporter),
+      ]);
+      const reportId = await env.DB.prepare(
+        "SELECT report_id FROM report_receipts WHERE reference = ?",
+      )
+        .bind(first.receipt.reference)
+        .first("report_id");
+      const privateCommit = await getReportForStaff(store, reportId, staff);
+      const invalidCounty = await store.validateReferences({
+        countyId: "99999",
+      });
+      const invalidSubject = await store.validateReferences({
+        countyId: "08001",
+        subject: { kind: "person", id: "missing-subject" },
+      });
+      let unauthorized = false;
+      try {
+        await getReportForStaff(store, reportId, reporter);
+      } catch {
+        unauthorized = true;
+      }
+      let untrustedStaffDenied = false;
+      try {
+        await store.getPrivate(reportId, {
+          kind: "staff",
+          accountId: "client-supplied-admin",
+          role: "administrator",
+        });
+      } catch {
+        untrustedStaffDenied = true;
+      }
+      let invalidCredential = false;
+      try {
+        await trackReport(store, first.receipt.reference, "0".repeat(64));
+      } catch {
+        invalidCredential = true;
+      }
+      const transitions = await Promise.allSettled([
+        transitionReport(store, reportId, 1, "triage", staff),
+        transitionReport(store, reportId, 1, "triage", staff),
+      ]);
+      const after = await getReportForStaff(store, reportId, staff);
+      const stored = await env.DB.prepare(
+        "SELECT credential_digest FROM report_receipts WHERE report_id = ?",
+      )
+        .bind(reportId)
+        .first();
+      const storedReportData = await env.DB.prepare(`SELECT
+        (SELECT private_json FROM reports WHERE id = ?) AS private_report,
+        (SELECT group_concat(private_json) FROM report_evidence WHERE report_id = ?) AS evidence,
+        (SELECT group_concat(actor_json || COALESCE(private_note, '')) FROM report_status_history WHERE report_id = ?) AS history,
+        (SELECT group_concat(actor_json) FROM report_audit WHERE report_id = ?) AS audit`)
+        .bind(reportId, reportId, reportId, reportId)
+        .first();
+      const keyPersisted = JSON.stringify({
+        stored,
+        storedReportData,
+      }).includes(first.receipt.recoveryKey);
+      const beforeFailure = await env.DB.prepare(
+        "SELECT COUNT(*) AS count FROM reports",
+      ).first("count");
+      await env.DB.prepare(`CREATE TRIGGER report_audit_failure
+        BEFORE INSERT ON report_audit BEGIN SELECT RAISE(ABORT, 'synthetic audit interruption'); END`).run();
+      let interrupted = false;
+      try {
+        await submitReport(
+          store,
+          { ...submission, idempotencyKey: "d1-report-failure-key" },
+          reporter,
+        );
+      } catch {
+        interrupted = true;
+      } finally {
+        await env.DB.prepare("DROP TRIGGER report_audit_failure").run();
+      }
+      const afterFailure = await env.DB.prepare(
+        "SELECT COUNT(*) AS count FROM reports",
+      ).first("count");
+      const tracking = await trackReport(
+        store,
+        first.receipt.reference,
+        first.receipt.recoveryKey,
+      );
+      return json({
+        success:
+          !first.replayed &&
+          replay.replayed &&
+          replay.receipt.recoveryKey === undefined &&
+          raced[0].receipt.reference === raced[1].receipt.reference &&
+          Number(raced[0].replayed) + Number(raced[1].replayed) === 1 &&
+          privateCommit.receipt.recoveryKey === undefined &&
+          !invalidCounty &&
+          !invalidSubject &&
+          unauthorized &&
+          untrustedStaffDenied &&
+          invalidCredential &&
+          transitions.filter((item) => item.status === "fulfilled").length ===
+            1 &&
+          after.history.length === 2 &&
+          after.audit.length === 2 &&
+          !keyPersisted &&
+          interrupted &&
+          beforeFailure === afterFailure &&
+          tracking.status === "triage",
+        initialDisclosure: first.receipt.recoveryKey,
+        reportId,
+        reference: first.receipt.reference,
+      });
+    }
     if (url.pathname === "/sync/setup" && request.method === "POST") {
       await env.DB.prepare(`INSERT INTO accounts (id, kind, role, display_name)
         VALUES ('d1-async-actor', 'human', 'administrator', 'Synthetic D1 Async Actor')`).run();
@@ -574,12 +727,12 @@ export default {
     ).all();
     check(
       "ordered custom migration history and checksums",
-      history.results?.length === 12 &&
+      history.results?.length === 13 &&
         history.results.every(
           (row, index) =>
             row.version === index + 1 &&
             row.name ===
-              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets"][index]}.sql` &&
+              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake"][index]}.sql` &&
             /^[0-9a-f]{64}$/.test(row.sha256),
         ),
     );
@@ -900,7 +1053,8 @@ export default {
       WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
         AND name NOT IN ('schema_migrations', 'website_dependency_generation', 'website_dependency_assertions',
           'transaction_guard', 'transaction_guard_assertions', 'guard_probe_writes',
-          'website_write_assertions')`).all();
+          'website_write_assertions', 'reports', 'report_receipts', 'report_idempotency',
+          'report_evidence', 'report_status_history', 'report_audit')`).all();
     const triggerCoverage = new Map();
     for (const trigger of generationTriggers.results ?? []) {
       const operations = triggerCoverage.get(trigger.tbl_name) ?? new Set();
