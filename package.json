@@ -7,9 +7,9 @@
   },
   "scripts": {
     "dev": "npm run build && node scripts/dev.mjs",
-    "format": "biome format --write src scripts tests package.json tsconfig.json tsconfig.build.json biome.json",
-    "format:check": "biome ci --formatter-enabled=true --linter-enabled=false src scripts tests package.json tsconfig.json tsconfig.build.json biome.json",
-    "lint": "biome lint src scripts tests",
+    "format": "biome format --write src scripts tests website/site/report-demo.js website/site/report-interface.css package.json tsconfig.json tsconfig.build.json biome.json",
+    "format:check": "biome ci --formatter-enabled=true --linter-enabled=false src scripts tests website/site/report-demo.js website/site/report-interface.css package.json tsconfig.json tsconfig.build.json biome.json",
+    "lint": "biome lint src scripts tests website/site/report-demo.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.build.json && node scripts/build-sites-worker.mjs",
     "test": "npm run build && node --test",
@@ -19,6 +19,7 @@
     "site:dev": "npm run build && node scripts/site-dev.mjs",
     "site:dev:empty": "npm run build && node scripts/site-dev.mjs --empty",
     "site:dev:banners": "npm run build && node scripts/site-dev.mjs --banner-fixtures",
+    "reports:demo": "npm run build && node scripts/report-demo.mjs",
     "banners": "node scripts/banners.mjs"
   },
   "devDependencies": {
