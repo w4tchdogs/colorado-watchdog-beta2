@@ -11,6 +11,7 @@ from pathlib import Path
 from research import operator
 from research import identity
 from research import identity_triage
+from research import submission, sync
 from research.backup import backup_database, restore_database
 from research.db import connect, migrate, seed_counties, validate_database, validate_migration_history
 from research.intake import preview_csv, quarantine_validation_report
@@ -219,6 +220,29 @@ def parser_for():
     triage_verify = database_command("verify-identity-triage", "verify a triage application or no-change result")
     triage_verify.add_argument("--report", type=Path, required=True)
     triage_verify.add_argument("--expect-report-sha256", required=True)
+
+    for name, help_text in (
+        ("sync-eligibility", "inspect bounded Website synchronization eligibility"),
+        ("sync-preview", "preview a deterministic Website changeset without writing"),
+    ):
+        command = database_command(name, help_text)
+        command.add_argument("--site-key", required=True)
+        command.add_argument("--max-changes", type=int, default=200)
+
+    prepare = database_command("sync-prepare", "durably prepare one explicitly selected Website changeset")
+    prepare.add_argument("--site-key", required=True)
+    prepare.add_argument("--idempotency-key", required=True)
+    prepare.add_argument("--select", choices=("all",), required=True,
+                         help="Explicitly select all eligible changes in the reviewed preview")
+    prepare.add_argument("--expect-fingerprint", required=True,
+                         help="Changeset SHA-256 shown by sync-preview")
+    prepare.add_argument("--max-changes", type=int, default=200)
+
+    status = database_command("sync-status", "inspect sanitized local submission status")
+    status.add_argument("--submission-id", required=True)
+
+    reconcile = database_command("sync-reconcile", "reconcile a verified receipt stored by the R6 client")
+    reconcile.add_argument("--submission-id", required=True)
     return parser
 
 
@@ -238,6 +262,80 @@ def _absolute_external_path(candidate, parser, label):
     if not candidate.is_absolute():
         parser.error(f"{label} must be an explicit absolute path")
     return _external_path(candidate, parser, label)
+
+
+def _sync_preview(db, site_key, max_changes):
+    generated = sync.build_changeset(db, site_key, max_changes=max_changes)
+    fingerprint = hashlib.sha256(
+        json.dumps(generated["request"], ensure_ascii=False, sort_keys=True,
+                   separators=(",", ":"), allow_nan=False).encode("utf-8")
+    ).hexdigest()
+    return generated, fingerprint
+
+
+def _sync_command(args, path):
+    read_only = args.command in {"sync-eligibility", "sync-preview", "sync-status"}
+    db = _read_only(path) if read_only else connect(path)
+    try:
+        if args.command in {"sync-eligibility", "sync-preview"}:
+            generated, fingerprint = _sync_preview(db, args.site_key, args.max_changes)
+            result = {
+                "mode": args.command,
+                "status": "previewed",
+                "changeset_fingerprint": fingerprint,
+                "eligible_count": generated["eligible_count"],
+                "excluded_count": len(generated["excluded"]),
+                "excluded_truncated": len(generated["excluded"]) > 200,
+                "safety": {
+                    "private_information": "never_emitted",
+                    "updates": "require_approved_evidence_and_current_website_version",
+                },
+                "truncated": generated["truncated"],
+                "excluded": generated["excluded"][:200],
+            }
+            if args.command == "sync-preview":
+                result["request"] = generated["request"]
+            return result, 0
+        if args.command == "sync-prepare":
+            if not re.fullmatch(r"[0-9a-fA-F]{64}", args.expect_fingerprint):
+                raise ValueError("--expect-fingerprint must be a 64-character SHA-256 value")
+            generated, fingerprint = _sync_preview(db, args.site_key, args.max_changes)
+            if fingerprint != args.expect_fingerprint.lower():
+                raise ValueError("Changeset fingerprint differs from the reviewed preview")
+            if not generated["request"]["changes"]:
+                raise ValueError("No eligible changes are available to prepare")
+            prepared = sync.prepare_research_submission(
+                db, args.site_key, args.idempotency_key, generated
+            )
+            return {
+                "mode": args.command,
+                "status": "prepared",
+                "submission_id": prepared["submission_id"],
+                "created": prepared["created"],
+                "changeset_fingerprint": fingerprint,
+                "selected": "all",
+                "change_count": generated["eligible_count"],
+            }, 0
+        if args.command == "sync-status":
+            record = submission.get_submission(db, args.submission_id)
+            if record is None:
+                raise ValueError("Unknown prepared submission")
+            return {
+                "mode": args.command,
+                "submission_id": record["id"],
+                "state": record["state"],
+                "request_fingerprint": record["request_fingerprint"],
+                "attempt_count": record["attempt_count"],
+                "created_at": record["created_at"],
+                "updated_at": record["updated_at"],
+                "last_attempt_at": record["last_attempt_at"],
+                "response_status": record["response_status"],
+                "remote_batch_id": record["remote_batch_id"],
+            }, 0
+        reconciled = sync.reconcile_submission(db, args.submission_id)
+        return {"mode": args.command, **reconciled}, 0
+    finally:
+        db.close()
 
 
 def _read_only(path):
@@ -438,6 +536,8 @@ def main(argv=None):
     if args.command in {"apply-identity", "verify-identity"}:
         _absolute_external_path(args.database, parser, "Research database")
         _absolute_external_path(args.plan, parser, "Private identity plan")
+    if args.command.startswith("sync-"):
+        _absolute_external_path(args.database, parser, "Research database")
     if args.command == "quarantine-invalid":
         _external_path(args.root, parser, "Quarantine roots")
     if args.command == "init":
@@ -465,6 +565,18 @@ def main(argv=None):
         result, status = _run_quarantine_command(args, path)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return status
+    if args.command.startswith("sync-"):
+        try:
+            result, status = _sync_command(args, path)
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            return status
+        except (OSError, sqlite3.Error, ValueError, RuntimeError) as error:
+            message = str(error) if isinstance(error, ValueError) else (
+                "Synchronization operation failed; no private record details are included"
+            )
+            print(json.dumps(_json_error(args.command, "sync_operation_failed", message),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
     if args.command in {"preview-csv", "intake-csv"}:
         result, status = _run_csv_command(args, path)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
