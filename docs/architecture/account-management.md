@@ -34,20 +34,32 @@ human provider subject because linking transfers account access.
 
 ## Sites identity boundary
 
-`createSitesIdentityAdapter` accepts a host supplied verified-context
-function. The adapter never reads identity headers from `Request`; absent
-verified context it returns no human identity. This allows local tests and
-future Sites wiring without treating spoofable request headers as proof.
+`createSitesIdentityAdapter({ siteId, context })` accepts a host supplied
+verified-context function. Bundled Sites runtime guidance confirms
+`oai-authenticated-user-id` is stable for the same user on one Site and differs
+across Sites. The Website account ID remains its own permanent identifier; the
+Sites ID is only the identity subject, namespaced by the configured Site ID.
+Email and full name are metadata and never grant a role or capability. A change
+to email therefore does not change the linked account. The adapter never reads
+identity headers from `Request`; absent verified context or required claims it
+returns no human identity. This keeps caller-controlled request headers from
+being treated as proof.
 
-**Hosted dependency:** the Sites runtime must supply a documented and
-authenticated user identity to the application boundary, or a small hosting
-adapter must validate the platform identity before constructing
-`VerifiedSitesIdentity`. The narrow merge integration is to pass that verified
-context function into `createServices({ humanIdentityAdapter:
-createSitesIdentityAdapter(context) })` from the hosting composition root.
-Do not use caller-controlled headers as the context source. The D1 account
-service, API module and user interface remain independent of the SITES-2 Worker
-entrypoint and M4-D directory interfaces.
+**Hosted dependency:** bundled Sites runtime guidance includes the stable ID,
+email and optional name headers, while the public identity guide documents email
+and optional full name ([ChatGPT Sites identity docs](https://learn.chatgpt.com/docs/sites/data-and-connections)).
+That public guide does not describe the stable-ID header or explicitly state
+the platform's anti-spoofing guarantee. The host must establish trusted
+provenance before constructing `VerifiedSitesIdentity`; otherwise identity
+resolution fails closed. The narrow SITES-2 integration is to provide this
+trusted context to `createSitesIdentityAdapter({ siteId, context })` from its
+hosting composition root. The D1 account service, API module and user interface
+remain independent of the SITES-2 Worker entrypoint and M4-D directory
+interfaces. Sites owns `/signin-with-chatgpt` and `/signout-with-chatgpt`; the
+unauthenticated management page links into the native sign-in path.
+
+The management page shows attributed account audit events at
+`GET /api/admin/accounts/:id/audit`; credentials remain redacted.
 
 The current local dev harness has no trusted Sites identity source. It can
 exercise agent credentials and tests can inject synthetic human identity

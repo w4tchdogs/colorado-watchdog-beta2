@@ -35,6 +35,8 @@ export interface TrustedPrincipal {
 export interface HumanIdentityClaim {
   readonly provider: string;
   readonly subject: string;
+  readonly email?: string;
+  readonly displayName?: string;
 }
 
 export interface HumanIdentityAdapter {

@@ -507,6 +507,22 @@ test("account administration is bounded, redacts credential hashes, and rejects 
     assert.equal(text.includes(credential.secret), false);
     assert.equal(text.includes("credential_hash"), false);
     assert.equal(text.includes(await hashCredential(credential.secret)), false);
+    const auditResponse = await app.fetch(
+      new Request(
+        `https://watchdog.test/api/admin/accounts/${agent.id}/audit`,
+        {
+          headers: { "x-test-human-subject": "admin-login" },
+        },
+      ),
+    );
+    assert.equal(auditResponse.status, 200);
+    const audit = await auditResponse.json();
+    assert.ok(
+      audit.events.some((event) => event.action === "identity.agent_key.issue"),
+    );
+    assert.ok(
+      audit.events.every((event) => event.actorAccountId === "synthetic-admin"),
+    );
     const listed = await app.fetch(
       new Request(
         "https://watchdog.test/api/admin/accounts?kind=agent&limit=1",
@@ -545,17 +561,137 @@ test("Sites identity adapter trusts only a verified host context and fails close
       "x-oai-authenticated-user-id": "forged-user",
     },
   });
-  assert.equal(await createSitesIdentityAdapter().resolve(request), null);
   assert.equal(
-    await createSitesIdentityAdapter(async () => null).resolve(request),
+    await createSitesIdentityAdapter({ siteId: "site-alpha" }).resolve(request),
     null,
   );
-  assert.deepEqual(
-    await createSitesIdentityAdapter(async () => ({
-      userId: "verified-synthetic-user",
-    })).resolve(request),
-    { provider: "chatgpt-sites", subject: "verified-synthetic-user" },
+  assert.equal(
+    await createSitesIdentityAdapter({
+      siteId: "site-alpha",
+      context: async () => null,
+    }).resolve(request),
+    null,
   );
+  const claim = {
+    userId: "verified-synthetic-user",
+    email: "one@example.test",
+    fullName: "Synthetic One",
+  };
+  const alpha = createSitesIdentityAdapter({
+    siteId: "site-alpha",
+    context: async () => claim,
+  });
+  const beta = createSitesIdentityAdapter({
+    siteId: "site-beta",
+    context: async () => claim,
+  });
+  assert.deepEqual(await alpha.resolve(request), {
+    provider: "chatgpt-sites:site-alpha",
+    subject: "verified-synthetic-user",
+    email: "one@example.test",
+    displayName: "Synthetic One",
+  });
+  assert.equal(
+    (await beta.resolve(request)).provider,
+    "chatgpt-sites:site-beta",
+  );
+  assert.equal(
+    (await alpha.resolve(request)).subject,
+    "verified-synthetic-user",
+  );
+  assert.equal(
+    (
+      await createSitesIdentityAdapter({
+        siteId: "site-alpha",
+        context: async () => ({
+          userId: "verified-synthetic-user",
+          email: "two@example.test",
+        }),
+      }).resolve(request)
+    ).subject,
+    "verified-synthetic-user",
+  );
+  assert.equal(
+    await createSitesIdentityAdapter({
+      siteId: "site-alpha",
+      context: async () => ({ userId: "", email: "two@example.test" }),
+    }).resolve(request),
+    null,
+  );
+  assert.equal(
+    await createSitesIdentityAdapter({
+      siteId: "site-alpha",
+      context: async () => ({ userId: "verified-synthetic-user", email: "" }),
+    }).resolve(request),
+    null,
+  );
+  assert.throws(() => createSitesIdentityAdapter({ siteId: "" }), TypeError);
+});
+
+test("Sites stable subject ignores metadata for authorization and enforces account state", async () => {
+  const fixture = await createFixture();
+  try {
+    const owner = await fixture.principalFor("owner-login");
+    const contributor = fixture.database
+      .prepare("SELECT * FROM accounts WHERE id = 'synthetic-contributor'")
+      .get();
+    fixture.database
+      .prepare(
+        "INSERT INTO identities (id, account_id, provider, subject) VALUES ('site-contributor', ?, 'chatgpt-sites:synthetic-site', 'stable-user-1')",
+      )
+      .run(contributor.id);
+    assert.throws(
+      () =>
+        fixture.services.createHumanIdentity(
+          owner,
+          "synthetic-owner",
+          "chatgpt-sites:synthetic-site",
+          "stable-user-1",
+        ),
+      { name: "InvalidInputError" },
+    );
+    let identity = {
+      userId: "stable-user-1",
+      email: "admin@example.test",
+      fullName: "Site Admin",
+    };
+    const adapter = createSitesIdentityAdapter({
+      siteId: "synthetic-site",
+      context: async () => identity,
+    });
+    const request = new Request("https://watchdog.test/");
+    let principal = await resolvePrincipal(fixture.database, request, adapter);
+    assert.equal(principal.accountId, "synthetic-contributor");
+    assert.equal(principal.role, "contributor");
+    assert.throws(
+      () =>
+        fixture.services.changeAccountRole(
+          principal,
+          principal.accountId,
+          contributor.version,
+          "administrator",
+        ),
+      { name: "AuthorizationError" },
+    );
+    identity = {
+      userId: "stable-user-1",
+      email: "changed@example.test",
+      fullName: "Changed Name",
+    };
+    principal = await resolvePrincipal(fixture.database, request, adapter);
+    assert.equal(principal.accountId, "synthetic-contributor");
+    fixture.database
+      .prepare(
+        "UPDATE accounts SET status = 'disabled', version = version + 1 WHERE id = ?",
+      )
+      .run(contributor.id);
+    assert.equal(
+      await resolvePrincipal(fixture.database, request, adapter),
+      null,
+    );
+  } finally {
+    await fixture.close();
+  }
 });
 
 test("owner safeguards, identity collisions, and stale account versions fail safely", async () => {
