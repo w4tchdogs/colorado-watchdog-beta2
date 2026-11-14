@@ -148,6 +148,20 @@
   border-radius: var(--radius);
   font: inherit;
 }
+.cv-search-field {
+  margin-bottom: var(--space-4);
+}
+.cv-search-field input {
+  display: block;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  font: inherit;
+}
 .cv-field select:disabled {
   background: var(--paper);
   color: var(--ink-soft);

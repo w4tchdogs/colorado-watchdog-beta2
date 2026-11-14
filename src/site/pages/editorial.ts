@@ -110,6 +110,7 @@ export function editorialListPage(
     matches.length,
     all.length,
     filtered,
+    filters.q,
   );
   const noun = kind.plural.toLowerCase();
   return {
@@ -119,7 +120,7 @@ export function editorialListPage(
     breadcrumbs: [{ label: "Home", href: "/" }, { label: kind.plural }],
     head: COMMUNITY_VOICES_HEAD,
     body: html`${pageHeader(kind.heading, kind.intro, undefined, `Community Voices \u00b7 ${kind.plural}`)}
-      ${pathwayCards(base, kind.plural, filters.pathway)}
+      ${pathwayCards(base, kind.plural, filters.pathway, filters)}
       <section class="cv-browse" aria-label="Browse ${noun}">
         ${contentTypeNav(type, filters)}
         ${filterForm({ plural: kind.plural, singular: kind.singular, base }, filterOptions(all), filters)}
@@ -137,9 +138,15 @@ export function editorialListPage(
               )
             : matches.length === 0
               ? emptyState(
-                  `No ${noun} match these filters`,
-                  `No ${kind.singular.toLowerCase()} has been given this combination of pathway, county, series and topic. Articles without that classification are never matched to it.`,
-                  html`<a class="button button-quiet" href="${base}">Clear filters</a>`,
+                  filters.q
+                    ? `No ${noun} match your search`
+                    : `No ${noun} match these filters`,
+                  filters.q
+                    ? `No published ${noun} match “${filters.q}” with the selected filters.`
+                    : `No ${kind.singular.toLowerCase()} has been given this combination of pathway, county, series and topic. Articles without that classification are never matched to it.`,
+                  filters.q
+                    ? html`<a class="button button-quiet" href="${base}">Clear search and filters</a>`
+                    : html`<a class="button button-quiet" href="${base}">Clear filters</a>`,
                   3,
                 )
               : html`<div class="article-list article-list-${type}">${matches.map((article) => articleCard(article, 3, true))}</div>`
