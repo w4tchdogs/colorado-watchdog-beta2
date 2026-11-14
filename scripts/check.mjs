@@ -219,6 +219,11 @@ const allowed = new Set([
   "docs/research/organizational-positions.md",
   "docs/research/identity-foundation.md",
   "docs/research/R6-durable-submission-client.md",
+  "docs/architecture/report-intake-d1-contract.md",
+  "src/contracts/report-intake.ts",
+  "src/services/report-intake.ts",
+  "src/services/report-intake-memory.ts",
+  "tests/report-intake.test.mjs",
 ]);
 // Web derivatives of the owner's logo and mascot artwork: the only binary
 // files allowed. Each is a small PNG; masters stay outside this repository.
