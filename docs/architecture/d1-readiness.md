@@ -1,9 +1,10 @@
 # D1 compatibility readiness
 
-Status: **the internal asynchronous M2 commit/replay and guarded reversal paths
-are implemented and exercised on disposable local Wrangler D1**. All tests use
-synthetic rows. They do not access hosted D1, production resources or
-credentials. Production routes and synchronization capabilities remain
+Status: **the internal asynchronous M2 commit/replay and guarded reversal paths,
+and the read-only public Website D1 adapter, are implemented and exercised on
+disposable local Wrangler D1**. All tests use synthetic rows. They do not
+access hosted D1, production resources or credentials. Production routes and
+synchronization capabilities remain
 disabled.
 
 ## Verified SQL.js behavior
@@ -103,6 +104,21 @@ verification.
 No hosted D1 database was accessed. Hosted execution/version differences,
 operational limits, concurrent requests, uncertain-response retries, remote
 backup/restore and production migration operations remain unverified.
+
+SITES-2 additionally bundles a default-exported Worker fetch handler at
+`dist/server/index.js`, declares `DB` as the Sites D1 binding, and packages the
+existing Website migrations at `dist/.openai/drizzle/`. Its
+`npm run test:sites:d1` smoke check applies migrations 0001–0013 to disposable
+local Wrangler D1 and exercises public pages, APIs, pagination, assets,
+placeholders, readiness, anonymous account restrictions, agent account
+administration and credential lifecycle, forged Sites-header rejection, the
+absence of a public report route, and missing-binding behavior. It checks that the Worker bundle does not contain
+SQL.js or the private Profiles store. This is local evidence only; it does not
+certify that ChatGPT Sites provisions the binding, applies the packaged
+migrations, or supplies an authenticated identity with verifiable provenance.
+No Site was created, published or deployed. See
+[public-site hosting preparation](public-site.md#local-verification-and-first-private-site-deployment)
+and [account management](account-management.md#sites-worker-integration).
 
 Local `batch()` tests do not certify hosted D1 behavior or remote operational
 limits. No hosted D1 was accessed.

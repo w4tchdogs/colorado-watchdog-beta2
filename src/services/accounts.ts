@@ -588,7 +588,7 @@ export function revokeIdentity(
   );
 }
 
-function validateAccountInput(input: NewAccount): void {
+export function validateAccountInput(input: NewAccount): void {
   if (
     !input ||
     (input.kind !== "human" && input.kind !== "agent") ||
@@ -603,7 +603,7 @@ function validateAccountInput(input: NewAccount): void {
   }
 }
 
-function parseFutureExpiry(
+export function parseFutureExpiry(
   value: string | null | undefined,
   now: Date,
 ): string | null {

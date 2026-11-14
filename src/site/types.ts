@@ -17,6 +17,15 @@ export type PublicSiteServices = Pick<
   | "listOrganizationRoleEntries"
 >;
 
+/** Sync SQL.js and asynchronous host services share the same render contract. */
+export type PublicSiteServiceResults = {
+  [Key in keyof PublicSiteServices]: (
+    ...args: Parameters<PublicSiteServices[Key]>
+  ) =>
+    | ReturnType<PublicSiteServices[Key]>
+    | Promise<ReturnType<PublicSiteServices[Key]>>;
+};
+
 export interface SiteAsset {
   readonly body: string | Uint8Array;
   readonly contentType: string;
@@ -28,7 +37,7 @@ export interface SiteAssets {
 }
 
 export interface PublicSiteOptions {
-  readonly services: PublicSiteServices;
+  readonly services: PublicSiteServiceResults;
   readonly assets: SiteAssets;
   /** Published editorial content. Defaults to a source with no articles. */
   readonly editorial?: EditorialSource;
@@ -45,7 +54,7 @@ export interface PublicSiteOptions {
 }
 
 export interface SiteContext {
-  readonly services: PublicSiteServices;
+  readonly services: PublicSiteServiceResults;
   readonly editorial: EditorialSource;
   readonly preview: boolean;
   readonly now: Date;

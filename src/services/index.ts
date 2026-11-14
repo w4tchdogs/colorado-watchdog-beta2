@@ -71,46 +71,54 @@ export interface ApplicationServices {
   hasCapability(
     principal: TrustedPrincipal | null,
     capability: string,
-  ): boolean;
+  ): boolean | Promise<boolean>;
   createAccount(
     principal: TrustedPrincipal,
     input: NewAccount,
     operationId?: string,
-  ): ReturnType<typeof createAccount>;
+  ):
+    | ReturnType<typeof createAccount>
+    | Promise<ReturnType<typeof createAccount>>;
   getAccount(
     principal: TrustedPrincipal,
     id: string,
-  ): ReturnType<typeof getAccount>;
-  getOwnAccount(principal: TrustedPrincipal): ReturnType<typeof getOwnAccount>;
+  ): ReturnType<typeof getAccount> | Promise<ReturnType<typeof getAccount>>;
+  getOwnAccount(
+    principal: TrustedPrincipal,
+  ):
+    | ReturnType<typeof getOwnAccount>
+    | Promise<ReturnType<typeof getOwnAccount>>;
   getAccountDetails(
     principal: TrustedPrincipal,
     id: string,
-  ): ReturnType<typeof getAccountDetails>;
+  ):
+    | ReturnType<typeof getAccountDetails>
+    | Promise<ReturnType<typeof getAccountDetails>>;
   listAccounts(
     principal: TrustedPrincipal,
     filter?: AccountFilter,
-  ): ReturnType<typeof listAccounts>;
+  ): ReturnType<typeof listAccounts> | Promise<ReturnType<typeof listAccounts>>;
   updateAccount(
     principal: TrustedPrincipal,
     id: string,
     expectedVersion: number,
     changes: Parameters<typeof updateAccount>[4],
     operationId?: string,
-  ): number;
+  ): number | Promise<number>;
   changeAccountRole(
     principal: TrustedPrincipal,
     id: string,
     expectedVersion: number,
     role: Parameters<typeof changeAccountRole>[4],
     operationId?: string,
-  ): number;
+  ): number | Promise<number>;
   createHumanIdentity(
     principal: TrustedPrincipal,
     accountId: string,
     provider: string,
     subject: string,
     operationId?: string,
-  ): string;
+  ): string | Promise<string>;
   issueAgentCredential(
     principal: TrustedPrincipal,
     accountId: string,
@@ -122,16 +130,18 @@ export interface ApplicationServices {
     identityId: string,
     expectedVersion: number,
     operationId?: string,
-  ): number;
+  ): number | Promise<number>;
   createOperation(
     principal: TrustedPrincipal,
     kind: string,
     id?: string,
-  ): string;
+  ): string | Promise<string>;
   listAuditEvents(
     principal: TrustedPrincipal,
     limit?: number,
-  ): ReadonlyArray<Record<string, unknown>>;
+  ):
+    | ReadonlyArray<Record<string, unknown>>
+    | Promise<ReadonlyArray<Record<string, unknown>>>;
   listCountyOrganizations(
     input: DirectoryPageRequest,
   ): ReturnType<typeof listCountyOrganizations>;

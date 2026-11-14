@@ -48,7 +48,7 @@ const COPY: Readonly<Record<"people" | "organizations", DirectoryCopy>> = {
   },
 };
 
-function results(
+async function results(
   context: SiteContext,
   copy: DirectoryCopy,
   query: string,
@@ -56,7 +56,7 @@ function results(
 ) {
   const request = { query, limit: PAGE_SIZE, ...(cursor ? { cursor } : {}) };
   if (copy.collection === "people") {
-    const page = context.services.searchPeople(request);
+    const page = await context.services.searchPeople(request);
     const repeated = new Set<string>();
     const seen = new Set<string>();
     for (const item of page.items) {
@@ -74,7 +74,7 @@ function results(
       ),
     };
   }
-  const page = context.services.searchOrganizations(request);
+  const page = await context.services.searchOrganizations(request);
   return {
     page,
     rows: page.items.map(
@@ -85,11 +85,11 @@ function results(
   };
 }
 
-export function directoryPage(
+export async function directoryPage(
   context: SiteContext,
   collection: "people" | "organizations",
   parameters: URLSearchParams,
-): Page {
+): Promise<Page> {
   const copy = COPY[collection];
   const base = `/${collection}`;
   const query = (parameters.get("query") ?? "").trim();
@@ -126,9 +126,9 @@ export function directoryPage(
       "Enter at least two characters so the search can return a bounded set of results.",
     );
   } else {
-    let found: ReturnType<typeof results>;
+    let found: Awaited<ReturnType<typeof results>>;
     try {
-      found = results(context, copy, query, cursor);
+      found = await results(context, copy, query, cursor);
     } catch (error) {
       if (
         error instanceof Error &&

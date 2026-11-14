@@ -62,7 +62,11 @@ function checkedParameters(
   return url.searchParams;
 }
 
-function route(context: SiteContext, url: URL, pathname: string): Page {
+async function route(
+  context: SiteContext,
+  url: URL,
+  pathname: string,
+): Promise<Page> {
   const segments = pathname.split("/").filter(Boolean);
   const [first, second, ...rest] = segments;
   if (rest.length > 0 || pathname.includes("//")) throw new NotFound();
@@ -81,7 +85,9 @@ function route(context: SiteContext, url: URL, pathname: string): Page {
         if (county !== null) {
           if (
             !isCountyFips(county) ||
-            !context.services.listCounties().some((c) => c.fips === county)
+            !(await context.services.listCounties()).some(
+              (c) => c.fips === county,
+            )
           ) {
             throw new BadRequest("/counties");
           }
@@ -229,7 +235,7 @@ export function createPublicSite(options: PublicSiteOptions) {
           now: clock(),
           banners,
         };
-        return respond(route(context, url, pathname), head);
+        return respond(await route(context, url, pathname), head);
       } catch (error) {
         try {
           return respond(errorToPage(error), head);
@@ -261,6 +267,7 @@ export function createWebsite(handlers: {
       const { pathname } = new URL(request.url);
       return pathname === "/api" ||
         pathname.startsWith("/api/") ||
+        pathname.startsWith("/admin/accounts") ||
         pathname.startsWith("/_internal/") ||
         pathname.startsWith("/internal/")
         ? handlers.application.fetch(request)

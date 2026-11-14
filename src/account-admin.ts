@@ -23,7 +23,7 @@ export function createAccountAdminModule(services: ApplicationServices) {
             "Sign in with ChatGPT to continue.",
             true,
           );
-        if (!services.hasCapability(principal, "account.read"))
+        if (!(await services.hasCapability(principal, "account.read")))
           return adminAccessPage(
             403,
             "This Website account is not authorized to manage accounts.",
@@ -46,7 +46,7 @@ export function createAccountAdminModule(services: ApplicationServices) {
         return json(404, { error: "not_found" });
       const principal = await services.resolvePrincipal(request);
       if (!principal) return json(401, { error: "authentication_required" });
-      if (!services.hasCapability(principal, "account.read"))
+      if (!(await services.hasCapability(principal, "account.read")))
         return json(403, { error: "forbidden" });
       if (request.method !== "GET" && !sameOrigin(request))
         return json(403, { error: "origin_rejected" });
@@ -70,7 +70,7 @@ export function createAccountAdminModule(services: ApplicationServices) {
           )
             return json(400, { error: "invalid_request" });
           return json(201, {
-            ...services.createAccount(principal, body as never),
+            ...(await services.createAccount(principal, body as never)),
           });
         }
         if (
@@ -78,7 +78,7 @@ export function createAccountAdminModule(services: ApplicationServices) {
           request.method === "GET"
         ) {
           const limitText = url.searchParams.get("limit");
-          const result = services.listAccounts(principal, {
+          const result = await services.listAccounts(principal, {
             query: url.searchParams.get("query") ?? undefined,
             kind: optionalEnum(url.searchParams.get("kind"), [
               "human",
@@ -108,13 +108,12 @@ export function createAccountAdminModule(services: ApplicationServices) {
         const id = decodeURIComponent(matchedId);
         const action = match[2];
         if (action === "audit" && request.method === "GET") {
-          const detail = services.getAccountDetails(principal, id);
+          const detail = await services.getAccountDetails(principal, id);
           if (!detail) return json(404, { error: "not_found" });
           const identityIds = new Set(
             detail.identities.map((identity) => identity.id),
           );
-          const events = services
-            .listAuditEvents(principal, 100)
+          const events = (await services.listAuditEvents(principal, 100))
             .filter(
               (event) =>
                 event.target_id === id ||
@@ -132,7 +131,7 @@ export function createAccountAdminModule(services: ApplicationServices) {
           return json(200, { events });
         }
         if (!action && request.method === "GET") {
-          const result = services.getAccountDetails(principal, id);
+          const result = await services.getAccountDetails(principal, id);
           return result
             ? json(200, { ...result })
             : json(404, { error: "not_found" });
@@ -155,7 +154,7 @@ export function createAccountAdminModule(services: ApplicationServices) {
           )
             return json(400, { error: "invalid_request" });
           const { expectedVersion, ...changes } = body;
-          const version = services.updateAccount(
+          const version = await services.updateAccount(
             principal,
             id,
             expectedVersion as number,
@@ -173,7 +172,7 @@ export function createAccountAdminModule(services: ApplicationServices) {
             !Number.isInteger(body.expectedVersion)
           )
             return json(400, { error: "invalid_request" });
-          const version = services.changeAccountRole(
+          const version = await services.changeAccountRole(
             principal,
             id,
             body.expectedVersion as number,
@@ -193,7 +192,7 @@ export function createAccountAdminModule(services: ApplicationServices) {
           )
             return json(400, { error: "invalid_request" });
           return json(201, {
-            identityId: services.createHumanIdentity(
+            identityId: await services.createHumanIdentity(
               principal,
               id,
               body.provider,
@@ -226,7 +225,11 @@ export function createAccountAdminModule(services: ApplicationServices) {
           if (!identityId || !Number.isInteger(version))
             return json(400, { error: "invalid_request" });
           return json(200, {
-            version: services.revokeIdentity(principal, identityId, version),
+            version: await services.revokeIdentity(
+              principal,
+              identityId,
+              version,
+            ),
           });
         }
         return json(405, { error: "method_not_allowed" });

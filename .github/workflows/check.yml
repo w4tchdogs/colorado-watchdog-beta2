@@ -28,6 +28,8 @@ jobs:
         run: npm ci
       - name: Verify Website migrations and API on local D1
         run: npm run test:d1
+      - name: Verify Sites Worker public reads on local D1
+        run: npm run test:sites:d1
       - name: Check starter repository
         run: node scripts/check.mjs
       - name: Validate local research schema and synthetic mappings

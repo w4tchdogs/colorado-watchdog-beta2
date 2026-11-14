@@ -84,8 +84,21 @@ const ROLE_CAPABILITIES: Readonly<
   ],
 };
 
+/** Shared role policy for synchronous SQL.js and asynchronous host adapters. */
+export function roleHasCapability(
+  role: AccountRole,
+  capability: string,
+): boolean {
+  return (
+    capability !== "checkpoint.prune" &&
+    ROLE_CAPABILITIES[role].includes(
+      capability as Exclude<Capability, "checkpoint.prune">,
+    )
+  );
+}
+
 const AGENT_KEY_PREFIX = "cwa_";
-const AGENT_KEY_PATTERN = /^cwa_[A-Za-z0-9_-]{43}$/;
+export const AGENT_KEY_PATTERN = /^cwa_[A-Za-z0-9_-]{43}$/;
 
 export async function resolvePrincipal(
   database: WebsiteDatabase,
@@ -124,7 +137,7 @@ export async function resolvePrincipal(
       return null;
     }
 
-    return makePrincipal(row, "agent-key");
+    return makeTrustedPrincipal(row, "agent-key");
   }
 
   const claim = await humanIdentityAdapter?.resolve(request);
@@ -150,7 +163,7 @@ export async function resolvePrincipal(
   if (!hasUnexpiredIdentity(row.expires_at, now)) {
     return null;
   }
-  return makePrincipal(row, claim.provider);
+  return makeTrustedPrincipal(row, claim.provider);
 }
 
 export function hasCapability(
@@ -181,9 +194,7 @@ export function hasCapability(
     hasUnexpiredIdentity(current.expires_at, new Date()) &&
     current.kind === principal.kind &&
     current.role === principal.role &&
-    ROLE_CAPABILITIES[current.role].includes(
-      capability as Exclude<Capability, "checkpoint.prune">,
-    )
+    roleHasCapability(current.role, capability)
   );
 }
 
@@ -290,7 +301,7 @@ export function newId(): string {
   return crypto.randomUUID();
 }
 
-function makePrincipal(
+export function makeTrustedPrincipal(
   row: Record<string, unknown>,
   provider: string,
 ): TrustedPrincipal {
@@ -312,11 +323,11 @@ function makePrincipal(
   });
 }
 
-function isAccountKind(value: unknown): value is AccountKind {
+export function isAccountKind(value: unknown): value is AccountKind {
   return value === "human" || value === "agent";
 }
 
-function isAccountRole(value: unknown): value is AccountRole {
+export function isAccountRole(value: unknown): value is AccountRole {
   return (
     value === "contributor" ||
     value === "editor" ||

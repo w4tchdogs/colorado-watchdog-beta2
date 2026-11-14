@@ -1,8 +1,9 @@
 # Public website alpha (M4)
 
-This document describes the implemented M4 public website alpha. It runs in a
-local preview only. No Site is deployed, no hosted D1 or R2 is used, and
-compatibility with ChatGPT Sites or any other host is untested.
+This document describes the M4 public website and its Sites-compatible Worker
+package. Local verification uses disposable Wrangler D1. No Site is created,
+published, or deployed by this milestone; hosted runtime and D1 behavior remain
+unverified.
 
 ## Approach
 
@@ -14,31 +15,94 @@ compatibility with ChatGPT Sites or any other host is untested.
   enhancements: the mobile menu toggle and live filtering on the county
   directory. `website/site/site.css` holds the design tokens and components.
 - `createPublicSite(options)` returns a Fetch handler. `createWebsite` composes
-  it with the existing application: `/api/*`, `/_internal/*` and `/internal/*`
-  go to the unchanged application, everything else to the site.
-  `src/application.ts` and `src/worker.ts` are not modified, so the Worker
-  entrypoint does not serve the site yet. Wiring it in is deployment work.
-- Static files are provided by an injected `SiteAssets` object. The local
-  preview reads them from `website/site/`. A hosted deployment would supply its
-  own implementation.
-- The only service addition is `listCounties()`, a read of the seeded county
-  registry. No schema, migration, sync or public API behavior changed.
+  it with the JSON application: `/api/*`, `/_internal/*` and `/internal/*`
+  route to the application; public page routes go to the site.
+- `src/worker.ts` default-exports the Sites Worker fetch handler. It creates the
+  public read services from the trusted `DB` runtime binding. Without `DB`,
+  liveness and bundled static assets remain available while readiness and
+  database-backed pages fail closed. Account routes use the asynchronous D1
+  account services. Human Sites identity fails closed until trusted host
+  provenance is established. Production synchronization capabilities remain
+  disabled.
+- `src/services/d1-public-reads.ts` implements the existing public read
+  projections over asynchronous D1 prepared statements. Page rendering awaits
+  the service contract, which continues to accept the synchronous SQL.js
+  implementation used by local previews and tests. Account services also use
+  D1-native asynchronous reads and guarded batch mutations; SQL.js is not
+  included in the Worker. Query inputs and row counts
+  remain bounded; search and role pagination keep their existing stable keys.
+- The build bundles only the reviewed CSS, JavaScript, logo and favicon assets
+  into the Worker with fixed MIME types. It does not serve arbitrary paths from
+  disk or require an object store for current static assets. Banner placeholders
+  remain available without R2.
+- `.openai/hosting.json` declares the logical `DB` D1 binding and no R2 binding.
+  The build emits the server Worker at `dist/server/index.js` and copies the
+  existing Website migrations into `dist/.openai/drizzle/`. It does not include
+  the SQL.js production database path or the private Profiles research store.
+
+## Local verification and first private Site deployment
+
+`npm run test:sites:d1` applies existing Website migrations 0001–0012 to an
+isolated local Wrangler D1 store, inserts synthetic Website rows, starts the
+production-code Worker, exercises its public routes and static assets, then
+checks behavior without the D1 binding. It creates no remote resource. The
+result establishes local Wrangler behavior only, not hosted Sites behavior.
+
+When an owner later chooses to create the first private Site:
+
+1. Create a **new** Sites project named exactly `colorado_watchdog_alpha1` and
+   link only `w4tchdogs/colorado-watchdog-beta2`. The existing Beta-1 project at
+   `https://colorado-watchdog.futureguild2.chatgpt.site/` must remain unchanged.
+   Never reuse its project ID, hosting configuration, D1 database, R2 bucket,
+   or deployment target. Keep the new Site private.
+2. Before every save or deployment, verify the displayed target is the newly
+   created Beta-2 project and that its returned project ID is distinct from
+   Beta-1. Stop if the project identity is ambiguous. Persist the actual new
+   project ID as `.openai/hosting.json.project_id`; the build injects this exact
+   value into `createSitesIdentityAdapter`, never the display name or a
+   placeholder. The checked-in manifest intentionally has no ID before Site
+   creation.
+3. Select only the new Site's own database option so Sites provisions its new
+   `DB` binding. Do not select or attach any Beta-1 resource. Leave R2
+   unconfigured; the current Worker uses packaged static branding and renders
+   banner placeholders.
+4. Before the first deployment, inspect the source commit and packaged
+   migrations through `0013_private_report_intake.sql`. Sites' documented workflow
+   applies included migrations before uploading the Worker. Use only the Sites
+   workflow for the hosted deployment; do not run Wrangler against a remote
+   database.
+5. Confirm the Site is still private, then exercise homepage, county, people,
+   organization, static-asset and anonymous API behavior in the hosted preview.
+   Hosted execution, identity provenance, and migration behavior are not
+   certified by local checks. Before enabling human account access, establish
+   an authenticated Site request context whose provenance the host guarantees;
+   the public identity guide documents forwarded email and optional full name,
+   not a Worker-verifiable subject/proof. Until that check succeeds, the human
+   Sites adapter remains fail-closed. Synthetic local authentication is not
+   evidence of hosted authentication.
+
+Sites server-backed artifacts require a default-exported Fetch handler in
+`dist/server/index.js`; `.openai/hosting.json` declares storage bindings, and
+unused bindings stay `null`. See [Sites documentation](https://learn.chatgpt.com/docs/sites),
+[data and connections](https://learn.chatgpt.com/docs/sites/data-and-connections),
+[hosting, versions and deployments](https://learn.chatgpt.com/docs/sites/managing-a-site),
+and [D1 readiness](d1-readiness.md).
 
 ## Routes
 
-| Route | Page |
-| --- | --- |
-| `/` | Homepage with the 64-county index, discovery forms, a county selection, Stories and Posts area |
-| `/counties?q=` | County directory with name or FIPS filter and letter navigation |
-| `/counties/{countyFips}` | Banner hero, county navigation and switcher, overview, county organizations, affiliated organizations, documented roles |
-| `/people?query=&cursor=` | People search (`searchPeople`) |
-| `/people/{personId}` | Person profile (`getPersonProfile`) |
-| `/organizations?query=&cursor=` | Organization search (`searchOrganizations`) |
-| `/organizations/{organizationId}` | Organization profile, positions and roles |
-| `/stories`, `/posts`, `/stories/{slug}`, `/posts/{slug}` | Editorial listing and article templates |
-| `/about`, `/reading-records` | Supporting pages |
-| `/counties?county={countyFips}` | County switcher; redirects to the county page |
-| `/assets/{name}` | Stylesheet, script and brand images |
+| Route                                                    | Page                                                                                                                    |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `/`                                                      | Homepage with the 64-county index, discovery forms, a county selection, Stories and Posts area                          |
+| `/counties?q=`                                           | County directory with name or FIPS filter and letter navigation                                                         |
+| `/counties/{countyFips}`                                 | Banner hero, county navigation and switcher, overview, county organizations, affiliated organizations, documented roles |
+| `/people?query=&cursor=`                                 | People search (`searchPeople`)                                                                                          |
+| `/people/{personId}`                                     | Person profile (`getPersonProfile`)                                                                                     |
+| `/organizations?query=&cursor=`                          | Organization search (`searchOrganizations`)                                                                             |
+| `/organizations/{organizationId}`                        | Organization profile, positions and roles                                                                               |
+| `/stories`, `/posts`, `/stories/{slug}`, `/posts/{slug}` | Editorial listing and article templates                                                                                 |
+| `/about`, `/reading-records`                             | Supporting pages                                                                                                        |
+| `/counties?county={countyFips}`                          | County switcher; redirects to the county page                                                                           |
+| `/assets/{name}`                                         | Stylesheet, script and brand images                                                                                     |
 
 Lists use the services' keyset cursors with bounded page sizes (25, or 50 for
 county organizations). Paging is forward-only with a link back to the first
@@ -141,19 +205,19 @@ falls back to it with no broken picture and no layout shift.
 
 **Contract.** A `BannerSource` supplies `BannerPresentation` records:
 
-| Field | Meaning |
-| --- | --- |
-| `bannerId` | Stable logical identity. Not tied to filename, checksum or URL |
-| `assetVersion` | The approved asset version currently shown |
-| `countyFips` | Five-digit FIPS, or `null` for statewide artwork |
-| `src` | Resolved, versioned image address (root-relative path or https URL) |
-| `alt`, `caption` | Descriptive alternative text and landmark caption |
-| `originalFilename` | Provenance only |
-| `width`, `height` | Intrinsic pixel size, when known |
-| `displayMode` | `cover` or `contain` |
-| `focalX`, `focalY` | Normalized focal point |
-| `order`, `primary` | Per-county ordering and primary selection |
-| `status` | `published` or `unpublished` |
+| Field              | Meaning                                                             |
+| ------------------ | ------------------------------------------------------------------- |
+| `bannerId`         | Stable logical identity. Not tied to filename, checksum or URL      |
+| `assetVersion`     | The approved asset version currently shown                          |
+| `countyFips`       | Five-digit FIPS, or `null` for statewide artwork                    |
+| `src`              | Resolved, versioned image address (root-relative path or https URL) |
+| `alt`, `caption`   | Descriptive alternative text and landmark caption                   |
+| `originalFilename` | Provenance only                                                     |
+| `width`, `height`  | Intrinsic pixel size, when known                                    |
+| `displayMode`      | `cover` or `contain`                                                |
+| `focalX`, `focalY` | Normalized focal point                                              |
+| `order`, `primary` | Per-county ordering and primary selection                           |
+| `status`           | `published` or `unpublished`                                        |
 
 `forCounty(fips)` may return any number of banners; `forHome()` returns the
 curated statewide set. The site shows published records only, primary first,
