@@ -675,6 +675,347 @@ async function main() {
       "PASS production-code async D1 same-row updates preserve one expected-version winner",
     );
 
+    const raceBatchId = racedResults[0].batchId;
+    const reverseResponse = await fetch(
+      `${base}/sync/reverse?batch=${encodeURIComponent(raceBatchId)}&key=async-reversal-key`,
+      { method: "POST" },
+    );
+    const reversal = await reverseResponse.json();
+    if (!reverseResponse.ok || reversal.status !== "reverted") {
+      throw new Error(`Async D1 reversal failed: ${JSON.stringify(reversal)}`);
+    }
+    const reverseReplayResponse = await fetch(
+      `${base}/sync/reverse?batch=${encodeURIComponent(raceBatchId)}&key=async-reversal-key`,
+      { method: "POST" },
+    );
+    const reverseReplay = await reverseReplayResponse.json();
+    if (
+      !reverseReplayResponse.ok ||
+      reverseReplay.status !== "reverted" ||
+      !reverseReplay.replayed
+    ) {
+      throw new Error(
+        `Async D1 reversal replay failed: ${JSON.stringify(reverseReplay)}`,
+      );
+    }
+    const reversedState = await (
+      await fetch(`${base}/sync/state?key=async-race-key`)
+    ).json();
+    if (
+      reversedState.items !== 1 ||
+      reversedState.audits !== 1 ||
+      reversedState.reversals !== 1 ||
+      reversedState.reversal_audits !== 1 ||
+      reversedState.dependency_assertions !== 0 ||
+      reversedState.version_assertions !== 0
+    ) {
+      throw new Error(
+        `Async D1 reversal left inconsistent durable state: ${JSON.stringify(reversedState)}`,
+      );
+    }
+    console.log(
+      "PASS production-code async D1 reversal atomically removes its batch data, retains history, and replays",
+    );
+
+    for (const [index, stage] of ["early", "middle", "final"].entries()) {
+      const failureBatch = structuredClone(asyncBatch);
+      failureBatch.requestId = `cb5f57a2-84b7-4a4d-b300-33aea9feeb0${index}`;
+      failureBatch.changes[0].fields.name = `Synthetic Reversal Failure ${stage}`;
+      failureBatch.changes[4].fields.url = `https://example.invalid/d1-reversal-failure-${stage}`;
+      const failureCommitResponse = await fetch(
+        `${base}/sync/commit?key=reversal-failure-batch-${stage}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(failureBatch),
+        },
+      );
+      const failureCommit = await failureCommitResponse.json();
+      if (!failureCommitResponse.ok || failureCommit.status !== "committed") {
+        throw new Error(
+          `Failed to prepare ${stage} reversal fixture: ${JSON.stringify(failureCommit)}`,
+        );
+      }
+      const injectedResponse = await fetch(
+        `${base}/sync/reverse-failure?batch=${encodeURIComponent(failureCommit.batchId)}&stage=${stage}`,
+        { method: "POST" },
+      );
+      const injected = await injectedResponse.json();
+      const failureStateResponse = await fetch(
+        `${base}/sync/reversal-state?batch=${encodeURIComponent(failureCommit.batchId)}`,
+      );
+      const failureStateText = await failureStateResponse.text();
+      let failureState;
+      try {
+        failureState = JSON.parse(failureStateText);
+      } catch {
+        throw new Error(
+          `Reversal state endpoint failed (${failureStateResponse.status}): ${failureStateText.slice(-3000)}`,
+        );
+      }
+      if (
+        injectedResponse.status !== 409 ||
+        injected.status !== "reversal_blocked" ||
+        failureState.items !== 6 ||
+        failureState.receipts !== 0 ||
+        failureState.audits !== 0 ||
+        failureState.flags !== 1 ||
+        failureState.observations !== 1 ||
+        failureState.roles !== 1 ||
+        failureState.positions !== 1 ||
+        failureState.people !== 1 ||
+        failureState.sources !== 1 ||
+        failureState.organizations !== 1 ||
+        failureState.affiliations !== 1 ||
+        failureState.dependency_assertions !== 0 ||
+        failureState.version_assertions !== 0
+      ) {
+        throw new Error(
+          `D1 ${stage} reversal failure left partial state: ${JSON.stringify({ injected, failureState })}`,
+        );
+      }
+    }
+    console.log(
+      "PASS local D1 early, middle, and final reversal failures roll back all data, receipts, and audits",
+    );
+
+    const concurrentBatch = structuredClone(asyncBatch);
+    concurrentBatch.requestId = "db5f57a2-84b7-4a4d-b300-33aea9feeb10";
+    concurrentBatch.changes[0].fields.name = "Synthetic Concurrent Reversal";
+    concurrentBatch.changes[4].fields.url =
+      "https://example.invalid/d1-concurrent-reversal";
+    const concurrentCommitResponse = await fetch(
+      `${base}/sync/commit?key=concurrent-reversal-batch`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(concurrentBatch),
+      },
+    );
+    const concurrentCommit = await concurrentCommitResponse.json();
+    if (
+      !concurrentCommitResponse.ok ||
+      concurrentCommit.status !== "committed"
+    ) {
+      throw new Error(
+        `Failed to prepare concurrent reversal fixture: ${JSON.stringify(concurrentCommit)}`,
+      );
+    }
+    const concurrentReversals = await Promise.all([
+      fetch(
+        `${base}/sync/reverse?batch=${encodeURIComponent(concurrentCommit.batchId)}&key=concurrent-reverse-a`,
+        { method: "POST" },
+      ),
+      fetch(
+        `${base}/sync/reverse?batch=${encodeURIComponent(concurrentCommit.batchId)}&key=concurrent-reverse-b`,
+        { method: "POST" },
+      ),
+    ]);
+    const concurrentResults = await Promise.all(
+      concurrentReversals.map((response) => response.json()),
+    );
+    const concurrentState = await (
+      await fetch(
+        `${base}/sync/reversal-state?batch=${encodeURIComponent(concurrentCommit.batchId)}`,
+      )
+    ).json();
+    if (
+      concurrentResults.filter((result) => result.status === "reverted")
+        .length !== 1 ||
+      concurrentState.receipts !== 1 ||
+      concurrentState.audits !== 1 ||
+      concurrentState.dependency_assertions !== 0 ||
+      concurrentState.version_assertions !== 0
+    ) {
+      throw new Error(
+        `Concurrent reversals were not serialized safely: ${JSON.stringify({ concurrentResults, concurrentState })}`,
+      );
+    }
+    console.log(
+      "PASS local D1 concurrent reversal requests produce exactly one durable receipt and audit",
+    );
+
+    for (const [index, mode] of ["version", "generation"].entries()) {
+      const staleBatch = structuredClone(asyncBatch);
+      staleBatch.requestId = `eb5f57a2-84b7-4a4d-b300-33aea9feeb0${index}`;
+      staleBatch.changes[0].fields.name = `Synthetic Stale Reversal ${mode}`;
+      staleBatch.changes[4].fields.url = `https://example.invalid/d1-stale-reversal-${mode}`;
+      const staleCommitResponse = await fetch(
+        `${base}/sync/commit?key=stale-reversal-batch-${mode}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(staleBatch),
+        },
+      );
+      const staleCommit = await staleCommitResponse.json();
+      if (!staleCommitResponse.ok || staleCommit.status !== "committed") {
+        throw new Error(
+          `Failed to prepare ${mode} reversal fixture: ${JSON.stringify(staleCommit)}`,
+        );
+      }
+      const staleResponse = await fetch(
+        `${base}/sync/reverse-stale?batch=${encodeURIComponent(staleCommit.batchId)}&mode=${mode}`,
+        { method: "POST" },
+      );
+      const staleResult = await staleResponse.json();
+      const staleState = await (
+        await fetch(
+          `${base}/sync/reversal-state?batch=${encodeURIComponent(staleCommit.batchId)}`,
+        )
+      ).json();
+      if (
+        staleResponse.status !== 409 ||
+        staleResult.status !== "reversal_blocked" ||
+        staleState.items !== 6 ||
+        staleState.receipts !== 0 ||
+        staleState.audits !== 0 ||
+        staleState.dependency_assertions !== 0 ||
+        staleState.version_assertions !== 0
+      ) {
+        throw new Error(
+          `D1 ${mode} reversal protection failed: ${JSON.stringify({ staleResult, staleState })}`,
+        );
+      }
+    }
+    console.log(
+      "PASS local D1 reversal rejects changed row versions and dependency generations without receipts or audits",
+    );
+
+    const invalidInverseBatch = structuredClone(asyncBatch);
+    invalidInverseBatch.requestId = "fb5f57a2-84b7-4a4d-b300-33aea9feeb01";
+    invalidInverseBatch.changes[0].fields.name = "Synthetic Invalid Inverse";
+    invalidInverseBatch.changes[4].fields.url =
+      "https://example.invalid/d1-invalid-inverse";
+    const invalidInverseCommitResponse = await fetch(
+      `${base}/sync/commit?key=invalid-inverse-batch`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(invalidInverseBatch),
+      },
+    );
+    const invalidInverseCommit = await invalidInverseCommitResponse.json();
+    if (
+      !invalidInverseCommitResponse.ok ||
+      invalidInverseCommit.status !== "committed"
+    ) {
+      throw new Error(
+        `Failed to prepare invalid inverse fixture: ${JSON.stringify(invalidInverseCommit)}`,
+      );
+    }
+    const invalidInverseResponse = await fetch(
+      `${base}/sync/reverse-corrupt?batch=${encodeURIComponent(invalidInverseCommit.batchId)}`,
+      { method: "POST" },
+    );
+    const invalidInverse = await invalidInverseResponse.json();
+    const invalidInverseState = await (
+      await fetch(
+        `${base}/sync/reversal-state?batch=${encodeURIComponent(invalidInverseCommit.batchId)}`,
+      )
+    ).json();
+    if (
+      invalidInverseResponse.status !== 409 ||
+      invalidInverse.status !== "reversal_blocked" ||
+      invalidInverseState.items !== 6 ||
+      invalidInverseState.receipts !== 0 ||
+      invalidInverseState.audits !== 0 ||
+      invalidInverseState.flags !== 1 ||
+      invalidInverseState.observations !== 1
+    ) {
+      throw new Error(
+        `Corrupt D1 inverse metadata was not blocked safely: ${JSON.stringify({ invalidInverse, invalidInverseState })}`,
+      );
+    }
+    for (const mode of ["foreign", "inactive", "revoked"]) {
+      const securityResponse = await fetch(
+        `${base}/sync/reverse-security?batch=${encodeURIComponent(invalidInverseCommit.batchId)}&mode=${mode}`,
+        { method: "POST" },
+      );
+      const securityResult = await securityResponse.json();
+      if (
+        (mode === "foreign" &&
+          (securityResponse.status !== 409 ||
+            securityResult.status !== "reversal_blocked")) ||
+        (mode !== "foreign" &&
+          (securityResponse.status !== 403 || securityResult.denied !== true))
+      ) {
+        throw new Error(
+          `D1 ${mode} reversal authorization was not denied: ${JSON.stringify(securityResult)}`,
+        );
+      }
+    }
+    console.log(
+      "PASS local D1 rejects corrupt inverse metadata, cross-actor access, inactive accounts, and revoked identities",
+    );
+
+    for (const [index, mode] of [
+      "dependent",
+      "flag-decided",
+      "later-observation",
+    ].entries()) {
+      const protectedBatch = structuredClone(asyncBatch);
+      protectedBatch.requestId = `0b5f57a2-84b7-4a4d-b300-33aea9feeb0${index}`;
+      protectedBatch.changes[0].fields.name = `Synthetic Protected Reversal ${mode}`;
+      protectedBatch.changes[4].fields.url = `https://example.invalid/d1-protected-reversal-${mode}`;
+      const protectedCommitResponse = await fetch(
+        `${base}/sync/commit?key=protected-reversal-batch-${mode}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(protectedBatch),
+        },
+      );
+      const protectedCommit = await protectedCommitResponse.json();
+      if (
+        !protectedCommitResponse.ok ||
+        protectedCommit.status !== "committed"
+      ) {
+        throw new Error(
+          `Failed to prepare ${mode} dependency fixture: ${JSON.stringify(protectedCommit)}`,
+        );
+      }
+      const protectedResponse = await fetch(
+        `${base}/sync/reverse-protection?batch=${encodeURIComponent(protectedCommit.batchId)}&mode=${mode}`,
+        { method: "POST" },
+      );
+      const protectedText = await protectedResponse.text();
+      let protectedResult;
+      try {
+        protectedResult = JSON.parse(protectedText);
+      } catch {
+        throw new Error(
+          `D1 ${mode} protection endpoint failed (${protectedResponse.status}): ${protectedText.slice(-2000)}`,
+        );
+      }
+      const protectedState = await (
+        await fetch(
+          `${base}/sync/reversal-state?batch=${encodeURIComponent(protectedCommit.batchId)}`,
+        )
+      ).json();
+      if (
+        protectedResponse.status !== 409 ||
+        protectedResult.status !== "reversal_blocked" ||
+        protectedState.items !== 6 ||
+        protectedState.receipts !== 0 ||
+        protectedState.audits !== 0 ||
+        protectedState.flags !== 1 ||
+        protectedState.roles !== 1 ||
+        protectedState.positions !== 1 ||
+        protectedState.people !== 1 ||
+        protectedState.sources !== 1 ||
+        protectedState.organizations !== 1 ||
+        protectedState.affiliations !== 1
+      ) {
+        throw new Error(
+          `D1 ${mode} dependency did not safely block reversal: ${JSON.stringify({ protectedResult, protectedState })}`,
+        );
+      }
+    }
+    console.log(
+      "PASS local D1 protects later dependents, duplicate-flag decisions, and later duplicate observations",
+    );
+
     const committedPersonId = asyncCommit.items.find(
       (item) => item.entity === "people",
     )?.websiteId;

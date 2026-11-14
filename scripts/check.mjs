@@ -74,6 +74,7 @@ const allowed = new Set([
   "src/services/sync-commit.ts",
   "src/services/sync-planner-d1.ts",
   "src/services/sync-commit-d1.ts",
+  "src/services/sync-revert-d1.ts",
   "src/services/banner-assets.ts",
   "src/services/banner-storage.ts",
   "src/services/sync-history.ts",

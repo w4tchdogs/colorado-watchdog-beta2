@@ -49,7 +49,7 @@ export type D1SyncCommitResult =
 
 export type D1SyncAuthorizer = (
   principal: TrustedPrincipal,
-  capability: "sync.apply",
+  capability: "sync.apply" | "sync.revert",
 ) => Promise<boolean>;
 
 interface StoredResult {
