@@ -1,9 +1,10 @@
 # D1 compatibility readiness
 
-Status: **the internal asynchronous M2 commit/replay path is implemented and
-exercised on disposable local Wrangler D1**. All tests use synthetic rows. They
-do not access hosted D1, production resources or credentials. Production routes
-and synchronization capabilities remain disabled.
+Status: **the internal asynchronous M2 commit/replay and guarded reversal paths
+are implemented and exercised on disposable local Wrangler D1**. All tests use
+synthetic rows. They do not access hosted D1, production resources or
+credentials. Production routes and synchronization capabilities remain
+disabled.
 
 ## Verified SQL.js behavior
 
@@ -83,6 +84,20 @@ batch-item, duplicate-observation and audit insertion each leave no partial
 state. Separate SQL.js-backed tests compare the asynchronous planner's result
 with the accepted synchronous planner. These results do not certify hosted D1.
 
+The internal asynchronous reversal service validates bounded inverse metadata,
+checks row versions and external dependents, removes eligible open duplicate
+flags, and writes inverse data, a durable reversal receipt and attributed audit
+event through one guarded D1 batch. The database assertion checks the captured
+dependency generation and current principal; version assertions and the D1
+transaction make stale writes, authorization changes, and competing reversals
+fail without partial writes. Matching idempotency keys replay the receipt;
+incompatible reuse blocks, and a different key after success returns
+`already_reverted`. Results are bounded and failures are sanitized. Duplicate
+flag observations and decisions remain protected as in synchronous SQL.js
+reversal. The synchronous reference uses its SQL.js transaction API; D1 uses
+the guarded `batch()` atomic boundary. Local execution is not hosted-D1
+verification.
+
 ## Still unverified on hosted D1
 
 No hosted D1 database was accessed. Hosted execution/version differences,
@@ -100,8 +115,7 @@ limits. No hosted D1 was accessed.
 2. The asynchronous engine remains internal, default-deny and unregistered. Its
    test-only authorizer is synthetic; no production `sync.apply` grant or route
    exists.
-3. D1 reversal remains unimplemented and must not be exposed until a separately
-   guarded implementation is complete.
+3. Reversal remains internal, default-deny and unregistered; do not expose it.
 4. Any hosted-D1 migration or operational test needs its own authorization.
 
 References: [D1 prepared statements](https://developers.cloudflare.com/d1/worker-api/prepared-statements/),

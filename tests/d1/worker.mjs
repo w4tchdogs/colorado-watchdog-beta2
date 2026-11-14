@@ -1,5 +1,6 @@
 import { AsyncD1Database } from "../../src/database/d1.ts";
 import { commitSyncChangesetD1 } from "../../src/services/sync-commit-d1.ts";
+import { reverseSyncBatchD1 } from "../../src/services/sync-revert-d1.ts";
 
 const json = (value, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -39,6 +40,30 @@ export default {
         },
       );
       return json(result, result.status === "rejected" ? 409 : 200);
+    }
+    if (url.pathname === "/sync/reverse" && request.method === "POST") {
+      const batchId = url.searchParams.get("batch");
+      const idempotencyKey = url.searchParams.get("key");
+      if (!batchId || !idempotencyKey)
+        return json({ error: "batch and key required" }, 400);
+      const principal = {
+        accountId: "d1-async-actor",
+        identityId: "d1-async-identity",
+        provider: "synthetic",
+        kind: "human",
+        role: "administrator",
+      };
+      const result = await reverseSyncBatchD1(
+        new AsyncD1Database(env.DB),
+        principal,
+        batchId,
+        idempotencyKey,
+        {
+          authorize: async (_principal, capability) =>
+            capability === "sync.revert",
+        },
+      );
+      return json(result, result.status === "reversal_blocked" ? 409 : 200);
     }
     if (url.pathname === "/sync/failure" && request.method === "POST") {
       const stage = url.searchParams.get("stage");
@@ -97,10 +122,13 @@ export default {
           AND target_id = (SELECT id FROM sync_batches WHERE actor_account_id = 'd1-async-actor' AND idempotency_key = ?)) AS audits,
         (SELECT COUNT(*) FROM person_duplicate_flags WHERE origin_batch_id = (SELECT id FROM sync_batches WHERE actor_account_id = 'd1-async-actor' AND idempotency_key = ?)) AS flags,
         (SELECT COUNT(*) FROM person_duplicate_flag_observations WHERE batch_id = (SELECT id FROM sync_batches WHERE actor_account_id = 'd1-async-actor' AND idempotency_key = ?)) AS observations,
+        (SELECT COUNT(*) FROM sync_batch_reversals WHERE batch_id = (SELECT id FROM sync_batches WHERE actor_account_id = 'd1-async-actor' AND idempotency_key = ?)) AS reversals,
+        (SELECT COUNT(*) FROM audit_events WHERE actor_account_id = 'd1-async-actor' AND action = 'sync.batch.reverse'
+          AND target_id = (SELECT id FROM sync_batches WHERE actor_account_id = 'd1-async-actor' AND idempotency_key = ?)) AS reversal_audits,
         (SELECT COUNT(*) FROM people WHERE display_name LIKE 'Injected failure %') AS injected_people,
         (SELECT COUNT(*) FROM website_dependency_assertions) AS dependency_assertions,
         (SELECT COUNT(*) FROM website_write_assertions) AS version_assertions`)
-          .bind(key, key, key, key, key)
+          .bind(key, key, key, key, key, key, key)
           .first(),
       );
     }

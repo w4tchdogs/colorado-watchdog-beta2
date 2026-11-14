@@ -10,6 +10,7 @@ import {
 import { commitSyncChangesetD1 } from "../dist/services/sync-commit-d1.js";
 import { planSyncChangeset } from "../dist/services/sync-planner.js";
 import { planSyncChangesetD1 } from "../dist/services/sync-planner-d1.js";
+import { reverseSyncBatchD1 } from "../dist/services/sync-revert-d1.js";
 
 const requestId = "6b5f57a2-84b7-4a4d-b300-33aea9feeb19";
 const now = () => new Date("2026-11-13T12:00:00.000Z");
@@ -216,6 +217,75 @@ test("D1 commit persists dependent records, inverse data, audit, and exact repla
       database.prepare("SELECT COUNT(*) AS count FROM people").get().count,
       1,
     );
+  });
+});
+
+test("D1 reversal atomically reverses a dependent batch and replays by key", async () => {
+  await fixture(async (database, d1, principal) => {
+    const committed = await commitSyncChangesetD1(
+      d1,
+      principal,
+      "reversal-commit-key",
+      completeChangeset(),
+      { authorize: allowSynthetic, now },
+    );
+    assert.equal(committed.status, "committed");
+    if (committed.status !== "committed") return;
+    const authorize = async (_principal, capability) =>
+      capability === "sync.revert";
+    const reversed = await reverseSyncBatchD1(
+      d1,
+      principal,
+      committed.batchId,
+      "reversal-key",
+      { authorize, now },
+    );
+    assert.equal(reversed.status, "reverted");
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM sync_batch_items WHERE batch_id = ?",
+        )
+        .get(committed.batchId).count,
+      6,
+    );
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM organizations WHERE id <> 'org-race'",
+        )
+        .get().count,
+      0,
+    );
+    assert.equal(
+      database.prepare("SELECT COUNT(*) AS count FROM people").get().count,
+      0,
+    );
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM audit_events WHERE action = 'sync.batch.reverse'",
+        )
+        .get().count,
+      1,
+    );
+    const replay = await reverseSyncBatchD1(
+      d1,
+      principal,
+      committed.batchId,
+      "reversal-key",
+      { authorize, now },
+    );
+    assert.equal(replay.status, "reverted");
+    if (replay.status === "reverted") assert.equal(replay.replayed, true);
+    const anotherKey = await reverseSyncBatchD1(
+      d1,
+      principal,
+      committed.batchId,
+      "reversal-key-two",
+      { authorize, now },
+    );
+    assert.equal(anotherKey.status, "already_reverted");
   });
 });
 

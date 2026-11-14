@@ -674,6 +674,48 @@ async function main() {
       "PASS production-code async D1 same-row updates preserve one expected-version winner",
     );
 
+    const raceBatchId = racedResults[0].batchId;
+    const reverseResponse = await fetch(
+      `${base}/sync/reverse?batch=${encodeURIComponent(raceBatchId)}&key=async-reversal-key`,
+      { method: "POST" },
+    );
+    const reversal = await reverseResponse.json();
+    if (!reverseResponse.ok || reversal.status !== "reverted") {
+      throw new Error(`Async D1 reversal failed: ${JSON.stringify(reversal)}`);
+    }
+    const reverseReplayResponse = await fetch(
+      `${base}/sync/reverse?batch=${encodeURIComponent(raceBatchId)}&key=async-reversal-key`,
+      { method: "POST" },
+    );
+    const reverseReplay = await reverseReplayResponse.json();
+    if (
+      !reverseReplayResponse.ok ||
+      reverseReplay.status !== "reverted" ||
+      !reverseReplay.replayed
+    ) {
+      throw new Error(
+        `Async D1 reversal replay failed: ${JSON.stringify(reverseReplay)}`,
+      );
+    }
+    const reversedState = await (
+      await fetch(`${base}/sync/state?key=async-race-key`)
+    ).json();
+    if (
+      reversedState.items !== 1 ||
+      reversedState.audits !== 1 ||
+      reversedState.reversals !== 1 ||
+      reversedState.reversal_audits !== 1 ||
+      reversedState.dependency_assertions !== 0 ||
+      reversedState.version_assertions !== 0
+    ) {
+      throw new Error(
+        `Async D1 reversal left inconsistent durable state: ${JSON.stringify(reversedState)}`,
+      );
+    }
+    console.log(
+      "PASS production-code async D1 reversal atomically removes its batch data, retains history, and replays",
+    );
+
     const committedPersonId = asyncCommit.items.find(
       (item) => item.entity === "people",
     )?.websiteId;
