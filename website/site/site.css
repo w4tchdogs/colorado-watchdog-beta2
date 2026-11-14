@@ -208,7 +208,6 @@ img {
   gap: 0.2rem;
 }
 .brand-name {
-  max-width: 9ch;
   font-family: var(--font-display);
   font-size: 1.25rem;
   font-weight: 900;
@@ -1013,6 +1012,14 @@ img {
 }
 .hero-county h1 {
   margin-bottom: var(--space-2);
+}
+.hero-home h1 {
+  /* Homepage headline: two clean lines ("Community Voices." / "Government
+     Accountability.") at desktop. Widened from the shared 20ch so the second
+     line fits without an awkward fragment, while staying narrow enough that the
+     full headline does not collapse to one line. `ch` scales with the fluid h1
+     font size so the measure stays proportional at every viewport. */
+  max-width: 29ch;
 }
 .hero-meta {
   display: flex;
