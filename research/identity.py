@@ -23,6 +23,7 @@ _NICKNAME_SPLIT = re.compile(r"\s*(?:;|\||/|,|\band\b|&)\s*", re.IGNORECASE)
 _ALPHA = re.compile(r"[^\W\d_]", re.UNICODE)
 _ROLE_CUES = ("also serves as", "also holds", "also works as", "also listed as", "in addition to",
               "same person as", "is the same person", "serves in both", "holds both roles")
+_NONROLE_RESPONSIBILITIES = {"listed in official source"}
 
 
 def _stable_id(prefix, *parts):
@@ -66,8 +67,10 @@ def _direct_name_role(row):
     values = [str(value) for value in fields.values() if isinstance(value, str)]
     quotation = row["quotation"] or ""
     name_supported = row["published_name"] in values or row["published_name"] in quotation
-    role_values = [value for value in (row["published_title"], row["responsibility"]) if value]
-    role_supported = any(value in values or value in quotation for value in role_values)
+    role_values = [value for value in (row["published_title"], row["responsibility"])
+                   if value and value.strip().casefold() not in _NONROLE_RESPONSIBILITIES]
+    evidence_text = "\n".join((*values, quotation)).casefold()
+    role_supported = any(value.casefold() in evidence_text for value in role_values)
     return bool(name_supported and role_supported)
 
 
@@ -102,7 +105,7 @@ def _active_batch(row):
 
 def _role_values(row):
     return [value for value in (row["published_title"], row["responsibility"])
-            if isinstance(value, str) and value]
+            if isinstance(value, str) and value and value.strip().casefold() not in _NONROLE_RESPONSIBILITIES]
 
 
 def _cue_between(text, name, role):
