@@ -13,6 +13,7 @@ from research.store import timestamp
 
 PLAN_FORMAT = "colorado-watchdog/identity-foundation-plan/v1"
 ACTOR_DEFAULT = "evidence-based-identity-foundation"
+DECISION_ONLY_EVENT_POLICY = "decisions-only/v2"
 
 _NONPERSON_TOKENS = {
     "agency", "board", "clerk", "committee", "commission", "council", "county",
@@ -41,6 +42,26 @@ def _official_host(url):
     except ValueError:
         return False
     return host == "gov" or host.endswith(".gov")
+
+
+def _explicit_official_publication(values):
+    """Find a retained exact statement that the cited page itself is official."""
+    entity = r"(?:city\s+and\s+county|city|town|county|district|municipality|state)"
+    owner = (rf"(?:{entity}\s+of\s+[\w.'’ -]{{2,80}}|"
+             r"[\w.'’ -]{2,80}?\s+(?:county|city|town|district|government))")
+    statements = (
+        rf"(?:(?:this\s+is|welcome\s+to)\s+)?(?:the\s+)?official\s+(?:government\s+)?"
+        rf"(?:website|web\s*site|site|publication|page)\s+(?:of|for)\s+(?:the\s+)?{owner}",
+        rf"{owner}\s+(?:official\s+)?(?:website|web\s*site|site|publication|page)",
+    )
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        for statement in statements:
+            match = re.fullmatch(rf"\s*{statement}[.!]?\s*", value, re.IGNORECASE)
+            if match:
+                return match.group(0).strip().rstrip(".").strip()
+    return None
 
 
 def _raw_fields(raw_record_json):
@@ -161,8 +182,7 @@ def _identity_connection_edges(db, county_fips, rows, *, planned_sources, allow_
         by_name[row["published_name"]].append(row)
     names_by_first_word = defaultdict(list)
     for name in by_name:
-        first_word = name.split(maxsplit=1)[0].casefold()
-        names_by_first_word[first_word].append(name)
+        names_by_first_word[name.casefold()].append(name)
     first_words = sorted(names_by_first_word, key=lambda value: (-len(value), value))
     first_words_pattern = (re.compile(r"(?<!\w)(?:" + "|".join(re.escape(value) for value in first_words)
                                       + r")(?!\w)") if first_words else None)
@@ -215,31 +235,71 @@ def _identity_connection_edges(db, county_fips, rows, *, planned_sources, allow_
 
 def _source_proposals(db):
     sources = list(db.execute("SELECT id,original_url,official_status FROM sources ORDER BY id"))
-    eligible_sources = {source["id"] for source in sources
-                        if source["official_status"] == "unknown" and _official_host(source["original_url"])}
+    eligible_sources = {source["id"] for source in sources if source["official_status"] == "unknown"}
     if not eligible_sources:
         return []
-    claims = db.execute(
-        "SELECT c.id,c.county_fips,c.evidence_id,c.published_name,c.published_title,c.responsibility,"
-        "e.source_id,e.raw_record_json,e.quotation,e.observed_title FROM role_claims c "
-        "JOIN evidence_links e ON e.id=c.evidence_id ORDER BY c.county_fips,c.id"
-    )
-    proof = {}
-    for row in claims:
-        if row["source_id"] in eligible_sources and row["source_id"] not in proof and _direct_name_role(row):
-            proof[row["source_id"]] = row["evidence_id"]
+    sources_by_id = {source["id"]: source for source in sources}
+    direct_role_proof = {}
+    for row in db.execute(
+            "SELECT c.id,c.county_fips,c.evidence_id,c.published_name,c.published_title,c.responsibility,"
+            "e.source_id,e.raw_record_json,e.quotation,e.observed_title FROM role_claims c "
+            "JOIN evidence_links e ON e.id=c.evidence_id JOIN sources s ON s.id=e.source_id "
+            "WHERE s.official_status='unknown' ORDER BY c.county_fips,c.id"):
+        source = sources_by_id[row["source_id"]]
+        if _official_host(source["original_url"]) and row["source_id"] not in direct_role_proof \
+                and _direct_name_role(row):
+            direct_role_proof[row["source_id"]] = row["evidence_id"]
+
+    # A non-.gov source is eligible only when retained evidence attached to
+    # that exact URL explicitly identifies it as the official publication of
+    # its county government. This is a per-source proof, not a domain allowlist.
+    documented_authority = {}
+    for row in db.execute(
+            "SELECT e.id,e.source_id,e.raw_record_json,e.quotation,e.observed_title,"
+            "sc.county_fips,c.name AS county_name FROM evidence_links e "
+            "JOIN sources s ON s.id=e.source_id JOIN (SELECT DISTINCT ce.source_id,rc.county_fips "
+            "FROM role_claims rc JOIN evidence_links ce ON ce.id=rc.evidence_id) sc "
+            "ON sc.source_id=e.source_id JOIN counties c ON c.fips=sc.county_fips "
+            "WHERE s.official_status='unknown' ORDER BY e.source_id,e.id,sc.county_fips"):
+        source = sources_by_id[row["source_id"]]
+        if _official_host(source["original_url"]) or row["source_id"] in documented_authority:
+            continue
+        county_name = row["county_name"]
+        if not county_name:
+            continue
+        retained_text = [row["quotation"], row["observed_title"],
+                         *(_raw_fields(row["raw_record_json"]).values())]
+        statement = _explicit_official_publication(retained_text)
+        if statement:
+            documented_authority[row["source_id"]] = {
+                "evidence_id": row["id"],
+                "basis": ("Retained evidence attached to this exact source explicitly identifies it as a government "
+                          f"official publication: {statement}. "
+                          "No source visit is asserted."),
+            }
     proposals = []
     for source in sources:
         if source["id"] not in eligible_sources:
             continue
-        evidence_id = proof.get(source["id"])
+        if _official_host(source["original_url"]):
+            evidence_id = direct_role_proof.get(source["id"])
+            basis = ("The retained observation directly contains its published name and role, and the exact cited URL "
+                     "is within the restricted .gov namespace; no source visit is asserted.")
+        else:
+            documented = documented_authority.get(source["id"])
+            if documented is None:
+                continue
+            evidence_id, basis = documented["evidence_id"], documented["basis"]
         if evidence_id is None:
             continue
         proposals.append({
             "source_id": source["id"], "evidence_id": evidence_id,
             "from_status": "unknown", "to_status": "official",
             "host": urlsplit(source["original_url"]).hostname.lower(),
-            "basis": "The retained observation directly contains its published name and role, and the exact cited URL is within the restricted .gov namespace; no source visit is asserted.",
+            "basis": basis,
+            "authority_evidence_type": ("restricted_gov_domain_plus_direct_name_role"
+                                         if _official_host(source["original_url"])
+                                         else "retained_exact_page_official_statement"),
         })
     return proposals
 
@@ -602,6 +662,7 @@ def build_identity_plan(db):
         "SELECT count(*) FROM role_claims WHERE person_id IS NOT NULL").fetchone()[0]
     totals["role_claims_unassigned_before"] = totals["role_claims_evaluated"] - totals["role_claims_assigned_before"]
     payload = {"format": PLAN_FORMAT,
+               "event_policy": DECISION_ONLY_EVENT_POLICY,
                "input": {"county_registry_count": db.execute("SELECT count(*) FROM counties").fetchone()[0],
                          "counties_with_claims": len(counties), "claims_by_county": counts,
                          "source_count": db.execute("SELECT count(*) FROM sources").fetchone()[0],
@@ -693,15 +754,24 @@ def _event(run_id, kind, entity_type, entity_id, detail, actor):
 
 
 def _expected_source_events(proposals, run_id, actor):
-    return [_event(run_id, "source_classified", "sources", item["source_id"], {
-        "before": {"official_status": item["from_status"]},
-        "after": {"official_status": item["to_status"]},
-        "supporting_evidence_id": item["evidence_id"], "basis": item["basis"],
-        "verified_host": item["host"], "source_visit_recorded": False,
-    }, actor) for item in proposals]
+    events = []
+    for item in proposals:
+        detail = {"before": {"official_status": item["from_status"]},
+                  "after": {"official_status": item["to_status"]},
+                  "supporting_evidence_id": item["evidence_id"], "basis": item["basis"],
+                  "source_visit_recorded": False}
+        if "authority_evidence_type" in item:
+            detail.update({"source_host": item["host"],
+                           "authority_evidence_type": item["authority_evidence_type"]})
+        else:
+            # Keep exact event verification compatibility for previously
+            # applied v1 plans; this field never represents a source visit.
+            detail["verified_host"] = item["host"]
+        events.append(_event(run_id, "source_classified", "sources", item["source_id"], detail, actor))
+    return events
 
 
-def _county_events(county, run_id, actor):
+def _county_events(county, run_id, actor, *, include_triage=False):
     events = []
     for person in county["new_people"]:
         events.append(_event(run_id, "research_person_created", "research_people", person["person_id"], {
@@ -729,11 +799,22 @@ def _county_events(county, run_id, actor):
     for candidate in county["possible_matches"]:
         events.append(_event(run_id, "possible_match_candidate_recorded", "possible_matches", candidate["id"],
                              candidate, actor))
-    for case in county["unresolved"]:
-        events.append(_event(run_id, "identity_unresolved_recorded", "role_claims", case["claim_id"], case, actor))
-    for case in county["rejected"]:
-        events.append(_event(run_id, "identity_observation_rejected", "role_claims", case["claim_id"], case, actor))
+    if include_triage:
+        for case in county["unresolved"]:
+            events.append(_event(run_id, "identity_unresolved_recorded", "role_claims", case["claim_id"], case, actor))
+        for case in county["rejected"]:
+            events.append(_event(run_id, "identity_observation_rejected", "role_claims", case["claim_id"], case, actor))
     return events
+
+
+def _plan_has_county_changes(county):
+    return any(county[key] for key in ("new_people", "associations", "name_variants", "possible_matches"))
+
+
+def _include_triage_events(plan):
+    # Historical v1 plans keep their exact original event contract. New plans
+    # retain triage in the private report and audit only actual decisions.
+    return plan.get("event_policy") != DECISION_ONLY_EVENT_POLICY
 
 
 def _verify_run_and_events(db, run_id, note, expected_events):
@@ -799,7 +880,8 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
             _verify_county_rows(db, county)
             _verify_run_and_events(db, county_run_id,
                                    f"identity-foundation/v1:{digest}:{county['county_fips']}",
-                                   _county_events(county, county_run_id, county_run["actor"]))
+                                   _county_events(county, county_run_id, county_run["actor"],
+                                                  include_triage=_include_triage_events(plan)))
             continue
         fresh = _county_decisions(db, county["county_fips"], planned_sources=planned_sources,
                                   allow_planned_sources=(source_run is None), source_targets=source_targets)
@@ -807,6 +889,7 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                 any(fresh[key] != county[key] for key in (
                     "new_people", "associations", "name_variants", "possible_matches", "unresolved", "rejected"))):
             raise ValueError(f"County {county['county_fips']} changed after the identity preview; no decisions were overwritten")
+    source_applied = False
     if source_run:
         saved_actor = db.execute("SELECT actor FROM research_runs WHERE id=?", (source_run_id,)).fetchone()[0]
         source_events = _expected_source_events(plan["source_classifications"], source_run_id, saved_actor)
@@ -838,6 +921,7 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                            (event[0], source_run_id, event[1], event[2], event[3], now, now,
                             "reconstructed", event[4]))
             db.commit()
+            source_applied = True
         except Exception:
             db.rollback()
             raise
@@ -853,9 +937,13 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
         existing_run = db.execute("SELECT id,actor FROM research_runs WHERE id=?", (run_id,)).fetchone()
         if existing_run:
             _verify_county_rows(db, planned_county)
-            events = _county_events(planned_county, run_id, existing_run["actor"])
+            events = _county_events(planned_county, run_id, existing_run["actor"],
+                                    include_triage=_include_triage_events(plan))
             _verify_run_and_events(db, run_id, note, events)
             resumed.append(county)
+            continue
+        if (not _plan_has_county_changes(planned_county) and
+                plan.get("event_policy") == DECISION_ONLY_EVENT_POLICY):
             continue
         db.execute("BEGIN IMMEDIATE")
         try:
@@ -910,7 +998,8 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                                      (association["person_id"], association["claim_id"], county))
                 if changed.rowcount != 1:
                     raise ValueError("A role claim was assigned during identity application")
-            for event in _county_events(planned_county, run_id, actor):
+            for event in _county_events(planned_county, run_id, actor,
+                                        include_triage=_include_triage_events(plan)):
                 db.execute("INSERT INTO research_events VALUES (?,?,?,?,?,?,?,?,?)",
                            (event[0], run_id, event[1], event[2], event[3], now, now,
                             "reconstructed", event[4]))
@@ -919,7 +1008,10 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
         except Exception:
             db.rollback()
             raise
-    return {"status": "applied" if applied else "already_applied", "plan_sha256": digest,
+    no_decisions = plan.get("event_policy") == DECISION_ONLY_EVENT_POLICY and not source_expected_count and not any(
+        _plan_has_county_changes(county) for county in plan["counties"])
+    return {"status": "no_changes" if no_decisions else "applied" if applied or source_applied else "already_applied",
+            "plan_sha256": digest,
             "source_classifications_applied": source_expected_count,
             "counties_applied": applied, "counties_resumed": resumed,
             **plan["summary"]}
@@ -928,6 +1020,27 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
 def verify_identity_application(db, plan):
     digest = plan_sha256(plan)
     validate_migration_history(db)
+    has_any_action = bool(plan["source_classifications"] or any(
+        _plan_has_county_changes(county) for county in plan["counties"]))
+    if not has_any_action and plan.get("event_policy") == DECISION_ONLY_EVENT_POLICY:
+        for county in plan["counties"]:
+            fresh = _county_decisions(db, county["county_fips"], planned_sources=set(),
+                                      allow_planned_sources=False, source_targets={})
+            if (fresh["input_state_sha256"] != county["input_state_sha256"] or
+                    any(fresh[key] != county[key] for key in (
+                        "new_people", "associations", "name_variants", "possible_matches", "unresolved", "rejected"))):
+                raise ValueError(f"County {county['county_fips']} changed after the identity preview")
+        return {"status": "no_changes_verified", "plan_sha256": digest,
+                "counties_processed": len(plan["counties"]),
+                "new_research_people": 0, "claims_associated": 0,
+                "name_variants": 0, "unresolved_claims": plan["summary"]["unresolved_claims"],
+                "possible_match_candidates": 0,
+                "role_claims_assigned_after": db.execute(
+                    "SELECT count(*) FROM role_claims WHERE person_id IS NOT NULL").fetchone()[0],
+                "role_claims_still_unassigned": db.execute(
+                    "SELECT count(*) FROM role_claims WHERE person_id IS NULL").fetchone()[0],
+                "integrity": db.execute("PRAGMA integrity_check").fetchone()[0],
+                "foreign_key_violations": len(db.execute("PRAGMA foreign_key_check").fetchall())}
     if plan["source_classifications"]:
         run_id = _run_id(digest, "sources")
         note = f"identity-foundation/v1:{digest}:sources"
@@ -943,11 +1056,24 @@ def verify_identity_application(db, plan):
     for county in plan["counties"]:
         run_id = _run_id(digest, county["county_fips"])
         run = db.execute("SELECT actor FROM research_runs WHERE id=?", (run_id,)).fetchone()
+        if not _plan_has_county_changes(county) and plan.get("event_policy") == DECISION_ONLY_EVENT_POLICY:
+            if run is not None:
+                raise ValueError("A no-decision county unexpectedly has an identity audit run")
+            fresh = _county_decisions(db, county["county_fips"], planned_sources=set(),
+                                      allow_planned_sources=False,
+                                      source_targets={item["source_id"]: item["to_status"]
+                                                      for item in plan["source_classifications"]})
+            if (fresh["input_state_sha256"] != county["input_state_sha256"] or
+                    any(fresh[key] != county[key] for key in (
+                        "new_people", "associations", "name_variants", "possible_matches", "unresolved", "rejected"))):
+                raise ValueError(f"County {county['county_fips']} changed after the identity preview")
+            continue
         if run is None:
             raise ValueError(f"Identity application is incomplete for county {county['county_fips']}")
         _verify_county_rows(db, county)
         _verify_run_and_events(db, run_id, f"identity-foundation/v1:{digest}:{county['county_fips']}",
-                               _county_events(county, run_id, run[0]))
+                               _county_events(county, run_id, run[0],
+                                              include_triage=_include_triage_events(plan)))
     return {"status": "verified", "plan_sha256": digest,
             "counties_processed": len(plan["counties"]),
             "new_research_people": plan["summary"]["new_research_people"],

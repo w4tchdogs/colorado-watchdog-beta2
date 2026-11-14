@@ -10,6 +10,7 @@ from pathlib import Path
 
 from research import operator
 from research import identity
+from research import identity_triage
 from research.backup import backup_database, restore_database
 from research.db import connect, migrate, seed_counties, validate_database, validate_migration_history
 from research.intake import preview_csv, quarantine_validation_report
@@ -207,6 +208,17 @@ def parser_for():
 
     identity_verify = database_command("verify-identity", "verify a completed identity plan and audit history")
     identity_verify.add_argument("--plan", type=Path, required=True)
+
+    triage_preview = database_command("preview-identity-triage", "create a read-only statewide identity-backlog triage report")
+    triage_preview.add_argument("--output", type=Path, required=True,
+                                help="New private statewide report path")
+    triage_apply = database_command("apply-identity-triage", "apply only hash-checked supported identity decisions")
+    triage_apply.add_argument("--report", type=Path, required=True)
+    triage_apply.add_argument("--expect-report-sha256", required=True)
+    triage_apply.add_argument("--actor", default=identity.ACTOR_DEFAULT)
+    triage_verify = database_command("verify-identity-triage", "verify a triage application or no-change result")
+    triage_verify.add_argument("--report", type=Path, required=True)
+    triage_verify.add_argument("--expect-report-sha256", required=True)
     return parser
 
 
@@ -516,6 +528,63 @@ def main(argv=None):
             return 0
         except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
             print(json.dumps(_json_error(args.command, "identity_preview_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command == "preview-identity-triage":
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.output, parser, "Private identity triage report")
+        try:
+            db = _read_only(path)
+            try:
+                identity_plan = identity.build_identity_plan(db)
+                report = identity_triage.build_identity_triage_report(db, identity_plan)
+            finally:
+                db.close()
+            file_sha256 = identity_triage.write_triage_report(
+                report, args.output, repository_root=Path(__file__).resolve().parents[1])
+            print(json.dumps({"mode": args.command, "status": "previewed",
+                              "report_path": str(args.output.resolve()),
+                              "report_file_sha256": file_sha256,
+                              "triage_sha256": report["triage_sha256"],
+                              "identity_plan_sha256": identity_plan["plan_sha256"],
+                              **report["summary"]}, ensure_ascii=False, sort_keys=True))
+            return 0
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "identity_triage_preview_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command in {"apply-identity-triage", "verify-identity-triage"}:
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.report, parser, "Private identity triage report")
+        try:
+            if not re.fullmatch(r"[0-9a-fA-F]{64}", args.expect_report_sha256):
+                raise ValueError("--expect-report-sha256 must be a 64-character SHA-256 value")
+            report_path = args.report.resolve(strict=True)
+            report_file_sha256 = hashlib.sha256(report_path.read_bytes()).hexdigest()
+            if report_file_sha256 != args.expect_report_sha256.lower():
+                raise ValueError("Expected triage report SHA-256 does not match the inspected report")
+            report = identity_triage.read_triage_report(
+                args.report, repository_root=Path(__file__).resolve().parents[1])
+            if args.command == "verify-identity-triage":
+                db = _read_only(path)
+                try:
+                    result = identity.verify_identity_application(db, report["identity_plan"])
+                finally:
+                    db.close()
+            else:
+                db = connect(path)
+                try:
+                    result = identity.apply_identity_plan(
+                        db, report["identity_plan"],
+                        expected_sha256=report["identity_plan"]["plan_sha256"], actor=args.actor)
+                finally:
+                    db.close()
+            print(json.dumps({"mode": args.command, "report_file_sha256": report_file_sha256,
+                              "triage_sha256": report["triage_sha256"], **result},
+                             ensure_ascii=False, sort_keys=True))
+            return 0
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "identity_triage_operation_failed", str(error)),
                              ensure_ascii=False, sort_keys=True))
             return 2
     if args.command in {"apply-identity", "verify-identity"}:
