@@ -95,6 +95,7 @@ async function main() {
     "0011_m2_dependency_generation.sql",
     "0012_banner_assets.sql",
     "0013_private_report_intake.sql",
+    "0014_owner_bootstrap_audit.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(
@@ -238,63 +239,36 @@ async function main() {
       "oai-authenticated-user-email": "synthetic@example.test",
       "oai-authenticated-user-full-name": "Synthetic Sites User",
     });
-    // These are synthetic D1 links sent as ordinary local request headers. The
-    // test covers application mapping only; it cannot attest to gateway origin.
+    // No authenticated host context is available to the Worker. Header values,
+    // even exact synthetic linked subjects, are therefore never principals.
     const linkedHumanAccess = async (subject) =>
       fetch(`${base}/admin/reports`, { headers: sitesHeaders(subject) });
     for (const subject of [
       "synthetic-sites-owner",
       "synthetic-sites-admin",
       "synthetic-sites-editor",
-    ]) {
-      const response = await linkedHumanAccess(subject);
-      assert.equal(response.status, 200, subject);
-      assert.match(await response.text(), /staff-reports\.js/);
-    }
-    assert.equal(
-      (await linkedHumanAccess("synthetic-sites-contributor")).status,
-      403,
-    );
-    assert.equal(
-      (
-        await fetch(`${base}/admin/reports`, {
-          headers: {
-            "oai-authenticated-user-id": "synthetic-sites-editor",
-            "oai-authenticated-user-email": "metadata@example.test",
-          },
-        })
-      ).status,
-      200,
-    );
-    for (const subject of ["synthetic-sites-owner", "synthetic-sites-admin"]) {
-      assert.equal(
-        (
-          await fetch(`${base}/api/admin/accounts?limit=10`, {
-            headers: sitesHeaders(subject),
-          })
-        ).status,
-        200,
-      );
-    }
-    for (const subject of [
-      "synthetic-sites-editor",
       "synthetic-sites-contributor",
-    ]) {
-      assert.equal(
-        (
-          await fetch(`${base}/api/admin/accounts?limit=10`, {
-            headers: sitesHeaders(subject),
-          })
-        ).status,
-        403,
-      );
-    }
-    for (const subject of [
       "synthetic-unlinked-human",
       "synthetic-sites-disabled",
       "synthetic-sites-expired",
       "synthetic-sites-revoked",
       "synthetic-other-project-subject",
+    ]) {
+      const response = await linkedHumanAccess(subject);
+      assert.equal(response.status, 401, subject);
+      assert.match(response.headers.get("cache-control") ?? "", /no-store/);
+      assert.equal(
+        (
+          await fetch(`${base}/api/admin/accounts?limit=10`, {
+            headers: sitesHeaders(subject),
+          })
+        ).status,
+        401,
+      );
+    }
+    for (const subject of [
+      "synthetic-sites-editor",
+      "synthetic-sites-contributor",
     ]) {
       assert.equal((await linkedHumanAccess(subject)).status, 401, subject);
     }
@@ -547,12 +521,12 @@ async function main() {
     const humanEditorQueue = await fetch(`${base}/api/v1/reports`, {
       headers: sitesHeaders("synthetic-sites-editor"),
     });
-    assert.equal(humanEditorQueue.status, 200);
+    assert.equal(humanEditorQueue.status, 401);
     const humanPrivateReport = await fetch(
       `${base}/api/v1/reports/${storedReport.id}`,
       { headers: sitesHeaders("synthetic-sites-editor") },
     );
-    assert.equal(humanPrivateReport.status, 200);
+    assert.equal(humanPrivateReport.status, 401);
     assert.match(
       humanPrivateReport.headers.get("cache-control") ?? "",
       /no-store, private/,
@@ -563,7 +537,7 @@ async function main() {
           headers: sitesHeaders("synthetic-sites-contributor"),
         })
       ).status,
-      403,
+      401,
     );
     const changeHumanRole = await fetch(
       `${base}/api/admin/accounts/d1-sites-editor/role`,
@@ -579,21 +553,17 @@ async function main() {
     );
     assert.equal(
       changeHumanRole.status,
-      200,
+      401,
       await changeHumanRole.clone().text(),
     );
     assert.equal(
       (await linkedHumanAccess("synthetic-sites-editor")).status,
-      403,
+      401,
     );
     const syntheticOwnerPrincipal = await fetch(`${base}/_internal/principal`, {
       headers: sitesHeaders("synthetic-sites-owner"),
     });
-    assert.deepEqual(await syntheticOwnerPrincipal.json(), {
-      accountId: "d1-sites-owner",
-      kind: "human",
-      role: "owner",
-    });
+    assert.equal(syntheticOwnerPrincipal.status, 401);
     for (const token of [ownerToken, editorToken]) {
       assert.equal(
         (
