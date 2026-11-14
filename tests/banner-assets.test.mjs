@@ -232,6 +232,50 @@ test("multiple county banners can be reordered and primary selection transfers a
   assert.equal(reorderedFirst.displayOrder, 1);
 });
 
+test("homepage curation is an explicit audited version-checked metadata choice", async (t) => {
+  const { service, principal } = await fixture(t);
+  const first = await service.stage(proposal(), principal);
+  const secondBytes = PNG.sync.write({
+    width: 2,
+    height: 1,
+    data: Buffer.from([0, 0, 255, 255, 0, 0, 0, 255]),
+  });
+  const second = await service.stage(
+    proposal({
+      bannerId: "banner-adams-second",
+      sourceFilename: "second.png",
+      displayOrder: 1,
+      isPrimary: false,
+      idempotencyKey: "homepage-second",
+      bytes: secondBytes,
+    }),
+    principal,
+  );
+  assert.equal(first.banner.homepageOrder, null);
+  service.updateMetadata(
+    first.banner.id,
+    first.banner.version,
+    { homepageOrder: 1 },
+    principal,
+  );
+  service.updateMetadata(
+    second.banner.id,
+    second.banner.version,
+    { homepageOrder: 0 },
+    principal,
+  );
+  assert.equal(service.getBanner(first.banner.id).homepageOrder, 1);
+  assert.equal(service.getBanner(second.banner.id).homepageOrder, 0);
+  assert.throws(() =>
+    service.updateMetadata(
+      first.banner.id,
+      service.getBanner(first.banner.id).version,
+      { homepageOrder: 0 },
+      principal,
+    ),
+  );
+});
+
 test("uncertain object-write response retries the same immutable operation", async (t) => {
   class LostResponseStorage extends MemoryBannerObjectStorage {
     loseOnce = true;

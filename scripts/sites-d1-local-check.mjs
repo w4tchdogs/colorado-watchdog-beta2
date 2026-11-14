@@ -97,6 +97,7 @@ async function main() {
     "0013_private_report_intake.sql",
     "0014_owner_bootstrap_audit.sql",
     "0015_correct_lake_la_plata_county_names.sql",
+    "0016_banner_homepage_curation.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(
@@ -343,6 +344,17 @@ async function main() {
     assert.equal(contributorPage.status, 403);
 
     const county = await fetch(`${base}/counties/08001`);
+    const homepageWithoutR2 = await fetch(`${base}/`);
+    assert.equal(homepageWithoutR2.status, 200);
+    assert.match(await homepageWithoutR2.text(), /data-banner-count="0"/);
+    assert.equal(
+      (
+        await fetch(
+          `${base}/banner-assets/11111111-1111-4111-8111-111111111111`,
+        )
+      ).status,
+      404,
+    );
     const countyHtml = await county.text();
     assert.equal(county.status, 200, countyHtml);
     assert.match(countyHtml, /Synthetic Adams County/);

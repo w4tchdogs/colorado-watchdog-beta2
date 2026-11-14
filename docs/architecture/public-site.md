@@ -36,7 +36,9 @@ unverified.
   into the Worker with fixed MIME types. It does not serve arbitrary paths from
   disk or require an object store for current static assets. Banner placeholders
   remain available without R2.
-- `.openai/hosting.json` declares the logical `DB` D1 binding and no R2 binding.
+- `.openai/hosting.json` declares the logical `DB` D1 binding; `r2` remains
+  null until Sites provisions object storage. The Worker treats `BUCKET` as
+  optional and keeps the branded banner placeholder when it is absent.
   The build emits the server Worker at `dist/server/index.js` and copies the
   existing Website migrations into `dist/.openai/drizzle/`. It does not include
   the SQL.js production database path or the private Profiles research store.

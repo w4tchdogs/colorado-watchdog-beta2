@@ -137,7 +137,7 @@ export async function countyPage(
 
   const lead = bannerHero({
     variant: "county",
-    banners: context.banners.forCounty(countyFips),
+    banners: await context.banners.forCounty(countyFips),
     countyFips,
     eyebrow: `Colorado Watchdog \u00b7 ${title}`,
     title,

@@ -46,9 +46,13 @@ export interface BannerPresentation {
 
 export interface BannerSource {
   /** Banners assigned to one county. Any number, including none. */
-  forCounty(countyFips: string): readonly BannerPresentation[];
+  forCounty(
+    countyFips: string,
+  ): readonly BannerPresentation[] | Promise<readonly BannerPresentation[]>;
   /** Curated statewide selection for the homepage hero. */
-  forHome(): readonly BannerPresentation[];
+  forHome():
+    | readonly BannerPresentation[]
+    | Promise<readonly BannerPresentation[]>;
 }
 
 export const emptyBannerSource: BannerSource = {

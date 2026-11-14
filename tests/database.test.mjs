@@ -60,7 +60,7 @@ test("migrations produce the same schema and are safe to reapply", async () => {
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
           .count,
-        15,
+        16,
       );
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM counties").get().count,
@@ -172,7 +172,7 @@ test("M2 migrations add schema without changing existing M1 rows", async () => {
         .prepare("SELECT version FROM schema_migrations ORDER BY version")
         .all()
         .map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
     );
     assert.equal(
       database.prepare("SELECT COUNT(*) AS count FROM sync_batches").get()
@@ -331,17 +331,18 @@ test("0015 corrects only the county names and preserves dependent FIPS reference
       countyReference.counties.map(([fips, name]) => ({ fips, name })),
     );
     for (const [table, before] of Object.entries(dependentBefore)) {
-      assert.deepEqual(
-        database.prepare(`SELECT * FROM ${table} ORDER BY 1`).all(),
-        before,
-        `${table} preserved`,
-      );
+      const after = database.prepare(`SELECT * FROM ${table} ORDER BY 1`).all();
+      const preserved =
+        table === "banner_assets"
+          ? after.map(({ homepage_order, ...row }) => row)
+          : after;
+      assert.deepEqual(preserved, before, `${table} preserved`);
     }
     assert.equal(database.prepare("PRAGMA foreign_key_check").all().length, 0);
     assert.equal(
       database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
         .count,
-      15,
+      16,
     );
     assert.deepEqual(
       database

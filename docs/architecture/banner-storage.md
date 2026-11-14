@@ -1,6 +1,6 @@
 # Durable county banner storage (BANNERS-2)
 
-This milestone adds the Website-side private metadata and staging foundation. It does not register a route, load a real source image, or connect to a hosted bucket or database.
+This milestone added the Website-side private metadata and staging foundation. BANNERS-3 adds a read-only public integration; it does not load a real source image, provision a hosted bucket, or perform a live import.
 
 ## Data and storage
 
@@ -32,7 +32,7 @@ Migration 0012 adds dependency-generation triggers for all three banner tables, 
 
 `translateBanners1Record` accepts the existing manifest record layout (`bannerId`, `countyFips`, source filename, dimensions, SHA-256, full-decode result, and editable metadata) without changing the manifest format. It rejects missing, undecoded, malformed, or unresolved county records. Stage compares the manifest digest to the supplied original bytes. Missing-source records cannot become withdrawals. Duplicate content attached to a different logical banner is flagged as a conflict for owner review.
 
-## BANNERS-3 integration contract
+## BANNERS-3 integration
 
 Use `BannerAssetService.resolveCounty(fips)` as the internal resolver shape:
 
@@ -40,7 +40,7 @@ Use `BannerAssetService.resolveCounty(fips)` as the internal resolver shape:
 Promise<readonly ResolvedBanner[]>
 ```
 
-Each result contains `bannerId`, `countyFips`, `versionId`, `assetRef`, `caption`, `altText`, `displayMode`, `focalX`, `focalY`, `displayOrder`, `isPrimary`, `width`, and `height`. It contains no source path, staging details, audit data, or credentials. `assetRef` is the immutable version key; a delivered URL should include that version-specific identity for cache safety. BANNERS-3 must wrap persistence in the existing guarded async D1 service pattern before exposing this projection publicly. This resolver is not a registered route.
+Each result contains `bannerId`, `countyFips`, `versionId`, `assetRef`, `caption`, `altText`, `displayMode`, `focalX`, `focalY`, `displayOrder`, `isPrimary`, `width`, and `height`. It contains no source path, staging details, audit data, or credentials. The hosted async adapter keeps this projection, checks R2 bytes, and serves a version-specific route. See [banner-delivery.md](banner-delivery.md) for lifecycle, delivery and follow-on contracts.
 
 ## Local verification and limits
 
