@@ -1,0 +1,49 @@
+# VIS-6 Evidence Index
+
+**Revision:** 2026-11-14 v1
+**Repository source examined:** `f99181045f939414f88ce93a811e67a66c85c624`
+**Hosted Alpha-1:** version 3, source `055dd50361f816164cce9f49c353d209d11af734`, deployment `appgdep_6af8255c92948191afa497cb78444cfb`
+**Hosted Beta-1:** version 35, source `c85f64e9fc420d8b309a844ac5596e4aadb9db13`, deployment `appgdep_6af5ba3326408191a30253e7df4aa513`
+
+The screenshot tool displayed captures inline but did not expose a local path or filename. Therefore the “capture” column identifies an in-session observation, not a repository image file. Screenshots should be exported and attached in VIS-18 when that capture surface supports file output.
+
+| Evidence alias | Website and URL | Viewport / state | Authentication | Version | Capture reference | Observation supported |
+|---|---|---|---|---|---|---|
+| B1-HOME | [Beta-1 home](https://colorado-watchdog.futureguild2.chatgpt.site/) | Desktop screenshot displayed at 1265 × 720; top of home | Authenticated account menu visible; private controls not opened | Sites v35 | Inline CUA capture, 2026-11-14; no exported filename | Scenic hero, visible pause/reduce-animation/next controls, primary nav, report/help CTAs, statewide count band |
+| B1-COUNTIES | [Beta-1 counties](https://colorado-watchdog.futureguild2.chatgpt.site/counties) | Accessibility tree | Same browser session | Sites v35 | CUA accessibility-tree observation, 2026-11-14 | 64 map links with county names, searchable directory field, county explanation |
+| B1-ADAMS | [Beta-1 Adams County](https://colorado-watchdog.futureguild2.chatgpt.site/counties/adams) | Accessibility tree | Same browser session | Sites v35 | CUA accessibility-tree observation, 2026-11-14 | County selector and subnav, banner/caption, stats, directory/structure and Voices links |
+| B1-OFFICIALS | [Beta-1 officials](https://colorado-watchdog.futureguild2.chatgpt.site/officials) | Accessibility tree | Same browser session | Sites v35 | CUA accessibility-tree observation, 2026-11-14 | Named-profile/structure toggles, search, county and office controls, missing-entry link |
+| B1-VOICES | [Beta-1 Community Voices](https://colorado-watchdog.futureguild2.chatgpt.site/voices) | Accessibility tree | Same browser session | Sites v35 | CUA accessibility-tree observation, 2026-11-14 | Three pathways, series/story card, type/county/series/topic/search filters, Guest Voices link |
+| B1-VOICE-SUBMIT | [Beta-1 Guest Voices form](https://colorado-watchdog.futureguild2.chatgpt.site/voices/submit) | Accessibility tree; form left untouched | Same browser session | Sites v35 | CUA accessibility-tree observation, 2026-11-14 | Story fields, county/topic tags, attribution options, optional private email/files, permission/certification |
+| B1-SUBMIT | [Beta-1 report entry](https://colorado-watchdog.futureguild2.chatgpt.site/submit) | Accessibility tree; no option selected | Same browser session | Sites v35 | CUA accessibility-tree observation, 2026-11-14 | Account vs guest route, fictional-only notice, tracking link |
+| B1-TRACK | [Beta-1 tracking](https://colorado-watchdog.futureguild2.chatgpt.site/track) | Accessibility tree; fields left blank | Same browser session | Sites v35 | CUA accessibility-tree observation, 2026-11-14 | Private reference/key fields and key-handling notice |
+| B1-HELP | [Beta-1 help](https://colorado-watchdog.futureguild2.chatgpt.site/help) | Accessibility tree | Same browser session | Sites v35 | CUA accessibility-tree observation, 2026-11-14 | Reporting/CORA guides, story/report routes, contributions/tracking, privacy/correction links |
+| B1-LEGAL | [Beta-1 legal & policy](https://colorado-watchdog.futureguild2.chatgpt.site/legal) | Accessibility tree | Same browser session | Sites v35 | CUA accessibility-tree observation, 2026-11-14 | Reporting explanation, takedown/tracking links, privacy, allegation and prototype notices |
+| B1-REPORTING | [Beta-1 How Reporting Works](https://colorado-watchdog.futureguild2.chatgpt.site/legal/how-reporting-works) | Accessibility tree; in-page controls not activated | Same browser session | Sites v35 | CUA accessibility-tree observation, 2026-11-14 | Submission/review/evidence/attribution/change/request sections; links to private tracking, Guest Voices and takedown review |
+| B1-CORA | [Beta-1 CORA guide](https://colorado-watchdog.futureguild2.chatgpt.site/resources/cora) | Accessibility tree; template untouched | Same browser session | Sites v35 | CUA accessibility-tree observation, 2026-11-14 | Public records instructions; external official links; editable email template with copy/reset buttons; page does not send requests |
+| B1-DIRECTORY-REQUEST | [Beta-1 directory correction form](https://colorado-watchdog.futureguild2.chatgpt.site/directory/request?countyId=) | Accessibility tree; form untouched; loading-choice text visible | Same browser session | Sites v35 | CUA accessibility-tree observation, 2026-11-14 | Suggest/correct request types, county and office selectors, narrative and source links, fictional-only notice; no submission |
+| B1-CONTRIBUTIONS | My Contributions link from Help and How Reporting Works (`/my-contributions`) | Link observed; destination intentionally not opened | Authenticated route boundary; no private data accessed | Sites v35 | Link presence only, 2026-11-14 | Private contributor tracking surface is discoverable; route contents and auth behavior remain unverified |
+| B1-ABOUT | [Beta-1 About](https://colorado-watchdog.futureguild2.chatgpt.site/about) | Accessibility tree | Same browser session | Sites v35 | CUA accessibility-tree observation, 2026-11-14 | About and preview restrictions; explicit note that research/editorial content stays private |
+| A1-HOME | [Hosted Alpha-1 home](https://colorado-watchdog-alpha1.futureguild2.chatgpt.site/) | Desktop screenshot displayed at 1265 × 720; top of home; accessibility tree includes lower sections | Signed-out public page; no private access used | Sites v3 | Inline CUA capture, 2026-11-14; no exported filename | Masthead wrapping, three-line headline, static mascot hero, county links, directory search sections, Voices listing on page |
+| SRC-LAYOUT | `src/site/layout.ts`, `website/site/site.css` | Current source inspection only | N/A | GitHub `main` f991810 | Repository source | Header/footer structure, brand styling, skip link, breadcrumbs, focus styling and responsive nav source |
+| SRC-HOME | `src/site/pages/home.ts` | Current source inspection only | N/A | GitHub `main` f991810 | Repository source | Home hero, county index/search, official/org search, Community Voices section and empty state |
+| SRC-INDEX | `src/site/index.ts` | Current source inspection only | N/A | GitHub `main` f991810 | Repository source | Public routes and query allowlists; `/admin/reports` access check and unavailable/error route templates |
+| SRC-COUNTIES | `src/site/pages/counties.ts` | Current source inspection only | N/A | GitHub `main` f991810 | Repository source | County list and search route; no map renderer in this Beta-2 source module |
+| SRC-COUNTY | `src/site/pages/county.ts`, `src/site/county-nav.ts` | Current source inspection only | N/A | GitHub `main` f991810 | Repository source | County page and contextual county/officials/structure selector source |
+| SRC-OFFICIALS | `src/site/pages/officials.ts` | Current source inspection only | N/A | GitHub `main` f991810 | Repository source | Officials filters, structure view, sort and page controls, empty results |
+| SRC-PERSON | `src/site/pages/person.ts` | Current source inspection only | N/A | GitHub `main` f991810 | Repository source | Person profile route and roles source; no person details populated into audit fixtures |
+| SRC-ORG | `src/site/pages/organization.ts`, `src/site/pages/directory.ts` | Current source inspection only | N/A | GitHub `main` f991810 | Repository source | Organization search/detail route source |
+| SRC-VOICES | `src/site/community-voices.ts`, `src/site/pages/editorial.ts` | Current source inspection only | N/A | GitHub `main` f991810 | Repository source | Stories/Posts pathways, filters, cards, related records and article-detail source |
+| SRC-INFO | `src/site/pages/info.ts` | Current source inspection only | N/A | GitHub `main` f991810 | Repository source | About and reading-record guidance routes |
+| SRC-REPORT | `src/site/pages/report.ts`, `src/site/report-interface.ts` | Current source inspection only | N/A | GitHub `main` f991810 | Repository source | Public report/tracking presentation and explicit submission configuration boundary |
+| SRC-BANNER | `src/site/banner.ts` | Current source inspection only | N/A | GitHub `main` f991810 | Repository source | Data-driven banner contract, static selected banner and placeholder fallback |
+| SRC-CSS | `website/site/site.css` | Current source inspection only | N/A | GitHub `main` f991810 | Repository source | Red/black/off-white tokens, max-width, cards, typography and source breakpoints |
+
+## Evidence interpretation
+
+- Sites version and deployment metadata identify hosted build provenance; the browser captures show rendered behavior. Source records describe accepted code, not deployed behavior.
+- Alpha-1 v3 predates the current `main` fixes in PRs #84 and #85. Browser differences already corrected in source are reported as deployment lag.
+- The Beta-1 browser carried an authenticated account session, visible in its public page chrome. Private workspace data was not opened.
+- No report, story, correction or takedown form was submitted; no files or credentials were entered.
+- Browser accessibility trees establish visible controls and accessible names, but not successful state transitions or keyboard behavior.
+- Source code was used to map routes and ownership. It was not used to claim pixel sizes or unobserved rendered states.
