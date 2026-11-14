@@ -47,18 +47,18 @@ function roleCard(entry: PersonProfileRole): SafeHtml {
   </li>`;
 }
 
-export function personPage(
+export async function personPage(
   context: SiteContext,
   personId: string,
   parameters: URLSearchParams,
-): Page {
+): Promise<Page> {
   if (!isStableId(personId)) throw new NotFound("person");
   const base = path("people", personId);
   const afterRoleId = parameters.get("afterRoleId");
   if (afterRoleId !== null && !isStableId(afterRoleId)) {
     throw new BadRequest(base);
   }
-  const profile = context.services.getPersonProfile({
+  const profile = await context.services.getPersonProfile({
     personId,
     limit: PAGE_SIZE,
     afterRoleId,

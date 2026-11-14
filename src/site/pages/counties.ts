@@ -16,8 +16,11 @@ export function matchesCounty(
   );
 }
 
-export function countiesPage(context: SiteContext, query: string): Page {
-  const all = context.services.listCounties();
+export async function countiesPage(
+  context: SiteContext,
+  query: string,
+): Promise<Page> {
+  const all = await context.services.listCounties();
   const trimmed = query.trim().slice(0, 40);
   const shown = new Set(
     all.filter((county) => matchesCounty(county, trimmed)).map((c) => c.fips),

@@ -202,7 +202,7 @@ async function dispatch(
 
   try {
     if (countyOverviewRequest) {
-      const overview = services.getCountyOverview(countyOverviewRequest);
+      const overview = await services.getCountyOverview(countyOverviewRequest);
       return overview
         ? jsonResponse(200, { ...overview })
         : jsonResponse(404, { error: "not_found" });
@@ -233,28 +233,28 @@ async function dispatch(
     if (directoryResource && directoryRequest) {
       const page =
         directoryResource === "organizations"
-          ? services.listCountyOrganizations(directoryRequest)
-          : services.listCountyRoleEntries(directoryRequest);
+          ? await services.listCountyOrganizations(directoryRequest)
+          : await services.listCountyRoleEntries(directoryRequest);
       return jsonResponse(200, { ...page });
     }
     if (peopleSearchRequest) {
       return jsonResponse(200, {
-        ...services.searchPeople(peopleSearchRequest),
+        ...(await services.searchPeople(peopleSearchRequest)),
       });
     }
     if (organizationsSearchRequest) {
       return jsonResponse(200, {
-        ...services.searchOrganizations(organizationsSearchRequest),
+        ...(await services.searchOrganizations(organizationsSearchRequest)),
       });
     }
     if (personProfileRequest) {
-      const profile = services.getPersonProfile(personProfileRequest);
+      const profile = await services.getPersonProfile(personProfileRequest);
       return profile
         ? jsonResponse(200, { ...profile })
         : jsonResponse(404, { error: "not_found" });
     }
     if (organizationProfileRequest) {
-      const profile = services.getOrganizationProfile(
+      const profile = await services.getOrganizationProfile(
         organizationProfileRequest,
       );
       return profile
@@ -262,7 +262,7 @@ async function dispatch(
         : jsonResponse(404, { error: "not_found" });
     }
     if (organizationRoleRequest) {
-      const roles = services.listOrganizationRoleEntries(
+      const roles = await services.listOrganizationRoleEntries(
         organizationRoleRequest,
       );
       return roles

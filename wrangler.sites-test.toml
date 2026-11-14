@@ -1,0 +1,8 @@
+name = "colorado-watchdog-sites-local-test"
+main = "dist/server/index.js"
+compatibility_date = "2026-11-13"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "colorado-watchdog-disposable-sites-test"
+database_id = "00000000-0000-4000-8000-000000000010"

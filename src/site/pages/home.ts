@@ -41,12 +41,16 @@ function countyIndex(
   </nav>`;
 }
 
-export function homePage(context: SiteContext): Page {
-  const counties = context.services.listCounties();
-  const featured = featuredCounties(counties, context.now).map((county) => ({
-    county,
-    overview: context.services.getCountyOverview({ countyFips: county.fips }),
-  }));
+export async function homePage(context: SiteContext): Promise<Page> {
+  const counties = await context.services.listCounties();
+  const featured = await Promise.all(
+    featuredCounties(counties, context.now).map(async (county) => ({
+      county,
+      overview: await context.services.getCountyOverview({
+        countyFips: county.fips,
+      }),
+    })),
+  );
   const stories = context.editorial.list("story").slice(0, 2);
   const posts = context.editorial.list("post").slice(0, 3);
 

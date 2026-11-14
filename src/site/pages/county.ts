@@ -74,13 +74,13 @@ function roleRow(entry: CountyRoleEntry): SafeHtml {
   </li>`;
 }
 
-export function countyPage(
+export async function countyPage(
   context: SiteContext,
   countyFips: string,
   parameters: URLSearchParams,
-): Page {
+): Promise<Page> {
   if (!isCountyFips(countyFips)) throw new NotFound("county");
-  const overview = context.services.getCountyOverview({ countyFips });
+  const overview = await context.services.getCountyOverview({ countyFips });
   if (!overview) throw new NotFound("county");
 
   const base = path("counties", countyFips);
@@ -93,12 +93,12 @@ export function countyPage(
     throw new BadRequest(base);
   }
 
-  const organizations = context.services.listCountyOrganizations({
+  const organizations = await context.services.listCountyOrganizations({
     countyFips,
     limit: ORGANIZATION_PAGE_SIZE,
     afterId: orgAfter,
   });
-  const roles = context.services.listCountyRoleEntries({
+  const roles = await context.services.listCountyRoleEntries({
     countyFips,
     limit: ROLE_PAGE_SIZE,
     afterId: roleAfter,
@@ -154,12 +154,10 @@ export function countyPage(
       <form class="county-switch" action="/counties" method="get">
         <label class="visually-hidden" for="county-switch">Switch county</label>
         <select id="county-switch" name="county">
-          ${context.services
-            .listCounties()
-            .map(
-              (county) =>
-                html`<option value="${county.fips}"${county.fips === countyFips ? trusted(" selected") : ""}>${countyTitle(county.name)}</option>`,
-            )}
+          ${(await context.services.listCounties()).map(
+            (county) =>
+              html`<option value="${county.fips}"${county.fips === countyFips ? trusted(" selected") : ""}>${countyTitle(county.name)}</option>`,
+          )}
         </select>
         <button class="button button-quiet button-small" type="submit">Go</button>
       </form>

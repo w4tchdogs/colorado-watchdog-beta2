@@ -33,11 +33,11 @@ function roleRow(entry: OrganizationRoleEntry): SafeHtml {
   </li>`;
 }
 
-export function organizationPage(
+export async function organizationPage(
   context: SiteContext,
   organizationId: string,
   parameters: URLSearchParams,
-): Page {
+): Promise<Page> {
   if (!isStableId(organizationId)) throw new NotFound("organization");
   const base = path("organizations", organizationId);
   const positionAfter = parameters.get("positionAfter");
@@ -49,13 +49,13 @@ export function organizationPage(
     throw new BadRequest(base);
   }
 
-  const profile = context.services.getOrganizationProfile({
+  const profile = await context.services.getOrganizationProfile({
     organizationId,
     limit: PAGE_SIZE,
     afterPositionId: positionAfter,
   });
   const roles = profile
-    ? context.services.listOrganizationRoleEntries({
+    ? await context.services.listOrganizationRoleEntries({
         organizationId,
         limit: PAGE_SIZE,
         afterRoleId: roleAfter,
