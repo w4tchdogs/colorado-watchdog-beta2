@@ -41,6 +41,14 @@ persist that development database; never point it at the separate Profiles
 research database. The local SQL.js WebAssembly adapter is not part of the
 Worker entrypoint, and no hosted D1/R2 service or credentials are required.
 
+## Public website preview
+
+`npm run site:dev` serves the M4 public website alpha at
+`http://127.0.0.1:8790/` with fictional demonstration data in a disposable
+in-memory database. `npm run site:dev:empty` shows the same site with an empty
+database. Nothing is deployed. See
+[public website alpha](docs/architecture/public-site.md).
+
 ## Repository checks
 
 Run `node scripts/check.mjs` with Node 22 or later and Git. It checks tracked file paths, formatting, whitespace, conflict markers and common credential patterns. Enable the optional local commit hook with `git config --local core.hooksPath .githooks`.
