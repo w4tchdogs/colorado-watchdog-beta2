@@ -161,7 +161,8 @@ class IdentityFoundationTests(unittest.TestCase):
         self.assertEqual(self.db.execute("SELECT count(*) FROM possible_matches").fetchone()[0], 0)
         self.assertEqual(self.db.execute("SELECT count(*) FROM role_claims WHERE person_id IS NULL").fetchone()[0], 2)
         self.assertEqual({item["claim_id"] for item in county["unresolved"]}, {row["id"] for row in claims})
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_events WHERE kind='identity_unresolved_recorded'").fetchone()[0], 2)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM research_events WHERE kind='identity_unresolved_recorded'").fetchone()[0], 0)
+        self.assertEqual(identity.verify_identity_application(self.db, plan)["integrity"], "ok")
 
     def test_historical_succession_creates_separate_people_and_never_matches_by_title(self):
         _, claims = self.add_batch([
@@ -185,6 +186,65 @@ class IdentityFoundationTests(unittest.TestCase):
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
         self.assertEqual(self.db.execute("SELECT official_status FROM sources WHERE id=?",
                                          (claim["source_id"],)).fetchone()[0], "unknown")
+
+    def test_non_gov_source_requires_retained_exact_official_publication_evidence(self):
+        _, [claim] = self.add_batch([{"full_name": "Synthetic Rowan Example"}],
+                                    url="https://sampleville.org/departments")
+        plan = identity.build_identity_plan(self.db)
+        self.assertEqual(plan["source_classifications"], [])
+        self.assertEqual(plan["summary"]["new_research_people"], 0)
+        self.quote_evidence(claim["source_id"],
+                            "For source details, see the official website of the City of Sampleville.")
+        plan = identity.build_identity_plan(self.db)
+        self.assertEqual(plan["source_classifications"], [])
+        evidence_id = self.quote_evidence(
+            claim["source_id"], "Official website of the City of Sampleville.")
+        plan = identity.build_identity_plan(self.db)
+        self.assertEqual(len(plan["source_classifications"]), 1)
+        proposal = plan["source_classifications"][0]
+        self.assertEqual(proposal["source_id"], claim["source_id"])
+        self.assertEqual(proposal["evidence_id"], evidence_id)
+        self.assertIn("City of Sampleville", proposal["basis"])
+        self.assertEqual(proposal["authority_evidence_type"], "retained_exact_page_official_statement")
+        identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
+        self.assertEqual(self.db.execute("SELECT official_status FROM sources WHERE id=?",
+                                         (claim["source_id"],)).fetchone()[0], "official")
+        event = self.db.execute(
+            "SELECT detail_json FROM research_events WHERE kind='source_classified' AND entity_id=?",
+            (claim["source_id"],)).fetchone()
+        self.assertIsNotNone(event)
+        detail = json.loads(event[0])
+        self.assertEqual(detail["authority_evidence_type"], "retained_exact_page_official_statement")
+        self.assertIn("source_host", detail)
+        self.assertNotIn("verified_host", detail)
+        self.assertFalse(detail["source_visit_recorded"])
+
+    def test_no_decision_identity_plan_writes_no_triage_events_or_runs(self):
+        self.add_batch([{"full_name": "Synthetic Rowan Example"},
+                        {"full_name": "Synthetic Rowan Example", "department": "Second Department"}],
+                       url="https://directory.example.org/officials")
+        plan = identity.build_identity_plan(self.db)
+        before = (self.db.execute("SELECT count(*) FROM research_runs").fetchone()[0],
+                  self.db.execute("SELECT count(*) FROM research_events").fetchone()[0])
+        result = identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
+        after = (self.db.execute("SELECT count(*) FROM research_runs").fetchone()[0],
+                 self.db.execute("SELECT count(*) FROM research_events").fetchone()[0])
+        self.assertEqual(result["status"], "no_changes")
+        self.assertEqual(after, before)
+        self.assertEqual(identity.verify_identity_application(self.db, plan)["status"], "no_changes_verified")
+
+    def test_legacy_identity_plan_keeps_its_original_triage_event_contract(self):
+        self.add_batch([{"full_name": "Synthetic Rowan Example"},
+                        {"full_name": "Synthetic Rowan Example", "department": "Second Department"}],
+                       url="https://directory.example.org/officials")
+        plan = identity.build_identity_plan(self.db)
+        plan.pop("event_policy")
+        plan["plan_sha256"] = identity._digest({key: value for key, value in plan.items()
+                                                if key != "plan_sha256"})
+        identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
+        self.assertEqual(self.db.execute(
+            "SELECT count(*) FROM research_events WHERE kind='identity_unresolved_recorded'").fetchone()[0], 2)
+        self.assertEqual(identity.verify_identity_application(self.db, plan)["status"], "verified")
 
     def test_selected_correction_lineage_associates_one_observation_without_duplicate_person(self):
         original, [parent_claim] = self.add_batch([{"full_name": "Synthetic Rowan Example",
