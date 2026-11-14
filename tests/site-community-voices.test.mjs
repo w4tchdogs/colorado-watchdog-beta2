@@ -496,12 +496,34 @@ test("stylesheet is namespaced, allowlisted, bundled and CSP-safe", async () => 
     );
     assert.equal(page.$$("[style]").length, 0);
     assert.equal(page.$$("style").length, 0);
-    // The homepage and other pages do not load the stylesheet.
-    for (const path of ["/", "/about", "/counties"]) {
+    const home = await get(preview, "/");
+    assert.deepEqual(
+      home
+        .$$('link[rel="stylesheet"]')
+        .map((link) => link.getAttribute("href")),
+      ["/assets/site.css", "/assets/community-voices.css"],
+    );
+    assert.equal(
+      home.$$('link[href="/assets/community-voices.css"]').length,
+      1,
+    );
+    assert.equal(home.$$("[style]").length, 0);
+    assert.equal(home.$$("style").length, 0);
+    // Other unrelated pages do not load the stylesheet.
+    for (const path of ["/about", "/counties"]) {
       assert.doesNotMatch(
         (await get(preview, path)).text,
         /community-voices\.css/,
         path,
+      );
+    }
+    for (const path of ["/posts"]) {
+      const page = await get(preview, path);
+      assert.deepEqual(
+        page
+          .$$('link[rel="stylesheet"]')
+          .map((link) => link.getAttribute("href")),
+        ["/assets/site.css", "/assets/community-voices.css"],
       );
     }
     assert.equal(
@@ -540,6 +562,14 @@ test("stylesheet is namespaced, allowlisted, bundled and CSP-safe", async () => 
     /repeat\(auto-fit, minmax\(min\(100%, 12\.5rem\), 1fr\)\)/,
   );
   assert.doesNotMatch(source, /@import|url\(|!important/);
+  const component = readFileSync(
+    new URL("../src/site/community-voices.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    component,
+    /WRAPPED_ARROW = trusted\('<span aria-hidden="true">&nbsp;→<\/span>'\)/,
+  );
   const build = readFileSync(
     new URL("../scripts/build-sites-worker.mjs", import.meta.url),
     "utf8",

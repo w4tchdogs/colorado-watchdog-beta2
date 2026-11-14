@@ -41,6 +41,39 @@ test("homepage renders navigation, discovery entry points and honest content", a
       page.$("h1").textContent,
       "Community Voices. Government Accountability.",
     );
+    const pathways = page.$$(".cv-pathway");
+    assert.equal(pathways.length, 3);
+    assert.deepEqual(
+      pathways.map(
+        (card) => card.querySelector(".cv-pathway-title").textContent,
+      ),
+      ["Local series", "Guest Voices", "Statewide County Issues"],
+    );
+    assert.deepEqual(
+      pathways.map((card) =>
+        card.querySelector(".cv-pathway-link").getAttribute("href"),
+      ),
+      [
+        "/stories?pathway=local-series#cv-results",
+        "/stories?pathway=guest-voices#cv-results",
+        "/stories?pathway=statewide-issues#cv-results",
+      ],
+    );
+    assert.doesNotMatch(
+      page.$(".cv-pathway-grid").textContent,
+      /\d+ articles?/i,
+    );
+    for (const card of pathways) {
+      assert.equal(
+        (
+          await get(
+            preview,
+            card.querySelector(".cv-pathway-link").getAttribute("href"),
+          )
+        ).status,
+        200,
+      );
+    }
     // Nothing unimplemented is advertised.
     assert.doesNotMatch(page.text, /submit a report|log in|sign up|grievance/i);
     assert.ok(page.$$(".article-card").length > 0);
@@ -66,6 +99,21 @@ test("homepage on an empty database stays useful and claims nothing", async () =
     assert.equal(page.$$(".county-index-grid a").length, 64);
     assert.equal(page.$$(".article-card").length, 0);
     assert.match(page.main(), /Nothing has been published yet/);
+    assert.equal(page.$$(".cv-pathway").length, 3);
+    assert.deepEqual(
+      page.$$(".cv-pathway-link").map((link) => link.getAttribute("href")),
+      [
+        "/stories?pathway=local-series#cv-results",
+        "/stories?pathway=guest-voices#cv-results",
+        "/stories?pathway=statewide-issues#cv-results",
+      ],
+    );
+    for (const link of page.$$(".cv-pathway-link")) {
+      const result = await get(preview, link.getAttribute("href"));
+      assert.equal(result.status, 200);
+      assert.match(result.main(), /No stories yet/);
+      assert.equal(result.$$(".article-card").length, 0);
+    }
     assert.ok(
       page
         .$$(".county-card-counts")

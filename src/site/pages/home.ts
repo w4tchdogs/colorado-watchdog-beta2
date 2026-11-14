@@ -1,4 +1,5 @@
 import { bannerHero } from "../banner.js";
+import { COMMUNITY_VOICES_HEAD, pathwayCards } from "../community-voices.js";
 import { eyebrow, searchForm } from "../components.js";
 import { countyTitle, plural } from "../format.js";
 import { html, path, type SafeHtml } from "../html.js";
@@ -141,6 +142,7 @@ export async function homePage(context: SiteContext): Promise<Page> {
       <h2 id="reporting-heading">Stories worth hearing.</h2>
       <span><a class="text-link" href="/stories">All Stories</a> <a class="text-link" href="/posts">All Posts</a></span>
     </div>
+    ${pathwayCards("/stories", "Stories")}
     ${
       stories.length + posts.length === 0
         ? html`<div class="empty-state">
@@ -182,6 +184,7 @@ export async function homePage(context: SiteContext): Promise<Page> {
 
   return {
     title: "Colorado Watchdog",
+    head: COMMUNITY_VOICES_HEAD,
     description:
       "Community Voices. Government Accountability. Public, source-cited records of Colorado county organizations, positions and the people documented in them.",
     lead,
