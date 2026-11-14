@@ -3,9 +3,11 @@ import type { ReportIntakeStore } from "./contracts/report-intake.js";
 import type { RuntimeEnvironment } from "./contracts/runtime.js";
 import { StorageUnavailableError } from "./contracts/storage.js";
 import { AsyncD1Database } from "./database/d1.js";
+import { handleWebsiteMcpRequest } from "./mcp/website.js";
 import { createReportApiModule, type ReportApiOptions } from "./report-api.js";
 import { D1BannerPublicService } from "./services/banner-public.js";
 import { createD1AccountServices } from "./services/d1-accounts.js";
+import { createD1WebsiteInspectionService } from "./services/d1-inspection.js";
 import { createD1PublicReadServices } from "./services/d1-public-reads.js";
 import type { ApplicationServices } from "./services/index.js";
 import { D1ReportIntakeStore } from "./services/report-intake-d1.js";
@@ -15,6 +17,11 @@ import type { PublicSiteServices } from "./site/types.js";
 import { bundledSiteAssets } from "./site/worker-assets.js";
 
 declare const __WATCHDOG_SITES_PROJECT_ID__: string | null;
+declare const __WATCHDOG_WEBSITE_MIGRATIONS__: readonly {
+  version: number;
+  name: string;
+  sha256: string;
+}[];
 
 /** The only Sites project allowed to supply human claims to this Worker. */
 const BETA2_SITES_PROJECT_ID = "appgprj_6af7fb8f615c81918da0e4450ba336de";
@@ -131,6 +138,19 @@ const worker = {
   ): Promise<Response> {
     const fallback = unavailableServices();
     if (!environment.DB) {
+      if (new URL(request.url).pathname === "/mcp") {
+        return new Response(
+          JSON.stringify({ error: "inspection_unavailable" }),
+          {
+            status: 503,
+            headers: {
+              "cache-control": "no-store",
+              "content-type": "application/json; charset=utf-8",
+              "x-content-type-options": "nosniff",
+            },
+          },
+        );
+      }
       const app = createApplication(fallback as unknown as ApplicationServices);
       const reports = reportApi(
         environment,
@@ -178,6 +198,16 @@ const worker = {
           return { status: "ok" as const };
         },
       };
+      const inspection = createD1WebsiteInspectionService(
+        database,
+        __WATCHDOG_WEBSITE_MIGRATIONS__,
+        {
+          projectId: siteId,
+          bindingName: "DB",
+          authorize: (principal) =>
+            accounts.hasCapability(principal, "d1.inspect"),
+        },
+      );
       const app = createApplication(services as unknown as ApplicationServices);
       const reports = reportApi(environment, services, database);
       const site = createPublicSite({
@@ -195,11 +225,15 @@ const worker = {
             : 403;
         },
       });
-      return createWebsite({
+      const website = createWebsite({
         application: app,
         site,
         reports: reports.handler,
-      }).fetch(request);
+      });
+      if (new URL(request.url).pathname === "/mcp") {
+        return handleWebsiteMcpRequest(request, services, inspection);
+      }
+      return website.fetch(request);
     } catch {
       return new Response(JSON.stringify({ error: "dependency_unavailable" }), {
         status: 503,
