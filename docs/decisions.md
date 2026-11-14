@@ -125,6 +125,9 @@ rewriting the history above.
   Archon is retired.
 - Other chats in the project are task chats. They report results to the
   💠archon through GitHub (Issue, PR, or CURRENT row).
+- The 💠 chat-title prefix is reserved for the single coordinating chat.
+  This supersedes the earlier "Chat titles" row for all other chats, which
+  use the standard `model | description` format.
 - Active county research is paused by the owner because the research database
   is well seeded.
 - Existing Profiles architecture decisions are unchanged: a separate local
