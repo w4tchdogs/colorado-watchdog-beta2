@@ -64,6 +64,43 @@ export function seedFictionalDirectory(database: WebsiteDatabase): void {
            ('demo-role-06','demo-person-quinn','demo-pos-library','demo-src-news',NULL,'2025-12-31','2026-07-04'),
            ('demo-role-07','demo-person-riley','demo-pos-roads','demo-src-minutes','2015-05-01','2020-04-30','2026-10-02');
   `);
+  // Larimer: a department with a division, a second office and a person who
+  // also has a role in another county.
+  database.exec(`
+    INSERT INTO organizations (id, name, organization_type, county_fips, parent_organization_id, parent_relationship)
+    VALUES ('demo-larimer-assessor','Fictional Assessor Office','office','08069','demo-larimer-gov','grouped_under'),
+           ('demo-larimer-dev','Fictional Community Development Department','department','08069','demo-larimer-gov','reports_to');
+    INSERT INTO organizations (id, name, organization_type, county_fips, parent_organization_id, parent_relationship)
+    VALUES ('demo-larimer-building','Fictional Building Division','division','08069','demo-larimer-dev','reports_to');
+    INSERT INTO positions (id, organization_id, title)
+    VALUES ('demo-pos-l-assessor','demo-larimer-assessor','Fictional Assessor'),
+           ('demo-pos-l-director','demo-larimer-dev','Fictional Community Development Director'),
+           ('demo-pos-l-planner','demo-larimer-dev','Fictional Senior Planner for Long-Range Land Use and Rural Area Coordination'),
+           ('demo-pos-l-inspector','demo-larimer-building','Fictional Building Inspector'),
+           ('demo-pos-l-permit','demo-larimer-building','Fictional Permit Technician');
+    INSERT INTO role_sources (id, url, title, source_type)
+    VALUES ('demo-src-larimer-dev','https://example.invalid/fictional-larimer/community-development','Fictional Larimer community development page','official_page');
+    INSERT INTO people (id, display_name)
+    VALUES ('demo-l-01','Addison Fixture (fictional)'),
+           ('demo-l-02','Bellamy Fixture (fictional)'),
+           ('demo-l-03','Carson Mockup (fictional)'),
+           ('demo-l-04','Dakota Mockup (fictional)'),
+           ('demo-l-05','Ellis Dummy (fictional)'),
+           ('demo-l-06','Frankie Dummy (fictional)'),
+           ('demo-l-07','Greer Standin (fictional)'),
+           ('demo-l-08','Hollis Standin (fictional)');
+    INSERT INTO person_roles (id, person_id, position_id, source_id, start_date, end_date, source_checked_at)
+    VALUES ('demo-role-l-01','demo-l-01','demo-pos-l-assessor','demo-src-larimer','2023-01-10',NULL,'2026-09-18'),
+           ('demo-role-l-02','demo-l-02','demo-pos-l-director','demo-src-larimer-dev','2020-02-03',NULL,'2026-10-20'),
+           ('demo-role-l-03','demo-l-03','demo-pos-l-planner','demo-src-larimer-dev',NULL,NULL,'2026-10-20'),
+           ('demo-role-l-04','demo-l-04','demo-pos-l-planner','demo-src-larimer-dev',NULL,'2025-06-30','2026-10-20'),
+           ('demo-role-l-05','demo-l-05','demo-pos-l-inspector','demo-src-larimer-dev',NULL,NULL,'2026-10-21'),
+           ('demo-role-l-06','demo-l-06','demo-pos-l-inspector','demo-src-larimer-dev',NULL,NULL,'2026-10-21'),
+           ('demo-role-l-07','demo-l-07','demo-pos-l-permit','demo-src-larimer-dev','2024-08-12',NULL,'2026-10-21'),
+           ('demo-role-l-08','demo-l-08','demo-pos-l-permit','demo-src-larimer-dev',NULL,NULL,'2026-10-21'),
+           ('demo-role-l-09','demo-l-05','demo-pos-l-permit','demo-src-larimer-dev','2019-01-07','2022-03-31','2026-10-21'),
+           ('demo-role-l-10','demo-person-riley','demo-pos-l-director','demo-src-larimer-dev','2012-04-02','2015-04-30','2026-10-20');
+  `);
   const person = database.prepare(
     "INSERT INTO people (id, display_name) VALUES (?, ?)",
   );

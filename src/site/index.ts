@@ -16,6 +16,7 @@ import {
 } from "./pages/errors.js";
 import { homePage } from "./pages/home.js";
 import { aboutPage, readingRecordsPage } from "./pages/info.js";
+import { officialsPage } from "./pages/officials.js";
 import { organizationPage } from "./pages/organization.js";
 import { personPage } from "./pages/person.js";
 import { reportPage } from "./pages/report.js";
@@ -118,6 +119,15 @@ async function route(
           first,
           checkedParameters(url, ["query", "cursor"], `/${first}`),
         );
+      case "officials":
+        return officialsPage(
+          context,
+          checkedParameters(
+            url,
+            ["view", "directoryView", "county", "office", "q", "sort", "page"],
+            "/officials",
+          ),
+        );
       case "stories":
         none();
         return editorialListPage(context, "story");
@@ -155,7 +165,7 @@ async function route(
       return personPage(
         context,
         second,
-        checkedParameters(url, ["afterRoleId"], pathname),
+        checkedParameters(url, ["afterRoleId", "from"], pathname),
       );
     case "organizations":
       return organizationPage(

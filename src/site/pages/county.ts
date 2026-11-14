@@ -14,6 +14,7 @@ import {
   personLink,
   roleDates,
 } from "../components.js";
+import { countyNav, officialsHref } from "../county-nav.js";
 import {
   affiliationVerb,
   countyTitle,
@@ -21,7 +22,7 @@ import {
   isStableId,
   parentRelationshipLabel,
 } from "../format.js";
-import { html, path, type SafeHtml, trusted, withQuery } from "../html.js";
+import { html, path, type SafeHtml, withQuery } from "../html.js";
 import { BadRequest, NotFound, type Page, type SiteContext } from "../types.js";
 
 const ORGANIZATION_PAGE_SIZE = 50;
@@ -142,28 +143,15 @@ export async function countyPage(
     title,
     meta: html`<span class="fips">FIPS ${overview.county.fips}</span> <span>Colorado</span>`,
     lede: "County organizations, affiliated bodies and documented public roles, with sources.",
+    actions: html`<a class="button" href="${officialsHref(countyFips)}">Find an official</a> <a class="button button-light" href="${officialsHref(countyFips, "structure")}">County structure</a>`,
   });
 
-  const subnav = html`<nav class="county-nav" aria-label="${title}">
-    <div class="wrap county-nav-inner">
-      <span class="county-nav-name">${title}</span>
-      <ul>
-        <li><a href="#main" aria-current="true">County home</a></li>
-        ${empty ? "" : html`<li><a href="#organizations">Organizations</a></li><li><a href="#roles">Roles and people</a></li>`}
-      </ul>
-      <form class="county-switch" action="/counties" method="get">
-        <label class="visually-hidden" for="county-switch">Switch county</label>
-        <select id="county-switch" name="county">
-          ${(await context.services.listCounties()).map(
-            (county) =>
-              html`<option value="${county.fips}"${county.fips === countyFips ? trusted(" selected") : ""}>${countyTitle(county.name)}</option>`,
-          )}
-        </select>
-        <button class="button button-quiet button-small" type="submit">Go</button>
-      </form>
-      <a class="county-nav-all" href="/counties">All counties</a>
-    </div>
-  </nav>`;
+  const subnav = countyNav({
+    counties: await context.services.listCounties(),
+    county: overview.county,
+    current: "home",
+    switchTo: "home",
+  });
 
   const body = html`
   <section class="section" aria-labelledby="overview-heading">

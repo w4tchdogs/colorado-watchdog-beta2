@@ -3,7 +3,7 @@ import type { Breadcrumb, Page } from "./types.js";
 
 const NAVIGATION = [
   { key: "counties", label: "Counties", href: "/counties" },
-  { key: "people", label: "People", href: "/people" },
+  { key: "officials", label: "Officials", href: "/officials" },
   { key: "organizations", label: "Organizations", href: "/organizations" },
   { key: "stories", label: "Stories", href: "/stories" },
   { key: "posts", label: "Posts", href: "/posts" },
@@ -87,7 +87,8 @@ ${page.body}
       <h2>Directories</h2>
       <ul>
         <li><a href="/counties">All 64 counties</a></li>
-        <li><a href="/people">People</a></li>
+        <li><a href="/officials">Officials &amp; employees</a></li>
+        <li><a href="/officials?directoryView=structure">County structure</a></li>
         <li><a href="/organizations">Organizations</a></li>
       </ul>
     </nav>

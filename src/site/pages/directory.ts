@@ -118,7 +118,9 @@ export async function directoryPage(
     outcome = emptyState(
       `Search ${copy.title.toLowerCase()} by name`,
       copy.prompt,
-      html`<a class="button button-quiet" href="/counties">Browse counties</a>`,
+      collection === "people"
+        ? html`<a class="button button-quiet" href="/officials">Browse the officials directory</a>`
+        : html`<a class="button button-quiet" href="/officials?directoryView=structure">Browse county structure</a>`,
     );
   } else if (query.length < MIN_QUERY) {
     outcome = emptyState(
@@ -160,7 +162,7 @@ export async function directoryPage(
   return {
     title: copy.title,
     description: copy.intro,
-    section: collection,
+    section: collection === "people" ? "officials" : collection,
     breadcrumbs: [{ label: "Home", href: "/" }, { label: copy.title }],
     body: html`${pageHeader(copy.title, copy.intro, undefined, "Statewide directory")}${form}<section class="section results" aria-label="Search results">${outcome}</section>`,
   };

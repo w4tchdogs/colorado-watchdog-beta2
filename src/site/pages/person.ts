@@ -14,6 +14,7 @@ import {
 import { affiliationVerb, isStableId } from "../format.js";
 import { html, path, type SafeHtml, withQuery } from "../html.js";
 import { BadRequest, NotFound, type Page, type SiteContext } from "../types.js";
+import { directoryReturnHref } from "./officials.js";
 
 const PAGE_SIZE = 25;
 
@@ -66,11 +67,17 @@ export async function personPage(
   if (!profile) throw new NotFound("person");
 
   const name = profile.person.displayName;
+  // A profile opened from the directory carries its filters, so the visitor
+  // can return to the same results.
+  const from = parameters.get("from");
+  const back = directoryReturnHref(from);
+  const keep = back ? from : null;
   const body = html`
   <header class="page-header profile-header">
     <p class="eyebrow">Person</p>
     <h1>${name}</h1>
     <div class="page-meta">${recordId(profile.person.id)}</div>
+    ${back ? html`<p class="back-link"><a href="${back}">Back to directory results</a></p>` : ""}
     <p class="lede">This profile lists the roles documented for this record. Another record with the same name is a different documented person unless evidence shows otherwise.</p>
   </header>
   <section class="section" aria-labelledby="roles-heading">
@@ -88,9 +95,9 @@ export async function personPage(
     }
     ${pager({
       label: "Role pages",
-      firstHref: afterRoleId ? base : null,
+      firstHref: afterRoleId ? withQuery(base, { from: keep }) : null,
       nextHref: profile.hasMore
-        ? withQuery(base, { afterRoleId: profile.nextCursor })
+        ? withQuery(base, { afterRoleId: profile.nextCursor, from: keep })
         : null,
     })}
   </section>`;
@@ -98,10 +105,10 @@ export async function personPage(
   return {
     title: name,
     description: `Documented public roles and source citations for ${name}.`,
-    section: "people",
+    section: "officials",
     breadcrumbs: [
       { label: "Home", href: "/" },
-      { label: "People", href: "/people" },
+      { label: "Officials & employees", href: back ?? "/officials" },
       { label: name },
     ],
     body,
