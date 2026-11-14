@@ -1,6 +1,8 @@
 # Colorado Watchdog beta-2 — current state
 
-Revision: November 14, 2026. Evidence: GitHub `main` at `b52020a32d6109787fe070daf5696c13f24b7ea3` (PR #96), [decisions](../decisions.md), and the linked Issues/PRs below. Read this after [START](START.md) and before track-specific documents. Five-minute read.
+Revision: November 14, 2026. Evidence: GitHub `main` at `b9785f3dcd253b728925ee9113bf6b67617523bd` (PR #98), [decisions](../decisions.md), and the linked Issues/PRs below. Read this after [START](START.md) and before track-specific documents. Five-minute read.
+
+**Owner pause:** All development remains paused until WSO-2 (Watchdog workspace consolidation) is complete and audited. Only WSO-2 Stage 1, the inventory and move plan, is authorized. Stage 2 requires the owner's explicit approval after the plan audit.
 
 ## Status vocabulary
 
@@ -102,6 +104,7 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | COORD-1A | Merged | PR #96, `b52020a3` | COORD-1 (merged) | 2026-11-14 |
 | COORD-2 | Merged | [PR #97](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/97), `e5704436` | — | 2026-11-14 |
 | WSO-1 | Complete; read-only workspace assessment. Filesystem inventory is valid; Git observations came from a stale local checkout at the PR #83 era and do not describe current `main` | Report in owner's Drive folder "Colorado Watchdog - Claude Reports": "Colorado Watchdog Workspace Organization Assessment and Proposed Plan rev2026-11-14 v1.docx" | — | 2026-11-14 |
+| WSO-2 | Stage 1 authorized; Stage 2 blocked | Watchdog workspace consolidation | Owner audit of the move plan and explicit Stage 2 approval | 2026-11-14 |
 | Profiles Archon retired | Complete | Owner decision, 2026-11-14 | — | 2026-11-14 |
 | VIS8-RESTORE-1 | Merged | PR #91, `db2903d1` | — | 2026-11-14 |
 | BANNERS-3 | Merged | PR #92, `0c08faf8` | R2 provisioning (for real import) | 2026-11-14 |
@@ -120,6 +123,8 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 No task above is owned by more than one AI at once; check this table and the linked Issue/PR before starting overlapping work.
 
 ## G. Next safe tasks
+
+Only the WSO-2 inventory and move plan may proceed during the owner pause. The following development tasks stay on hold until WSO-2 is complete and audited.
 
 Any of: BANNERS-4 (carousel UI, no hosted dependency), visual-audit follow-ups, Posts/Stories publication-endpoint design, or read-only hosted-access diagnostics that do not write to production. Hosted MCP publication or any MCP write/sync/import tool, real data imports, migration 0015 application and Alpha-1 redeployment all require an explicit owner-scoped assignment first.
 
