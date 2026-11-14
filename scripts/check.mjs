@@ -29,6 +29,38 @@ const allowed = new Set([
   "tsconfig.json",
   "tsconfig.build.json",
   "scripts/dev.mjs",
+  "scripts/site-dev.mjs",
+  "src/contracts/county-registry.ts",
+  "src/services/county-registry.ts",
+  "src/site/html.ts",
+  "src/site/format.ts",
+  "src/site/types.ts",
+  "src/site/editorial-source.ts",
+  "src/site/layout.ts",
+  "src/site/components.ts",
+  "src/site/index.ts",
+  "src/site/banner.ts",
+  "src/site-dev/banner-fixtures.ts",
+  "tests/site-banner.test.mjs",
+  "website/site/BRAND-ASSETS.md",
+  "src/site/pages/home.ts",
+  "src/site/pages/counties.ts",
+  "src/site/pages/county.ts",
+  "src/site/pages/directory.ts",
+  "src/site/pages/person.ts",
+  "src/site/pages/organization.ts",
+  "src/site/pages/editorial.ts",
+  "src/site/pages/info.ts",
+  "src/site/pages/errors.ts",
+  "src/site-dev/preview.ts",
+  "src/site-dev/preview-data.ts",
+  "website/site/site.css",
+  "website/site/site.js",
+  "tests/site-fixtures.mjs",
+  "tests/site-pages.test.mjs",
+  "tests/site-directory.test.mjs",
+  "tests/site-safety.test.mjs",
+  "docs/architecture/public-site.md",
   "scripts/editor-dev.mjs",
   "src/application.ts",
   "src/worker.ts",
@@ -178,6 +210,18 @@ const allowed = new Set([
   "docs/research/identity-foundation.md",
   "docs/research/R6-durable-submission-client.md",
 ]);
+// Web derivatives of the owner's logo and mascot artwork: the only binary
+// files allowed. Each is a small PNG; masters stay outside this repository.
+const brandImages = new Set([
+  "website/site/brand-logo-white.png",
+  "website/site/brand-logo-white-large.png",
+  "website/site/brand-mascot-standing.png",
+  "website/site/brand-mascot-lying.png",
+  "website/site/brand-mascot-sit-alert.png",
+  "website/site/favicon-light.png",
+  "website/site/favicon-dark.png",
+]);
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const staged = process.argv.includes("--staged");
 const git = (...args) =>
   execFileSync("git", args, { maxBuffer: 2 * 1024 * 1024 });
@@ -187,7 +231,7 @@ const files = git("ls-files", "-z")
   .split("\0")
   .filter(Boolean);
 const present = new Set(files);
-for (const required of allowed) {
+for (const required of [...allowed, ...brandImages]) {
   if (!present.has(required)) errors.push(`Missing required file: ${required}`);
 }
 const secretPatterns = [
@@ -198,6 +242,13 @@ const secretPatterns = [
   /\bsk-[A-Za-z0-9_-]{32,}\b/,
 ];
 for (const file of files) {
+  if (brandImages.has(file)) {
+    const image = staged ? git("show", `:${file}`) : readFileSync(file);
+    if (image.length > 96 * 1024) errors.push(`Image exceeds 96 KiB: ${file}`);
+    if (!PNG_SIGNATURE.every((byte, index) => image[index] === byte))
+      errors.push(`Not a PNG image: ${file}`);
+    continue;
+  }
   if (!allowed.has(file)) {
     errors.push(`Outside bootstrap file allowlist: ${file}`);
     continue;

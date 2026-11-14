@@ -201,6 +201,14 @@ and tested using SQL.js only.
   synthetic tests exercise SQL.js; hosted D1 and production deployment
   compatibility remain unverified.
 
+## M4 public website alpha
+
+- `src/site/` renders the public HTML site from the shared service layer and
+  is composed with the unchanged JSON application for the local preview
+  (`npm run site:dev`). The service layer gains only `listCounties()`. See
+  [public website alpha](public-site.md). No hosted deployment is included or
+  verified.
+
 ## Deferred milestones
 
 - **M1:** attach organization, person, employment, and role-source tables to

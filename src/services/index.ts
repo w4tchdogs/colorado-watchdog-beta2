@@ -22,6 +22,7 @@ import {
 } from "./accounts.js";
 import { listAuditEvents } from "./audit.js";
 import { getCountyOverview } from "./county-overview.js";
+import { listCounties } from "./county-registry.js";
 import { listCountyOrganizations, listCountyRoleEntries } from "./directory.js";
 import { searchOrganizations, searchPeople } from "./directory-search.js";
 import { createOperation } from "./operations.js";
@@ -108,6 +109,7 @@ export interface ApplicationServices {
   getCountyOverview(
     input: CountyOverviewRequest,
   ): ReturnType<typeof getCountyOverview>;
+  listCounties(): ReturnType<typeof listCounties>;
   searchPeople(input: DirectorySearchRequest): ReturnType<typeof searchPeople>;
   searchOrganizations(
     input: DirectorySearchRequest,
@@ -246,6 +248,9 @@ export function createServices(
     },
     getCountyOverview(input) {
       return getCountyOverview(requireDatabase(), input);
+    },
+    listCounties() {
+      return listCounties(requireDatabase());
     },
     searchPeople(input) {
       return searchPeople(requireDatabase(), input);
