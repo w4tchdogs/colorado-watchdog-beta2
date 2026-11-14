@@ -1,0 +1,129 @@
+# Colorado Watchdog beta-2 — current state
+
+Revision: November 14, 2026. Evidence: GitHub `main` at `db2903d11ba0d368de45d86d20a189dea1b42e65` (merge of PR #91), [decisions](../decisions.md), and Issue [#93](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/93) (COORD-1). Read this after [START](START.md) and before track-specific documents. Five-minute read.
+
+## Status vocabulary
+
+| Status | Meaning |
+| --- | --- |
+| Planned | Accepted future work, not assigned |
+| Prepared | Assignment prompt exists, not confirmed assigned |
+| Assigned | Executor has been given the task |
+| In progress | Execution has started |
+| PR open | Implementation has a pending PR |
+| Merged | Source accepted into `main` |
+| Deployed | A specific artifact/version was deployed |
+| Hosted-verified | Actual hosted behavior was tested |
+| Blocked | A genuine dependency prevents the relevant operation |
+| Superseded | Replaced by a later accepted decision or task |
+| Complete | The stated scope and deliverables are satisfied |
+
+A workstream can be several of these at once along independent dimensions —
+for example **merged source / not deployed / hosted behavior unverified**.
+Do not compress that into one ambiguous "complete," and never equate a
+proposed task with an assigned one. A later status never implies an earlier
+one was skipped, and Merged never implies Deployed.
+
+## A. Project identity
+
+| Project | Repository / URL | Notes |
+| --- | --- | --- |
+| **Beta-1** — existing website | https://colorado-watchdog.futureguild2.chatgpt.site/ | Separate history, data and Sites project (`appgprj_6ae78d5c5bd881919b1790ebc0177a44`). Not modified by beta-2 work. |
+| **Beta-2** — AI-first rebuild | https://github.com/w4tchdogs/colorado-watchdog-beta2 | This repository. Source of truth is `main`. |
+| **Beta-2 Alpha-1** — first private Site | https://colorado-watchdog-alpha1.futureguild2.chatgpt.site/ | Sites project `appgprj_6af7fb8f615c81918da0e4450ba336de`. See section D. |
+
+Beta-1 data, banners and visual assets are **not** migrated into beta-2 automatically. Each project keeps its own database, decisions and history.
+
+## B. Architectural invariants (binding owner decisions — see [decisions.md](../decisions.md))
+
+- **AI-first administration**: one relational Website D1 database, R2 for files, and a shared dashboard/API/MCP service layer is the selected backbone — an approved requirement, not an optional add-on. MCP itself is **not yet implemented or connected** (see component matrix).
+- One Website D1 database; a **separate** local Windows SQLite Profiles research database (DB Browser for SQLite). Never merge or cross-query them.
+- Profiles-to-Website transfer only through the accepted synchronization architecture (M2 planner/commit/reversal); the Website assigns permanent entity IDs.
+- Versioned changesets, durable receipts, auditing and reversible operations are required for mutations.
+- Evidence-supported identities and roles; name/nickname similarity alone never proves identity.
+- Original source and artwork preservation; no beta-1 banner or record is reused in beta-2.
+- Default-deny administrative capabilities; one accepted GitHub history (`main`); no mandatory AI reviewer or routine owner-approval step.
+- Preference for $0 incremental operating cost (see [cost-limits.md](../cost-limits.md)).
+
+## C. Component status
+
+| Component | Status | Evidence |
+| --- | --- | --- |
+| Website application foundation (M0-A–D) | Merged, implemented locally | `src/application.ts`, `src/worker.ts`; [site-foundation.md](../architecture/site-foundation.md) |
+| Website D1 schema (migrations 0001–0016) | Merged, implemented locally (Wrangler local D1) | `website/migrations/`; [d1-readiness.md](../architecture/d1-readiness.md) |
+| Accounts and security (ACCT-1, AUTH-1, AUTH-2) | Merged, implemented locally; fails closed without a verified Sites identity | PR #70, #81, #88; [account-management.md](../architecture/account-management.md) |
+| Profiles research foundation (R0) | Merged, implemented locally; synthetic fixtures only | [R0-foundation.md](../research/R0-foundation.md) |
+| R7/R8 synchronization preparation | Merged, implemented locally; hosted sync still unresolved | PR #71, #73; [R7](../research/R7-profiles-website-integration.md), [R8](../research/R8-profiles-sync-operator.md) |
+| M2 synchronization (planner/commit/reversal) | Merged; PR #66 (M2-G2) title itself notes "completion pending" — treat the async reversal path as implemented-locally, not fully closed out | PR #66; [m2-g0-transaction-guard.md](../architecture/m2-g0-transaction-guard.md) |
+| Public directory, person/organization profiles (M4-D) | Merged, implemented locally | PR #80; [public-site.md](../architecture/public-site.md) |
+| Posts and Stories | Merged (content model + search, M3/VIS13-SEARCH-1); **no public publication endpoint** | PR #90; [public-site.md](../architecture/public-site.md) §"Not implemented" |
+| Banner inventory and lifecycle (BANNERS-1, BANNERS-2) | Merged, implemented locally | PR #64, #67; [banner-inventory.md](../architecture/banner-inventory.md), [banner-storage.md](../architecture/banner-storage.md) |
+| Banner delivery (BANNERS-3) | Merged, implemented locally; read-only public integration only | PR #92; [banner-delivery.md](../architecture/banner-delivery.md) |
+| MCP administration | **Planned only.** No server, route or client connection exists | [decisions.md](../decisions.md); Issue #93 |
+| Hosted D1 migration (0015, Lake/La Plata correction) | Merged to source; hosted application **blocked/undetermined** | `website/migrations/0015_correct_lake_la_plata_county_names.sql`; D1-0015-PREFLIGHT-1 (below) |
+| Hosted R2 provisioning | **Not done.** `r2: null` in `.openai/hosting.json` on `main` | `.openai/hosting.json` |
+| Real Profiles import | **Not executed** | — |
+| Real banner import | **Not executed** (BANNERS-IMPORT-1 is a separate future task) | [banner-delivery.md](../architecture/banner-delivery.md) |
+| Public Site deployment (Alpha-1) | **Deployed**, but stale relative to `main` — see section D | — |
+| Visual audit | In progress; coverage ledger and several VIS fixes merged | PR #82–#92; `docs/coordination/visual-audit/` |
+
+## D. Deployment state (separate from source)
+
+Last independently verified Alpha-1 deployment:
+
+- Project ID: `appgprj_6af7fb8f615c81918da0e4450ba336de`
+- Deployed Site version: 4
+- Deployment ID: `appgdep_6af83c64720481918de17534a66b2a42`
+- Source commit: `85653665761466b3ec20213091f89da890f936ed`
+- Audience: public
+- Logical D1 binding: `DB`; R2: not provisioned at that deployment
+
+**This evidence is last-verified, not rechecked live in this revision.** `main` has merged substantially past `8565366` (current `main` is `db2903d`, plus PRs #90–#92 on top). A later merge to `main` is never assumed to be deployed — redeploying Alpha-1 is a separate, explicit action. Do not treat the commit on `main` as what visitors currently see.
+
+## E. Current blockers / open dependencies
+
+- **Hosted D1 migration 0015** — not confirmed applied to the hosted database. D1-0015-PREFLIGHT-1 completed with an access limitation (no verified administrative hosted-D1 access); D1-0015-ACCESS-1 (a standalone one-off coding plan to get that access) is **superseded** by the MCP-first architecture — administration should come through MCP, not a bespoke access script.
+- **MCP connectivity and authorization** — approved architecture, zero implementation. MCP-1 has a prepared implementation prompt and a local worktree (`codex/mcp-1-admin-foundation`) sitting at the same commit as `main`, i.e. **not started**, and is not to be treated as assigned/in-progress merely because the prompt and worktree exist.
+- **R2 provisioning** — needed before BANNERS-IMPORT-1 (real banner import) or any R2-backed MCP file storage.
+- **Profiles research eligibility and hosted synchronization** — R7/R8 give the sync design; no real personnel data has been screened for hosted sync, and the Website-side sync route remains internal/unregistered ([d1-readiness.md](../architecture/d1-readiness.md)).
+- **Verified hosted D1 administrative access** — no trustworthy stable Sites subject is currently exposed to the Worker ([account-management.md](../architecture/account-management.md), [beta-2-planning-handoff.md](../architecture/beta-2-planning-handoff.md)); this blocks both migration 0015 application and first-owner bootstrap.
+
+None of the above is an artificial blocker on routine, disjoint PR work; they block only hosted D1/R2 operations, real data import and MCP wiring specifically.
+
+## F. Active and recent assignments
+
+| Task | Status | Branch / PR / Issue | Dependency | Last verified |
+| --- | --- | --- | --- | --- |
+| COORD-1 | In progress | `coord-1-current-state-handoff` / Issue #93 | — | 2026-11-14 |
+| VIS8-RESTORE-1 | Merged | PR #91, `db2903d1` | — | 2026-11-14 |
+| BANNERS-3 | Merged | PR #92, `0c08faf8` | R2 provisioning (for real import) | 2026-11-14 |
+| VIS13-SEARCH-1 | Merged | PR #90, `8b39dadc` | — | 2026-11-14 |
+| VIS8-FIPS-1 | Merged | PR #89 | — | 2026-11-14 |
+| AUTH-2 | Merged | PR #88 | — | 2026-11-14 |
+| D1-0015-PREFLIGHT-1 | Complete, with access limitation | — | Hosted D1 admin access | 2026-11-14 |
+| D1-0015-ACCESS-1 | Superseded by MCP-first architecture | — | — | 2026-11-14 |
+| MCP-1 | **Prompt prepared; not assigned** | local worktree only, no PR | Owner assignment | 2026-11-14 |
+| Profiles Import Pilot | Assessment complete; readiness/hosted-sync unresolved | — | Hosted D1 admin access, R7/R8 | 2026-11-14 |
+| BANNERS-4 (carousel) | Planned, not started | — | BANNERS-3 (merged) | — |
+| BANNERS-IMPORT-1 (real import) | Planned, not started | — | R2 provisioning | — |
+| Real Profiles import | Not executed | — | Profiles Import Pilot, hosted sync | — |
+
+No task above is owned by more than one AI at once; check this table and the linked Issue/PR before starting overlapping work.
+
+## G. Next safe tasks
+
+Any of: BANNERS-4 (carousel UI, no hosted dependency), visual-audit follow-ups, Posts/Stories publication-endpoint design, or read-only hosted-access diagnostics that do not write to production. MCP-1, real imports, migration 0015 application and Alpha-1 redeployment all require an explicit owner-scoped assignment first.
+
+## Maintenance — when to update this file
+
+Update this file when: an owner architectural decision changes (also update
+[decisions.md](../decisions.md)); a milestone in section C changes status
+(merged → deployed → hosted-verified, or similar); a blocker in section E is
+resolved or a new one is confirmed; or ownership of overlapping work changes
+(section F). The executor who makes the change includes the update in the
+same PR when practical; otherwise the coordinating Archon updates it
+afterward, or records in the relevant Issue that the update is pending. Do
+not update this file for routine PRs, minor refactors, editorial wording, or
+work already represented by a linked Issue. Prefer a short table-row edit and
+a PR link over a long rewrite; never regenerate the whole file for a small
+change, and never maintain a second, competing current-state document.

@@ -18,6 +18,7 @@ const allowed = new Set([
   "scripts/d1-local-check.mjs",
   "scripts/banners.mjs",
   "docs/coordination/START.md",
+  "docs/coordination/CURRENT.md",
   "docs/coordination/visual-audit/coverage-ledger.csv",
   "docs/coordination/visual-audit/Shared Visual Design Inventory rev2026-11-14 v1.md",
   "docs/coordination/visual-audit/VIS-6 Coverage Summary and Follow-up rev2026-11-14 v1.md",
@@ -311,6 +312,18 @@ const files = git("ls-files", "-z")
   .split("\0")
   .filter(Boolean);
 const present = new Set(files);
+// COORD-1: content captured while scanning tracked files, checked after the
+// main loop. Keep this cheap and tied to files already read above; do not
+// hardcode a commit SHA (it would fail after every normal merge).
+const coord1Files = new Set([
+  "docs/coordination/CURRENT.md",
+  "docs/coordination/START.md",
+  "docs/decisions.md",
+  "AGENTS.md",
+  "README.md",
+  "docs/architecture/beta-2-planning-handoff.md",
+]);
+const coord1Content = {};
 for (const required of [...allowed, ...brandImages]) {
   if (!present.has(required)) errors.push(`Missing required file: ${required}`);
 }
@@ -363,7 +376,66 @@ for (const file of files) {
   if (secretPatterns.some((pattern) => pattern.test(content))) {
     errors.push(`Possible credential (value withheld): ${file}`);
   }
+  if (coord1Files.has(file)) coord1Content[file] = content;
 }
+
+// COORD-1 (Issue #93): cheap documentation-consistency invariants. These
+// check that the shared startup path stays coherent; they do not audit
+// implementation status, which belongs in CURRENT.md itself, not in this
+// script.
+{
+  const current = coord1Content["docs/coordination/CURRENT.md"];
+  const start = coord1Content["docs/coordination/START.md"];
+  const decisions = coord1Content["docs/decisions.md"];
+  const agents = coord1Content["AGENTS.md"];
+  const readme = coord1Content["README.md"];
+  if (!present.has("docs/coordination/CURRENT.md"))
+    errors.push("COORD-1: docs/coordination/CURRENT.md is missing");
+  if (start && !/CURRENT\.md/.test(start))
+    errors.push("COORD-1: START.md does not link to CURRENT.md");
+  if (start && !/decisions\.md/.test(start))
+    errors.push("COORD-1: START.md does not link to decisions.md");
+  if (agents && !/coordination\/START\.md/.test(agents))
+    errors.push(
+      "COORD-1: AGENTS.md does not point to docs/coordination/START.md",
+    );
+  if (current) {
+    const vocabulary = [
+      "planned",
+      "prepared",
+      "assigned",
+      "merged",
+      "deployed",
+      "hosted-verified",
+      "blocked",
+    ];
+    const lowerCurrent = current.toLowerCase();
+    for (const word of vocabulary) {
+      if (!lowerCurrent.includes(word))
+        errors.push(`COORD-1: CURRENT.md is missing status word "${word}"`);
+    }
+  }
+  // A small, intentionally narrow set of present-tense claims COORD-1
+  // corrected. This is not a general prose linter.
+  const obsoletePresentTense = [
+    /\bthe (website|site) has not been built\b/i,
+    /\bno site (is|has been) created\b/i,
+    /\bmcp is (merely|just|only) an optional\b/i,
+  ];
+  for (const [name, content] of [
+    ["README.md", readme],
+    ["docs/decisions.md", decisions],
+  ]) {
+    if (!content) continue;
+    for (const pattern of obsoletePresentTense) {
+      if (pattern.test(content))
+        errors.push(
+          `COORD-1: obsolete present-tense claim in ${name}: ${pattern}`,
+        );
+    }
+  }
+}
+
 if (errors.length) {
   console.error(errors.join("\n"));
   process.exitCode = 1;
