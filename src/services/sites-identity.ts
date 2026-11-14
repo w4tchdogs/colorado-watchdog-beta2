@@ -68,7 +68,9 @@ export function createSitesIdentityAdapter(
           : null;
       return {
         provider,
-        subject: identity.userId.trim(),
+        // User IDs are opaque subjects: validate whitespace but preserve the
+        // exact value so existing account links keep their original key.
+        subject: identity.userId,
         email: identity.email.trim(),
         displayName: fullName ?? identity.email.trim(),
       };

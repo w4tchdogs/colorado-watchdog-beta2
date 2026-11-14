@@ -152,6 +152,21 @@ async function main() {
     INSERT INTO identities (id,account_id,provider,subject,credential_hash) VALUES
       ('d1-test-editor-key','d1-test-editor','agent-key','d1-test-editor-key','${editorHash}'),
       ('d1-test-contributor-key','d1-test-contributor','agent-key','d1-test-contributor-key','${contributorHash}');
+    INSERT INTO accounts (id,kind,role,display_name,status) VALUES
+      ('d1-sites-owner','human','owner','Synthetic Sites Human Owner','active'),
+      ('d1-sites-admin','human','administrator','Synthetic Sites Human Administrator','active'),
+      ('d1-sites-editor','human','editor','Synthetic Sites Human Editor','active'),
+      ('d1-sites-contributor','human','contributor','Synthetic Sites Human Contributor','active'),
+      ('d1-sites-disabled','human','owner','Synthetic Sites Disabled Human','disabled');
+    INSERT INTO identities (id,account_id,provider,subject,expires_at,revoked_at) VALUES
+      ('d1-sites-owner-id','d1-sites-owner','chatgpt-sites:appgprj_6af7fb8f615c81918da0e4450ba336de','synthetic-sites-owner',NULL,NULL),
+      ('d1-sites-admin-id','d1-sites-admin','chatgpt-sites:appgprj_6af7fb8f615c81918da0e4450ba336de','synthetic-sites-admin',NULL,NULL),
+      ('d1-sites-editor-id','d1-sites-editor','chatgpt-sites:appgprj_6af7fb8f615c81918da0e4450ba336de','synthetic-sites-editor',NULL,NULL),
+      ('d1-sites-contributor-id','d1-sites-contributor','chatgpt-sites:appgprj_6af7fb8f615c81918da0e4450ba336de','synthetic-sites-contributor',NULL,NULL),
+      ('d1-sites-disabled-id','d1-sites-disabled','chatgpt-sites:appgprj_6af7fb8f615c81918da0e4450ba336de','synthetic-sites-disabled',NULL,NULL),
+      ('d1-sites-expired-id','d1-sites-editor','chatgpt-sites:appgprj_6af7fb8f615c81918da0e4450ba336de','synthetic-sites-expired','2000-01-01T00:00:00.000Z',NULL),
+      ('d1-sites-revoked-id','d1-sites-editor','chatgpt-sites:appgprj_6af7fb8f615c81918da0e4450ba336de','synthetic-sites-revoked',NULL,'2026-11-13T00:00:00.000Z'),
+      ('d1-sites-other-project-id','d1-sites-owner','chatgpt-sites:appgprj_00000000000000000000000000000000','synthetic-other-project-subject',NULL,NULL);
   `,
   );
   command([
@@ -218,6 +233,124 @@ async function main() {
       },
     });
     assert.equal(forgedStaffPage.status, 401);
+    const sitesHeaders = (subject) => ({
+      "oai-authenticated-user-id": subject,
+      "oai-authenticated-user-email": "synthetic@example.test",
+      "oai-authenticated-user-full-name": "Synthetic Sites User",
+    });
+    // These are synthetic D1 links sent as ordinary local request headers. The
+    // test covers application mapping only; it cannot attest to gateway origin.
+    const linkedHumanAccess = async (subject) =>
+      fetch(`${base}/admin/reports`, { headers: sitesHeaders(subject) });
+    for (const subject of [
+      "synthetic-sites-owner",
+      "synthetic-sites-admin",
+      "synthetic-sites-editor",
+    ]) {
+      const response = await linkedHumanAccess(subject);
+      assert.equal(response.status, 200, subject);
+      assert.match(await response.text(), /staff-reports\.js/);
+    }
+    assert.equal(
+      (await linkedHumanAccess("synthetic-sites-contributor")).status,
+      403,
+    );
+    assert.equal(
+      (
+        await fetch(`${base}/admin/reports`, {
+          headers: {
+            "oai-authenticated-user-id": "synthetic-sites-editor",
+            "oai-authenticated-user-email": "metadata@example.test",
+          },
+        })
+      ).status,
+      200,
+    );
+    for (const subject of ["synthetic-sites-owner", "synthetic-sites-admin"]) {
+      assert.equal(
+        (
+          await fetch(`${base}/api/admin/accounts?limit=10`, {
+            headers: sitesHeaders(subject),
+          })
+        ).status,
+        200,
+      );
+    }
+    for (const subject of [
+      "synthetic-sites-editor",
+      "synthetic-sites-contributor",
+    ]) {
+      assert.equal(
+        (
+          await fetch(`${base}/api/admin/accounts?limit=10`, {
+            headers: sitesHeaders(subject),
+          })
+        ).status,
+        403,
+      );
+    }
+    for (const subject of [
+      "synthetic-unlinked-human",
+      "synthetic-sites-disabled",
+      "synthetic-sites-expired",
+      "synthetic-sites-revoked",
+      "synthetic-other-project-subject",
+    ]) {
+      assert.equal((await linkedHumanAccess(subject)).status, 401, subject);
+    }
+    const malformedClaims = [
+      {
+        "oai-authenticated-user-id": "",
+        "oai-authenticated-user-email": "synthetic@example.test",
+      },
+      { "oai-authenticated-user-id": "synthetic-sites-editor" },
+      {
+        "oai-authenticated-user-id": "synthetic-sites-editor",
+        "oai-authenticated-user-email": "not-an-email",
+      },
+      {
+        "oai-authenticated-user-id": "synthetic-sites-editor, other",
+        "oai-authenticated-user-email": "synthetic@example.test",
+      },
+      {
+        ...sitesHeaders("synthetic-sites-editor"),
+        "oai-authenticated-user-full-name": "A, B",
+      },
+      {
+        ...sitesHeaders("synthetic-sites-editor"),
+        "oai-authenticated-user-full-name": "N".repeat(513),
+      },
+    ];
+    for (const headers of malformedClaims) {
+      assert.equal(
+        (await fetch(`${base}/admin/reports`, { headers })).status,
+        401,
+      );
+    }
+    const repeatedClaim = new Headers(sitesHeaders("synthetic-sites-editor"));
+    repeatedClaim.append(
+      "oai-authenticated-user-id",
+      "another-synthetic-subject",
+    );
+    assert.equal(
+      (await fetch(`${base}/admin/reports`, { headers: repeatedClaim })).status,
+      401,
+    );
+    const forgedAssertions = await fetch(`${base}/admin/reports`, {
+      headers: {
+        ...sitesHeaders("synthetic-unlinked-human"),
+        "x-account-id": "d1-sites-owner",
+        "x-account-role": "owner",
+      },
+    });
+    assert.equal(forgedAssertions.status, 401);
+    const malformedAuthorization = await fetch(`${base}/admin/reports`, {
+      headers: {
+        ...sitesHeaders("synthetic-sites-editor"),
+        authorization: "Bearer malformed",
+      },
+    });
+    assert.equal(malformedAuthorization.status, 401);
     for (const token of [agentToken, ownerToken, editorToken]) {
       const authorized = await fetch(`${base}/admin/reports`, {
         headers: { authorization: `Bearer ${token}` },
@@ -410,6 +543,56 @@ async function main() {
     );
     assert.ok(storedReport?.id);
     assert.equal(storedReport.countyName, "Adams");
+    const humanEditorQueue = await fetch(`${base}/api/v1/reports`, {
+      headers: sitesHeaders("synthetic-sites-editor"),
+    });
+    assert.equal(humanEditorQueue.status, 200);
+    const humanPrivateReport = await fetch(
+      `${base}/api/v1/reports/${storedReport.id}`,
+      { headers: sitesHeaders("synthetic-sites-editor") },
+    );
+    assert.equal(humanPrivateReport.status, 200);
+    assert.match(
+      humanPrivateReport.headers.get("cache-control") ?? "",
+      /no-store, private/,
+    );
+    assert.equal(
+      (
+        await fetch(`${base}/api/v1/reports`, {
+          headers: sitesHeaders("synthetic-sites-contributor"),
+        })
+      ).status,
+      403,
+    );
+    const changeHumanRole = await fetch(
+      `${base}/api/admin/accounts/d1-sites-editor/role`,
+      {
+        method: "PUT",
+        headers: {
+          ...sitesHeaders("synthetic-sites-owner"),
+          origin: base,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ expectedVersion: 1, role: "contributor" }),
+      },
+    );
+    assert.equal(
+      changeHumanRole.status,
+      200,
+      await changeHumanRole.clone().text(),
+    );
+    assert.equal(
+      (await linkedHumanAccess("synthetic-sites-editor")).status,
+      403,
+    );
+    const syntheticOwnerPrincipal = await fetch(`${base}/_internal/principal`, {
+      headers: sitesHeaders("synthetic-sites-owner"),
+    });
+    assert.deepEqual(await syntheticOwnerPrincipal.json(), {
+      accountId: "d1-sites-owner",
+      kind: "human",
+      role: "owner",
+    });
     for (const token of [ownerToken, editorToken]) {
       assert.equal(
         (
@@ -682,6 +865,11 @@ async function main() {
 
   const modulePath = join(root, "dist", "server", "index.js");
   const bundle = readFileSync(modulePath, "utf8");
+  const hosting = JSON.parse(
+    readFileSync(join(root, ".openai", "hosting.json"), "utf8"),
+  );
+  assert.equal(hosting.project_id, "appgprj_6af7fb8f615c81918da0e4450ba336de");
+  assert.ok(bundle.includes(hosting.project_id));
   assert.doesNotMatch(
     bundle,
     /sql\.wasm|node_modules[\\/]sql\.js|research\/database/,

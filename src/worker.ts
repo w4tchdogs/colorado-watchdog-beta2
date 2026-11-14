@@ -8,12 +8,82 @@ import { createD1AccountServices } from "./services/d1-accounts.js";
 import { createD1PublicReadServices } from "./services/d1-public-reads.js";
 import type { ApplicationServices } from "./services/index.js";
 import { D1ReportIntakeStore } from "./services/report-intake-d1.js";
-import { createSitesIdentityAdapter } from "./services/sites-identity.js";
+import {
+  createSitesIdentityAdapter,
+  type VerifiedSitesContext,
+} from "./services/sites-identity.js";
 import { createPublicSite, createWebsite } from "./site/index.js";
 import type { PublicSiteServices } from "./site/types.js";
 import { bundledSiteAssets } from "./site/worker-assets.js";
 
 declare const __WATCHDOG_SITES_PROJECT_ID__: string | null;
+
+/** The only Sites project allowed to supply human claims to this Worker. */
+const BETA2_SITES_PROJECT_ID = "appgprj_6af7fb8f615c81918da0e4450ba336de";
+
+const USER_ID_HEADER = "oai-authenticated-user-id";
+const EMAIL_HEADER = "oai-authenticated-user-email";
+const FULL_NAME_HEADER = "oai-authenticated-user-full-name";
+const EMAIL_PATTERN =
+  /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/u;
+
+function hasControlCharacters(value: string): boolean {
+  return [...value].some((character) => {
+    const code = character.codePointAt(0) ?? 0;
+    return code <= 31 || (code >= 127 && code <= 159);
+  });
+}
+
+function isSingleClaim(value: string, maxLength: number): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= maxLength &&
+    value === value.trim() &&
+    !hasControlCharacters(value) &&
+    // Fetch Headers combines repeated values with commas. These identity
+    // claims have no comma-list syntax, so reject combined representations.
+    !value.includes(",")
+  );
+}
+
+function isSitesEmail(value: string): boolean {
+  return (
+    isSingleClaim(value, 320) &&
+    !value.includes("..") &&
+    EMAIL_PATTERN.test(value)
+  );
+}
+
+/**
+ * Provisionally trusts Sites-forwarded identity claims only behind the
+ * intended Sites gateway. Validation cannot prove who supplied a header.
+ */
+function createBeta2SitesIdentityContext(
+  configuredSiteId: string | null,
+): VerifiedSitesContext | undefined {
+  if (
+    configuredSiteId !== BETA2_SITES_PROJECT_ID ||
+    !/^appgprj_[a-f0-9]{32}$/u.test(configuredSiteId)
+  ) {
+    return undefined;
+  }
+
+  return async (request) => {
+    const userId = request.headers.get(USER_ID_HEADER);
+    const email = request.headers.get(EMAIL_HEADER);
+    const fullName = request.headers.get(FULL_NAME_HEADER);
+    if (
+      userId === null ||
+      email === null ||
+      !isSingleClaim(userId, 512) ||
+      !isSitesEmail(email) ||
+      (fullName !== null && !isSingleClaim(fullName, 512))
+    ) {
+      return null;
+    }
+    return { userId, email, fullName };
+  };
+}
 
 function unavailableServices() {
   const unavailable = () => {
@@ -143,16 +213,16 @@ const worker = {
     try {
       const database = new AsyncD1Database(environment.DB);
       const reads = createD1PublicReadServices(database);
+      const siteId =
+        typeof __WATCHDOG_SITES_PROJECT_ID__ === "string"
+          ? __WATCHDOG_SITES_PROJECT_ID__
+          : null;
+      const sitesContext = createBeta2SitesIdentityContext(siteId);
       const sitesIdentity =
-        typeof __WATCHDOG_SITES_PROJECT_ID__ === "string" &&
-        __WATCHDOG_SITES_PROJECT_ID__.trim()
+        siteId && sitesContext
           ? createSitesIdentityAdapter({
-              siteId: __WATCHDOG_SITES_PROJECT_ID__,
-              // Sites currently documents forwarded identity headers but this
-              // Worker runtime has no verified host-context interface. Keep
-              // human identity disabled until provenance is independently
-              // established; the adapter never reads request headers.
-              context: undefined,
+              siteId,
+              context: sitesContext,
             })
           : undefined;
       const accounts = createD1AccountServices(database, sitesIdentity);
