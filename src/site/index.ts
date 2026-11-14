@@ -18,6 +18,7 @@ import { homePage } from "./pages/home.js";
 import { aboutPage, readingRecordsPage } from "./pages/info.js";
 import { organizationPage } from "./pages/organization.js";
 import { personPage } from "./pages/person.js";
+import { reportPage } from "./pages/report.js";
 import {
   BadRequest,
   NotFound,
@@ -118,6 +119,12 @@ async function route(
       case "reading-records":
         none();
         return readingRecordsPage();
+      case "submit-report":
+        none();
+        return reportPage(context, false);
+      case "track-report":
+        none();
+        return reportPage(context, true);
       default:
         throw new NotFound();
     }
@@ -234,6 +241,7 @@ export function createPublicSite(options: PublicSiteOptions) {
           preview,
           now: clock(),
           banners,
+          reportSubmissionsEnabled: options.reportSubmissionsEnabled === true,
         };
         return respond(await route(context, url, pathname), head);
       } catch (error) {
@@ -261,10 +269,18 @@ interface FetchHandler {
 export function createWebsite(handlers: {
   readonly application: FetchHandler;
   readonly site: FetchHandler;
+  readonly reports?: FetchHandler;
 }): FetchHandler {
   return {
     fetch(request) {
       const { pathname } = new URL(request.url);
+      if (
+        handlers.reports &&
+        (pathname === "/api/v1/reports" ||
+          pathname.startsWith("/api/v1/reports/"))
+      ) {
+        return handlers.reports.fetch(request);
+      }
       return pathname === "/api" ||
         pathname.startsWith("/api/") ||
         pathname.startsWith("/admin/accounts") ||

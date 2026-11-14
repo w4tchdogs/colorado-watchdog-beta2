@@ -45,6 +45,7 @@ ${preview ? html`<meta name="robots" content="noindex, nofollow">` : ""}
 <link rel="icon" href="/assets/favicon-dark.png" type="image/png" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/assets/site.css">
 <script type="module" src="/assets/site.js"></script>
+${page.head ?? ""}
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to main content</a>

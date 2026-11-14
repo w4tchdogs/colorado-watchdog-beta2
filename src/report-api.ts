@@ -32,6 +32,8 @@ export interface ReportApiOptions {
     "resolvePrincipal" | "hasCapability"
   >;
   readonly store: ReportIntakeStore;
+  /** Builds a request-bound store so its D1 authorization can re-resolve identity. */
+  readonly storeForRequest?: (request: Request) => ReportIntakeStore;
   /** Production must provide a shared, durable abuse-control implementation. */
   readonly guestSubmissions?: {
     readonly enabled: boolean;
@@ -49,13 +51,14 @@ export function createReportApiModule(options: ReportApiOptions) {
     async fetch(request: Request): Promise<Response> {
       const url = new URL(request.url);
       const path = url.pathname;
+      const store = options.storeForRequest?.(request) ?? options.store;
       try {
         if (path === `${BASE}/track` && request.method === "POST")
-          return await tracking(request, options.store);
+          return await tracking(request, store);
         if (path === BASE && request.method === "POST")
-          return await submission(request, options);
+          return await submission(request, options, store);
         if (path === BASE && request.method === "GET")
-          return await listing(request, options);
+          return await listing(request, options, store);
         const match = new RegExp(
           `^${BASE}/([^/]+)(?:/(status|history))?$`,
         ).exec(path);
@@ -86,7 +89,7 @@ export function createReportApiModule(options: ReportApiOptions) {
           )
             return json(400, { error: "invalid_request" });
           await transitionReport(
-            options.store,
+            store,
             reportId,
             value.expectedVersion as number,
             value.status as ReportStatus,
@@ -95,7 +98,7 @@ export function createReportApiModule(options: ReportApiOptions) {
           );
           return json(200, { ok: true });
         }
-        const commit = await getReportForStaff(options.store, reportId, actor);
+        const commit = await getReportForStaff(store, reportId, actor);
         if (!commit) return json(404, { error: "not_found" });
         if (action === "history") return json(200, { history: commit.history });
         return json(200, { report: commit.report });
@@ -109,6 +112,7 @@ export function createReportApiModule(options: ReportApiOptions) {
 async function submission(
   request: Request,
   options: ReportApiOptions,
+  store: ReportIntakeStore,
 ): Promise<Response> {
   if (!sameOrigin(request)) return json(403, { error: "origin_rejected" });
   if (!isJson(request)) return json(415, { error: "unsupported_media_type" });
@@ -128,7 +132,7 @@ async function submission(
   if (!isSubmission(value)) return json(400, { error: "invalid_request" });
   const principal = await options.services.resolvePrincipal(request);
   const result = await submitReport(
-    options.store,
+    store,
     value,
     principal
       ? { kind: "reporter", accountId: principal.accountId }
@@ -166,6 +170,7 @@ async function tracking(
 async function listing(
   request: Request,
   options: ReportApiOptions,
+  store: ReportIntakeStore,
 ): Promise<Response> {
   const principal = await options.services.resolvePrincipal(request);
   if (!principal) return json(401, { error: "authentication_required" });
@@ -193,7 +198,7 @@ async function listing(
     (after !== undefined && !/^[A-Za-z0-9_-]{1,100}$/.test(after))
   )
     return json(400, { error: "invalid_request" });
-  const result = await options.store.listPrivate(
+  const result = await store.listPrivate(
     { limit, after, status: status as ReportStatus | undefined },
     staffActor(principal),
   );

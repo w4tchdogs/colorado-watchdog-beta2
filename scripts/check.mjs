@@ -53,6 +53,8 @@ const allowed = new Set([
   "src/site/pages/info.ts",
   "src/site/pages/errors.ts",
   "src/site/report-interface.ts",
+  "src/site/report-browser.ts",
+  "src/site/pages/report.ts",
   "src/site-dev/preview.ts",
   "src/site-dev/report-demo.ts",
   "src/site-dev/preview-data.ts",

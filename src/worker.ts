@@ -1,10 +1,13 @@
 import { createApplication } from "./application.js";
+import type { ReportIntakeStore } from "./contracts/report-intake.js";
 import type { RuntimeEnvironment } from "./contracts/runtime.js";
 import { StorageUnavailableError } from "./contracts/storage.js";
 import { AsyncD1Database } from "./database/d1.js";
+import { createReportApiModule } from "./report-api.js";
 import { createD1AccountServices } from "./services/d1-accounts.js";
 import { createD1PublicReadServices } from "./services/d1-public-reads.js";
 import type { ApplicationServices } from "./services/index.js";
+import { D1ReportIntakeStore } from "./services/report-intake-d1.js";
 import { createSitesIdentityAdapter } from "./services/sites-identity.js";
 import { createPublicSite, createWebsite } from "./site/index.js";
 import type { PublicSiteServices } from "./site/types.js";
@@ -44,6 +47,73 @@ function unavailableServices() {
   };
 }
 
+function unavailableReportStore(): ReportIntakeStore {
+  const unavailable = async (): Promise<never> => {
+    throw new StorageUnavailableError();
+  };
+  return {
+    validateReferences: unavailable,
+    create: unavailable,
+    getPrivate: unavailable,
+    findByReceipt: unavailable,
+    compareAndSet: unavailable,
+    listPrivate: unavailable,
+  };
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return (
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
+  );
+}
+
+function reportApi(
+  environment: RuntimeEnvironment,
+  services: Pick<ApplicationServices, "resolvePrincipal" | "hasCapability">,
+  database?: AsyncD1Database,
+) {
+  const testAbuseEnabled =
+    environment.APP_ENV === "test" &&
+    environment.REPORTS_TEST_ABUSE_CONTROL === "enabled";
+  const abuseControl = testAbuseEnabled
+    ? {
+        async check(request: Request) {
+          return isLoopbackHostname(new URL(request.url).hostname)
+            ? { allowed: true }
+            : { allowed: false };
+        },
+      }
+    : undefined;
+  const unavailable = unavailableReportStore();
+  const makeStore = (request: Request): ReportIntakeStore =>
+    database
+      ? new D1ReportIntakeStore(database, async (actor) => {
+          // Re-resolve from the server-accepted request and recheck its live
+          // identity/capability. The D1 adapter never trusts actor claims alone.
+          const current = await services.resolvePrincipal(request);
+          return Boolean(
+            current &&
+              current.accountId === actor.accountId &&
+              current.role === actor.role &&
+              (await services.hasCapability(current, "report.review")),
+          );
+        })
+      : unavailable;
+  return {
+    enabled: Boolean(abuseControl),
+    handler: createReportApiModule({
+      services,
+      store: unavailable,
+      storeForRequest: makeStore,
+      ...(abuseControl
+        ? {
+            guestSubmissions: { enabled: true, abuseControl },
+          }
+        : {}),
+    }),
+  };
+}
+
 const worker = {
   async fetch(
     request: Request,
@@ -52,11 +122,22 @@ const worker = {
     const fallback = unavailableServices();
     if (!environment.DB) {
       const app = createApplication(fallback as unknown as ApplicationServices);
+      const reports = reportApi(
+        environment,
+        fallback as unknown as Pick<
+          ApplicationServices,
+          "resolvePrincipal" | "hasCapability"
+        >,
+      );
       const site = createPublicSite({
         services: fallback as unknown as PublicSiteServices,
         assets: bundledSiteAssets,
       });
-      return createWebsite({ application: app, site }).fetch(request);
+      return createWebsite({
+        application: app,
+        site,
+        reports: reports.handler,
+      }).fetch(request);
     }
 
     try {
@@ -89,11 +170,17 @@ const worker = {
         },
       };
       const app = createApplication(services as unknown as ApplicationServices);
+      const reports = reportApi(environment, services, database);
       const site = createPublicSite({
         services: reads,
         assets: bundledSiteAssets,
+        reportSubmissionsEnabled: reports.enabled,
       });
-      return createWebsite({ application: app, site }).fetch(request);
+      return createWebsite({
+        application: app,
+        site,
+        reports: reports.handler,
+      }).fetch(request);
     } catch {
       return new Response(JSON.stringify({ error: "dependency_unavailable" }), {
         status: 503,
