@@ -7,7 +7,8 @@ import {
   createServices,
   createTestHumanIdentityAdapter,
 } from "../dist/services/index.js";
-import { resolvePrincipal } from "../dist/services/security.js";
+import { hashCredential, resolvePrincipal } from "../dist/services/security.js";
+import { createSitesIdentityAdapter } from "../dist/services/sites-identity.js";
 import {
   createSyncAuthorization,
   syncCapabilityFor,
@@ -467,6 +468,164 @@ test("unexpected HTTP errors are sanitized instead of exposing credentials", asy
     const body = await response.text();
     assert.deepEqual(JSON.parse(body), { error: "internal_error" });
     assert.equal(body.includes("cwa_sensitive"), false);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("account administration is bounded, redacts credential hashes, and rejects unauthorized pages", async () => {
+  const fixture = await createFixture();
+  try {
+    const app = createApplication(fixture.services);
+    const denied = await app.fetch(
+      new Request("https://watchdog.test/admin/accounts"),
+    );
+    assert.equal(denied.status, 401);
+    const adminPage = await app.fetch(
+      new Request("https://watchdog.test/admin/accounts", {
+        headers: { "x-test-human-subject": "admin-login" },
+      }),
+    );
+    assert.equal(adminPage.status, 200);
+    const admin = await fixture.principalFor("admin-login");
+    const agent = fixture.services.createAccount(admin, {
+      kind: "agent",
+      role: "contributor",
+      displayName: "Synthetic list agent",
+    });
+    const credential = await fixture.services.issueAgentCredential(
+      admin,
+      agent.id,
+    );
+    const details = await app.fetch(
+      new Request(`https://watchdog.test/api/admin/accounts/${agent.id}`, {
+        headers: { "x-test-human-subject": "admin-login" },
+      }),
+    );
+    assert.equal(details.status, 200);
+    const text = await details.text();
+    assert.equal(text.includes(credential.secret), false);
+    assert.equal(text.includes("credential_hash"), false);
+    assert.equal(text.includes(await hashCredential(credential.secret)), false);
+    const listed = await app.fetch(
+      new Request(
+        "https://watchdog.test/api/admin/accounts?kind=agent&limit=1",
+        { headers: { "x-test-human-subject": "admin-login" } },
+      ),
+    );
+    assert.equal(listed.status, 200);
+    assert.equal((await listed.json()).accounts.length, 1);
+    const contributor = await app.fetch(
+      new Request("https://watchdog.test/admin/accounts", {
+        headers: { "x-test-human-subject": "contributor-login" },
+      }),
+    );
+    assert.equal(contributor.status, 403);
+    const badOrigin = await app.fetch(
+      new Request(`https://watchdog.test/api/admin/accounts/${agent.id}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://attacker.test",
+          "x-test-human-subject": "admin-login",
+        },
+        body: JSON.stringify({ expectedVersion: 1, status: "disabled" }),
+      }),
+    );
+    assert.equal(badOrigin.status, 403);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("Sites identity adapter trusts only a verified host context and fails closed", async () => {
+  const request = new Request("https://watchdog.test/", {
+    headers: {
+      "oai-authenticated-user-id": "forged-user",
+      "x-oai-authenticated-user-id": "forged-user",
+    },
+  });
+  assert.equal(await createSitesIdentityAdapter().resolve(request), null);
+  assert.equal(
+    await createSitesIdentityAdapter(async () => null).resolve(request),
+    null,
+  );
+  assert.deepEqual(
+    await createSitesIdentityAdapter(async () => ({
+      userId: "verified-synthetic-user",
+    })).resolve(request),
+    { provider: "chatgpt-sites", subject: "verified-synthetic-user" },
+  );
+});
+
+test("owner safeguards, identity collisions, and stale account versions fail safely", async () => {
+  const fixture = await createFixture();
+  try {
+    const owner = await fixture.principalFor("owner-login");
+    const agent = fixture.services.createAccount(owner, {
+      kind: "agent",
+      role: "contributor",
+      displayName: "Synthetic Owner Guard Agent",
+    });
+    assert.throws(
+      () =>
+        fixture.services.changeAccountRole(
+          owner,
+          agent.id,
+          agent.version,
+          "owner",
+        ),
+      { name: "InvalidInputError" },
+    );
+    assert.throws(
+      () =>
+        fixture.services.updateAccount(owner, owner.accountId, 1, {
+          status: "disabled",
+        }),
+      { name: "InvalidInputError" },
+    );
+    assert.throws(
+      () => fixture.services.revokeIdentity(owner, "identity-owner", 1),
+      { name: "InvalidInputError" },
+    );
+    assert.throws(
+      () => fixture.services.changeAccountRole(owner, agent.id, 77, "editor"),
+      { name: "StaleVersionError" },
+    );
+    assert.throws(
+      () =>
+        fixture.services.createAccount(owner, {
+          kind: "agent",
+          role: "owner",
+          displayName: "Invalid agent owner",
+        }),
+      { name: "InvalidInputError" },
+    );
+    const human = fixture.services.createAccount(owner, {
+      kind: "human",
+      role: "contributor",
+      displayName: "Synthetic collision target",
+    });
+    assert.throws(
+      () =>
+        fixture.services.createHumanIdentity(
+          owner,
+          human.id,
+          "test-human",
+          "subject-owner",
+        ),
+      { name: "InvalidInputError" },
+    );
+    const account = fixture.services.getAccount(owner, agent.id);
+    assert.equal(account.role, "contributor");
+    assert.equal(
+      fixture.database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM identities WHERE provider = 'test-human' AND subject = 'subject-owner'",
+        )
+        .get().count,
+      1,
+    );
   } finally {
     await fixture.close();
   }
