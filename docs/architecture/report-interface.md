@@ -51,7 +51,22 @@ no entered report body, sends no report data to the server and loses all
 fixture state on reload. Do not enter real information. This command is a local
 presentation demo, not a reporting endpoint or substitute for SUB-1B.
 
-The later routing task should add the submit and track routes, load this
-dedicated stylesheet and module under the site's existing CSP, supply counties
-from the established registry, and implement the typed adapter against SUB-1B.
-This milestone deliberately does not edit shared site routing or styling.
+This independently mountable component is integrated into the Website by
+SUB-2C, which provides the submit and track routes, reviewed assets, county
+registry and typed adapter described below.
+
+## SUB-2C Website integration
+
+The Sites Worker serves `/submit-report` and `/track-report` using the same
+mountable interface and its compiled browser adapter. The pages load only the
+reviewed `report-interface.css` and generated `report-interface.js` assets;
+the Worker build allowlists those files alongside the existing site assets.
+County options come from the existing D1-backed `listCounties()` service.
+
+The adapter calls `POST /api/v1/reports` and
+`POST /api/v1/reports/track` with same-origin credentials. Public pages clearly
+state that intake is unavailable when anonymous submissions are disabled. The
+disposable Wrangler D1 test configuration explicitly enables a loopback-only
+fictional abuse-control adapter; no corresponding configuration is present in
+normal Worker environments. Hosted anonymous intake still needs a shared,
+production-compatible abuse-control provider.

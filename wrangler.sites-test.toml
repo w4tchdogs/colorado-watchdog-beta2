@@ -2,6 +2,10 @@ name = "colorado-watchdog-sites-local-test"
 main = "dist/server/index.js"
 compatibility_date = "2026-11-13"
 
+[vars]
+APP_ENV = "test"
+REPORTS_TEST_ABUSE_CONTROL = "enabled"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "colorado-watchdog-disposable-sites-test"

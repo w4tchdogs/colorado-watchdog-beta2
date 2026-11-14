@@ -71,10 +71,12 @@ async function waitFor(url) {
 
 async function main() {
   const agentToken = `cwa_${"A".repeat(43)}`;
+  const ownerToken = `cwa_${"O".repeat(43)}`;
   const { hashCredential } = await import(
     pathToFileURL(join(root, "dist", "services", "security.js"))
   );
   const agentHash = await hashCredential(agentToken);
+  const ownerHash = await hashCredential(ownerToken);
   const migrations = [
     "0001_counties.sql",
     "0002_foundation.sql",
@@ -136,6 +138,10 @@ async function main() {
       ('d1-test-admin','agent','administrator','Synthetic Sites Admin');
     INSERT INTO identities (id,account_id,provider,subject,credential_hash) VALUES
       ('d1-test-admin-key','d1-test-admin','agent-key','d1-test-admin-key','${agentHash}');
+    INSERT INTO accounts (id,kind,role,display_name) VALUES
+      ('d1-test-owner','agent','owner','Synthetic Sites Owner');
+    INSERT INTO identities (id,account_id,provider,subject,credential_hash) VALUES
+      ('d1-test-owner-key','d1-test-owner','agent-key','d1-test-owner-key','${ownerHash}');
   `,
   );
   command([
@@ -153,27 +159,31 @@ async function main() {
 
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
-  worker = spawn(
-    process.execPath,
-    [
-      wrangler,
-      "dev",
-      "--local",
-      "--ip",
-      "127.0.0.1",
-      "--port",
-      String(port),
-      "--config",
-      config,
-      "--persist-to",
-      persist,
-    ],
-    {
-      cwd: root,
-      stdio: "ignore",
-      env: { ...process.env, CLOUDFLARE_SEND_METRICS: "false" },
-    },
-  );
+  const startWorker = async () => {
+    worker = spawn(
+      process.execPath,
+      [
+        wrangler,
+        "dev",
+        "--local",
+        "--ip",
+        "127.0.0.1",
+        "--port",
+        String(port),
+        "--config",
+        config,
+        "--persist-to",
+        persist,
+      ],
+      {
+        cwd: root,
+        stdio: "ignore",
+        env: { ...process.env, CLOUDFLARE_SEND_METRICS: "false" },
+      },
+    );
+    await waitFor(`${base}/`);
+  };
+  await startWorker();
   try {
     await waitFor(`${base}/`);
     const homepage = await fetch(base);
@@ -209,6 +219,8 @@ async function main() {
     for (const [path, type] of [
       ["/assets/site.css", "text/css"],
       ["/assets/site.js", "text/javascript"],
+      ["/assets/report-interface.css", "text/css"],
+      ["/assets/report-interface.js", "text/javascript"],
       ["/assets/brand-logo-white.png", "image/png"],
       ["/assets/brand-logo-white-large.png", "image/png"],
       ["/assets/brand-mascot-standing.png", "image/png"],
@@ -225,6 +237,162 @@ async function main() {
           (await asset.arrayBuffer()).byteLength > 0,
       );
     }
+
+    const reportPage = await fetch(`${base}/submit-report`);
+    const reportHtml = await reportPage.text();
+    assert.equal(reportPage.status, 200);
+    assert.match(reportHtml, /report-interface\.css/);
+    assert.match(reportHtml, /report-interface\.js/);
+    assert.match(reportHtml, /data-report-enabled="true"/);
+    assert.match(reportHtml, /data-report-counties=/);
+    assert.match(
+      reportPage.headers.get("content-security-policy") ?? "",
+      /script-src 'self'/,
+    );
+    const trackPage = await fetch(`${base}/track-report`);
+    assert.equal(trackPage.status, 200);
+    assert.match(await trackPage.text(), /data-report-mode="track"/);
+
+    const reportInput = {
+      countyId: "08001",
+      subject: { kind: "person", id: "d1-test-person-a" },
+      description:
+        "Synthetic fictional report content for an integration test.",
+      evidence: [
+        { title: "Synthetic source", url: "https://example.test/source" },
+      ],
+      reporter: {
+        attribution: "anonymous",
+        confidential: true,
+        contactPreference: "none",
+      },
+      idempotencyKey: "sub-2c-receipt-key-001",
+    };
+    const submit = () =>
+      fetch(`${base}/api/v1/reports`, {
+        method: "POST",
+        headers: { origin: base, "content-type": "application/json" },
+        body: JSON.stringify(reportInput),
+      });
+    const invalidCounty = await fetch(`${base}/api/v1/reports`, {
+      method: "POST",
+      headers: { origin: base, "content-type": "application/json" },
+      body: JSON.stringify({
+        ...reportInput,
+        countyId: "99999",
+        idempotencyKey: "sub-2c-invalid-county",
+      }),
+    });
+    assert.equal(invalidCounty.status, 400);
+    const invalidSubject = await fetch(`${base}/api/v1/reports`, {
+      method: "POST",
+      headers: { origin: base, "content-type": "application/json" },
+      body: JSON.stringify({
+        ...reportInput,
+        subject: { kind: "person", id: "missing-person" },
+        idempotencyKey: "sub-2c-invalid-subject",
+      }),
+    });
+    assert.equal(invalidSubject.status, 400);
+    const firstReceiptResponse = await submit();
+    assert.equal(
+      firstReceiptResponse.status,
+      201,
+      await firstReceiptResponse.clone().text(),
+    );
+    const firstReceipt = await firstReceiptResponse.json();
+    assert.match(firstReceipt.reference, /^CW-/);
+    assert.ok(firstReceipt.recoveryKey);
+    assert.equal(firstReceipt.replayed, false);
+    const retryResponse = await submit();
+    assert.equal(retryResponse.status, 200);
+    const retryReceipt = await retryResponse.json();
+    assert.equal(retryReceipt.reference, firstReceipt.reference);
+    assert.equal(retryReceipt.recoveryKey, undefined);
+    assert.equal(retryReceipt.replayed, true);
+    const anonymousStaff = await fetch(`${base}/api/v1/reports`, {
+      headers: { "oai-authenticated-user-id": "forged-staff" },
+    });
+    assert.equal(anonymousStaff.status, 401);
+    const staffHeaders = { authorization: `Bearer ${agentToken}` };
+    const staffQueueResponse = await fetch(`${base}/api/v1/reports`, {
+      headers: staffHeaders,
+    });
+    assert.equal(staffQueueResponse.status, 200);
+    const staffQueue = await staffQueueResponse.json();
+    const storedReport = staffQueue.reports.find(
+      (entry) => entry.countyId === "08001",
+    );
+    assert.ok(storedReport?.id);
+    const privateRead = await fetch(
+      `${base}/api/v1/reports/${storedReport.id}`,
+      { headers: staffHeaders },
+    );
+    assert.equal(privateRead.status, 200);
+    assert.match(
+      await privateRead.text(),
+      /Synthetic fictional report content/,
+    );
+    const unauthorizedRead = await fetch(
+      `${base}/api/v1/reports/${storedReport.id}`,
+      {
+        headers: { "oai-authenticated-user-id": "forged-staff" },
+      },
+    );
+    assert.equal(unauthorizedRead.status, 401);
+    const transitioned = await fetch(
+      `${base}/api/v1/reports/${storedReport.id}/status`,
+      {
+        method: "PATCH",
+        headers: {
+          ...staffHeaders,
+          origin: base,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          expectedVersion: 1,
+          status: "triage",
+          note: "private synthetic staff note",
+        }),
+      },
+    );
+    assert.equal(transitioned.status, 200, await transitioned.clone().text());
+    const history = await fetch(
+      `${base}/api/v1/reports/${storedReport.id}/history`,
+      { headers: staffHeaders },
+    );
+    assert.equal(history.status, 200);
+    assert.match(await history.text(), /private synthetic staff note/);
+    const publicTrackingRequest = () =>
+      fetch(`${base}/api/v1/reports/track`, {
+        method: "POST",
+        headers: { origin: base, "content-type": "application/json" },
+        body: JSON.stringify({
+          reference: firstReceipt.reference,
+          recoveryKey: firstReceipt.recoveryKey,
+        }),
+      });
+    const publicTracking = await publicTrackingRequest();
+    assert.equal(publicTracking.status, 200);
+    const projection = await publicTracking.json();
+    assert.equal(projection.status, "triage");
+    const projectionText = JSON.stringify(projection);
+    assert.doesNotMatch(
+      projectionText,
+      /Synthetic fictional report content|private synthetic staff note|d1-test-person-a|reportId|accountId/,
+    );
+    assert.match(
+      publicTracking.headers.get("cache-control") ?? "",
+      /no-store, private/,
+    );
+
+    // A worker restart against the same Wrangler state proves durable storage.
+    worker.kill("SIGTERM");
+    await new Promise((resolveExit) => worker.once("exit", resolveExit));
+    await startWorker();
+    const reopenedTracking = await publicTrackingRequest();
+    assert.equal(reopenedTracking.status, 200);
+    assert.equal((await reopenedTracking.json()).status, "triage");
 
     const emptyCounty = await fetch(`${base}/counties/08003`);
     assert.match(await emptyCounty.text(), /class="empty-state"/);
@@ -344,6 +512,53 @@ async function main() {
       (await fetch(`${base}/api/reports?status=pending`)).status,
       404,
     );
+    const ownerHeaders = { authorization: `Bearer ${ownerToken}` };
+    const disableAdmin = await fetch(
+      `${base}/api/admin/accounts/d1-test-admin`,
+      {
+        method: "PATCH",
+        headers: {
+          ...ownerHeaders,
+          origin: base,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ expectedVersion: 1, status: "disabled" }),
+      },
+    );
+    assert.equal(disableAdmin.status, 200, await disableAdmin.clone().text());
+    assert.equal(
+      (await fetch(`${base}/api/v1/reports`, { headers: staffHeaders })).status,
+      401,
+    );
+    const enableAdmin = await fetch(
+      `${base}/api/admin/accounts/d1-test-admin`,
+      {
+        method: "PATCH",
+        headers: {
+          ...ownerHeaders,
+          origin: base,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ expectedVersion: 2, status: "active" }),
+      },
+    );
+    assert.equal(enableAdmin.status, 200, await enableAdmin.clone().text());
+    const revokeAdmin = await fetch(
+      `${base}/api/admin/accounts/d1-test-admin/identities?id=d1-test-admin-key&version=1`,
+      {
+        method: "DELETE",
+        headers: { ...ownerHeaders, origin: base },
+      },
+    );
+    assert.equal(revokeAdmin.status, 200, await revokeAdmin.clone().text());
+    assert.equal(
+      (await fetch(`${base}/api/v1/reports`, { headers: staffHeaders })).status,
+      401,
+    );
+    if (process.env.SITES_D1_BROWSER_PAUSE === "1") {
+      console.log(`Synthetic browser test is ready at ${base}`);
+      await delay(180_000);
+    }
   } finally {
     worker.kill("SIGTERM");
     await new Promise((resolveExit) => worker.once("exit", resolveExit));
@@ -384,8 +599,32 @@ async function main() {
     ).status,
     503,
   );
+  const disabledSubmission = await siteWorker.default.fetch(
+    new Request("https://site.test/api/v1/reports", {
+      method: "POST",
+      headers: {
+        origin: "https://site.test",
+        "content-type": "application/json",
+      },
+      body: "{}",
+    }),
+    {},
+  );
+  assert.equal(disabledSubmission.status, 503);
+  const offLoopbackTestSubmission = await siteWorker.default.fetch(
+    new Request("https://site.test/api/v1/reports", {
+      method: "POST",
+      headers: {
+        origin: "https://site.test",
+        "content-type": "application/json",
+      },
+      body: "{}",
+    }),
+    { APP_ENV: "test", REPORTS_TEST_ABUSE_CONTROL: "enabled" },
+  );
+  assert.equal(offLoopbackTestSubmission.status, 429);
   console.log(
-    `Sites Worker D1 smoke check passed (${migrations.length} migrations, 64 counties, public routes/assets, agent account lifecycle, forged-identity rejection, no public reports route, and missing-binding behavior).`,
+    `Sites Worker D1 report integration passed (${migrations.length} migrations, 64 counties, report routes/assets, durable private intake, staff authorization, and disabled non-loopback submissions).`,
   );
 }
 

@@ -1,12 +1,13 @@
 # Private report API
 
-`createReportApiModule({ services, store, guestSubmissions })` in `src/report-api.ts`
-returns a Fetch-compatible `{ fetch(request) }` handler. Mount that handler at
-the `/api/v1/reports` prefix in the future SITES-2 composition; no Site template,
-Worker, hosting manifest, or general router changes are needed. `services` must
-be ACCT-1's server-side `resolvePrincipal` and `hasCapability` implementation.
-The D1 store must be constructed with an `authorizeStaff` callback that
-revalidates the current principal; never implement it from request claims.
+`createReportApiModule({ services, store, guestSubmissions })` in
+`src/report-api.ts` returns a Fetch-compatible `{ fetch(request) }` handler. The
+Sites Worker mounts it at `/api/v1/reports`. `services` is ACCT-1's server-side
+`resolvePrincipal` and `hasCapability` implementation. For each request, the
+Worker constructs a request-bound D1 store whose `authorizeStaff` callback
+resolves the principal again from the server-accepted request and rechecks
+`report.review`; never implement it from caller-supplied account IDs, roles or
+identity headers.
 
 ## Endpoints
 
@@ -31,10 +32,12 @@ the server-constructed actor.
 All responses use `Cache-Control: no-store, private`. Mutating requests require
 same-origin `Origin` and `application/json`, and body size is capped at 32 KiB.
 Guest submissions are disabled unless explicitly enabled with a configured
-abuse-control provider. The provider must be production-compatible and shared
-across instances; process-local throttling is not production protection. A
-missing provider fails closed. No report API errors/logs include submitted
-content or credentials.
+abuse-control provider. The only included provider is explicitly enabled in
+the disposable local Wrangler D1 test config, and allows loopback requests
+only. The provider required for hosted activation must be production-compatible
+and shared across instances; process-local throttling is not production
+protection. A missing provider fails closed. No report API errors/logs include
+submitted content or credentials.
 
 SUB-2A can consume these stable paths without sharing UI changes. Production
 anonymous intake must remain disabled until a working abuse-control provider

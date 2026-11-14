@@ -51,6 +51,8 @@ export interface PublicSiteOptions {
   readonly banners?: BannerSource;
   /** Extra origins allowed to serve banner images (added to the CSP). */
   readonly bannerOrigins?: readonly string[];
+  /** Whether a configured local fictional-report test adapter is available. */
+  readonly reportSubmissionsEnabled?: boolean;
 }
 
 export interface SiteContext {
@@ -59,6 +61,7 @@ export interface SiteContext {
   readonly preview: boolean;
   readonly now: Date;
   readonly banners: BannerSource;
+  readonly reportSubmissionsEnabled: boolean;
 }
 
 export interface Breadcrumb {
@@ -80,6 +83,8 @@ export interface Page {
   /** When set, the response is a redirect to this internal path. */
   readonly redirect?: string;
   readonly body: SafeHtml;
+  /** Reviewed same-origin stylesheets and scripts for this page. */
+  readonly head?: SafeHtml;
 }
 
 export class BadRequest extends Error {

@@ -7,22 +7,35 @@ const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const dist = join(root, "dist");
 const server = join(dist, "server");
 const metadata = join(dist, ".openai");
+const siteBundle = join(dist, "site-browser");
 const assetsDirectory = join(root, "website", "site");
 
 await Promise.all([
   rm(server, { recursive: true, force: true }),
   rm(metadata, { recursive: true, force: true }),
+  rm(siteBundle, { recursive: true, force: true }),
 ]);
 await Promise.all([
   mkdir(server, { recursive: true }),
   mkdir(join(metadata, "drizzle"), { recursive: true }),
+  mkdir(siteBundle, { recursive: true }),
 ]);
+
+await build({
+  entryPoints: [join(root, "src", "site", "report-browser.ts")],
+  outfile: join(siteBundle, "report-interface.js"),
+  bundle: true,
+  platform: "browser",
+  format: "esm",
+  target: "es2022",
+  logLevel: "info",
+});
 
 const files = (await readdir(assetsDirectory, { withFileTypes: true }))
   .filter(
     (entry) =>
       entry.isFile() &&
-      /^(?:site\.(?:css|js)|brand-[a-z-]+\.png|favicon-[a-z-]+\.png)$/.test(
+      /^(?:site\.(?:css|js)|report-interface\.css|brand-[a-z-]+\.png|favicon-[a-z-]+\.png)$/.test(
         entry.name,
       ),
   )
@@ -41,6 +54,9 @@ const assetData = Object.fromEntries(
     ]),
   ),
 );
+assetData["report-interface.js"] = (
+  await readFile(join(siteBundle, "report-interface.js"))
+).toString("base64");
 const hosting = JSON.parse(
   await readFile(join(root, ".openai", "hosting.json"), "utf8"),
 );
