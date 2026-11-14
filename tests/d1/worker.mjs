@@ -1,3 +1,6 @@
+import { AsyncD1Database } from "../../src/database/d1.ts";
+import { commitSyncChangesetD1 } from "../../src/services/sync-commit-d1.ts";
+
 const json = (value, status = 200) =>
   new Response(JSON.stringify(value), {
     status,
@@ -7,6 +10,111 @@ const json = (value, status = 200) =>
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === "/sync/setup" && request.method === "POST") {
+      await env.DB.prepare(`INSERT INTO accounts (id, kind, role, display_name)
+        VALUES ('d1-async-actor', 'human', 'administrator', 'Synthetic D1 Async Actor')`).run();
+      await env.DB.prepare(`INSERT INTO identities (id, account_id, provider, subject)
+        VALUES ('d1-async-identity', 'd1-async-actor', 'synthetic', 'async-actor')`).run();
+      return json({ ready: true });
+    }
+    if (url.pathname === "/sync/commit" && request.method === "POST") {
+      const idempotencyKey = url.searchParams.get("key");
+      if (!idempotencyKey) return json({ error: "key required" }, 400);
+      const changeset = await request.json();
+      const principal = {
+        accountId: "d1-async-actor",
+        identityId: "d1-async-identity",
+        provider: "synthetic",
+        kind: "human",
+        role: "administrator",
+      };
+      const result = await commitSyncChangesetD1(
+        new AsyncD1Database(env.DB),
+        principal,
+        idempotencyKey,
+        changeset,
+        {
+          authorize: async (_principal, capability) =>
+            capability === "sync.apply",
+        },
+      );
+      return json(result, result.status === "rejected" ? 409 : 200);
+    }
+    if (url.pathname === "/sync/failure" && request.method === "POST") {
+      const stage = url.searchParams.get("stage");
+      const failureTriggers = {
+        record: `CREATE TRIGGER injected_async_record_failure BEFORE INSERT ON people
+          WHEN NEW.display_name LIKE 'Injected failure %'
+          BEGIN SELECT RAISE(ABORT, 'injected record failure'); END`,
+        batch: `CREATE TRIGGER injected_async_batch_failure BEFORE INSERT ON sync_batch_items
+          WHEN NEW.client_ref LIKE 'injected-%'
+          BEGIN SELECT RAISE(ABORT, 'injected batch persistence failure'); END`,
+        duplicate: `CREATE TRIGGER injected_async_duplicate_failure BEFORE INSERT ON person_duplicate_flag_observations
+          WHEN NEW.reason = 'Injected failure duplicate'
+          BEGIN SELECT RAISE(ABORT, 'injected duplicate flag failure'); END`,
+        audit: `CREATE TRIGGER injected_async_audit_failure BEFORE INSERT ON audit_events
+          WHEN NEW.action = 'sync.batch.commit' AND NEW.summary = 'Committed a Website synchronization batch'
+          BEGIN SELECT RAISE(ABORT, 'injected audit failure'); END`,
+      };
+      const trigger = failureTriggers[stage];
+      const idempotencyKey = url.searchParams.get("key");
+      if (!trigger || !idempotencyKey)
+        return json({ error: "unknown failure injection" }, 400);
+      await env.DB.prepare(trigger).run();
+      try {
+        const principal = {
+          accountId: "d1-async-actor",
+          identityId: "d1-async-identity",
+          provider: "synthetic",
+          kind: "human",
+          role: "administrator",
+        };
+        const result = await commitSyncChangesetD1(
+          new AsyncD1Database(env.DB),
+          principal,
+          idempotencyKey,
+          await request.json(),
+          {
+            authorize: async (_principal, capability) =>
+              capability === "sync.apply",
+          },
+        );
+        return json(result, result.status === "rejected" ? 409 : 200);
+      } finally {
+        await env.DB.prepare(
+          `DROP TRIGGER injected_async_${stage}_failure`,
+        ).run();
+      }
+    }
+    if (url.pathname === "/sync/state") {
+      const key = url.searchParams.get("key");
+      if (!key) return json({ error: "key required" }, 400);
+      return json(
+        await env.DB.prepare(`SELECT
+        (SELECT COUNT(*) FROM sync_batches WHERE actor_account_id = 'd1-async-actor' AND idempotency_key = ?) AS batches,
+        (SELECT COUNT(*) FROM sync_batch_items WHERE batch_id = (SELECT id FROM sync_batches WHERE actor_account_id = 'd1-async-actor' AND idempotency_key = ?)) AS items,
+        (SELECT COUNT(*) FROM audit_events WHERE actor_account_id = 'd1-async-actor' AND action = 'sync.batch.commit'
+          AND target_id = (SELECT id FROM sync_batches WHERE actor_account_id = 'd1-async-actor' AND idempotency_key = ?)) AS audits,
+        (SELECT COUNT(*) FROM person_duplicate_flags WHERE origin_batch_id = (SELECT id FROM sync_batches WHERE actor_account_id = 'd1-async-actor' AND idempotency_key = ?)) AS flags,
+        (SELECT COUNT(*) FROM person_duplicate_flag_observations WHERE batch_id = (SELECT id FROM sync_batches WHERE actor_account_id = 'd1-async-actor' AND idempotency_key = ?)) AS observations,
+        (SELECT COUNT(*) FROM people WHERE display_name LIKE 'Injected failure %') AS injected_people,
+        (SELECT COUNT(*) FROM website_dependency_assertions) AS dependency_assertions,
+        (SELECT COUNT(*) FROM website_write_assertions) AS version_assertions`)
+          .bind(key, key, key, key, key)
+          .first(),
+      );
+    }
+    if (url.pathname === "/sync/record") {
+      const id = url.searchParams.get("id");
+      if (!id) return json({ error: "id required" }, 400);
+      return json(
+        await env.DB.prepare(
+          "SELECT name, version FROM organizations WHERE id = ?",
+        )
+          .bind(id)
+          .first(),
+      );
+    }
     if (url.pathname === "/guard/snapshot" && request.method === "POST") {
       return json(
         await env.DB.prepare(
@@ -164,12 +272,12 @@ export default {
     ).all();
     check(
       "ordered custom migration history and checksums",
-      history.results?.length === 10 &&
+      history.results?.length === 11 &&
         history.results.every(
           (row, index) =>
             row.version === index + 1 &&
             row.name ===
-              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions"][index]}.sql` &&
+              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation"][index]}.sql` &&
             /^[0-9a-f]{64}$/.test(row.sha256),
         ),
     );
@@ -482,6 +590,95 @@ export default {
       .bind("Stale Synthetic Update", "d1-api-actor", 1)
       .first();
     check("version-guarded update", versioned?.version === 2 && stale === null);
+
+    const generationTriggers = await env.DB.prepare(`SELECT name, tbl_name
+      FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'website_dependency_%'`).all();
+    const dependencyTables =
+      await env.DB.prepare(`SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+        AND name NOT IN ('schema_migrations', 'website_dependency_generation', 'website_dependency_assertions',
+          'transaction_guard', 'transaction_guard_assertions', 'guard_probe_writes',
+          'website_write_assertions')`).all();
+    const triggerCoverage = new Map();
+    for (const trigger of generationTriggers.results ?? []) {
+      const operations = triggerCoverage.get(trigger.tbl_name) ?? new Set();
+      operations.add(
+        trigger.name.slice(`website_dependency_${trigger.tbl_name}_`.length),
+      );
+      triggerCoverage.set(trigger.tbl_name, operations);
+    }
+    const completeCoverage = (dependencyTables.results ?? []).every(
+      ({ name }) => {
+        const operations = triggerCoverage.get(name);
+        return (
+          operations?.size === 3 &&
+          ["insert", "update", "delete"].every((op) => operations.has(op))
+        );
+      },
+    );
+    check(
+      "0011 installs all 66 triggers across every application table",
+      generationTriggers.results?.length === 66 &&
+        dependencyTables.results?.length === 22 &&
+        triggerCoverage.size === 22 &&
+        completeCoverage,
+    );
+    await env.DB.prepare(`INSERT INTO accounts (id, kind, role, display_name)
+      VALUES ('d1-generation-principal', 'human', 'administrator', 'Synthetic Guard Principal')`).run();
+    await env.DB.prepare(`INSERT INTO identities (id, account_id, provider, subject)
+      VALUES ('d1-generation-identity', 'd1-generation-principal', 'synthetic', 'guard-principal')`).run();
+    const captured = await env.DB.prepare(
+      "SELECT generation FROM website_dependency_generation WHERE id = 1",
+    ).first();
+    const dependencyAssertion = (generation) =>
+      env.DB.prepare(`INSERT INTO website_dependency_assertions (id, valid)
+      SELECT 1, CASE WHEN g.generation = ? AND EXISTS (
+        SELECT 1 FROM identities i JOIN accounts a ON a.id = i.account_id
+        WHERE a.id = 'd1-generation-principal' AND i.id = 'd1-generation-identity'
+          AND i.provider = 'synthetic' AND a.kind = 'human' AND a.role = 'administrator'
+          AND a.status = 'active' AND i.revoked_at IS NULL
+          AND (i.expires_at IS NULL OR i.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      ) THEN 1 ELSE 0 END FROM website_dependency_generation g WHERE g.id = 1`).bind(
+        generation,
+      );
+    await env.DB.batch([
+      dependencyAssertion(captured.generation),
+      env.DB.prepare(
+        "INSERT INTO guard_probe_writes (id, label) VALUES ('d1-generation-committed', 'guarded')",
+      ),
+      env.DB.prepare("DELETE FROM website_dependency_assertions WHERE id = 1"),
+    ]);
+    const guardedWrite = await env.DB.prepare(`SELECT
+      (SELECT COUNT(*) FROM guard_probe_writes WHERE id = 'd1-generation-committed') AS writes,
+      (SELECT COUNT(*) FROM website_dependency_assertions) AS assertions`).first();
+    check(
+      "current dependency generation and principal commit atomically",
+      guardedWrite?.writes === 1 && guardedWrite?.assertions === 0,
+    );
+    await env.DB.prepare(
+      "UPDATE accounts SET display_name = 'Changed principal', version = version + 1 WHERE id = 'd1-generation-principal'",
+    ).run();
+    let staleDependencyRejected = false;
+    try {
+      await env.DB.batch([
+        dependencyAssertion(captured.generation),
+        env.DB.prepare(
+          "INSERT INTO guard_probe_writes (id, label) VALUES ('d1-generation-stale', 'must rollback')",
+        ),
+        env.DB.prepare(
+          "DELETE FROM website_dependency_assertions WHERE id = 1",
+        ),
+      ]);
+    } catch {
+      staleDependencyRejected = true;
+    }
+    const staleWrite = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM guard_probe_writes WHERE id = 'd1-generation-stale'",
+    ).first();
+    check(
+      "stale generation assertion rolls back every later batch statement",
+      staleDependencyRejected && staleWrite?.count === 0,
+    );
 
     return json({ success: true, checks });
   },

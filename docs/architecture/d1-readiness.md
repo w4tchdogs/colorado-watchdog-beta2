@@ -1,8 +1,9 @@
 # D1 compatibility readiness
 
-Status: **local Wrangler D1 compatibility is exercised; Website integration with
-D1 is not ready**. All tests use synthetic rows in a disposable local database.
-They do not access hosted D1, production resources or credentials.
+Status: **the internal asynchronous M2 commit/replay path is implemented and
+exercised on disposable local Wrangler D1**. All tests use synthetic rows. They
+do not access hosted D1, production resources or credentials. Production routes
+and synchronization capabilities remain disabled.
 
 ## Verified SQL.js behavior
 
@@ -26,7 +27,7 @@ a unique temporary directory, starts `wrangler dev` on loopback, and removes
 the directory and Worker process in `finally`. Its synthetic database ID is a
 local config identifier only. No remote operation or deployment is used.
 
-The harness applies the unchanged Website migrations 0001–0010 in version
+The harness applies Website migrations 0001–0011 in version
 order using Wrangler's local D1 execution. It also applies all ten migrations
 to a second independent empty local store and checks the content tables, the
 revision index and triggers, exact migration names and normalized SHA-256
@@ -68,30 +69,40 @@ checks its recorded source checksum and completed state instead of replaying
 its DDL. These checks describe this installed local Wrangler/workerd D1
 implementation, not hosted D1 service behavior.
 
+Migration 0011 adds the Website dependency generation and INSERT, UPDATE and
+DELETE triggers for all current application tables. Local D1 checks verify all
+66 triggers, a valid generation assertion against an active synthetic principal,
+and atomic rollback when the captured generation is stale.
+
+The production-code asynchronous M2 planner and commit/replay service also run
+through the same local D1 Worker. They verify complete six-item dependent
+commits, generated ID mappings, inverse metadata, duplicate-flag observations,
+audit attribution, replay after a changed request ID, competing idempotency-key
+requests, and same-row expected-version contention. Injected failures at record,
+batch-item, duplicate-observation and audit insertion each leave no partial
+state. Separate SQL.js-backed tests compare the asynchronous planner's result
+with the accepted synchronous planner. These results do not certify hosted D1.
+
 ## Still unverified on hosted D1
 
 No hosted D1 database was accessed. Hosted execution/version differences,
 operational limits, concurrent requests, uncertain-response retries, remote
 backup/restore and production migration operations remain unverified.
 
-Local `batch()` rollback demonstrates D1 batch atomicity for a predetermined
-sequence. It does **not** prove that the current synchronous M2 commit or
-reversal algorithm is safe on D1, nor does it establish atomicity for a
-read/plan/write flow whose decisions depend on earlier query results.
+Local `batch()` tests do not certify hosted D1 behavior or remote operational
+limits. No hosted D1 was accessed.
 
-## Remaining work before D1 integration
+## Remaining boundaries
 
-1. Introduce and adopt an explicitly asynchronous database and service boundary;
-   do not adapt D1 to the synchronous `WebsiteDatabase` shape.
-2. Design async commit and reversal paths so data-dependent reads, authorization,
-   uniqueness/idempotency decisions, guarded writes and audit rows are covered
-   by suitable atomic operations.
-3. Test commit plus audit, replay, reversal plus audit, injected failure,
-   concurrent identical/conflicting requests and uncertain-response retries
-   against a D1-capable isolated environment. Keep synchronization routes
-   unregistered and default-deny until that work and separate activation
-   authorization are complete.
-4. Separately authorize and verify any hosted-D1 migration or operational test.
+1. Hosted D1 compatibility, concurrency, operational limits, remote
+   migration/backup/restore and uncertain transport response behavior remain
+   unverified.
+2. The asynchronous engine remains internal, default-deny and unregistered. Its
+   test-only authorizer is synthetic; no production `sync.apply` grant or route
+   exists.
+3. D1 reversal remains unimplemented and must not be exposed until a separately
+   guarded implementation is complete.
+4. Any hosted-D1 migration or operational test needs its own authorization.
 
 References: [D1 prepared statements](https://developers.cloudflare.com/d1/worker-api/prepared-statements/),
 [D1 batch transactions](https://developers.cloudflare.com/d1/worker-api/d1-database/),
