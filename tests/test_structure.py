@@ -128,6 +128,37 @@ class StructureFoundationTests(unittest.TestCase):
         self.assertEqual(self.db.execute("SELECT count(*) FROM unit_coverage WHERE status<>'not_started'").fetchone()[0], 0)
         self.assertEqual(self.db.execute("PRAGMA foreign_key_check").fetchall(), [])
 
+    def test_incremental_application_audits_only_new_decisions(self):
+        self.ingest(self.fixture_rows(), version="initial")
+        first_plan = build_structure_plan(self.db)
+        first = apply_structure_plan(self.db, first_plan,
+                                     expected_sha256=plan_sha256(first_plan), actor="synthetic-test")
+
+        self.ingest([_observation(department="Community Development Department", division="Public Health",
+                                  title="Deputy Director", full_name="Synthetic Casey Example",
+                                  source_url="https://example.invalid/08107/second-staff")],
+                    version="incremental")
+        event_count_before = self.db.execute("SELECT count(*) FROM research_events").fetchone()[0]
+        incremental = build_structure_plan(self.db)
+        self.assertEqual(len(incremental["event_changes"]["claims"]), 1)
+        self.assertLess(incremental["summary"]["incremental_audit_events"],
+                        len(incremental["claim_links"]))
+
+        applied = apply_structure_plan(self.db, incremental,
+                                       expected_sha256=plan_sha256(incremental), actor="synthetic-test")
+        event_count_after = self.db.execute("SELECT count(*) FROM research_events").fetchone()[0]
+        self.assertEqual(applied["status"], "applied")
+        self.assertEqual(event_count_after - event_count_before, applied["audit_events"])
+        self.assertEqual(self.db.execute(
+            "SELECT count(*) FROM research_events WHERE run_id=? AND kind='role_claim_structure_linked'",
+            (applied["run_id"],)).fetchone()[0], 1)
+
+        repeated = apply_structure_plan(self.db, incremental,
+                                        expected_sha256=plan_sha256(incremental), actor="synthetic-test")
+        self.assertEqual(repeated["status"], "already_applied")
+        self.assertEqual(self.db.execute("SELECT count(*) FROM research_events").fetchone()[0], event_count_after)
+        self.assertEqual(first["status"], "applied")
+
     def test_changed_preview_is_rejected_before_writes(self):
         self.ingest(self.fixture_rows()[:1])
         plan = build_structure_plan(self.db)
