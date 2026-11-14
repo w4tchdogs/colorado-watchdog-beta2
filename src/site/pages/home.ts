@@ -57,7 +57,7 @@ export async function homePage(context: SiteContext): Promise<Page> {
 
   const lead = bannerHero({
     variant: "home",
-    banners: context.banners.forHome(),
+    banners: await context.banners.forHome(),
     countyFips: null,
     eyebrow: "Colorado · Independent & community-run",
     title: "Community Voices. Government Accountability.",

@@ -51,6 +51,13 @@ export interface PublicSiteOptions {
   readonly now?: () => Date;
   /** Published banner artwork. Defaults to none, which shows placeholders. */
   readonly banners?: BannerSource;
+  /** Server-side lookup that delivers only a currently selected verified image. */
+  readonly bannerDelivery?: {
+    deliver(versionId: string): Promise<{
+      body: Uint8Array;
+      contentType: "image/jpeg" | "image/png";
+    } | null>;
+  };
   /** Extra origins allowed to serve banner images (added to the CSP). */
   readonly bannerOrigins?: readonly string[];
   /** Whether a configured local fictional-report test adapter is available. */

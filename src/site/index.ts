@@ -312,6 +312,35 @@ export function createPublicSite(options: PublicSiteOptions) {
           });
         }
 
+        const bannerAsset =
+          /^\/banner-assets\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i.exec(
+            pathname,
+          );
+        if (bannerAsset) {
+          const versionId = bannerAsset[1];
+          if (url.search || !options.bannerDelivery || !versionId) {
+            return new Response(null, {
+              status: 404,
+              headers: { ...SECURITY_HEADERS, "cache-control": "no-store" },
+            });
+          }
+          const image = await options.bannerDelivery.deliver(versionId);
+          if (!image)
+            return new Response(null, {
+              status: 404,
+              headers: { ...SECURITY_HEADERS, "cache-control": "no-store" },
+            });
+          return new Response(head ? null : image.body, {
+            status: 200,
+            headers: {
+              ...SECURITY_HEADERS,
+              "cache-control": "no-store",
+              "content-type": image.contentType,
+              "content-length": String(image.body.byteLength),
+            },
+          });
+        }
+
         const context: SiteContext = {
           services: options.services,
           editorial,

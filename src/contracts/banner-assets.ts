@@ -21,6 +21,7 @@ export interface BannerMetadata {
   readonly caption: string;
   readonly altText: string;
   readonly displayOrder: number;
+  readonly homepageOrder: number | null;
   readonly isPrimary: boolean;
   readonly displayMode: BannerDisplayMode;
   readonly focalX: number;
@@ -53,6 +54,7 @@ export interface BannerStageProposal {
   readonly altText: string;
   readonly displayOrder: number;
   readonly isPrimary: boolean;
+  readonly homepageOrder?: number | null;
   readonly displayMode: BannerDisplayMode;
   readonly focalX: number;
   readonly focalY: number;

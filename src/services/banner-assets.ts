@@ -69,6 +69,12 @@ function validateProposal(input: BannerStageProposal): void {
       "Display order must be a nonnegative integer",
     );
   if (
+    input.homepageOrder !== undefined &&
+    input.homepageOrder !== null &&
+    (!Number.isInteger(input.homepageOrder) || input.homepageOrder < 0)
+  )
+    throw new BannerValidationError("Invalid homepage order");
+  if (
     ![input.focalX, input.focalY].every(
       (value) => Number.isFinite(value) && value >= 0 && value <= 1,
     )
@@ -138,6 +144,8 @@ function mapBanner(row: Record<string, unknown>): BannerMetadata {
     caption: String(row.caption),
     altText: String(row.alt_text),
     displayOrder: Number(row.display_order),
+    homepageOrder:
+      typeof row.homepage_order === "number" ? row.homepage_order : null,
     isPrimary: Number(row.is_primary) === 1,
     displayMode: row.display_mode as BannerMetadata["displayMode"],
     focalX: Number(row.focal_x),
@@ -348,8 +356,8 @@ export class BannerAssetService {
         throw new BannerConflictError("Stale banner row version");
       if (!current) {
         this.database
-          .prepare(`INSERT INTO banner_assets (id, county_fips, source_filename, caption, alt_text, source_history_json, display_order, is_primary, display_mode, focal_x, focal_y, status, created_by_account_id, updated_by_account_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`)
+          .prepare(`INSERT INTO banner_assets (id, county_fips, source_filename, caption, alt_text, source_history_json, display_order, is_primary, display_mode, focal_x, focal_y, homepage_order, status, created_by_account_id, updated_by_account_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`)
           .run(
             input.bannerId,
             input.countyFips,
@@ -362,6 +370,7 @@ export class BannerAssetService {
             input.displayMode,
             input.focalX,
             input.focalY,
+            input.homepageOrder ?? null,
             principal.accountId,
             principal.accountId,
           );
@@ -654,6 +663,7 @@ export class BannerAssetService {
         | "caption"
         | "altText"
         | "displayOrder"
+        | "homepageOrder"
         | "isPrimary"
         | "displayMode"
         | "focalX"
@@ -675,6 +685,12 @@ export class BannerAssetService {
     )
       throw new BannerValidationError("Invalid display order");
     if (
+      change.homepageOrder !== undefined &&
+      change.homepageOrder !== null &&
+      (!Number.isInteger(change.homepageOrder) || change.homepageOrder < 0)
+    )
+      throw new BannerValidationError("Invalid homepage order");
+    if (
       change.displayMode !== undefined &&
       !["cover", "contain"].includes(change.displayMode)
     )
@@ -691,6 +707,7 @@ export class BannerAssetService {
       caption: "caption",
       altText: "alt_text",
       displayOrder: "display_order",
+      homepageOrder: "homepage_order",
       isPrimary: "is_primary",
       displayMode: "display_mode",
       focalX: "focal_x",

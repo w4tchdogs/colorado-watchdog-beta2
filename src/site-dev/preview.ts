@@ -78,6 +78,12 @@ export interface SitePreviewOptions {
   readonly bannerFixtures?: boolean;
   /** Banner records to render instead of the built-in fixtures (tests). */
   readonly banners?: BannerSource;
+  readonly bannerDelivery?: {
+    deliver(versionId: string): Promise<{
+      body: Uint8Array;
+      contentType: "image/jpeg" | "image/png";
+    } | null>;
+  };
   readonly now?: () => Date;
 }
 
@@ -107,6 +113,9 @@ export async function createSitePreview(
         : options.bannerFixtures
           ? { banners: fixtureBannerSource }
           : {}),
+      ...(options.bannerDelivery
+        ? { bannerDelivery: options.bannerDelivery }
+        : {}),
       preview: fictional,
       ...(fictional ? { editorial: fictionalEditorialSource } : {}),
       ...(options.now ? { now: options.now } : {}),

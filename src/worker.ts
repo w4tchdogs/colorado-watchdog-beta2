@@ -4,6 +4,7 @@ import type { RuntimeEnvironment } from "./contracts/runtime.js";
 import { StorageUnavailableError } from "./contracts/storage.js";
 import { AsyncD1Database } from "./database/d1.js";
 import { createReportApiModule, type ReportApiOptions } from "./report-api.js";
+import { D1BannerPublicService } from "./services/banner-public.js";
 import { createD1AccountServices } from "./services/d1-accounts.js";
 import { createD1PublicReadServices } from "./services/d1-public-reads.js";
 import type { ApplicationServices } from "./services/index.js";
@@ -150,6 +151,11 @@ const worker = {
     try {
       const database = new AsyncD1Database(environment.DB);
       const reads = createD1PublicReadServices(database);
+      // Object storage is optional. A missing Sites binding leaves the existing
+      // branded banner placeholders in place and never prevents page rendering.
+      const bannerService = environment.BUCKET
+        ? new D1BannerPublicService(database, environment.BUCKET)
+        : undefined;
       const siteId =
         typeof __WATCHDOG_SITES_PROJECT_ID__ === "string"
           ? __WATCHDOG_SITES_PROJECT_ID__
@@ -177,6 +183,9 @@ const worker = {
       const site = createPublicSite({
         services: reads,
         assets: bundledSiteAssets,
+        ...(bannerService
+          ? { banners: bannerService, bannerDelivery: bannerService }
+          : {}),
         reportSubmissionsEnabled: reports.enabled,
         reportReviewAccess: async (request) => {
           const principal = await services.resolvePrincipal(request);
