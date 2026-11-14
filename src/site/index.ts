@@ -267,6 +267,7 @@ export function createWebsite(handlers: {
       const { pathname } = new URL(request.url);
       return pathname === "/api" ||
         pathname.startsWith("/api/") ||
+        pathname.startsWith("/admin/accounts") ||
         pathname.startsWith("/_internal/") ||
         pathname.startsWith("/internal/")
         ? handlers.application.fetch(request)

@@ -228,7 +228,9 @@ async function dispatch(
       const principal = await services.resolvePrincipal(request);
       if (!principal)
         return jsonResponse(401, { error: "authentication_required" });
-      return jsonResponse(200, { ...services.getOwnAccount(principal) });
+      return jsonResponse(200, {
+        ...(await services.getOwnAccount(principal)),
+      });
     }
     if (directoryResource && directoryRequest) {
       const page =
@@ -589,7 +591,9 @@ async function createAccount(
   if (!isNewAccount(value)) {
     return jsonResponse(400, { error: "invalid_request" });
   }
-  return jsonResponse(201, { ...services.createAccount(principal, value) });
+  return jsonResponse(201, {
+    ...(await services.createAccount(principal, value)),
+  });
 }
 
 function isNewAccount(value: unknown): value is {

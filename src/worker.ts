@@ -2,11 +2,15 @@ import { createApplication } from "./application.js";
 import type { RuntimeEnvironment } from "./contracts/runtime.js";
 import { StorageUnavailableError } from "./contracts/storage.js";
 import { AsyncD1Database } from "./database/d1.js";
+import { createD1AccountServices } from "./services/d1-accounts.js";
 import { createD1PublicReadServices } from "./services/d1-public-reads.js";
 import type { ApplicationServices } from "./services/index.js";
+import { createSitesIdentityAdapter } from "./services/sites-identity.js";
 import { createPublicSite, createWebsite } from "./site/index.js";
 import type { PublicSiteServices } from "./site/types.js";
 import { bundledSiteAssets } from "./site/worker-assets.js";
+
+declare const __WATCHDOG_SITES_PROJECT_ID__: string | null;
 
 function unavailableServices() {
   const unavailable = () => {
@@ -58,9 +62,23 @@ const worker = {
     try {
       const database = new AsyncD1Database(environment.DB);
       const reads = createD1PublicReadServices(database);
+      const sitesIdentity =
+        typeof __WATCHDOG_SITES_PROJECT_ID__ === "string" &&
+        __WATCHDOG_SITES_PROJECT_ID__.trim()
+          ? createSitesIdentityAdapter({
+              siteId: __WATCHDOG_SITES_PROJECT_ID__,
+              // Sites currently documents forwarded identity headers but this
+              // Worker runtime has no verified host-context interface. Keep
+              // human identity disabled until provenance is independently
+              // established; the adapter never reads request headers.
+              context: undefined,
+            })
+          : undefined;
+      const accounts = createD1AccountServices(database, sitesIdentity);
       const services = {
         ...fallback,
         ...reads,
+        ...accounts,
         async readiness() {
           await database.first("SELECT 1 AS ready");
           return { status: "ready" as const };
@@ -68,9 +86,6 @@ const worker = {
         async health() {
           await database.first("SELECT 1 AS ready");
           return { status: "ok" as const };
-        },
-        async resolvePrincipal() {
-          return null;
         },
       };
       const app = createApplication(services as unknown as ApplicationServices);

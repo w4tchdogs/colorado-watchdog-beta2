@@ -69,7 +69,7 @@ export function insertAuditEvent(
     );
 }
 
-function assertCredentialFree(audit: AuditRecord): void {
+export function assertCredentialFree(audit: AuditRecord): void {
   const values = [
     audit.action,
     audit.targetType,

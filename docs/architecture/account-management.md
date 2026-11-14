@@ -61,6 +61,30 @@ unauthenticated management page links into the native sign-in path.
 The management page shows attributed account audit events at
 `GET /api/admin/accounts/:id/audit`; credentials remain redacted.
 
-The current local dev harness has no trusted Sites identity source. It can
-exercise agent credentials and tests can inject synthetic human identity
-adapters. No production account is created or invited by this milestone.
+## Sites Worker integration
+
+The Sites Worker uses `createD1AccountServices`, an asynchronous implementation
+of the existing account-service contract over the Website D1 binding. It keeps
+the same account and identity tables, policy checks, version guards and
+credential-free audit records. It does not bundle or use SQL.js as a production
+database, and it does not enable synchronization capabilities or routes.
+Agent-key principal resolution and account management use D1's asynchronous
+prepared statements and guarded batch writes.
+
+The Worker builds `createSitesIdentityAdapter({ siteId, context })` with the
+actual `.openai/hosting.json.project_id`; it does not use a display name or a
+placeholder. That project ID is intentionally absent until the new isolated
+Beta-2 Site is created. The public Sites identity guide currently documents
+forwarded email and optional full name but does not define a host-verifiable
+identity subject or an anti-spoofing guarantee for Worker request headers. No
+verified host context API is available in the Worker composition today, so its
+`context` is absent and human identity remains fail-closed. The application
+never promotes `oai-authenticated-*` headers from an arbitrary HTTP request.
+
+`npm run test:sites:d1` verifies public routes together with synthetic agent
+authentication, management reads/writes, one-time credential issuance and
+revocation on disposable local D1. A local synthetic agent proves the adapter
+and account routes work; it does not establish hosted ChatGPT authentication.
+Before enabling human account access, the first private Beta-2 Site deployment
+must establish a trusted host context and confirm its request/provenance
+behavior. No production account is created or invited by this milestone.

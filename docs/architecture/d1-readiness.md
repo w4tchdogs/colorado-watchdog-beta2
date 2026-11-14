@@ -108,13 +108,17 @@ backup/restore and production migration operations remain unverified.
 SITES-2 additionally bundles a default-exported Worker fetch handler at
 `dist/server/index.js`, declares `DB` as the Sites D1 binding, and packages the
 existing Website migrations at `dist/.openai/drizzle/`. Its
-`npm run test:sites:d1` smoke check applies migrations 0001–0012 to disposable
+`npm run test:sites:d1` smoke check applies migrations 0001–0013 to disposable
 local Wrangler D1 and exercises public pages, APIs, pagination, assets,
-placeholders, readiness, anonymous account restrictions, and missing-binding
-behavior. It checks that the Worker bundle does not contain SQL.js. This is
-local evidence only; it does not certify that ChatGPT Sites provisions the
-binding or applies the packaged migrations as expected. No Site was created,
-published or deployed. See [public-site hosting preparation](public-site.md#local-verification-and-first-private-site-deployment).
+placeholders, readiness, anonymous account restrictions, agent account
+administration and credential lifecycle, forged Sites-header rejection, the
+absence of a public report route, and missing-binding behavior. It checks that the Worker bundle does not contain
+SQL.js or the private Profiles store. This is local evidence only; it does not
+certify that ChatGPT Sites provisions the binding, applies the packaged
+migrations, or supplies an authenticated identity with verifiable provenance.
+No Site was created, published or deployed. See
+[public-site hosting preparation](public-site.md#local-verification-and-first-private-site-deployment)
+and [account management](account-management.md#sites-worker-integration).
 
 Local `batch()` tests do not certify hosted D1 behavior or remote operational
 limits. No hosted D1 was accessed.

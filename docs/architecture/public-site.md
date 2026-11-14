@@ -20,12 +20,16 @@ unverified.
 - `src/worker.ts` default-exports the Sites Worker fetch handler. It creates the
   public read services from the trusted `DB` runtime binding. Without `DB`,
   liveness and bundled static assets remain available while readiness and
-  database-backed pages fail closed. The Worker does not register production
-  synchronization or account capabilities.
+  database-backed pages fail closed. Account routes use the asynchronous D1
+  account services. Human Sites identity fails closed until trusted host
+  provenance is established. Production synchronization capabilities remain
+  disabled.
 - `src/services/d1-public-reads.ts` implements the existing public read
   projections over asynchronous D1 prepared statements. Page rendering awaits
   the service contract, which continues to accept the synchronous SQL.js
-  implementation used by local previews and tests. Query inputs and row counts
+  implementation used by local previews and tests. Account services also use
+  D1-native asynchronous reads and guarded batch mutations; SQL.js is not
+  included in the Worker. Query inputs and row counts
   remain bounded; search and role pagination keep their existing stable keys.
 - The build bundles only the reviewed CSS, JavaScript, logo and favicon assets
   into the Worker with fixed MIME types. It does not serve arbitrary paths from
@@ -46,26 +50,42 @@ result establishes local Wrangler behavior only, not hosted Sites behavior.
 
 When an owner later chooses to create the first private Site:
 
-1. Open ChatGPT Sites and start a Site from this repository's compatible
-   project. Keep the audience private. The repository manifest intentionally
-   has no `project_id`; the Sites workflow supplies it after Site creation.
-2. Select the Site's database option so Sites provisions the declared `DB`
-   binding. Keep R2 unconfigured; the current Worker uses packaged static
-   branding and renders banner placeholders.
-3. Before the first deployment, inspect the source commit and packaged
-   migrations through `0012_banner_assets.sql`. Sites' documented workflow
+1. Create a **new** Sites project named exactly `colorado_watchdog_alpha1` and
+   link only `w4tchdogs/colorado-watchdog-beta2`. The existing Beta-1 project at
+   `https://colorado-watchdog.futureguild2.chatgpt.site/` must remain unchanged.
+   Never reuse its project ID, hosting configuration, D1 database, R2 bucket,
+   or deployment target. Keep the new Site private.
+2. Before every save or deployment, verify the displayed target is the newly
+   created Beta-2 project and that its returned project ID is distinct from
+   Beta-1. Stop if the project identity is ambiguous. Persist the actual new
+   project ID as `.openai/hosting.json.project_id`; the build injects this exact
+   value into `createSitesIdentityAdapter`, never the display name or a
+   placeholder. The checked-in manifest intentionally has no ID before Site
+   creation.
+3. Select only the new Site's own database option so Sites provisions its new
+   `DB` binding. Do not select or attach any Beta-1 resource. Leave R2
+   unconfigured; the current Worker uses packaged static branding and renders
+   banner placeholders.
+4. Before the first deployment, inspect the source commit and packaged
+   migrations through `0013_private_report_intake.sql`. Sites' documented workflow
    applies included migrations before uploading the Worker. Use only the Sites
    workflow for the hosted deployment; do not run Wrangler against a remote
    database.
-4. Confirm the Site is still private, then exercise homepage, county, people,
+5. Confirm the Site is still private, then exercise homepage, county, people,
    organization, static-asset and anonymous API behavior in the hosted preview.
-   Hosted execution, identity headers, and migration behavior are not certified
-   by the local check in this milestone.
+   Hosted execution, identity provenance, and migration behavior are not
+   certified by local checks. Before enabling human account access, establish
+   an authenticated Site request context whose provenance the host guarantees;
+   the public identity guide documents forwarded email and optional full name,
+   not a Worker-verifiable subject/proof. Until that check succeeds, the human
+   Sites adapter remains fail-closed. Synthetic local authentication is not
+   evidence of hosted authentication.
 
 Sites server-backed artifacts require a default-exported Fetch handler in
 `dist/server/index.js`; `.openai/hosting.json` declares storage bindings, and
 unused bindings stay `null`. See [Sites documentation](https://learn.chatgpt.com/docs/sites),
 [data and connections](https://learn.chatgpt.com/docs/sites/data-and-connections),
+[hosting, versions and deployments](https://learn.chatgpt.com/docs/sites/managing-a-site),
 and [D1 readiness](d1-readiness.md).
 
 ## Routes

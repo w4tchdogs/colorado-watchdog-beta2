@@ -67,6 +67,7 @@ const allowed = new Set([
   "scripts/build-sites-worker.mjs",
   "scripts/sites-d1-local-check.mjs",
   "src/services/d1-public-reads.ts",
+  "src/services/d1-accounts.ts",
   "src/site/worker-assets.ts",
   "scripts/editor-dev.mjs",
   "src/application.ts",

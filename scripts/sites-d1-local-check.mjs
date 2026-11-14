@@ -70,6 +70,11 @@ async function waitFor(url) {
 }
 
 async function main() {
+  const agentToken = `cwa_${"A".repeat(43)}`;
+  const { hashCredential } = await import(
+    pathToFileURL(join(root, "dist", "services", "security.js"))
+  );
+  const agentHash = await hashCredential(agentToken);
   const migrations = [
     "0001_counties.sql",
     "0002_foundation.sql",
@@ -83,6 +88,7 @@ async function main() {
     "0010_content_revisions.sql",
     "0011_m2_dependency_generation.sql",
     "0012_banner_assets.sql",
+    "0013_private_report_intake.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(
@@ -126,6 +132,10 @@ async function main() {
     WITH RECURSIVE extra_people(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM extra_people WHERE n < 25)\n    INSERT INTO people (id,display_name) SELECT printf('synthetic-page-%02d',n),printf('Synthetic Directory %02d',n) FROM extra_people;\n    INSERT INTO person_roles (id,person_id,position_id,source_id,start_date,source_checked_at) VALUES
       ('d1-test-role-a','d1-test-person-a','d1-test-position-a','d1-test-source-a','2025-01-01','2026-10-01T00:00:00.000Z'),
       ('d1-test-role-b','d1-test-person-b','d1-test-position-b','d1-test-source-b','2025-02-01','2026-10-02T00:00:00.000Z');
+    INSERT INTO accounts (id,kind,role,display_name) VALUES
+      ('d1-test-admin','agent','administrator','Synthetic Sites Admin');
+    INSERT INTO identities (id,account_id,provider,subject,credential_hash) VALUES
+      ('d1-test-admin-key','d1-test-admin','agent-key','d1-test-admin-key','${agentHash}');
   `,
   );
   command([
@@ -235,7 +245,105 @@ async function main() {
       ).status,
       401,
     );
+    const forgedIdentity = await fetch(`${base}/_internal/principal`, {
+      headers: {
+        "oai-authenticated-user-id": "forged-user",
+        "oai-authenticated-user-email": "owner@example.test",
+      },
+    });
+    assert.equal(forgedIdentity.status, 401);
+    const adminHeaders = { authorization: `Bearer ${agentToken}` };
+    const principal = await fetch(`${base}/_internal/principal`, {
+      headers: adminHeaders,
+    });
+    assert.equal(principal.status, 200);
+    assert.equal((await principal.json()).role, "administrator");
+    assert.equal(
+      (await fetch(`${base}/admin/accounts`, { headers: adminHeaders })).status,
+      200,
+    );
+    const accountList = await fetch(`${base}/api/admin/accounts?limit=10`, {
+      headers: adminHeaders,
+    });
+    assert.equal(accountList.status, 200);
+    assert.doesNotMatch(await accountList.text(), /credential_hash/);
+    const created = await fetch(`${base}/api/admin/accounts`, {
+      method: "POST",
+      headers: {
+        ...adminHeaders,
+        origin: base,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        kind: "agent",
+        role: "contributor",
+        displayName: "Synthetic Sites Account",
+      }),
+    });
+    assert.equal(created.status, 201, await created.clone().text());
+    const account = await created.json();
+    assert.equal(account.version, 1);
+    const accountUrl = `${base}/api/admin/accounts/${account.id}`;
+    const detail = await fetch(accountUrl, { headers: adminHeaders });
+    assert.equal(detail.status, 200);
+    assert.doesNotMatch(await detail.text(), /credential_hash/);
+    const updated = await fetch(accountUrl, {
+      method: "PATCH",
+      headers: {
+        ...adminHeaders,
+        origin: base,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        expectedVersion: 1,
+        displayName: "Updated synthetic agent",
+      }),
+    });
+    assert.equal(updated.status, 200, await updated.clone().text());
+    assert.equal((await updated.json()).version, 2);
+    const audit = await fetch(`${accountUrl}/audit`, { headers: adminHeaders });
+    assert.equal(audit.status, 200);
+    assert.match(await audit.text(), /account.create/);
+    const credentialResponse = await fetch(`${accountUrl}/credentials`, {
+      method: "POST",
+      headers: {
+        ...adminHeaders,
+        origin: base,
+        "content-type": "application/json",
+      },
+      body: "{}",
+    });
+    assert.equal(
+      credentialResponse.status,
+      201,
+      await credentialResponse.clone().text(),
+    );
+    const issued = await credentialResponse.json();
+    const agentHeaders = { authorization: `Bearer ${issued.secret}` };
+    const newAgentPrincipal = await fetch(`${base}/_internal/principal`, {
+      headers: agentHeaders,
+    });
+    assert.equal(newAgentPrincipal.status, 200);
+    assert.equal((await newAgentPrincipal.json()).role, "contributor");
+    const revoke = await fetch(
+      `${accountUrl}/identities?id=${encodeURIComponent(issued.identityId)}&version=1`,
+      {
+        method: "DELETE",
+        headers: { ...adminHeaders, origin: base },
+      },
+    );
+    assert.equal(revoke.status, 200, await revoke.clone().text());
+    assert.equal(
+      (await fetch(`${base}/_internal/principal`, { headers: agentHeaders }))
+        .status,
+      401,
+    );
     assert.equal((await fetch(`${base}/assets/not-allowed.txt`)).status, 404);
+    assert.equal((await fetch(`${base}/api/reports`)).status, 404);
+    assert.equal(
+      (await fetch(`${base}/api/reports?status=pending`)).status,
+      404,
+    );
   } finally {
     worker.kill("SIGTERM");
     await new Promise((resolveExit) => worker.once("exit", resolveExit));
@@ -277,7 +385,7 @@ async function main() {
     503,
   );
   console.log(
-    `Sites Worker D1 smoke check passed (${migrations.length} migrations, 64 counties, routes, assets, and missing-binding behavior).`,
+    `Sites Worker D1 smoke check passed (${migrations.length} migrations, 64 counties, public routes/assets, agent account lifecycle, forged-identity rejection, no public reports route, and missing-binding behavior).`,
   );
 }
 

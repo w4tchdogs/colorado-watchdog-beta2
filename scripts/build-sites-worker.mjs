@@ -41,6 +41,17 @@ const assetData = Object.fromEntries(
     ]),
   ),
 );
+const hosting = JSON.parse(
+  await readFile(join(root, ".openai", "hosting.json"), "utf8"),
+);
+if (
+  hosting.project_id !== undefined &&
+  (typeof hosting.project_id !== "string" || !hosting.project_id.trim())
+) {
+  throw new Error(
+    "Sites project_id in hosting.json must be a non-empty string",
+  );
+}
 
 await build({
   entryPoints: [join(root, "src", "worker.ts")],
@@ -49,7 +60,10 @@ await build({
   platform: "browser",
   format: "esm",
   target: "es2022",
-  define: { __WATCHDOG_SITE_ASSETS__: JSON.stringify(assetData) },
+  define: {
+    __WATCHDOG_SITE_ASSETS__: JSON.stringify(assetData),
+    __WATCHDOG_SITES_PROJECT_ID__: JSON.stringify(hosting.project_id ?? null),
+  },
   logLevel: "info",
 });
 
@@ -57,8 +71,8 @@ await cp(join(root, ".openai", "hosting.json"), join(metadata, "hosting.json"));
 const migrations = (await readdir(join(root, "website", "migrations")))
   .filter((name) => /^\d{4}_[a-z0-9_]+\.sql$/.test(name))
   .sort();
-if (migrations.at(-1) !== "0012_banner_assets.sql") {
-  throw new Error("Sites artifact must include Website migration 0012");
+if (migrations.at(-1) !== "0013_private_report_intake.sql") {
+  throw new Error("Sites artifact must include Website migration 0013");
 }
 for (const migration of migrations) {
   await cp(
