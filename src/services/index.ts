@@ -21,6 +21,25 @@ import {
   updateAccount,
 } from "./accounts.js";
 import { listAuditEvents } from "./audit.js";
+
+export type {
+  BannerMetadata,
+  BannerStageProposal,
+  BannerVersion,
+  ResolvedBanner,
+} from "../contracts/banner-assets.js";
+export {
+  BannerAssetService,
+  BannerConflictError,
+  BannerValidationError,
+  translateBanners1Record,
+} from "./banner-assets.js";
+export type { ImmutableObjectStorage, R2BucketLike } from "./banner-storage.js";
+export {
+  MemoryBannerObjectStorage,
+  R2BannerObjectStorage,
+} from "./banner-storage.js";
+
 import { getCountyOverview } from "./county-overview.js";
 import { listCounties } from "./county-registry.js";
 import { listCountyOrganizations, listCountyRoleEntries } from "./directory.js";
