@@ -19,6 +19,7 @@ const allowed = new Set([
   "scripts/banners.mjs",
   "docs/coordination/START.md",
   "docs/coordination/CURRENT.md",
+  "docs/coordination/ARCHON-HANDOFF-REQUEST.md",
   "docs/coordination/visual-audit/coverage-ledger.csv",
   "docs/coordination/visual-audit/Shared Visual Design Inventory rev2026-11-14 v1.md",
   "docs/coordination/visual-audit/VIS-6 Coverage Summary and Follow-up rev2026-11-14 v1.md",

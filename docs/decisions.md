@@ -11,8 +11,9 @@ dated status update follows them rather than rewriting them.
 modular architecture with one relational Website D1 database, R2 files, and a
 shared dashboard/API/MCP service layer**. This is an owner decision, not a
 proposal, and later planning must not demote MCP to an optional add-on. See
-the [November 14, 2026 status update](#status-update--november-14-2026-coord-1)
-for its current implementation state (not yet built).
+[CURRENT](coordination/CURRENT.md) for its current implementation state —
+a read-only local foundation is merged; hosted publication and any
+write/sync/import tool are not.
 
 Current technical assessment: [Fable assessment revision 4](https://drive.google.com/file/d/1ux9NG09zr9DkztRGYtc-Z3uXBZ81ncI0/view). See the [revision 4 section](#revision-4-technical-assessment-november-12-2026) below. The first two sections are the earlier decision records and remain as written.
 
@@ -106,3 +107,14 @@ rewriting the history above.
 - **D1-0015-ACCESS-1** (a standalone plan to obtain one-off hosted D1 access)
   is superseded: administrative hosted-D1 access is intended to come through
   the MCP-first architecture above, not a bespoke access script.
+
+## Status update — November 14, 2026 (COORD-1A)
+
+- **MCP has a merged read-only local foundation** (PR #95): a Website
+  inspection MCP endpoint and a Profiles readiness MCP server, both
+  aggregate-only with no write, sync, import, or migration tool. This
+  corrects the COORD-1 status update above, written earlier the same day,
+  which still said MCP had no implementation. Hosted Site publication of
+  the MCP endpoint remains not done; see [CURRENT](coordination/CURRENT.md)
+  for current detail. This is a status fact, not a reopening of the
+  backbone decision.

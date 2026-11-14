@@ -1,6 +1,6 @@
 # Colorado Watchdog beta-2 — current state
 
-Revision: November 14, 2026. Evidence: GitHub `main` at `db2903d11ba0d368de45d86d20a189dea1b42e65` (merge of PR #91), [decisions](../decisions.md), and Issue [#93](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/93) (COORD-1). Read this after [START](START.md) and before track-specific documents. Five-minute read.
+Revision: November 14, 2026. Evidence: GitHub `main` at `bc60154fc3b3fe4b4df3a74e3042e7d552803969` (merge of PR #95, on top of PR #94's `d511c0d2`), [decisions](../decisions.md), and Issue [#93](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/93) (COORD-1, closed) — COORD-1A continues this work on architectural drift prevention and successor handoffs. Read this after [START](START.md) and before track-specific documents. Five-minute read.
 
 ## Status vocabulary
 
@@ -30,7 +30,7 @@ one was skipped, and Merged never implies Deployed.
 | --- | --- | --- |
 | **Beta-1** — existing website | https://colorado-watchdog.futureguild2.chatgpt.site/ | Separate history, data and Sites project (`appgprj_6ae78d5c5bd881919b1790ebc0177a44`). Not modified by beta-2 work. |
 | **Beta-2** — AI-first rebuild | https://github.com/w4tchdogs/colorado-watchdog-beta2 | This repository. Source of truth is `main`. |
-| **Beta-2 Alpha-1** — first private Site | https://colorado-watchdog-alpha1.futureguild2.chatgpt.site/ | Sites project `appgprj_6af7fb8f615c81918da0e4450ba336de`. See section D. |
+| **Beta-2 Alpha-1** — first deployed Site | https://colorado-watchdog-alpha1.futureguild2.chatgpt.site/ | Sites project `appgprj_6af7fb8f615c81918da0e4450ba336de`. Publicly reachable — see section D for the "Audience: public" evidence; "Alpha-1" names the deployment stage, not a private audience. |
 
 Beta-1 data, banners and visual assets are **not** migrated into beta-2 automatically. Each project keeps its own database, decisions and history.
 
@@ -59,7 +59,7 @@ Beta-1 data, banners and visual assets are **not** migrated into beta-2 automati
 | Posts and Stories | Merged (content model + search, M3/VIS13-SEARCH-1); **no public publication endpoint** | PR #90; [public-site.md](../architecture/public-site.md) §"Not implemented" |
 | Banner inventory and lifecycle (BANNERS-1, BANNERS-2) | Merged, implemented locally | PR #64, #67; [banner-inventory.md](../architecture/banner-inventory.md), [banner-storage.md](../architecture/banner-storage.md) |
 | Banner delivery (BANNERS-3) | Merged, implemented locally; read-only public integration only | PR #92; [banner-delivery.md](../architecture/banner-delivery.md) |
-| MCP administration | **Planned only.** No server, route or client connection exists | [decisions.md](../decisions.md); Issue #93 |
+| MCP administration | Merged, implemented locally: read-only Website inspection MCP (`d1.inspect` capability, aggregate counts only) and a Profiles readiness MCP (stdio, aggregate eligibility counts only). **No write, sync, import, or migration tool exists**; no hosted Site has published or connected to the MCP endpoint | PR #95; [mcp-administration.md](../architecture/mcp-administration.md) |
 | Hosted D1 migration (0015, Lake/La Plata correction) | Merged to source; hosted application **blocked/undetermined** | `website/migrations/0015_correct_lake_la_plata_county_names.sql`; D1-0015-PREFLIGHT-1 (below) |
 | Hosted R2 provisioning | **Not done.** `r2: null` in `.openai/hosting.json` on `main` | `.openai/hosting.json` |
 | Real Profiles import | **Not executed** | — |
@@ -83,7 +83,7 @@ Last independently verified Alpha-1 deployment:
 ## E. Current blockers / open dependencies
 
 - **Hosted D1 migration 0015** — not confirmed applied to the hosted database. D1-0015-PREFLIGHT-1 completed with an access limitation (no verified administrative hosted-D1 access); D1-0015-ACCESS-1 (a standalone one-off coding plan to get that access) is **superseded** by the MCP-first architecture — administration should come through MCP, not a bespoke access script.
-- **MCP connectivity and authorization** — approved architecture, zero implementation. MCP-1 has a prepared implementation prompt and a local worktree (`codex/mcp-1-admin-foundation`) sitting at the same commit as `main`, i.e. **not started**, and is not to be treated as assigned/in-progress merely because the prompt and worktree exist.
+- **MCP connectivity and authorization** — approved architecture; a read-only local foundation (Website inspection + Profiles readiness) is merged (PR #95). Hosted Site publication of the MCP endpoint, any write/sync/import tool, and R2 inspection are **not implemented** and remain the open part of this architecture.
 - **R2 provisioning** — needed before BANNERS-IMPORT-1 (real banner import) or any R2-backed MCP file storage.
 - **Profiles research eligibility and hosted synchronization** — R7/R8 give the sync design; no real personnel data has been screened for hosted sync, and the Website-side sync route remains internal/unregistered ([d1-readiness.md](../architecture/d1-readiness.md)).
 - **Verified hosted D1 administrative access** — no trustworthy stable Sites subject is currently exposed to the Worker ([account-management.md](../architecture/account-management.md), [beta-2-planning-handoff.md](../architecture/beta-2-planning-handoff.md)); this blocks both migration 0015 application and first-owner bootstrap.
@@ -94,7 +94,8 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 
 | Task | Status | Branch / PR / Issue | Dependency | Last verified |
 | --- | --- | --- | --- | --- |
-| COORD-1 | In progress | `coord-1-current-state-handoff` / Issue #93 | — | 2026-11-14 |
+| COORD-1 | Merged | PR #94, `d511c0d2`; Issue #93 closed | — | 2026-11-14 |
+| COORD-1A | In progress | `coord-1a-drift-prevention-handoffs` | COORD-1 (merged) | 2026-11-14 |
 | VIS8-RESTORE-1 | Merged | PR #91, `db2903d1` | — | 2026-11-14 |
 | BANNERS-3 | Merged | PR #92, `0c08faf8` | R2 provisioning (for real import) | 2026-11-14 |
 | VIS13-SEARCH-1 | Merged | PR #90, `8b39dadc` | — | 2026-11-14 |
@@ -102,7 +103,8 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | AUTH-2 | Merged | PR #88 | — | 2026-11-14 |
 | D1-0015-PREFLIGHT-1 | Complete, with access limitation | — | Hosted D1 admin access | 2026-11-14 |
 | D1-0015-ACCESS-1 | Superseded by MCP-first architecture | — | — | 2026-11-14 |
-| MCP-1 | **Prompt prepared; not assigned** | local worktree only, no PR | Owner assignment | 2026-11-14 |
+| MCP-1 (read-only foundation) | Merged | PR #95, `bc60154f` | — | 2026-11-14 |
+| MCP hosted publication / write tools | Planned, not started | — | Hosted Site MCP configuration (owner-scoped) | — |
 | Profiles Import Pilot | Assessment complete; readiness/hosted-sync unresolved | — | Hosted D1 admin access, R7/R8 | 2026-11-14 |
 | BANNERS-4 (carousel) | Planned, not started | — | BANNERS-3 (merged) | — |
 | BANNERS-IMPORT-1 (real import) | Planned, not started | — | R2 provisioning | — |
@@ -112,7 +114,7 @@ No task above is owned by more than one AI at once; check this table and the lin
 
 ## G. Next safe tasks
 
-Any of: BANNERS-4 (carousel UI, no hosted dependency), visual-audit follow-ups, Posts/Stories publication-endpoint design, or read-only hosted-access diagnostics that do not write to production. MCP-1, real imports, migration 0015 application and Alpha-1 redeployment all require an explicit owner-scoped assignment first.
+Any of: BANNERS-4 (carousel UI, no hosted dependency), visual-audit follow-ups, Posts/Stories publication-endpoint design, or read-only hosted-access diagnostics that do not write to production. Hosted MCP publication or any MCP write/sync/import tool, real data imports, migration 0015 application and Alpha-1 redeployment all require an explicit owner-scoped assignment first.
 
 ## Maintenance — when to update this file
 
