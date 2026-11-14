@@ -19,7 +19,8 @@
 }
 
 .report-demo-notice,
-.report-confidentiality {
+.report-confidentiality,
+.report-disabled-notice {
   padding: 1rem 1.25rem;
   border-left: 4px solid var(--report-red);
   background: #fff4cc;

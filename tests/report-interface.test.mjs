@@ -422,6 +422,61 @@ test("fictional adapter keeps only a credential digest and never rediscloses key
   await assert.rejects(adapter.track(first.reference, "f".repeat(64)));
 });
 
+test("disabled mode shows an unavailable notice and no actionable submission form", () => {
+  const { document } = createHarness({ submissionsEnabled: false });
+  assert.equal(document.querySelector("#report-submit form"), null);
+  assert.equal(document.querySelector("#report-submit button"), null);
+  assert.equal(
+    document.querySelector(
+      "#report-submit input, #report-submit select, #report-submit textarea",
+    ),
+    null,
+  );
+  const notice = document.querySelector(".report-disabled-notice");
+  assert.ok(notice, "expected a disabled notice element");
+  assert.match(notice.textContent, /currently unavailable/i);
+  assert.equal(notice.getAttribute("role"), "note");
+});
+
+test("disabled mode cannot invoke the submit adapter through synthetic events", async () => {
+  const { document, dom, calls } = createHarness({ submissionsEnabled: false });
+  const panel = document.getElementById("report-submit");
+  panel.dispatchEvent(
+    new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls.submissions.length, 0);
+});
+
+test("disabled mode still supports Track a Report", async () => {
+  const { document, dom, calls } = createHarness({ submissionsEnabled: false });
+  dom.window.location.hash = "#report-track";
+  dom.window.dispatchEvent(new dom.window.HashChangeEvent("hashchange"));
+  assert.equal(document.getElementById("report-track").hidden, false);
+  document.getElementById("tracking-reference").value = "CW-0011223344556677";
+  document.getElementById("tracking-recovery-key").value = "a".repeat(64);
+  await submit(document.querySelector("#report-track form"), dom.window);
+  assert.deepEqual(calls.tracks, [
+    { reference: "CW-0011223344556677", recoveryKey: "a".repeat(64) },
+  ]);
+  const result = document.querySelector(".report-tracking-result");
+  assert.equal(result.hidden, false);
+});
+
+test("enabled fictional mode preserves the full submission form and validation", async () => {
+  const { document, dom, calls } = createHarness({ submissionsEnabled: true });
+  assert.ok(document.querySelector("#report-submit form"));
+  await submit(document.querySelector("#report-submit form"), dom.window);
+  assert.equal(calls.submissions.length, 0);
+  assert.equal(
+    document.getElementById("report-county").getAttribute("aria-invalid"),
+    "true",
+  );
+  setValidSubmission(document);
+  await submit(document.querySelector("#report-submit form"), dom.window);
+  assert.equal(calls.submissions.length, 1);
+});
+
 test("includes responsive rules, visible keyboard focus, and no upload control", () => {
   const css = readFileSync(
     new URL("../website/site/report-interface.css", import.meta.url),
