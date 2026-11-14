@@ -165,9 +165,22 @@ test("county search works by name and FIPS, with and without JavaScript", async 
     assert.deepEqual(visible(await get(preview, "/counties?q=08069")), [
       "08069",
     ]);
-    assert.deepEqual(visible(await get(preview, "/counties?q=LA%20PLATA")), [
+    assert.deepEqual(visible(await get(preview, "/counties?q=lake")), [
       "08065",
     ]);
+    assert.deepEqual(visible(await get(preview, "/counties?q=la%20plata")), [
+      "08067",
+    ]);
+    assert.deepEqual(visible(await get(preview, "/counties?q=08065")), [
+      "08065",
+    ]);
+    assert.deepEqual(visible(await get(preview, "/counties?q=08067")), [
+      "08067",
+    ]);
+    const lake = await get(preview, "/counties/08065");
+    assert.match(lake.$("h1").textContent, /^Lake County$/);
+    const laPlata = await get(preview, "/counties/08067");
+    assert.match(laPlata.$("h1").textContent, /^La Plata County$/);
     const none = await get(preview, "/counties?q=zzzz");
     assert.deepEqual(visible(none), []);
     assert.equal(none.$("[data-county-empty]").hidden, false);
