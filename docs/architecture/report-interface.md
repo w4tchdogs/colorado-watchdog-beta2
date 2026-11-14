@@ -70,3 +70,30 @@ disposable Wrangler D1 test configuration explicitly enables a loopback-only
 fictional abuse-control adapter; no corresponding configuration is present in
 normal Worker environments. Hosted anonymous intake still needs a shared,
 production-compatible abuse-control provider.
+
+## Private staff review (SUB-2D)
+
+`/admin/reports` is a server-protected staff workspace. The Worker resolves the
+current ACCT-1 principal and checks `report.review` before returning its page.
+Owner, administrator and editor accounts may enter; contributors and
+unauthenticated requests receive a generic response without private page state.
+The page and private API responses use `Cache-Control: no-store, private`.
+Human access remains fail-closed in Sites because the hosted Worker does not yet
+have a verified human identity context; forwarded identity headers do not grant
+access.
+
+The browser calls only the existing private staff API for its paginated queue,
+report detail, status history and compare-and-set status transitions. Notes are
+appended to transition history and remain staff-only. Evidence links are
+clickable only when they are absolute HTTPS URLs without credentials. Report
+descriptions, reporter information, evidence and notes are built as text nodes;
+they are not stored in browser persistence. All reports are marked as
+unverified allegations.
+
+The disposable local Sites D1 check seeds synthetic Website staff credentials
+and exercises page and API capability enforcement. `tests/staff-report-browser.test.mjs`
+uses fictional API responses to exercise the browser presentation and
+version-checked note workflow. These checks establish local behavior only; they
+do not demonstrate a hosted human browser session. The first hosted deployment
+still needs a host-verified ACCT-1 human identity context before staff can use
+this route.

@@ -19,6 +19,7 @@ import { aboutPage, readingRecordsPage } from "./pages/info.js";
 import { organizationPage } from "./pages/organization.js";
 import { personPage } from "./pages/person.js";
 import { reportPage } from "./pages/report.js";
+import { staffReportsPage } from "./pages/staff-reports.js";
 import {
   BadRequest,
   NotFound,
@@ -34,6 +35,16 @@ export type { PublicSiteOptions, SiteAssets } from "./types.js";
 const MAX_PATH_LENGTH = 300;
 const MAX_QUERY_LENGTH = 1024;
 const ASSET_PATH = /^\/assets\/([a-z0-9][a-z0-9.-]{0,80}\.(?:css|js|svg|png))$/;
+
+function isStaffReportsPath(pathname: string): boolean {
+  try {
+    return (
+      decodeURIComponent(pathname).replace(/\/+$/, "") === "/admin/reports"
+    );
+  } catch {
+    return false;
+  }
+}
 
 function securityHeaders(bannerOrigins: readonly string[]) {
   // Only well-formed https origins may be added for banner images.
@@ -130,6 +141,10 @@ async function route(
     }
   }
   switch (first) {
+    case "admin":
+      if (second !== "reports") throw new NotFound();
+      none();
+      return staffReportsPage();
     case "counties":
       return countyPage(
         context,
@@ -205,6 +220,24 @@ export function createPublicSite(options: PublicSiteOptions) {
       const head = request.method === "HEAD";
       try {
         const url = new URL(request.url);
+        if (isStaffReportsPath(url.pathname)) {
+          const denied = options.reportReviewAccess
+            ? await options.reportReviewAccess(request)
+            : 401;
+          if (denied !== null) {
+            return new Response(
+              denied === 401 ? "Authentication required." : "Forbidden.",
+              {
+                status: denied,
+                headers: {
+                  ...SECURITY_HEADERS,
+                  "cache-control": "no-store, private",
+                  "content-type": "text/plain; charset=utf-8",
+                },
+              },
+            );
+          }
+        }
         if (request.method !== "GET" && !head) {
           return respond(methodNotAllowedPage(), false, { allow: "GET, HEAD" });
         }
@@ -243,7 +276,13 @@ export function createPublicSite(options: PublicSiteOptions) {
           banners,
           reportSubmissionsEnabled: options.reportSubmissionsEnabled === true,
         };
-        return respond(await route(context, url, pathname), head);
+        return respond(
+          await route(context, url, pathname),
+          head,
+          isStaffReportsPath(url.pathname)
+            ? { "cache-control": "no-store, private" }
+            : {},
+        );
       } catch (error) {
         try {
           return respond(errorToPage(error), head);

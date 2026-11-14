@@ -101,6 +101,7 @@ and [D1 readiness](d1-readiness.md).
 | `/organizations/{organizationId}`                        | Organization profile, positions and roles                                                                               |
 | `/stories`, `/posts`, `/stories/{slug}`, `/posts/{slug}` | Editorial listing and article templates                                                                                 |
 | `/about`, `/reading-records`                             | Supporting pages                                                                                                        |
+| `/admin/reports`                                          | ACCT-1 protected private staff report review workspace                                                                  |
 | `/counties?county={countyFips}`                          | County switcher; redirects to the county page                                                                           |
 | `/assets/{name}`                                         | Stylesheet, script and brand images                                                                                     |
 
@@ -247,6 +248,7 @@ file and no Beta-1 banner is used anywhere in this repository.
 ## Not implemented
 
 - Hosted deployment and Worker wiring of the site.
+- A hosted, verified human identity context for the private report review page.
 - Publication of Stories and Posts, and any public editorial endpoint.
 - Browsing all people or organizations without a search term (the search
   contract requires two characters).
