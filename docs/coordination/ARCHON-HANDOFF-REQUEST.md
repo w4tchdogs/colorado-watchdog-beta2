@@ -1,11 +1,10 @@
 # Archon successor handoff — reusable request
 
-Use this for an **Archon successor handoff**: replacing a Website, Profiles,
-or Visual-Audit Archon; transferring cross-project coordination
-responsibility; or ending a long-running Archon conversation. For an
-ordinary small-task handoff, use
-[HANDOFF-TEMPLATE.md](HANDOFF-TEMPLATE.md) instead — this is heavier than
-routine work needs.
+Use this for an **Archon successor handoff**: replacing the 💠archon;
+transferring cross-project coordination responsibility; or ending a
+long-running Archon conversation. Task chats use
+[HANDOFF-TEMPLATE.md](HANDOFF-TEMPLATE.md) for routine task handoffs; this
+request is heavier than routine work needs.
 
 Paste the prompt below into the **outgoing** Archon's chat. It produces a
 complete, self-contained continuation prompt for the incoming Archon. Do not

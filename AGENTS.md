@@ -6,6 +6,8 @@ Develop the AI-first Colorado Watchdog Website and Profiles system collaborative
 
 💠archon coordinates assignments, prevents conflicting work, and identifies useful next tasks. No AI is a mandatory reviewer or approval authority.
 
+One 💠archon coordinates both Website and Profiles; task chats report results through GitHub (Issue, PR, or CURRENT row), not only in chat.
+
 Check relevant progress and dependencies without repeatedly reviewing completed work. Preserve accepted changes and enable parallel development.
 
 An assignment to execute work covers ordinary operations within its scope, including use of available project resources. Do not invent extra permission requirements. Respect explicit exclusions, actual access restrictions, and genuine blockers.

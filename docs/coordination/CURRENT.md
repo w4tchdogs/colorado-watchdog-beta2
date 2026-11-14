@@ -1,6 +1,6 @@
 # Colorado Watchdog beta-2 — current state
 
-Revision: November 14, 2026. Evidence: GitHub `main` at `bc60154fc3b3fe4b4df3a74e3042e7d552803969` (merge of PR #95, on top of PR #94's `d511c0d2`), [decisions](../decisions.md), and Issue [#93](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/93) (COORD-1, closed) — COORD-1A continues this work on architectural drift prevention and successor handoffs. Read this after [START](START.md) and before track-specific documents. Five-minute read.
+Revision: November 14, 2026. Evidence: GitHub `main` at `b52020a32d6109787fe070daf5696c13f24b7ea3` (PR #96), [decisions](../decisions.md), and the linked Issues/PRs below. Read this after [START](START.md) and before track-specific documents. Five-minute read.
 
 ## Status vocabulary
 
@@ -52,7 +52,7 @@ Beta-1 data, banners and visual assets are **not** migrated into beta-2 automati
 | Website application foundation (M0-A–D) | Merged, implemented locally | `src/application.ts`, `src/worker.ts`; [site-foundation.md](../architecture/site-foundation.md) |
 | Website D1 schema (migrations 0001–0016) | Merged, implemented locally (Wrangler local D1) | `website/migrations/`; [d1-readiness.md](../architecture/d1-readiness.md) |
 | Accounts and security (ACCT-1, AUTH-1, AUTH-2) | Merged, implemented locally; fails closed without a verified Sites identity | PR #70, #81, #88; [account-management.md](../architecture/account-management.md) |
-| Profiles research foundation (R0) | Merged, implemented locally; synthetic fixtures only | [R0-foundation.md](../research/R0-foundation.md) |
+| Profiles research foundation (R0) | Merged, implemented locally; repository tests use synthetic fixtures only. The live local research database contains real research data: 64 counties, 79 import batches, 20,797 role claims, 2,988 sources, 2,692 organizational units, 6,706 position targets and 3,256 research people. Research migrations 001–002 are applied; 003 is not applied. Verified read-only by Claude, 2026-11-14 | [R0-foundation.md](../research/R0-foundation.md) |
 | R7/R8 synchronization preparation | Merged, implemented locally; hosted sync still unresolved | PR #71, #73; [R7](../research/R7-profiles-website-integration.md), [R8](../research/R8-profiles-sync-operator.md) |
 | M2 synchronization (planner/commit/reversal) | Merged; PR #66 (M2-G2) title itself notes "completion pending" — treat the async reversal path as implemented-locally, not fully closed out | PR #66; [m2-g0-transaction-guard.md](../architecture/m2-g0-transaction-guard.md) |
 | Public directory, person/organization profiles (M4-D) | Merged, implemented locally | PR #80; [public-site.md](../architecture/public-site.md) |
@@ -62,7 +62,8 @@ Beta-1 data, banners and visual assets are **not** migrated into beta-2 automati
 | MCP administration | Merged, implemented locally: read-only Website inspection MCP (`d1.inspect` capability, aggregate counts only) and a Profiles readiness MCP (stdio, aggregate eligibility counts only). **No write, sync, import, or migration tool exists**; no hosted Site has published or connected to the MCP endpoint | PR #95; [mcp-administration.md](../architecture/mcp-administration.md) |
 | Hosted D1 migration (0015, Lake/La Plata correction) | Merged to source; hosted application **blocked/undetermined** | `website/migrations/0015_correct_lake_la_plata_county_names.sql`; D1-0015-PREFLIGHT-1 (below) |
 | Hosted R2 provisioning | **Not done.** `r2: null` in `.openai/hosting.json` on `main` | `.openai/hosting.json` |
-| Real Profiles import | **Not executed** | — |
+| Website Profiles import (sync to D1) | **Not executed**; no changeset has ever been prepared and local sync tables are empty | Verified read-only by Claude, 2026-11-14 |
+| Local research intake | Complete for 79 batches across 64 counties | Verified read-only by Claude, 2026-11-14 |
 | Real banner import | **Not executed** (BANNERS-IMPORT-1 is a separate future task) | [banner-delivery.md](../architecture/banner-delivery.md) |
 | Public Site deployment (Alpha-1) | **Deployed**, but stale relative to `main` — see section D | — |
 | Visual audit | In progress; coverage ledger and several VIS fixes merged | PR #82–#92; `docs/coordination/visual-audit/` |
@@ -78,7 +79,7 @@ Last independently verified Alpha-1 deployment:
 - Audience: public
 - Logical D1 binding: `DB`; R2: not provisioned at that deployment
 
-**This evidence is last-verified, not rechecked live in this revision.** `main` has merged substantially past `8565366` (current `main` is `db2903d`, plus PRs #90–#92 on top). A later merge to `main` is never assumed to be deployed — redeploying Alpha-1 is a separate, explicit action. Do not treat the commit on `main` as what visitors currently see.
+**This evidence is last-verified, not rechecked live in this revision.** `main` has advanced beyond the recorded source commit `8565366`. A later merge to `main` is never assumed to be deployed — redeploying Alpha-1 is a separate, explicit action. Do not treat the commit on `main` as what visitors currently see.
 
 ## E. Current blockers / open dependencies
 
@@ -87,6 +88,9 @@ Last independently verified Alpha-1 deployment:
 - **R2 provisioning** — needed before BANNERS-IMPORT-1 (real banner import) or any R2-backed MCP file storage.
 - **Profiles research eligibility and hosted synchronization** — R7/R8 give the sync design; no real personnel data has been screened for hosted sync, and the Website-side sync route remains internal/unregistered ([d1-readiness.md](../architecture/d1-readiness.md)).
 - **Verified hosted D1 administrative access** — no trustworthy stable Sites subject is currently exposed to the Worker ([account-management.md](../architecture/account-management.md), [beta-2-planning-handoff.md](../architecture/beta-2-planning-handoff.md)); this blocks both migration 0015 application and first-owner bootstrap.
+- The local research database is at research migration 002. Migration 003 (`003_site_entity_reconciliation.sql`) must be applied before sync preparation.
+- The second research campaign (`research-campaign-2026-11-13-campaign2`, Archuleta, Boulder, Eagle, El Paso, Routt and La Plata) is complete on disk and unimported. Its Routt file uses county code `08049` (Grand); Routt is `08107`. Do not import without correction and revalidation. Active county research remains paused by the owner.
+- Twenty-two encrypted local research backups exist; restorability is unverified.
 
 None of the above is an artificial blocker on routine, disjoint PR work; they block only hosted D1/R2 operations, real data import and MCP wiring specifically.
 
@@ -95,7 +99,10 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | Task | Status | Branch / PR / Issue | Dependency | Last verified |
 | --- | --- | --- | --- | --- |
 | COORD-1 | Merged | PR #94, `d511c0d2`; Issue #93 closed | — | 2026-11-14 |
-| COORD-1A | In progress | `coord-1a-drift-prevention-handoffs` | COORD-1 (merged) | 2026-11-14 |
+| COORD-1A | Merged | PR #96, `b52020a3` | COORD-1 (merged) | 2026-11-14 |
+| COORD-2 | In progress | `coord-2-single-archon-consolidation` | — | 2026-11-14 |
+| WSO-1 | Complete; read-only workspace assessment. Filesystem inventory is valid; Git observations came from a stale local checkout at the PR #83 era and do not describe current `main` | Report in owner's Drive folder "Colorado Watchdog - Claude Reports": "Colorado Watchdog Workspace Organization Assessment and Proposed Plan rev2026-11-14 v1.docx" | — | 2026-11-14 |
+| Profiles Archon retired | Complete | Owner decision, 2026-11-14 | — | 2026-11-14 |
 | VIS8-RESTORE-1 | Merged | PR #91, `db2903d1` | — | 2026-11-14 |
 | BANNERS-3 | Merged | PR #92, `0c08faf8` | R2 provisioning (for real import) | 2026-11-14 |
 | VIS13-SEARCH-1 | Merged | PR #90, `8b39dadc` | — | 2026-11-14 |
@@ -108,7 +115,7 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | Profiles Import Pilot | Assessment complete; readiness/hosted-sync unresolved | — | Hosted D1 admin access, R7/R8 | 2026-11-14 |
 | BANNERS-4 (carousel) | Planned, not started | — | BANNERS-3 (merged) | — |
 | BANNERS-IMPORT-1 (real import) | Planned, not started | — | R2 provisioning | — |
-| Real Profiles import | Not executed | — | Profiles Import Pilot, hosted sync | — |
+| Website Profiles import (sync to D1) | Not executed | No changeset ever prepared; local sync tables empty | Migration 003, R7/R8, hosted sync | 2026-11-14 |
 
 No task above is owned by more than one AI at once; check this table and the linked Issue/PR before starting overlapping work.
 
