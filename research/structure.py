@@ -355,8 +355,61 @@ def build_structure_plan(db):
     unresolved_position_cases = [case for case in unresolved if case["category"] == "position"]
     position_without_target = [link for link in claim_links if link["has_title"] and link["target_id"] is None]
     missing_titles = [link for link in claim_links if not link["has_title"]]
+
+    # The planner is statewide so it can validate the complete preserved graph,
+    # but audit only decisions that have not already been recorded. Historical
+    # role-claim structure events provide the durable processed marker; this
+    # keeps incremental previews from re-auditing every prior claim.
+    processed_claim_ids = {
+        row[0] for row in db.execute(
+            "SELECT DISTINCT entity_id FROM research_events "
+            "WHERE entity_type='role_claims' AND kind='role_claim_structure_linked'")
+    }
+    new_claim_ids = sorted({claim["claim_id"] for claim in claim_links
+                            if claim["claim_id"] not in processed_claim_ids})
+    existing_unit_rows = {row["id"]: row for row in db.execute(
+        "SELECT id,parent_id,parent_relation,parent_evidence_id FROM org_units")}
+    existing_name_ids = {row[0] for row in db.execute("SELECT id FROM org_names")}
+    existing_target_ids = {row[0] for row in db.execute("SELECT id FROM role_targets")}
+    existing_source_links = {tuple(row) for row in db.execute(
+        "SELECT source_id,unit_id,relation FROM source_unit_links")}
+    new_units = sorted(unit["id"] for unit in unit_rows
+                       if unit["id"] not in existing_unit_rows)
+    new_parents = sorted(unit["id"] for unit in unit_rows if unit["parent_id"] and
+                         (unit["id"] in new_units or
+                          ((row := existing_unit_rows.get(unit["id"])) is not None and
+                           (row["parent_id"], row["parent_relation"], row["parent_evidence_id"]) ==
+                           (None, None, None))))
+    new_names = sorted(name["id"] for name in name_rows
+                       if name["id"] not in existing_name_ids)
+    new_targets = sorted(target["id"] for target in targets
+                         if target["id"] not in existing_target_ids)
+    new_source_links = sorted(
+        f"{link['source_id']}:{link['unit_id']}:{link['relation']}"
+        for link in source_link_rows
+        if (link["source_id"], link["unit_id"], link["relation"]) not in existing_source_links
+    )
+    new_evidence_ids = {claim["evidence_id"] for claim in claim_links if claim["claim_id"] in new_claim_ids}
+    unresolved_parent_units = sorted(
+        {case["unit_id"] for case in unresolved_parents
+         if case["unit_id"] in new_units or any(
+             evidence_id in new_evidence_ids
+             for unit in unit_rows if unit["id"] == case["unit_id"]
+             for evidence_id in unit["evidence_ids"])}
+    )
+    event_changes = {
+        "units": new_units,
+        "parents": new_parents,
+        "names": new_names,
+        "targets": new_targets,
+        "source_links": new_source_links,
+        "claims": new_claim_ids,
+        "unresolved_parent_units": unresolved_parent_units,
+    }
     payload = {
         "format": PLAN_FORMAT,
+        "event_policy": "incremental-decisions/v1",
+        "event_changes": event_changes,
         "input": {"claim_count": len(rows), "county_count": len(counts_by_county),
                   "batch_count": len(batch_rows), "batch_versions": batch_rows,
                   "claims_by_county": dict(sorted(counts_by_county.items()))},
@@ -390,6 +443,8 @@ def build_structure_plan(db):
             "published_unit_name_evidence_rows": len(name_rows),
             "source_visits_to_create": 0,
             "batch_or_evidence_rows_to_change": 0,
+            "incremental_audit_events": sum(len(values) for values in event_changes.values())
+                + sum(case["claim_id"] in set(new_claim_ids) for case in unresolved),
         },
     }
     digest = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
@@ -432,10 +487,27 @@ def _existing_run(db, run_id, digest, expected_events):
 
 
 def _expected_event_count(plan):
+    changes = plan.get("event_changes")
+    if plan.get("event_policy") == "incremental-decisions/v1" and isinstance(changes, dict):
+        return (sum(len(changes.get(key, [])) for key in (
+            "units", "parents", "names", "targets", "source_links", "claims", "unresolved_parent_units"))
+            + sum(case["claim_id"] in set(changes["claims"]) for case in plan["unresolved"]))
     return (len(plan["units"]) + len(plan["targets"]) + len(plan["claim_links"])
             + len(plan["names"]) + len(plan["source_links"])
             + len([u for u in plan["units"] if u["parent_id"]])
             + len(plan["unresolved"]) + len(plan["unresolved_parents"]))
+
+
+def _same_decision_plan(left, right):
+    """Compare the reviewed structural result while ignoring post-apply event deltas."""
+    left_payload = {key: value for key, value in left.items()
+                    if key not in {"plan_sha256", "event_changes"}}
+    right_payload = {key: value for key, value in right.items()
+                     if key not in {"plan_sha256", "event_changes"}}
+    for payload in (left_payload, right_payload):
+        payload["summary"] = dict(payload["summary"])
+        payload["summary"].pop("incremental_audit_events", None)
+    return left_payload == right_payload
 
 
 def _check_same_county(db, child, parent):
@@ -494,14 +566,29 @@ def apply_structure_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
     db.execute("BEGIN IMMEDIATE")
     try:
         validate_migration_history(db)
-        fresh = build_structure_plan(db)
-        if fresh["plan_sha256"] != digest:
-            raise ValueError("Research evidence or structure changed after the preview was generated")
         already = _existing_run(db, run_id, digest, _expected_event_count(plan))
         if already:
             db.rollback()
             _verify_applied(db, plan, run_id)
             return already
+
+        for name in plan["names"]:
+            row = db.execute("SELECT unit_id,name,kind,evidence_id FROM org_names WHERE id=?", (name["id"],)).fetchone()
+            if row is not None and tuple(row) != (name["unit_id"], name["name"], name["kind"], name["evidence_id"]):
+                raise ValueError("Conflicting existing organization name record")
+
+        fresh = build_structure_plan(db)
+        if fresh["plan_sha256"] != digest:
+            raise ValueError("Research evidence or structure changed after the preview was generated")
+
+        changes = plan.get("event_changes", {})
+        changed_units = set(changes.get("units", []))
+        changed_parents = set(changes.get("parents", []))
+        changed_names = set(changes.get("names", []))
+        changed_targets = set(changes.get("targets", []))
+        changed_source_links = set(changes.get("source_links", []))
+        changed_claims = set(changes.get("claims", []))
+        changed_unresolved_parent_units = set(changes.get("unresolved_parent_units", []))
 
         db.execute("INSERT INTO research_runs VALUES (?,?,?,?,?,?,?,?)",
                    (run_id, "mapping", "reconstructed", actor, now, now, now,
@@ -518,12 +605,13 @@ def apply_structure_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                 core = (existing["county_fips"], existing["source_label"], existing["kind"])
                 if core != (unit["county_fips"], unit["source_label"], unit["kind"]):
                     raise ValueError("Conflicting existing organization unit")
-            _insert_event(db, run_id, "org_unit_evidence_reconciled", "org_units", unit["id"], {
+            if unit["id"] in changed_units:
+                _insert_event(db, run_id, "org_unit_evidence_reconciled", "org_units", unit["id"], {
                 "county_fips": unit["county_fips"], "source_label": unit["source_label"],
                 "kind": unit["kind"], "basis": unit["decision_basis"],
                 "source_fields": unit["source_fields"], "evidence_ids": unit["evidence_ids"],
                 "rule": "exact county-local label; kind remains unknown unless the source field or label supports a narrower class",
-            }, now=now)
+                }, now=now)
 
         for unit in plan["units"]:
             if not unit["parent_id"]:
@@ -537,11 +625,12 @@ def apply_structure_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                            (*expected, unit["id"]))
             elif tuple(current) != expected:
                 raise ValueError("Conflicting existing parent decision; no structural changes were committed")
-            _insert_event(db, run_id, "org_unit_parent_reconciled", "org_units", unit["id"], {
+            if unit["id"] in changed_parents:
+                _insert_event(db, run_id, "org_unit_parent_reconciled", "org_units", unit["id"], {
                 "parent_id": unit["parent_id"], "relation": unit["parent_relation"],
                 "evidence_id": unit["parent_evidence_id"],
                 "rule": "official-structure claim explicitly provides both division and department labels",
-            }, now=now)
+                }, now=now)
 
         for name in plan["names"]:
             row = db.execute("SELECT unit_id,name,kind,evidence_id FROM org_names WHERE id=?", (name["id"],)).fetchone()
@@ -551,10 +640,11 @@ def apply_structure_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                             name["evidence_id"], None, None))
             elif tuple(row) != (name["unit_id"], name["name"], name["kind"], name["evidence_id"]):
                 raise ValueError("Conflicting existing organization name record")
-            _insert_event(db, run_id, "org_name_evidence_reconciled", "org_names", name["id"], {
+            if name["id"] in changed_names:
+                _insert_event(db, run_id, "org_name_evidence_reconciled", "org_names", name["id"], {
                 "unit_id": name["unit_id"], "evidence_id": name["evidence_id"],
                 "name": name["name"], "name_kind": "published",
-            }, now=now)
+                }, now=now)
 
         for target in plan["targets"]:
             row = db.execute("SELECT unit_id,county_fips,documented_title,evidence_id,occupancy,occupancy_evidence_id "
@@ -569,12 +659,13 @@ def apply_structure_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                             target["evidence_id"], target["occupancy"], target["occupancy_evidence_id"])
                 if tuple(row) != expected:
                     raise ValueError("Conflicting existing position target; no structural changes were committed")
-            _insert_event(db, run_id, "role_target_evidence_reconciled", "role_targets", target["id"], {
+            if target["id"] in changed_targets:
+                _insert_event(db, run_id, "role_target_evidence_reconciled", "role_targets", target["id"], {
                 "unit_id": target["unit_id"], "title": target["documented_title"],
                 "evidence_id": target["evidence_id"], "claim_ids": target["claim_ids"],
                 "occupancy": target["occupancy"],
                 "rule": "exact published title and county-local unit; Listed observation; one target per title type, not per employment seat",
-            }, now=now)
+                }, now=now)
 
         for link in plan["source_links"]:
             row = db.execute("SELECT evidence_id FROM source_unit_links WHERE source_id=? AND unit_id=? AND relation=?",
@@ -584,11 +675,13 @@ def apply_structure_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                            (link["source_id"], link["unit_id"], link["relation"], link["evidence_id"]))
             elif row["evidence_id"] != link["evidence_id"]:
                 raise ValueError("Source-to-unit link changed after preview")
-            _insert_event(db, run_id, "source_unit_evidence_reconciled", "source_unit_links",
+            source_link_key = f"{link['source_id']}:{link['unit_id']}:{link['relation']}"
+            if source_link_key in changed_source_links:
+                _insert_event(db, run_id, "source_unit_evidence_reconciled", "source_unit_links",
                           f"{link['source_id']}:{link['unit_id']}:{link['relation']}", {
                               "source_id": link["source_id"], "unit_id": link["unit_id"],
                               "relation": link["relation"], "evidence_id": link["evidence_id"],
-                          }, now=now)
+                              }, now=now)
 
         for claim in plan["claim_links"]:
             row = db.execute("SELECT unit_id,target_id FROM role_claims WHERE id=?", (claim["claim_id"],)).fetchone()
@@ -600,28 +693,33 @@ def apply_structure_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
             if current_unit is None or current_target is None:
                 db.execute("UPDATE role_claims SET unit_id=?,target_id=? WHERE id=?",
                            (claim["unit_id"], claim["target_id"], claim["claim_id"]))
-            _insert_event(db, run_id, "role_claim_structure_linked", "role_claims", claim["claim_id"], {
+            if claim["claim_id"] in changed_claims:
+                _insert_event(db, run_id, "role_claim_structure_linked", "role_claims", claim["claim_id"], {
                 "before": {"unit_id": current_unit, "target_id": current_target},
                 "after": {"unit_id": claim["unit_id"], "target_id": claim["target_id"]},
                 "evidence_id": claim["evidence_id"], "batch_id": claim["batch_id"],
                 "family_id": claim["family_id"], "lineage_kind": claim["lineage_kind"],
                 "selected": claim["selected"], "unit_reason": claim["unit_reason"],
                 "basis": claim["grouping_basis"],
-            }, now=now)
+                }, now=now)
 
         for case in plan["unresolved"]:
+            if case["claim_id"] not in changed_claims:
+                continue
             _insert_event(db, run_id, f"{case['category']}_association_unresolved",
                           "role_claims", case["claim_id"], {
                               "evidence_id": case["evidence_id"], "reason": case["reason"],
                               "claim_id": case["claim_id"],
                           }, now=now)
         for case in plan["unresolved_parents"]:
+            if case["unit_id"] not in changed_unresolved_parent_units:
+                continue
             _insert_event(db, run_id, "org_parent_relationship_unresolved", "org_units",
                           case["unit_id"], {"reason": case["reason"],
                                             "evidence_ids": case["evidence_ids"]}, now=now)
 
         final = build_structure_plan(db)
-        if final["plan_sha256"] != digest:
+        if not _same_decision_plan(final, plan):
             raise ValueError("Applied structure does not reproduce the reviewed preview")
         violations = db.execute("PRAGMA foreign_key_check").fetchall()
         if violations:
