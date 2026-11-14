@@ -15,24 +15,28 @@ export function aboutPage(): Page {
       undefined,
       "Independent \u00b7 Community-run",
     )}
-    <img class="mascot mascot-aside" src="/assets/brand-mascot-sit-alert.png" alt="" width="210" height="212">
-    <div class="prose">
-      <h2>What this site documents</h2>
-      <p>Colorado has 64 counties, and each one organizes its government differently. Colorado Watchdog records the organizations that make up or serve each county, the positions documented within them, and the people public sources name in those positions.</p>
-      <p>The site also has a place for Stories and Posts: reporting that connects those records and cites its sources.</p>
-      <h2>What it relies on</h2>
-      <p>Records come from public sources such as official county webpages and public documents. A role is listed only when a source ties a person's name to a position. Each role shows that source and the date it was checked.</p>
-      <h2>What it does not claim</h2>
-      <ul>
-        <li>It is not a complete roster of any county, organization or office.</li>
-        <li>It does not state who currently holds a position. It states what a source said when it was checked.</li>
-        <li>It does not treat a missing name or position as a vacancy.</li>
-        <li>It does not merge people because their names match or resemble each other.</li>
-        <li>It does not describe a regional or partner organization as a county department.</li>
-      </ul>
-      <h2>Independence</h2>
-      <p>Colorado Watchdog is independent. It is not operated by, affiliated with or endorsed by any county or state agency.</p>
-      <p><a href="/reading-records">How to read these records</a> explains citations, dates and organization relationships in detail.</p>
+    <div class="split">
+      <section class="card prose">
+        <h2>What this site documents</h2>
+        <p>Colorado has 64 counties, and each one organizes its government differently. Colorado Watchdog records the organizations that make up or serve each county, the positions documented within them, and the people public sources name in those positions.</p>
+        <p>The site also has a place for Stories and Posts: reporting that connects those records and cites its sources.</p>
+        <h3>What it relies on</h3>
+        <p>Records come from public sources such as official county webpages and public documents. A role is listed only when a source ties a person's name to a position. Each role shows that source and the date it was checked.</p>
+        <img class="mascot" src="/assets/brand-mascot-sit-alert.png" alt="" width="210" height="212">
+      </section>
+      <section class="card prose">
+        <h2>What it does not claim</h2>
+        <ul>
+          <li>It is not a complete roster of any county, organization or office.</li>
+          <li>It does not state who currently holds a position. It states what a source said when it was checked.</li>
+          <li>It does not treat a missing name or position as a vacancy.</li>
+          <li>It does not merge people because their names match or resemble each other.</li>
+          <li>It does not describe a regional or partner organization as a county department.</li>
+        </ul>
+        <h3>Independence</h3>
+        <p>Colorado Watchdog is independent. It is not operated by, affiliated with or endorsed by any county or state agency.</p>
+        <p><a href="/reading-records">How to read these records</a> explains citations, dates and organization relationships in detail.</p>
+      </section>
     </div>`,
   };
 }

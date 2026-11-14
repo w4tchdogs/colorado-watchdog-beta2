@@ -408,9 +408,31 @@ test("supporting pages and unknown routes", async () => {
     const about = await get(preview, "/about");
     assert.equal(about.status, 200);
     assert.match(about.main(), /not a complete roster/);
+    assert.equal(about.$$(".page-header h1").length, 1);
+    assert.equal(about.$$(".page-header").length, 1);
+    assert.equal(about.$$(".card").length, 2);
+    assert.match(about.main(), /public sources name in those positions/);
+    assert.match(about.main(), /date it was checked/);
+    assert.match(
+      about.main(),
+      /does not treat a missing name or position as a vacancy/,
+    );
+    assert.match(
+      about.main(),
+      /does not merge people because their names match/,
+    );
     assert.match(
       about.main(),
       /not operated by, affiliated with or endorsed by/,
+    );
+    assert.ok(about.$('a[href="/reading-records"]'));
+    assert.equal(about.$$(".mascot").length, 1);
+    assert.equal(
+      about
+        .$$(".card > h2")
+        .map((heading) => heading.textContent.trim())
+        .join("|"),
+      "What this site documents|What it does not claim",
     );
     const guide = await get(preview, "/reading-records");
     assert.equal(guide.status, 200);
