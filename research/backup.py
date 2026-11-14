@@ -33,7 +33,9 @@ _DOMAIN_TABLES = frozenset({
     "counties", "org_units", "org_names", "role_targets", "unit_coverage", "source_unit_links",
     "research_people", "name_variants", "role_claims", "possible_matches", "sources", "evidence_links",
     "scrape_batches", "research_runs", "source_visits", "site_links", "sync_batches", "sync_items",
-    "sync_submissions", "research_events",
+    "sync_submissions", "research_events", "site_entity_links", "site_entity_lineage",
+    "sync_submission_items", "sync_submission_receipts", "sync_item_receipts", "sync_reversal_receipts",
+    "site_sync_update_approvals",
 })
 
 
@@ -77,7 +79,7 @@ def _database_snapshot(db):
     tables = [row[0] for row in db.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
     if set(tables) != _DOMAIN_TABLES | {"schema_migrations"}:
-        raise ValueError("Database does not contain the expected 20-table research schema")
+        raise ValueError("Database does not contain the expected canonical research schema")
     row_counts = {}
     digest = hashlib.sha256()
     for table in tables:

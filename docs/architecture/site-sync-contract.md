@@ -15,6 +15,13 @@ asynchronous boundary. The engine is unregistered and defaults to deny without
 a `sync.apply` authorizer. Production synchronization, hosted D1 access and D1
 reversal remain disabled.
 
+R7 adds a local Profiles changeset generator and receipt reconciliation on top
+of R6. Its additive migration is confined to the private Profiles SQLite
+database; Website migrations and routes are unchanged. The generator excludes
+unresolved identities and unclassified citations, and the R6 client still
+requires an injected transport. The synthetic integration verifies local D1
+service behavior only, not hosted synchronization.
+
 ## M2-C local commit implementation
 
 The internal `commitSyncChangeset` accepts only the M2-B `m2-sync/v1` commit envelope, a branded active M0-C principal, and a separate bounded idempotency key. It rechecks that principal before replay and again inside the transaction using the existing privileged account check; no sync capability, role grant, transport route, or application service is added. The service is not exported through `src/services/index.ts`.
