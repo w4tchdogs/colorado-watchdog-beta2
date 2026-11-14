@@ -73,6 +73,16 @@ test("validates, accepts a private report, and authenticates tracking separately
     ).report.description,
     submission().description,
   );
+  const staffCommit = await getReportForStaff(
+    store,
+    store.reportIdForReference(result.receipt.reference),
+    editor,
+  );
+  assert.equal(Object.hasOwn(staffCommit.receipt, "recoveryKey"), false);
+  assert.equal(
+    JSON.stringify(staffCommit).includes(result.receipt.recoveryKey),
+    false,
+  );
 });
 
 test("is idempotent for identical requests and conflicts on changed replay", async () => {
@@ -83,6 +93,7 @@ test("is idempotent for identical requests and conflicts on changed replay", asy
   assert.equal(Object.hasOwn(retry.receipt, "reportId"), false);
   assert.equal(retry.receipt.reference, first.receipt.reference);
   assert.equal(retry.receipt.recoveryKey, undefined);
+  assert.equal(first.receipt.recoveryKey.length, 64);
   await assert.rejects(
     submitReport(
       store,
