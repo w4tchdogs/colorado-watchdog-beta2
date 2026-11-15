@@ -138,12 +138,11 @@ test("synthetic sources of 21:9, 13:5 and 3:1 render in cover and contain", asyn
       "/assets/fixture-banner-3x1.v1.svg",
     );
 
-    // Counties without a record, and the homepage, keep the placeholder.
+    // Counties without a record keep the placeholder.
     assert.equal(
       (await get(preview, "/counties/08005")).$("[data-banner-frame] img"),
       null,
     );
-    assert.equal((await get(preview, "/")).$("[data-banner-frame] img"), null);
 
     for (const [name, ratio] of [
       ["fixture-banner-21x9.v1.svg", 2100 / 900],
@@ -713,4 +712,113 @@ test("owner logo and mascot artwork are used sparingly", async () => {
     }
     assert.match(home.$(".site-strip").textContent, /not findings of fact/);
   });
+});
+
+test("explicit play and pause are announced once, and nothing else is", () => {
+  const page = carouselPage(bannerFrame(carouselSlides, "08001").value);
+  const { control, window, timers, motion } = page;
+  const said = () => control("announce").textContent;
+  try {
+    assert.equal(control("announce").getAttribute("aria-live"), "polite");
+    assert.equal(said(), "");
+    // A disabled Pause and manual navigation say nothing about playback.
+    control("pause").click();
+    control("next").click();
+    assert.equal(said(), "");
+    assert.equal(control("status").textContent, "Banner 2 of 2");
+
+    control("play").click();
+    assert.equal(said(), "Banner rotation playing");
+    // The position status is untouched by Play and keeps one message per move.
+    assert.equal(control("status").textContent, "Banner 2 of 2");
+    page.tick();
+    assert.equal(control("status").textContent, "Banner 1 of 2");
+    assert.equal(said(), "Banner rotation playing");
+    control("play").click();
+    assert.equal(timers.size, 1);
+
+    control("pause").click();
+    assert.equal(said(), "Banner rotation paused");
+    assert.equal(timers.size, 0);
+    control("pause").click();
+    assert.equal(said(), "Banner rotation paused");
+
+    // Focus entering the carousel stops running rotation and says so once.
+    // A later Play is announced again.
+    control("play").click();
+    assert.equal(said(), "Banner rotation playing");
+    control("next").focus();
+    assert.equal(said(), "Banner rotation paused");
+    assert.equal(timers.size, 0);
+    control("pause").click();
+    assert.equal(said(), "Banner rotation paused");
+    control("play").click();
+    assert.equal(said(), "Banner rotation playing");
+    assert.equal(window.document.activeElement, control("next"));
+    // Pointer interaction is spoken the same way, while automatic stops
+    // (hidden page) are silent and clear the text so Play is heard again.
+    control("frame")
+      .closest(".hero")
+      .dispatchEvent(new window.Event("pointerenter"));
+    assert.equal(said(), "Banner rotation paused");
+    control("play").click();
+    page.changeVisibility(true);
+    assert.equal(said(), "");
+    page.changeVisibility(false);
+    control("play").click();
+    assert.equal(said(), "Banner rotation playing");
+
+    // An unavailable Play never announces that rotation started.
+    control("pause").click();
+    assert.equal(said(), "Banner rotation paused");
+    motion.matches = true;
+    motion.dispatchEvent(new window.Event("change"));
+    control("play").click();
+    assert.equal(said(), "Banner rotation paused");
+    assert.equal(timers.size, 0);
+    motion.matches = false;
+    motion.dispatchEvent(new window.Event("change"));
+    control("play").click();
+    control("image").dispatchEvent(new window.Event("error"));
+    assert.equal(said(), "");
+    control("play").click();
+    assert.equal(said(), "");
+    assert.equal(timers.size, 0);
+  } finally {
+    window.close();
+  }
+});
+
+test("the full-width hero removes the 100rem cap and keeps 3:1", () => {
+  const css = readFileSync(`${STATIC_DIRECTORY}site.css`, "utf8");
+  assert.doesNotMatch(css, /100rem/);
+  assert.match(/\.hero-banner \{[^}]*\}/.exec(css)[0], /width: 100%;/);
+  assert.match(
+    /\.banner-frame \{[^}]*\}/.exec(css)[0],
+    /aspect-ratio: 3 \/ 1;/,
+  );
+  assert.match(/\.hero-content \.wrap \{[^}]*\}/.exec(css)[0], /var\(--wrap\)/);
+});
+
+test("the synthetic preview shows two homepage banners and can turn them off", async () => {
+  await withBanners({ bannerFixtures: true }, async (preview) => {
+    const page = await get(preview, "/");
+    const frame = page.$(".hero [data-banner-frame]");
+    assert.equal(frame.dataset.bannerCount, "2");
+    assert.equal(frame.dataset.bannerId, "fixture-home-wide");
+    assert.ok(frame.querySelector("img"));
+    assert.ok(page.$("[data-banner-controls]"));
+    assert.ok(page.$("[data-banner-announce]"));
+  });
+  await withBanners(
+    { bannerFixtures: true, homeBannerFixtures: false },
+    async (preview) => {
+      const page = await get(preview, "/");
+      const frame = page.$(".hero [data-banner-frame]");
+      assert.equal(frame.dataset.bannerCount, "0");
+      assert.equal(frame.querySelector("img"), null);
+      const county = await get(preview, "/counties/08001");
+      assert.equal(county.$("[data-banner-frame]").dataset.bannerCount, "2");
+    },
+  );
 });

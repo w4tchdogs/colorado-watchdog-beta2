@@ -181,6 +181,7 @@ export function bannerFrame(
     multiple
       ? html`<div class="banner-controls" data-banner-controls role="group" aria-label="Banner carousel" hidden>
       <p class="banner-status" aria-live="polite" aria-atomic="true" data-banner-status>Banner 1 of ${selected.length}</p>
+      <p class="visually-hidden" aria-live="polite" aria-atomic="true" data-banner-announce></p>
       <div class="banner-buttons">
         <button type="button" data-banner-previous aria-label="Previous banner">Previous</button>
         <button type="button" data-banner-next aria-label="Next banner">Next</button>

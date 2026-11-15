@@ -175,6 +175,7 @@ function enhanceBanner(frame) {
     : null;
   const caption = frame.querySelector(".banner-caption");
   const status = controls?.querySelector("[data-banner-status]");
+  const announce = controls?.querySelector("[data-banner-announce]");
   const play = controls?.querySelector("[data-banner-play]");
   const pause = controls?.querySelector("[data-banner-pause]");
   const motion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
@@ -220,9 +221,21 @@ function enhanceBanner(frame) {
     pause?.setAttribute("aria-disabled", String(timer === undefined));
   }
 
-  function stop() {
+  // Playback changes are spoken once, by a second polite region, so the
+  // position status keeps its single announcement per selection. Every stop
+  // clears the text silently, which lets a later identical message be heard.
+  function say(message) {
+    if (announce) announce.textContent = message;
+  }
+
+  // Stops from the person's own action (Pause, focus or pointer entering the
+  // carousel) say "paused" only when rotation was running. Automatic stops
+  // (hidden page, reduced motion, failed image) stay silent.
+  function stop(spoken = false) {
+    const running = timer !== undefined;
     window.clearInterval(timer);
     timer = undefined;
+    if (running) say(spoken === true ? "Banner rotation paused" : "");
     updatePlayback();
   }
 
@@ -305,22 +318,23 @@ function enhanceBanner(frame) {
   controls
     .querySelector("[data-banner-next]")
     .addEventListener("click", () => move(1));
-  pause.addEventListener("click", stop);
+  pause.addEventListener("click", () => stop(true));
   play.addEventListener("click", () => {
     if (timer !== undefined || !canPlay()) return;
     timer = window.setInterval(() => move(1), delay);
     updatePlayback();
+    say("Banner rotation playing");
   });
   const carousel = frame.parentElement;
   const hero = carousel.closest(".hero") ?? carousel;
-  carousel.addEventListener("focusin", stop);
-  hero.addEventListener("pointerenter", stop);
-  hero.addEventListener("pointerdown", stop);
+  carousel.addEventListener("focusin", () => stop(true));
+  hero.addEventListener("pointerenter", () => stop(true));
+  hero.addEventListener("pointerdown", () => stop(true));
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) stop();
     else updatePlayback();
   });
-  motion?.addEventListener("change", stop);
+  motion?.addEventListener("change", () => stop());
   window.addEventListener("pagehide", () => {
     pageActive = false;
     stop();

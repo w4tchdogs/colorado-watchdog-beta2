@@ -1049,8 +1049,9 @@ img {
   color: #ffffff;
 }
 .hero-banner {
-  max-width: 100rem;
-  margin-inline: auto;
+  /* Full width of the page inside the scrollbar. The heading and text keep
+     the content width through .hero-content .wrap. */
+  width: 100%;
 }
 .hero-content {
   padding-block: var(--space-5) var(--space-6);
@@ -1104,8 +1105,6 @@ img {
   /* Heading overlays the artwork; the frame and the text share one cell. */
   .hero {
     display: grid;
-    max-width: 100rem;
-    margin-inline: auto;
   }
   .hero-banner,
   .hero-content {
