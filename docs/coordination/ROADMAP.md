@@ -27,9 +27,9 @@ update and edit each of them.
   through audited, capability-limited tools. Each domain has a written
   operator guide that any AI can follow.
 - **Today:** a read-only Website inspection MCP and a local Profiles
-  readiness MCP are merged (PR #95). No hosted endpoint is published and no
-  write tool exists.
-- **Remaining:** hosted MCP publication (MCP-2), write tools for each domain
+  readiness MCP are merged (PR #95). Alpha-1 v5 publishes the read-only
+  Website endpoint. Authenticated inspection and write tools remain open.
+- **Remaining:** authenticated hosted MCP verification (MCP-2), write tools for each domain
   (MCP-3), and AI operator guides (MCP-4).
 
 ### Goal 2. A populated hosted database
@@ -109,10 +109,10 @@ Several goals depend on the same hosted groundwork. These come first.
 
 | ID | Work | Unblocks | Status |
 | --- | --- | --- | --- |
-| DEPLOY-1 | Determine how a new Alpha-1 deployment applies migrations, then deploy current `main` without applying migration 0015 early | Every hosted goal | Planned |
-| D1-0015 | Hosted D1 provenance check and migration 0015 (Lake and La Plata) | DEPLOY-1, Goal 2 | Blocked (hosted D1 access) |
+| DEPLOY-1 | Initialize the existing Alpha-1 Website D1 and publish the accepted source | Every hosted goal | Deployed as v5; see CURRENT |
+| D1-0015 | Apply and verify the Lake and La Plata correction during Alpha-1 initialization | Goal 2 | Hosted registry verified in v5 |
 | AUTH-3 | Verified hosted human identity for sign-in | Goals 3, 4 (staff), 5 | Blocked (Sites identity) |
-| MCP-2 | Publish the read-only MCP endpoint on the hosted Site | Goal 1, hosted D1 access | Planned |
+| MCP-2 | Publish read-only MCP and verify authenticated inspection | Goal 1, hosted D1 administration | Endpoint published; authenticated verification open |
 | R2-1 | Provision the R2 binding on the existing Site | BANNERS-IMPORT-1 | Planned |
 
 ## Ordered backlog
@@ -125,9 +125,9 @@ is lifted.
 
 | Order | ID | Work | Depends on | Goal |
 | --- | --- | --- | --- | --- |
-| 1 | DEPLOY-1 | Deployment safety assessment, then deploy `main` to Alpha-1 without applying migration 0015 before its provenance check | None | All |
-| 2 | MCP-2 | Hosted read-only MCP publication and agent connection | DEPLOY-1 | 1 |
-| 3 | D1-0015 | Provenance check through MCP, then apply migration 0015 | MCP-2 | 2 |
+| 1 | DEPLOY-1 | Initialize existing Alpha-1 D1 with pending migrations and deploy the accepted source | Verified unused application database; owner decision | All |
+| 2 | MCP-2 | Hosted read-only MCP publication and authenticated inspection | DEPLOY-1; AUTH-3/AUTH-4 and inspection-only credential for protected calls | 1 |
+| 3 | D1-0015 | Verify the complete hosted county registry after migration 0015 | DEPLOY-1 initialization | 2 |
 | 4 | AUTH-3 | Choose and implement a verified hosted identity method at $0 cost | Owner decision | 3 |
 | 5 | AUTH-4 | Create the first owner account | AUTH-3 | 3 |
 | 6 | R2-1 | Provision R2 on the existing Site | DEPLOY-1 | 2 |
