@@ -165,8 +165,45 @@ export const BANNER_FIXTURES: readonly BannerPresentation[] = [
   },
 ];
 
-export const fixtureBannerSource: BannerSource = {
-  forCounty: (countyFips) =>
-    BANNER_FIXTURES.filter((banner) => banner.countyFips === countyFips),
-  forHome: () => [],
-};
+/** Two synthetic homepage banners, so the homepage carousel can be tested. */
+export const HOME_BANNER_FIXTURES: readonly BannerPresentation[] = [
+  {
+    bannerId: "fixture-home-wide",
+    assetVersion: "v1",
+    countyFips: null,
+    src: asset("fixture-banner-21x9.v1.svg"),
+    width: 2100,
+    height: 900,
+    alt: "Synthetic homepage 21 by 9 test pattern.",
+    caption: "Synthetic homepage 21:9 pattern, cover",
+    displayMode: "cover",
+    order: 1,
+    status: "published",
+  },
+  {
+    bannerId: "fixture-home-exact",
+    assetVersion: "v1",
+    countyFips: null,
+    src: asset("fixture-banner-3x1.v1.svg"),
+    width: 2400,
+    height: 800,
+    alt: "Synthetic homepage 3 by 1 test pattern.",
+    caption: "Synthetic homepage 3:1 pattern",
+    order: 2,
+    status: "published",
+  },
+];
+
+/** `home: false` leaves the homepage without banners to test the fallback. */
+export function createFixtureBannerSource(
+  options: { readonly home?: boolean } = {},
+): BannerSource {
+  const home = options.home ?? true;
+  return {
+    forCounty: (countyFips) =>
+      BANNER_FIXTURES.filter((banner) => banner.countyFips === countyFips),
+    forHome: () => (home ? HOME_BANNER_FIXTURES : []),
+  };
+}
+
+export const fixtureBannerSource: BannerSource = createFixtureBannerSource();
