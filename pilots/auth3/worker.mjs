@@ -1,0 +1,142 @@
+const COOKIE = "__Host-wd-auth3-session";
+const STATE_COOKIE = "__Host-wd-auth3-state";
+const PILOT_ORIGIN = "https://colorado-watchdog-auth3-pilot.futureguild2.chatgpt.site";
+const encoder = new TextEncoder();
+const noStore = { "cache-control": "no-store", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" };
+
+function response(body, status = 200, headers = {}) {
+  const output = new Headers(noStore);
+  for (const [key, value] of Object.entries(headers)) {
+    if (Array.isArray(value)) for (const item of value) output.append(key, item);
+    else output.set(key, value);
+  }
+  return new Response(body, { status, headers: output });
+}
+function cookie(request, name) {
+  const matches = (request.headers.get("cookie") ?? "").split(";").map(x => x.trim()).filter(x => x.startsWith(`${name}=`));
+  return matches.length === 1 ? matches[0].slice(name.length + 1) : null;
+}
+function b64url(bytes) { return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,""); }
+function randomToken(size = 32) { const bytes = crypto.getRandomValues(new Uint8Array(size)); return b64url(bytes); }
+async function hash(value) { return b64url(await crypto.subtle.digest("SHA-256", encoder.encode(value))); }
+function setCookie(name, value, maxAge) { return `${name}=${value}; Path=/; Max-Age=${maxAge}; Secure; HttpOnly; SameSite=Lax`; }
+function clearCookie(name) { return `${name}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax`; }
+function issuer(env) {
+  if (!env.AUTH0_ISSUER || !env.AUTH0_ISSUER.startsWith("https://") || !env.AUTH0_ISSUER.endsWith("/")) throw new Error("invalid_configuration");
+  const url = new URL(env.AUTH0_ISSUER);
+  if (url.pathname !== "/" || url.search || url.hash || url.username || url.password) throw new Error("invalid_configuration");
+  return env.AUTH0_ISSUER;
+}
+function parseJwt(token) {
+  if (typeof token !== "string" || token.length > 16384) throw new Error("invalid_token");
+  const parts = token.split(".");
+  if (parts.length !== 3) throw new Error("invalid_token");
+  const decode = part => JSON.parse(atob(part.replace(/-/g,"+").replace(/_/g,"/").padEnd(Math.ceil(part.length/4)*4,"=")));
+  return { header: decode(parts[0]), claims: decode(parts[1]), input: `${parts[0]}.${parts[1]}`, signature: decodeBytes(parts[2]) };
+}
+function decodeBytes(part) { return Uint8Array.from(atob(part.replace(/-/g,"+").replace(/_/g,"/").padEnd(Math.ceil(part.length/4)*4,"=")), c => c.charCodeAt(0)); }
+
+let jwksCache = { issuer: "", expires: 0, keys: [] };
+async function getKeys(iss, force = false) {
+  if (!force && jwksCache.issuer === iss && jwksCache.expires > Date.now()) return jwksCache.keys;
+  const url = new URL(".well-known/jwks.json", iss);
+  if (url.origin !== new URL(iss).origin) throw new Error("invalid_jwks_url");
+  const result = await fetch(url, { headers: { accept: "application/json" }, redirect: "error" });
+  if (!result.ok) throw new Error("jwks_unavailable");
+  const body = await result.json();
+  if (!Array.isArray(body.keys) || body.keys.length > 20) throw new Error("invalid_jwks");
+  jwksCache = { issuer: iss, expires: Date.now() + 5 * 60_000, keys: body.keys };
+  return body.keys;
+}
+export async function verifyIdToken(token, env, nonce, now = Date.now()) {
+  const iss = issuer(env);
+  const parsed = parseJwt(token);
+  const { header, claims } = parsed;
+  if (header.alg !== "RS256" || typeof header.kid !== "string" || !header.kid || header.jku || header.x5u) throw new Error("invalid_token_header");
+  if (!claims || claims.iss !== iss || (claims.aud !== env.AUTH0_CLIENT_ID && !(Array.isArray(claims.aud) && claims.aud.length < 10 && claims.aud.includes(env.AUTH0_CLIENT_ID)))) throw new Error("invalid_issuer_or_audience");
+  if (Array.isArray(claims.aud) && claims.aud.length > 1 && claims.azp !== env.AUTH0_CLIENT_ID) throw new Error("invalid_authorized_party");
+  const seconds = Math.floor(now / 1000);
+  if (!Number.isFinite(claims.exp) || claims.exp <= seconds - 30 || !Number.isFinite(claims.iat) || claims.iat > seconds + 30 || (claims.nbf !== undefined && (!Number.isFinite(claims.nbf) || claims.nbf > seconds + 30))) throw new Error("invalid_token_time");
+  if (claims.nonce !== nonce || typeof claims.sub !== "string" || !claims.sub.trim() || claims.sub.length > 512 || /[\u0000-\u001f\u007f]/.test(claims.sub)) throw new Error("invalid_nonce_or_subject");
+  let keys = await getKeys(iss);
+  let matches = keys.filter(key => key.kid === header.kid && key.kty === "RSA" && (!key.alg || key.alg === "RS256") && (!key.use || key.use === "sig"));
+  if (!matches.length) { keys = await getKeys(iss, true); matches = keys.filter(key => key.kid === header.kid && key.kty === "RSA" && (!key.alg || key.alg === "RS256") && (!key.use || key.use === "sig")); }
+  if (matches.length !== 1) throw new Error("unknown_or_ambiguous_key");
+  const publicKey = await crypto.subtle.importKey("jwk", matches[0], { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+  if (!await crypto.subtle.verify("RSASSA-PKCS1-v1_5", publicKey, parsed.signature, encoder.encode(parsed.input))) throw new Error("invalid_signature");
+  return { iss, sub: claims.sub };
+}
+function sameOrigin(request, env) { return request.headers.get("origin") === new URL(env.AUTH0_REDIRECT_URI).origin; }
+function validConfig(env) {
+  if (env.AUTH0_ENABLED !== "true" || !env.AUTH0_CLIENT_ID || !env.AUTH0_CLIENT_SECRET || !env.AUTH0_REDIRECT_URI) return false;
+  const callback = new URL(env.AUTH0_REDIRECT_URI);
+  return callback.href === `${PILOT_ORIGIN}/auth/callback`;
+}
+async function activeLink(db, iss, sub) {
+  return db.prepare(`SELECT i.id identity_id, i.account_id, a.role FROM identities i JOIN accounts a ON a.id=i.account_id WHERE i.provider=? AND i.subject=? AND i.revoked_at IS NULL AND a.status='active' AND a.kind='human' AND a.role='contributor'`).bind(`auth0:${iss}`, sub).first();
+}
+async function resolveSession(request, env, db) {
+  const raw = cookie(request, COOKIE);
+  if (!raw || !/^[A-Za-z0-9_-]{40,64}$/.test(raw)) return null;
+  const session = await db.prepare(`SELECT s.id, s.issuer, s.subject, s.account_id, s.identity_id, s.idle_expires_at, s.absolute_expires_at FROM auth_sessions s JOIN identities i ON i.id=s.identity_id JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.idle_expires_at>? AND s.absolute_expires_at>? AND i.provider=s.provider AND i.subject=s.subject AND i.revoked_at IS NULL AND a.status='active' AND a.kind='human' AND a.role='contributor'`).bind(await hash(raw), new Date().toISOString(), new Date().toISOString()).first();
+  if (!session) return null;
+  await db.prepare("UPDATE auth_sessions SET idle_expires_at=? WHERE id=? AND revoked_at IS NULL").bind(new Date(Date.now()+30*60_000).toISOString(), session.id).run();
+  return session;
+}
+async function login(request, env, db) {
+  if (!validConfig(env)) return response("Pilot sign-in is disabled.", 503);
+  const state = randomToken(), browser = randomToken(), nonce = randomToken(), verifier = randomToken(48);
+  const challenge = b64url(await crypto.subtle.digest("SHA-256", encoder.encode(verifier)));
+  const iss = issuer(env);
+  await db.prepare("INSERT INTO auth_transactions(state_hash,browser_hash,nonce,verifier,created_at,expires_at) VALUES(?,?,?,?,?,?)").bind(await hash(state), await hash(browser), nonce, verifier, new Date().toISOString(), new Date(Date.now()+5*60_000).toISOString()).run();
+  const url = new URL("authorize", iss);
+  url.search = new URLSearchParams({ response_type:"code", client_id:env.AUTH0_CLIENT_ID, redirect_uri:env.AUTH0_REDIRECT_URI, scope:"openid", state, nonce, code_challenge:challenge, code_challenge_method:"S256", prompt:"login" }).toString();
+  return response(null, 302, { location:url.href, "set-cookie":setCookie(STATE_COOKIE,browser,300) });
+}
+async function callback(request, env, db) {
+  if (new URL(request.url).origin !== PILOT_ORIGIN) return response("Not found",404,{"set-cookie":clearCookie(STATE_COOKIE)});
+  if (!validConfig(env)) return response("Pilot sign-in is disabled.", 503, { "set-cookie":clearCookie(STATE_COOKIE) });
+  const url = new URL(request.url);
+  const states = url.searchParams.getAll("state"), codes = url.searchParams.getAll("code");
+  const stateCookie = cookie(request, STATE_COOKIE);
+  if (states.length !== 1 || !states[0] || !stateCookie) return response("Sign-in could not be completed.", 400, { "set-cookie":clearCookie(STATE_COOKIE) });
+  const txn = await db.prepare("UPDATE auth_transactions SET consumed_at=? WHERE state_hash=? AND browser_hash=? AND consumed_at IS NULL AND expires_at>? RETURNING nonce,verifier").bind(new Date().toISOString(), await hash(states[0]), await hash(stateCookie), new Date().toISOString()).first();
+  if (!txn) return response("Sign-in could not be completed.", 400, { "set-cookie":clearCookie(STATE_COOKIE) });
+  if (codes.length !== 1 || !codes[0] || url.searchParams.has("error")) return response("Sign-in could not be completed.", 400, { "set-cookie":clearCookie(STATE_COOKIE) });
+  try {
+    const iss = issuer(env);
+    const tokenResponse = await fetch(new URL("oauth/token", iss), { method:"POST", redirect:"error", headers:{"content-type":"application/json",accept:"application/json"}, body:JSON.stringify({ grant_type:"authorization_code", client_id:env.AUTH0_CLIENT_ID, client_secret:env.AUTH0_CLIENT_SECRET, code:codes[0], redirect_uri:env.AUTH0_REDIRECT_URI, code_verifier:txn.verifier }) });
+    if (!tokenResponse.ok) throw new Error("token_exchange_failed");
+    const tokens = await tokenResponse.json();
+    const identity = await verifyIdToken(tokens.id_token, env, txn.nonce);
+    const link = await activeLink(db, identity.iss, identity.sub);
+    if (!link) return response("This identity is not linked to the pilot test account.", 403, { "set-cookie":clearCookie(STATE_COOKIE) });
+    const raw = randomToken();
+    await db.prepare("INSERT INTO auth_sessions(id,token_hash,provider,issuer,subject,account_id,identity_id,issued_at,idle_expires_at,absolute_expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), await hash(raw), `auth0:${identity.iss}`, identity.iss, identity.sub, link.account_id, link.identity_id, new Date().toISOString(), new Date(Date.now()+30*60_000).toISOString(), new Date(Date.now()+8*60*60_000).toISOString()).run();
+    return response(null, 302, { location:"/auth/test-view", "set-cookie":[setCookie(COOKIE,raw,8*60*60), clearCookie(STATE_COOKIE)] });
+  } catch {
+    return response("Sign-in could not be completed.", 400, { "set-cookie":clearCookie(STATE_COOKIE) });
+  }
+}
+async function logout(request, db) {
+  if (request.method !== "POST") return response("Method not allowed.",405,{allow:"POST"});
+  const raw = cookie(request, COOKIE);
+  if (raw) await db.prepare("UPDATE auth_sessions SET revoked_at=? WHERE token_hash=? AND revoked_at IS NULL").bind(new Date().toISOString(), await hash(raw)).run();
+  return response(null,303,{location:"/","set-cookie":clearCookie(COOKIE)});
+}
+export default { async fetch(request, env) {
+  const url = new URL(request.url);
+  if (request.method === "GET" && url.pathname === "/") return response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>AUTH-3 isolated pilot</title></head><body><main><h1>Colorado Watchdog sign-in pilot</h1><p>Public browsing works without an account. This disposable site has synthetic test data only.</p><a href="/auth/login">Try pilot sign-in</a></main></body></html>`,200,{"content-type":"text/html; charset=utf-8"});
+  if (url.pathname.startsWith("/auth/") && ["/auth/login","/auth/callback","/auth/logout","/auth/test-view"].includes(url.pathname)) {
+    if (!env.DB) return response("Pilot database unavailable.",503);
+    if (url.pathname === "/auth/login" && request.method === "GET") return login(request,env,env.DB).catch(()=>response("Sign-in unavailable.",503));
+    if (url.pathname === "/auth/callback" && request.method === "GET") return callback(request,env,env.DB);
+    if (url.pathname === "/auth/logout") return sameOrigin(request,env) ? logout(request,env.DB) : response("Forbidden",403);
+    if (url.pathname === "/auth/test-view" && request.method === "GET") {
+      const principal = await resolveSession(request,env,env.DB);
+      if (!principal) return response("Authentication required.",401);
+      return response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>AUTH-3 test view</title></head><body><main><h1>Signed in</h1><p>Synthetic low-privilege test view. Account access is contributor-only.</p><form method="post" action="/auth/logout"><button type="submit">Sign out</button></form></main></body></html>`,200,{"content-type":"text/html; charset=utf-8"});
+    }
+  }
+  return response("Not found",404);
+} };

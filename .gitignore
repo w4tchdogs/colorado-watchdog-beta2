@@ -13,6 +13,8 @@
 *.sql
 !research/migrations/001_foundation.sql
 !website/migrations/*.sql
+!pilots/auth3/.openai/drizzle/*.sql
+!pilots/auth3/migrations/*.sql
 __pycache__/
 *.pyc
 *.zip
