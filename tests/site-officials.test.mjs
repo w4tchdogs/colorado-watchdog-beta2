@@ -686,3 +686,24 @@ test("empty and partially populated databases give honest empty states", async (
     assert.doesNotMatch(structure.main(), /vacan/i);
   });
 });
+
+test("an organization office without a county is shown, not applied invisibly", async () => {
+  await withPreview("fictional", async (preview) => {
+    const page = await get(preview, "/officials?office=demo-adams-gov");
+    assert.equal(page.status, 200);
+    assert.match(page.$(".directory-status").textContent, /Office: /);
+    const selected = page
+      .$$("#directory-office option")
+      .filter((o) => o.hasAttribute("selected"));
+    assert.deepEqual(
+      selected.map((o) => o.value),
+      ["demo-adams-gov"],
+    );
+    // With its county the same office still filters and is announced.
+    const scoped = await get(
+      preview,
+      "/officials?county=08001&office=demo-adams-gov",
+    );
+    assert.match(scoped.$(".directory-status").textContent, /Office:/);
+  });
+});

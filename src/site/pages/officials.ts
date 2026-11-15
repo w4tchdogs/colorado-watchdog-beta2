@@ -209,6 +209,7 @@ function countySelect(
 function officeSelect(
   state: DirectoryState,
   structure: CountyStructure | null,
+  officeName: string | null = null,
 ): SafeHtml {
   const selected = officeValue(state.office);
   const option = (value: string, label: string) =>
@@ -240,7 +241,8 @@ function officeSelect(
   } else {
     groups = html`<optgroup label="Organization type">
       ${TYPE_GROUPS.map(({ type, plural: label }) => option(`type:${type}`, `${label}: all`))}
-    </optgroup>`;
+    </optgroup>
+    ${state.office?.kind === "organization" && officeName ? html`<optgroup label="Selected office">${option(state.office.id, officeName)}</optgroup>` : ""}`;
   }
   return html`<div class="field">
     <label for="directory-office">Office or department</label>
@@ -382,6 +384,14 @@ async function peopleView(
     const match = structure.organizations.find((o) => o.id === officeId);
     if (match) officeName = match.name;
     else office = null;
+  } else if (office?.kind === "organization") {
+    // With no county the select offers only types, so name the filter here
+    // to keep it visible. An unknown ID is refused by the service below.
+    const profile = await context.services.getOrganizationProfile({
+      organizationId: office.id,
+      limit: 1,
+    });
+    officeName = profile?.organization.name ?? null;
   } else if (office?.kind === "type") {
     const officeType = office.type;
     officeName = `${TYPE_GROUPS.find((group) => group.type === officeType)?.plural ?? "Organizations"}: all`;
@@ -395,7 +405,7 @@ async function peopleView(
         placeholder="Name, title, or department" autocomplete="off" spellcheck="false">
     </div>
     ${countySelect(counties, state.county, "directory-county")}
-    ${officeSelect(effective, structure)}
+    ${officeSelect(effective, structure, officeName)}
     ${sortSelect(state)}
     <div class="filter-actions">
       <button class="button" type="submit">Apply filters</button>
