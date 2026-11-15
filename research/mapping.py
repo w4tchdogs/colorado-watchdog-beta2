@@ -163,6 +163,7 @@ def _record_errors(record_number, values, spec):
         add("listing_status", "invalid_value", "invalid listing status")
     if spec.grouping_basis_policy == "r0" and values["grouping_basis"] is not None and values["grouping_basis"] not in (
         "Official county structure", "Directory display fallback", "Needs editorial review",
+        "Official county source role",
     ):
         add("grouping_basis", "invalid_value", "invalid grouping basis")
     try:

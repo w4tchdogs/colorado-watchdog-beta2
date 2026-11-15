@@ -29,7 +29,8 @@ class LegacyContractTests(unittest.TestCase):
             parse_csv(csv_bytes([observation(listing_status="Listed")]))
 
     def test_all_supported_grouping_bases_and_invalid_values(self):
-        for basis in ("Official county structure", "Directory display fallback", "Needs editorial review"):
+        for basis in ("Official county structure", "Directory display fallback", "Needs editorial review",
+                      "Official county source role"):
             with self.subTest(basis=basis):
                 self.assertEqual(parse_csv(csv_bytes([observation(grouping_basis=basis)]))["rows"][0]
                                  ["values"]["grouping_basis"], basis)

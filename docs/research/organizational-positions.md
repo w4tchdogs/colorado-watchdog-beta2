@@ -13,7 +13,9 @@ migration and leaves the accepted `001_foundation.sql` checksum unchanged.
   in `org_units.source_label` and each evidence-backed `org_names` row.
 - `Directory display fallback` creates a `navigation` unit and a navigation
   source link. It does not establish a county office or position association.
-- `Needs editorial review` and unsupported grouping bases remain `unknown`.
+- `Needs editorial review`, `Official county source role` and unsupported grouping bases remain `unknown`.
+  `Official county source role` is accepted at intake as its own label (research campaign 2).
+  It is separate from `Official county structure` and creates no official unit or position target.
   The source's original department/division fields remain on the claim.
 - An official `division_label` supports a `division`. A `department_label`
   supports `department` only when the exact label says Department/Dept. Other
