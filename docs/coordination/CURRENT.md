@@ -117,6 +117,7 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | VIS13-SEARCH-1 | Merged | PR #90, `8b39dadc` | — | 2026-11-14 |
 | VIS8-FIPS-1 | Merged | PR #89 | — | 2026-11-14 |
 | AUTH-2 | Merged | PR #88 | — | 2026-11-14 |
+| AUTH-3 | Assessment complete. Implementation blocked | [Identity assessment](../architecture/auth-3-identity-assessment.md) | Owner selects provider. Hosted trust and runtime behavior require verification before enablement. | 2026-11-14 |
 | D1-0015-PREFLIGHT-1 | Complete, with access limitation | — | Hosted D1 admin access | 2026-11-14 |
 | DEPLOY-1 safety assessment | Complete; deployment blocked pending supported migration gate, authenticated MCP bootstrap and hosted D1 provenance/recovery evidence | [PR #107](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/107) | Platform migration behavior; hosted D1 preflight through MCP | 2026-11-14 |
 | D1-0015-ACCESS-1 | Superseded by MCP-first architecture | — | — | 2026-11-14 |
@@ -132,9 +133,10 @@ No task above is owned by more than one AI at once; check this table and the lin
 ## G. Next tasks
 
 Use the ordered backlog in [ROADMAP](ROADMAP.md). These need no hosted access
-and can start now: EDIT-1, BANNERS-4, BROWSE-1, the visual-audit follow-ups,
-the AUTH-3 assessment, and preparing the owner's drafts of "The Idlewild
-Story". DEPLOY-1 assessment is complete, but deployment is blocked pending a
+and can start now: EDIT-1, BANNERS-4, BROWSE-1, the visual-audit follow-ups
+and preparing the owner's drafts of "The Idlewild Story".
+AUTH-3 implementation awaits the owner's provider selection.
+DEPLOY-1 assessment is complete, but deployment is blocked pending a
 supported migration gate, authenticated MCP bootstrap and hosted D1 preflight.
 Hosted MCP writes, real data imports, migration 0015 and Alpha-1 redeployment
 follow the roadmap's dependencies.
