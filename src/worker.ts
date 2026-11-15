@@ -31,6 +31,8 @@ declare const __WATCHDOG_WEBSITE_MIGRATIONS__: readonly {
 
 /** The only Sites project allowed to supply human claims to this Worker. */
 const BETA2_SITES_PROJECT_ID = "appgprj_6af7fb8f615c81918da0e4450ba336de";
+const ALPHA1_PUBLIC_ORIGIN =
+  "https://colorado-watchdog-alpha1.futureguild2.chatgpt.site";
 
 // Sites currently documents identity headers but does not expose an
 // authenticated identity context or a verifiable Worker gateway assertion.
@@ -145,7 +147,7 @@ const worker = {
     environment: RuntimeEnvironment,
   ): Promise<Response> {
     const fallback = unavailableServices();
-    const pathname = new URL(request.url).pathname;
+    const { origin, pathname } = new URL(request.url);
     const publicationRoute =
       pathname === CONTENT_PUBLICATION_API_PATHS.publish ||
       pathname === CONTENT_PUBLICATION_API_PATHS.withdraw;
@@ -239,6 +241,8 @@ const worker = {
         services: reads,
         editorial: createD1EditorialSource(database),
         assets: bundledSiteAssets,
+        allowChatGptEditor:
+          siteId === BETA2_SITES_PROJECT_ID && origin === ALPHA1_PUBLIC_ORIGIN,
         ...(bannerService
           ? { banners: bannerService, bannerDelivery: bannerService }
           : {}),
