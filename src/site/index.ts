@@ -41,6 +41,8 @@ export type { PublicSiteOptions, SiteAssets } from "./types.js";
 const MAX_PATH_LENGTH = 300;
 const MAX_QUERY_LENGTH = 1024;
 const ASSET_PATH = /^\/assets\/([a-z0-9][a-z0-9.-]{0,80}\.(?:css|js|svg|png))$/;
+const PUBLIC_BROWSING_PATH =
+  /^\/(?:$|(?:counties|people|organizations|officials|posts|stories|about|reading-records)(?:\/|$))/;
 
 function isStaffReportsPath(pathname: string): boolean {
   try {
@@ -52,7 +54,10 @@ function isStaffReportsPath(pathname: string): boolean {
   }
 }
 
-function securityHeaders(bannerOrigins: readonly string[]) {
+function securityHeaders(
+  bannerOrigins: readonly string[],
+  allowChatGptEditor = false,
+) {
   // Only well-formed https origins may be added for banner images.
   const origins = bannerOrigins.filter((origin) =>
     /^https:\/\/[a-z0-9.-]+(?::\d{1,5})?$/i.test(origin),
@@ -60,9 +65,9 @@ function securityHeaders(bannerOrigins: readonly string[]) {
   return {
     "x-content-type-options": "nosniff",
     "referrer-policy": "strict-origin-when-cross-origin",
-    "x-frame-options": "DENY",
+    ...(!allowChatGptEditor ? { "x-frame-options": "DENY" } : {}),
     "cross-origin-opener-policy": "same-origin",
-    "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'self'; img-src ${["'self'", ...origins].join(" ")}; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`,
+    "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'self'; img-src ${["'self'", ...origins].join(" ")}; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors ${allowChatGptEditor ? "https://chatgpt.com" : "'none'"}`,
   } as const;
 }
 
@@ -238,13 +243,21 @@ export function createPublicSite(options: PublicSiteOptions) {
   const clock = options.now ?? (() => new Date());
   const banners = options.banners ?? emptyBannerSource;
   const SECURITY_HEADERS = securityHeaders(options.bannerOrigins ?? []);
+  const editorHeaders = options.allowChatGptEditor
+    ? securityHeaders(options.bannerOrigins ?? [], true)
+    : SECURITY_HEADERS;
 
-  const respond = (page: Page, head: boolean, extra = {}): Response =>
+  const respond = (
+    page: Page,
+    head: boolean,
+    extra = {},
+    headers = SECURITY_HEADERS,
+  ): Response =>
     page.redirect
       ? new Response(null, {
           status: 303,
           headers: {
-            ...SECURITY_HEADERS,
+            ...headers,
             location: page.redirect,
             "cache-control": "no-store",
           },
@@ -252,7 +265,7 @@ export function createPublicSite(options: PublicSiteOptions) {
       : new Response(head ? null : renderDocument(page, preview), {
           status: page.status ?? 200,
           headers: {
-            ...SECURITY_HEADERS,
+            ...headers,
             "cache-control": "no-store",
             "content-type": "text/html; charset=utf-8",
             ...extra,
@@ -355,6 +368,9 @@ export function createPublicSite(options: PublicSiteOptions) {
           isStaffReportsPath(url.pathname)
             ? { "cache-control": "no-store, private" }
             : {},
+          PUBLIC_BROWSING_PATH.test(pathname)
+            ? editorHeaders
+            : SECURITY_HEADERS,
         );
       } catch (error) {
         try {

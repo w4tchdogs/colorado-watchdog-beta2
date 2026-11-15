@@ -50,6 +50,8 @@ export interface PublicSiteOptions {
    * records and articles are fictional demonstration data.
    */
   readonly preview?: boolean;
+  /** Permit the ChatGPT editor to frame public browsing pages on Alpha-1. */
+  readonly allowChatGptEditor?: boolean;
   readonly now?: () => Date;
   /** Published banner artwork. Defaults to none, which shows placeholders. */
   readonly banners?: BannerSource;
