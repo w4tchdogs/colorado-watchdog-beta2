@@ -52,19 +52,22 @@ inspectable JSON and may contain private claim identifiers, titles, source IDs,
 and organizational labels. Keep it in the private Profiles reports directory.
 It contains no person names or private review notes.
 
+In the commands below, `<private-root>` is the owner's private Profiles folder
+(`profiles\` in the local Watchdog workspace, outside this checkout).
+
 ```powershell
 python -B -m research preview-structure `
-  "C:\Users\n\AppData\Local\ColoradoWatchdog\Profiles\database\research.sqlite" `
-  --output "C:\Users\n\AppData\Local\ColoradoWatchdog\Profiles\reports\org-positions-plan.json"
+  "<private-root>\database\research.sqlite" `
+  --output "<private-root>\reports\org-positions-plan.json"
 
 python -B -m research apply-structure `
-  "C:\Users\n\AppData\Local\ColoradoWatchdog\Profiles\database\research.sqlite" `
-  --plan "C:\Users\n\AppData\Local\ColoradoWatchdog\Profiles\reports\org-positions-plan.json" `
+  "<private-root>\database\research.sqlite" `
+  --plan "<private-root>\reports\org-positions-plan.json" `
   --expect-plan-sha256 <SHA256-from-preview> --actor "org-position-foundation" --apply
 
 python -B -m research verify-structure `
-  "C:\Users\n\AppData\Local\ColoradoWatchdog\Profiles\database\research.sqlite" `
-  --plan "C:\Users\n\AppData\Local\ColoradoWatchdog\Profiles\reports\org-positions-plan.json"
+  "<private-root>\database\research.sqlite" `
+  --plan "<private-root>\reports\org-positions-plan.json"
 ```
 
 Application recomputes the preview under an immediate SQLite write lock and

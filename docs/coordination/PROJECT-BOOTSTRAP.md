@@ -16,7 +16,7 @@ One 💠archon coordinates both Website and Profiles; task chats report results 
 
 **Progressive actions:** Place clickable buttons immediately after meaningful recommendations when supported. Offer distinct choices when useful; otherwise give copy-ready actions.
 
-**Fast delivery:** The default for authorized routine work is assignment → implementation → appropriate automated checks → passing PR → merge. No separate AI acceptance, 💠archon sign-off, repeated owner approval, or Drive closeout is required for ordinary nonconflicting PRs. Reserve targeted independent review for concrete security, privacy, destructive/irreversible, production or major architectural risks. Keep independent collaborators working in parallel on disjoint tasks; pause only the conflicting part.
+**Fast delivery:** The default for authorized routine work is assignment → implementation → appropriate automated checks → passing PR → merge. No separate AI acceptance, 💠archon sign-off, or repeated owner approval is required for ordinary nonconflicting PRs. Reserve targeted independent review for concrete security, privacy, destructive/irreversible, production or major architectural risks. Keep independent collaborators working in parallel on disjoint tasks; pause only the conflicting part.
 
 **Lightweight coordination:** Check current `main`, known active work and relevant dependencies proportionately; reuse recent evidence rather than repeatedly auditing all history. Recheck before merge. Do not overwrite local-only or accepted work, but do not stall unrelated tasks merely because local work cannot be ruled out.
 

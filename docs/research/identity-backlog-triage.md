@@ -11,17 +11,20 @@ The report is private because it contains names, source URLs, claim/evidence IDs
 and retained evidence excerpts. Write it only to the owner's private Profiles
 reports directory, outside the source checkout.
 
+In the commands below, `<private-root>` is the owner's private Profiles folder
+(`profiles\` in the local Watchdog workspace, outside this checkout).
+
 ```powershell
 python -B -m research preview-identity-triage $db `
-  --output 'C:\Users\n\AppData\Local\ColoradoWatchdog\Profiles\reports\identity-triage.json'
+  --output '<private-root>\reports\identity-triage.json'
 
 python -B -m research apply-identity-triage $db `
-  --report 'C:\Users\n\AppData\Local\ColoradoWatchdog\Profiles\reports\identity-triage.json' `
+  --report '<private-root>\reports\identity-triage.json' `
   --expect-report-sha256 <file-sha256-from-preview> `
   --actor 'identity-backlog-triage'
 
 python -B -m research verify-identity-triage $db `
-  --report 'C:\Users\n\AppData\Local\ColoradoWatchdog\Profiles\reports\identity-triage.json' `
+  --report '<private-root>\reports\identity-triage.json' `
   --expect-report-sha256 <file-sha256-from-preview>
 ```
 

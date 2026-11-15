@@ -15,9 +15,9 @@ proposal, and later planning must not demote MCP to an optional add-on. See
 a read-only local foundation is merged; hosted publication and any
 write/sync/import tool are not.
 
-Current technical assessment: [Fable assessment revision 4](https://drive.google.com/file/d/1ux9NG09zr9DkztRGYtc-Z3uXBZ81ncI0/view). See the [revision 4 section](#revision-4-technical-assessment-november-12-2026) below. The first two sections are the earlier decision records and remain as written.
+Current technical assessment: [Fable assessment revision 4](architecture/fable-assessment-rev4.md). See the [revision 4 section](#revision-4-technical-assessment-november-12-2026) below. The first two sections are the earlier decision records and remain as written.
 
-Authority: [Fable assessment revision 3](https://drive.google.com/file/d/1W8STh6s2qJWrDUELR66djYzzfJelt4g_/view), read through the connected Drive account. The owner's bootstrap request determines this task's scope and resolves conflicting recommendations or residual tables in older documents.
+Authority: [Fable assessment revision 3](architecture/fable-assessment-rev3.md), originally read through the connected Drive account (repository copy since November 14, 2026). The owner's bootstrap request determines this task's scope and resolves conflicting recommendations or residual tables in older documents.
 
 | Topic | Current direction | Superseded choice |
 | --- | --- | --- |
@@ -50,7 +50,7 @@ See [sanitized architecture handoff](architecture/beta-2-planning-handoff.md). A
 
 ## Revision 4 technical assessment (November 12, 2026)
 
-[Fable assessment revision 4](https://drive.google.com/file/d/1ux9NG09zr9DkztRGYtc-Z3uXBZ81ncI0/view) is the current technical assessment. It supersedes the recommendations of [revision 3](https://drive.google.com/file/d/1W8STh6s2qJWrDUELR66djYzzfJelt4g_/view) where they differ. Revision 3 stays as history.
+[Fable assessment revision 4](architecture/fable-assessment-rev4.md) is the current technical assessment. It supersedes the recommendations of [revision 3](architecture/fable-assessment-rev3.md) where they differ. Revision 3 stays as history.
 
 Revision 4 restates the owner decisions recorded above and adds technical proposals. A proposal is not an owner decision. It is the working design and can change through normal scoped work. Nothing in this section is implemented.
 
@@ -134,3 +134,18 @@ rewriting the history above.
   SQLite research database, a separate Website D1 database, synchronization
   only through the accepted R7/R8/M2 architecture, and the existing identity
   evidence rules.
+
+## Google Drive retirement, November 14, 2026
+
+- Google Drive is retired for project coordination. GitHub is the canonical
+  record for instructions, decisions, status and handoffs.
+- Long reference reports needed by collaborators are committed to the
+  repository. The Fable assessments are at
+  [revision 4](architecture/fable-assessment-rev4.md) (current) and
+  [revision 3](architecture/fable-assessment-rev3.md) (history).
+- All local and private material (the Profiles research database, private
+  research, archives and Beta-1 history) lives in the owner's local Watchdog
+  folder and is never committed. Beta-1 material is archived there under
+  `archive\beta-1`.
+- Stale material is moved to the workspace `_trash` folder instead of being
+  deleted. Only the owner deletes.
