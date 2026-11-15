@@ -109,7 +109,7 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | WSO-2 | Complete; all Watchdog material consolidated into the local Watchdog folder, stale worktrees moved to `_trash` (nothing deleted), Profiles database moved to the private `profiles\` folder with hash, integrity and counts unchanged, Git worktrees repaired. Verified by Claude | Move plan v2, manifest and logs in the local workspace, `documents\workspace\wso-2\` | Owner cleanup of `_trash` and the `.moved-2026-11-14` sources | 2026-11-14 |
 | COORD-3 | Merged; Drive links replaced with repository copies of the Fable assessments, Drive retirement recorded, private paths generalized to `<private-root>` | [PR #100](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/100), `f7f4ed5` | — | 2026-11-14 |
 | COORD-4 | Merged; AGENTS, START, project instructions and the standard coordinator handoff refreshed; local workspace layout recorded; `banner_assets` folder renamed `banners` | [PR #101](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/101), `e9041f8` | — | 2026-11-14 |
-| COORD-5 | Roadmap adopted, launch goals recorded in decisions, development pause lifted on merge | Branch `coord-5-roadmap` | — | 2026-11-14 |
+| COORD-5 | Merged; roadmap adopted, launch goals recorded in decisions, development pause lifted | [PR #102](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/102), `8793352` | — | 2026-11-14 |
 | Profiles Archon retired | Complete | Owner decision, 2026-11-14 | — | 2026-11-14 |
 | VIS8-RESTORE-1 | Merged | PR #91, `db2903d1` | — | 2026-11-14 |
 | BANNERS-3 | Merged | PR #92, `0c08faf8` | R2 provisioning (for real import) | 2026-11-14 |
