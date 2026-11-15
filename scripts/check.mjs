@@ -94,6 +94,7 @@ const allowed = new Set([
   "tests/report-interface.test.mjs",
   "docs/architecture/public-site.md",
   "docs/architecture/d1-readiness.md",
+  "docs/architecture/deploy-1-safety-assessment.md",
   "docs/architecture/county-identity-correction.md",
   ".openai/hosting.json",
   "wrangler.sites-test.toml",

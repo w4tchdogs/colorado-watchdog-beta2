@@ -88,6 +88,7 @@ Last independently verified Alpha-1 deployment:
 ## E. Current blockers / open dependencies
 
 - **Hosted D1 migration 0015** — not confirmed applied to the hosted database. D1-0015-PREFLIGHT-1 completed with an access limitation (no verified administrative hosted-D1 access); D1-0015-ACCESS-1 (a standalone one-off coding plan to get that access) is **superseded** by the MCP-first architecture — administration should come through MCP, not a bespoke access script.
+- **DEPLOY-1 safety assessment — complete; deployment remains blocked.** The read-only Sites metadata confirms Alpha-1 version 4 is deployed from `85653665761466b3ec20213091f89da890f936ed`, the current Site audience is public, and the version metadata reports no MCP publication. Current `main` packages migrations 0014–0016, including 0015; current official Sites docs do not establish migration execution order, deferral, atomicity or retry behavior. Hosted D1 history/registry remains unknown. See [DEPLOY-1 assessment](../architecture/deploy-1-safety-assessment.md) and its PR.
 - **MCP connectivity and authorization** — approved architecture; a read-only local foundation (Website inspection + Profiles readiness) is merged (PR #95). Hosted Site publication of the MCP endpoint, any write/sync/import tool, and R2 inspection are **not implemented** and remain the open part of this architecture.
 - **R2 provisioning** — needed before BANNERS-IMPORT-1 (real banner import) or any R2-backed MCP file storage.
 - **Profiles research eligibility and hosted synchronization** — R7/R8 give the sync design; no real personnel data has been screened for hosted sync, and the Website-side sync route remains internal/unregistered ([d1-readiness.md](../architecture/d1-readiness.md)).
@@ -117,6 +118,7 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | VIS8-FIPS-1 | Merged | PR #89 | — | 2026-11-14 |
 | AUTH-2 | Merged | PR #88 | — | 2026-11-14 |
 | D1-0015-PREFLIGHT-1 | Complete, with access limitation | — | Hosted D1 admin access | 2026-11-14 |
+| DEPLOY-1 safety assessment | Complete; deployment blocked pending supported migration gate, authenticated MCP bootstrap and hosted D1 provenance/recovery evidence | [PR #107](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/107) | Platform migration behavior; hosted D1 preflight through MCP | 2026-11-14 |
 | D1-0015-ACCESS-1 | Superseded by MCP-first architecture | — | — | 2026-11-14 |
 | MCP-1 (read-only foundation) | Merged | PR #95, `bc60154f` | — | 2026-11-14 |
 | MCP hosted publication / write tools | Planned, not started | — | Hosted Site MCP configuration (owner-scoped) | — |
@@ -130,10 +132,12 @@ No task above is owned by more than one AI at once; check this table and the lin
 ## G. Next tasks
 
 Use the ordered backlog in [ROADMAP](ROADMAP.md). These need no hosted access
-and can start now: DATA-1, EDIT-1, BANNERS-4, BROWSE-1, the visual-audit
-follow-ups, the DEPLOY-1 and AUTH-3 assessments, and preparing the owner's
-drafts of "The Idlewild Story". Hosted MCP writes, real data imports,
-migration 0015 and Alpha-1 redeployment follow the roadmap's dependencies.
+and can start now: EDIT-1, BANNERS-4, BROWSE-1, the visual-audit follow-ups,
+the AUTH-3 assessment, and preparing the owner's drafts of "The Idlewild
+Story". DEPLOY-1 assessment is complete, but deployment is blocked pending a
+supported migration gate, authenticated MCP bootstrap and hosted D1 preflight.
+Hosted MCP writes, real data imports, migration 0015 and Alpha-1 redeployment
+follow the roadmap's dependencies.
 
 ## Maintenance — when to update this file
 
