@@ -59,6 +59,20 @@ not resume after a visitor explicitly paused. Play starts rotation only on
 explicit request. A reasonable default is 8 seconds, configurable through a
 bounded data attribute.
 
+**Playback speech and full width (BANNERS-4B).** A second polite, visually
+hidden region (`data-banner-announce`) says "Banner rotation playing" after a
+successful Play and "Banner rotation paused" when the visitor's own action stops
+running rotation (Pause, focus or pointer entering the carousel). Automatic
+stops (hidden page, reduced motion, failed image) are silent, an unavailable
+Play says nothing, and the position status keeps one message per selection.
+Focus entering the carousel already stops rotation, so a keyboard or screen
+reader visitor hears "paused" on arrival. The hero frame, fallback and control
+bar span the page width inside the scrollbar, with no 100rem cap, while the
+heading and buttons keep the content width. `npm run site:dev:banners` shows
+two synthetic homepage banners, and adding `-- --no-home-banners` (or running
+`node scripts/site-dev.mjs --banner-fixtures --no-home-banners`) restores the
+homepage fallback. Evidence: [banner-screen-reader-verification.md](banner-screen-reader-verification.md).
+
 The carousel starts paused. The `data-banner-interval` value is clamped to
 3–20 seconds and defaults to 8 seconds. Each interruption clears the timer.
 Visitors can still choose Previous or Next while rotation is paused, an image

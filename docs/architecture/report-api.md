@@ -45,3 +45,6 @@ submitted content or credentials.
 SUB-2A can consume these stable paths without sharing UI changes. Production
 anonymous intake must remain disabled until a working abuse-control provider
 and its operational configuration are ready.
+
+See the [SUB-3 provider assessment](sub-3-guest-intake-assessment.md) for
+compatibility evidence and the proposed implementation scope.

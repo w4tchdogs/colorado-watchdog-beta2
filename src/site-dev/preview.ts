@@ -13,7 +13,10 @@ import {
   createWebsite,
   type SiteAssets,
 } from "../site/index.js";
-import { bannerFixtureAsset, fixtureBannerSource } from "./banner-fixtures.js";
+import {
+  bannerFixtureAsset,
+  createFixtureBannerSource,
+} from "./banner-fixtures.js";
 import {
   fictionalEditorialSource,
   seedFictionalDirectory,
@@ -76,6 +79,8 @@ export interface SitePreviewOptions {
   readonly data?: "fictional" | "empty";
   /** Show synthetic banner test patterns on a few counties. */
   readonly bannerFixtures?: boolean;
+  /** With bannerFixtures, false leaves the homepage on the branded fallback. */
+  readonly homeBannerFixtures?: boolean;
   /** Banner records to render instead of the built-in fixtures (tests). */
   readonly banners?: BannerSource;
   readonly bannerDelivery?: {
@@ -111,7 +116,11 @@ export async function createSitePreview(
       ...(options.banners
         ? { banners: options.banners }
         : options.bannerFixtures
-          ? { banners: fixtureBannerSource }
+          ? {
+              banners: createFixtureBannerSource({
+                home: options.homeBannerFixtures ?? true,
+              }),
+            }
           : {}),
       ...(options.bannerDelivery
         ? { bannerDelivery: options.bannerDelivery }

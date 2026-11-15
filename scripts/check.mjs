@@ -177,6 +177,7 @@ const allowed = new Set([
   "src/services/report-intake-d1.ts",
   "src/report-api.ts",
   "docs/architecture/report-api.md",
+  "docs/architecture/sub-3-guest-intake-assessment.md",
   "tests/report-api.test.mjs",
   "tests/staff-report-browser.test.mjs",
   "src/transport/content-api.ts",

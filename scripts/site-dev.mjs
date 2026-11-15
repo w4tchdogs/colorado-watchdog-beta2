@@ -18,11 +18,13 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 }
 const empty = process.argv.includes("--empty");
 const bannerFixtures = process.argv.includes("--banner-fixtures");
+const homeBannerFixtures = !process.argv.includes("--no-home-banners");
 
 const preview = await createSitePreview({
   staticDirectory: fileURLToPath(new URL("../website/site/", import.meta.url)),
   data: empty ? "empty" : "fictional",
   bannerFixtures,
+  homeBannerFixtures,
 });
 
 const server = createServer(async (incoming, outgoing) => {
@@ -64,8 +66,13 @@ server.listen(port, host, () => {
   console.log(`  http://${host}:${port}/`);
   if (bannerFixtures) {
     console.log(
-      "  Synthetic banner test patterns are shown for Adams, Boulder, Larimer and Weld counties.",
+      "  Synthetic banner test patterns are shown on the homepage and for Adams, Boulder, Larimer and Weld counties.",
     );
+    if (!homeBannerFixtures) {
+      console.log(
+        "  Homepage banners are off (--no-home-banners): branded fallback.",
+      );
+    }
   }
   console.log("Press Ctrl+C to stop. All preview data is discarded on exit.");
 });
