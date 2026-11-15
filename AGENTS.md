@@ -84,7 +84,7 @@ In project coordination, **sites** means the Sites tab in ChatGPT and
 **@sites** means the Sites integration used from a chat.
 
 When preparing an assignment for either, 💠archon includes the existing
-GitHub Issue or PR link and the [copyable reporting instructions](docs/coordination/PROJECT-BOOTSTRAP.md#sites-assignment-block}).
+GitHub Issue or PR link and the [Sites assignment block].
 Use this for consequential investigations, source edits, and hosted
 operations. One handoff in the existing thread is enough.
 
