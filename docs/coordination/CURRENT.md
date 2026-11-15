@@ -60,7 +60,7 @@ Beta-1 data, banners and visual assets are **not** migrated into beta-2 automati
 | R7/R8 synchronization preparation | Merged, implemented locally; hosted sync still unresolved | PR #71, #73; [R7](../research/R7-profiles-website-integration.md), [R8](../research/R8-profiles-sync-operator.md) |
 | M2 synchronization (planner/commit/reversal) | Merged; PR #66 (M2-G2) title itself notes "completion pending" — treat the async reversal path as implemented-locally, not fully closed out | PR #66; [m2-g0-transaction-guard.md](../architecture/m2-g0-transaction-guard.md) |
 | Public directory, person/organization profiles (M4-D) | Merged, implemented locally | PR #80; [public-site.md](../architecture/public-site.md) |
-| Posts and Stories | Implemented locally (EDIT-1); publish, withdraw and published-only public pages | [Content foundation](../architecture/content-foundation.md#publication-edit-1); [public site](../architecture/public-site.md#editorial-templates) |
+| Posts and Stories | Merged, verified locally (EDIT-1); publish, withdraw and published-only public pages | [Content foundation](../architecture/content-foundation.md#publication-edit-1); [public site](../architecture/public-site.md#editorial-templates) |
 | Banner inventory and lifecycle (BANNERS-1, BANNERS-2) | Merged, implemented locally | PR #64, #67; [banner-inventory.md](../architecture/banner-inventory.md), [banner-storage.md](../architecture/banner-storage.md) |
 | Banner delivery (BANNERS-3) | Merged, implemented locally; read-only public integration only | PR #92; [banner-delivery.md](../architecture/banner-delivery.md) |
 | Banner carousel (BANNERS-4) | Merged, verified locally with synthetic fixtures | [PR #109](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/109); [banner-delivery.md](../architecture/banner-delivery.md#banners-4--accessible-banner-carousel) |
@@ -125,6 +125,7 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | MCP-1 (read-only foundation) | Merged | PR #95, `bc60154f` | — | 2026-11-14 |
 | MCP hosted publication / write tools | Planned, not started | — | Hosted Site MCP configuration (owner-scoped) | — |
 | Profiles Import Pilot | Assessment complete; readiness/hosted-sync unresolved | — | Hosted D1 admin access, R7/R8 | 2026-11-14 |
+| EDIT-1 | Merged, verified locally | [PR #110](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/110) | Hosted application of migration 0017 depends on DEPLOY-1; hosted editorial access depends on AUTH-3 and EDIT-2 | 2026-11-14 |
 | BANNERS-4 (carousel) | Merged | [PR #109](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/109) | Real artwork awaits R2-1 and BANNERS-IMPORT-1 | 2026-11-14 |
 | BANNERS-IMPORT-1 (real import) | Planned, not started | — | R2 provisioning | — |
 | Website Profiles import (sync to D1) | Not executed | No changeset ever prepared; local sync tables empty | Migration 003, R7/R8, hosted sync | 2026-11-14 |
@@ -134,7 +135,7 @@ No task above is owned by more than one AI at once; check this table and the lin
 ## G. Next tasks
 
 Use the ordered backlog in [ROADMAP](ROADMAP.md). These need no hosted access
-and can start now: EDIT-1, BROWSE-1, the visual-audit follow-ups
+and can start now: BROWSE-1, the visual-audit follow-ups
 and preparing the owner's drafts of "The Idlewild Story".
 AUTH-3 implementation awaits the owner's provider selection.
 DEPLOY-1 assessment is complete, but deployment is blocked pending a
