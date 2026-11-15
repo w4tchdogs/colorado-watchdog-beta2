@@ -5,17 +5,17 @@ import worker, { verifyIdToken } from "../worker.mjs";
 const issuer = "https://synthetic-tenant.example/";
 const env = { AUTH0_ENABLED:"true", AUTH0_ISSUER:issuer, AUTH0_CLIENT_ID:"synthetic-client", AUTH0_CLIENT_SECRET:"synthetic-secret", AUTH0_REDIRECT_URI:"https://colorado-watchdog-auth3-pilot.futureguild2.chatgpt.site/auth/callback", PILOT_ORIGIN:"ignored" };
 const b64 = value => Buffer.from(JSON.stringify(value)).toString("base64url");
+const signingPair = await crypto.subtle.generateKey({ name:"RSASSA-PKCS1-v1_5", modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:"SHA-256" },true,["sign","verify"]);
+const signingJwk = await crypto.subtle.exportKey("jwk", signingPair.publicKey);
+signingJwk.kid = crypto.randomUUID(); signingJwk.alg = "RS256"; signingJwk.use = "sig";
 async function signedToken(claimOverrides = {}, headerOverrides = {}) {
-  const pair = await crypto.subtle.generateKey({ name:"RSASSA-PKCS1-v1_5", modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:"SHA-256" },true,["sign","verify"]);
-  const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
-  jwk.kid = crypto.randomUUID(); jwk.alg = "RS256"; jwk.use = "sig";
-  globalThis.syntheticJwk = jwk;
-  globalThis.fetch = async () => new Response(JSON.stringify({ keys:[jwk] }),{headers:{"content-type":"application/json"}});
-  const head = b64({ alg:"RS256", kid:jwk.kid, ...headerOverrides });
+  globalThis.syntheticJwk = signingJwk;
+  globalThis.fetch = async () => new Response(JSON.stringify({ keys:[signingJwk] }),{headers:{"content-type":"application/json"}});
+  const head = b64({ alg:"RS256", kid:signingJwk.kid, ...headerOverrides });
   const now = Math.floor(Date.now()/1000);
   const claims = b64({ iss:issuer, aud:"synthetic-client", sub:"github|synthetic-123", nonce:"nonce-1", exp:now+600, iat:now, ...claimOverrides });
   const input = `${head}.${claims}`;
-  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", pair.privateKey, new TextEncoder().encode(input));
+  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", signingPair.privateKey, new TextEncoder().encode(input));
   return `${input}.${Buffer.from(signature).toString("base64url")}`;
 }
 
@@ -59,11 +59,18 @@ async function startAndCallback(db) {
   const authorize = new URL(start.headers.get("location"));
   const state = authorize.searchParams.get("state");
   const browser = start.headers.get("set-cookie").split(";")[0].split("=")[1];
+  const expectedChallenge = Buffer.from(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(db.state.transaction.verifier))).toString("base64url");
+  assert.equal(authorize.searchParams.get("code_challenge_method"),"S256");
+  assert.equal(authorize.searchParams.get("code_challenge"),expectedChallenge);
   const token = await signedToken({nonce:db.state.transaction.nonce});
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async input => {
+  globalThis.fetch = async (input,options) => {
     const url = String(input);
-    if (url.endsWith("/oauth/token")) return new Response(JSON.stringify({id_token:token}),{headers:{"content-type":"application/json"}});
+    if (url.endsWith("/oauth/token")) {
+      const body = JSON.parse(options?.body ?? "{}");
+      assert.equal(body.code_verifier,db.state.transaction.verifier);
+      return new Response(JSON.stringify({id_token:token}),{headers:{"content-type":"application/json"}});
+    }
     if (url.endsWith("/.well-known/jwks.json")) return new Response(JSON.stringify({keys:[globalThis.syntheticJwk]}),{headers:{"content-type":"application/json"}});
     throw new Error(`Unexpected outbound request ${url}`);
   };
@@ -109,6 +116,14 @@ test("wrong issuer, audience, expiry, nonce, algorithm, and signature fail close
   }
   const valid = await signedToken();
   await assert.rejects(verifyIdToken(`${valid.slice(0,-1)}${valid.endsWith("A") ? "B" : "A"}`,env,"nonce-1"));
+});
+test("duplicate JWT claim names are rejected", async () => {
+  const now = Math.floor(Date.now()/1000);
+  const header = Buffer.from(JSON.stringify({alg:"RS256",kid:signingJwk.kid})).toString("base64url");
+  const payload = Buffer.from(`{"iss":"${issuer}","aud":"synthetic-client","aud":"synthetic-client","sub":"github|synthetic-123","nonce":"nonce-1","iat":${now},"exp":${now+600}}`).toString("base64url");
+  const input = `${header}.${payload}`;
+  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5",signingPair.privateKey,new TextEncoder().encode(input));
+  await assert.rejects(verifyIdToken(`${input}.${Buffer.from(signature).toString("base64url")}`,env,"nonce-1"),/duplicate_json_member/);
 });
 test("public browsing works while auth is disabled and protected view denies", async () => {
   const db = { prepare() { throw new Error("unexpected database access"); } };

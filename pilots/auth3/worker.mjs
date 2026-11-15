@@ -1,3 +1,5 @@
+import { createRemoteJWKSet, customFetch, jwtVerify } from "jose";
+
 const COOKIE = "__Host-wd-auth3-session";
 const STATE_COOKIE = "__Host-wd-auth3-state";
 const PILOT_ORIGIN = "https://colorado-watchdog-auth3-pilot.futureguild2.chatgpt.site";
@@ -27,26 +29,83 @@ function issuer(env) {
   if (url.pathname !== "/" || url.search || url.hash || url.username || url.password) throw new Error("invalid_configuration");
   return env.AUTH0_ISSUER;
 }
+function assertNoDuplicateJsonMembers(text) {
+  let position = 0;
+  const whitespace = () => { while (/\s/.test(text[position] ?? "")) position++; };
+  function stringValue() {
+    const start = position++;
+    while (position < text.length) {
+      if (text[position] === "\\") position += 2;
+      else if (text[position++] === '"') return JSON.parse(text.slice(start, position));
+    }
+    throw new Error("invalid_json");
+  }
+  function value() {
+    whitespace();
+    if (text[position] === '"') { stringValue(); return; }
+    if (text[position] === "{") {
+      position++; whitespace();
+      const names = new Set();
+      if (text[position] === "}") { position++; return; }
+      for (;;) {
+        whitespace();
+        if (text[position] !== '"') throw new Error("invalid_json");
+        const name = stringValue();
+        if (names.has(name)) throw new Error("duplicate_json_member");
+        names.add(name); whitespace();
+        if (text[position++] !== ":") throw new Error("invalid_json");
+        value(); whitespace();
+        const separator = text[position++];
+        if (separator === "}") return;
+        if (separator !== ",") throw new Error("invalid_json");
+      }
+    }
+    if (text[position] === "[") {
+      position++; whitespace();
+      if (text[position] === "]") { position++; return; }
+      for (;;) {
+        value(); whitespace();
+        const separator = text[position++];
+        if (separator === "]") return;
+        if (separator !== ",") throw new Error("invalid_json");
+      }
+    }
+    const start = position;
+    while (position < text.length && !/[\s,}\]]/.test(text[position])) position++;
+    if (position === start) throw new Error("invalid_json");
+  }
+  value(); whitespace();
+  if (position !== text.length) throw new Error("invalid_json");
+  JSON.parse(text);
+}
+function jsonSegment(part) {
+  if (!/^[A-Za-z0-9_-]+$/.test(part)) throw new Error("invalid_token");
+  const binary = atob(part.replace(/-/g,"+").replace(/_/g,"/").padEnd(Math.ceil(part.length/4)*4,"="));
+  const bytes = Uint8Array.from(binary, c=>c.charCodeAt(0));
+  const text = new TextDecoder("utf-8",{fatal:true}).decode(bytes);
+  assertNoDuplicateJsonMembers(text);
+  return JSON.parse(text);
+}
 function parseJwt(token) {
   if (typeof token !== "string" || token.length > 16384) throw new Error("invalid_token");
   const parts = token.split(".");
   if (parts.length !== 3) throw new Error("invalid_token");
-  const decode = part => JSON.parse(atob(part.replace(/-/g,"+").replace(/_/g,"/").padEnd(Math.ceil(part.length/4)*4,"=")));
-  return { header: decode(parts[0]), claims: decode(parts[1]), input: `${parts[0]}.${parts[1]}`, signature: decodeBytes(parts[2]) };
+  if (!/^[A-Za-z0-9_-]+$/.test(parts[2])) throw new Error("invalid_token");
+  return { header:jsonSegment(parts[0]), claims:jsonSegment(parts[1]) };
 }
-function decodeBytes(part) { return Uint8Array.from(atob(part.replace(/-/g,"+").replace(/_/g,"/").padEnd(Math.ceil(part.length/4)*4,"=")), c => c.charCodeAt(0)); }
-
-let jwksCache = { issuer: "", expires: 0, keys: [] };
-async function getKeys(iss, force = false) {
-  if (!force && jwksCache.issuer === iss && jwksCache.expires > Date.now()) return jwksCache.keys;
-  const url = new URL(".well-known/jwks.json", iss);
-  if (url.origin !== new URL(iss).origin) throw new Error("invalid_jwks_url");
-  const result = await fetch(url, { headers: { accept: "application/json" }, redirect: "error" });
-  if (!result.ok) throw new Error("jwks_unavailable");
-  const body = await result.json();
-  if (!Array.isArray(body.keys) || body.keys.length > 20) throw new Error("invalid_jwks");
-  jwksCache = { issuer: iss, expires: Date.now() + 5 * 60_000, keys: body.keys };
-  return body.keys;
+const jwksResolvers = new Map();
+function getJwks(iss) {
+  if (!jwksResolvers.has(iss)) {
+    const url = new URL(".well-known/jwks.json", iss);
+    if (url.origin !== new URL(iss).origin) throw new Error("invalid_jwks_url");
+    jwksResolvers.set(iss, createRemoteJWKSet(url, {
+      cacheMaxAge:5*60_000,
+      cooldownDuration:30_000,
+      timeoutDuration:5_000,
+      [customFetch]:(input,options)=>fetch(input,{...options,redirect:"error"}),
+    }));
+  }
+  return jwksResolvers.get(iss);
 }
 export async function verifyIdToken(token, env, nonce, now = Date.now()) {
   const iss = issuer(env);
@@ -55,16 +114,15 @@ export async function verifyIdToken(token, env, nonce, now = Date.now()) {
   if (header.alg !== "RS256" || typeof header.kid !== "string" || !header.kid || header.jku || header.x5u) throw new Error("invalid_token_header");
   if (!claims || claims.iss !== iss || (claims.aud !== env.AUTH0_CLIENT_ID && !(Array.isArray(claims.aud) && claims.aud.length < 10 && claims.aud.includes(env.AUTH0_CLIENT_ID)))) throw new Error("invalid_issuer_or_audience");
   if (Array.isArray(claims.aud) && claims.aud.length > 1 && claims.azp !== env.AUTH0_CLIENT_ID) throw new Error("invalid_authorized_party");
-  const seconds = Math.floor(now / 1000);
-  if (!Number.isFinite(claims.exp) || claims.exp <= seconds - 30 || !Number.isFinite(claims.iat) || claims.iat > seconds + 30 || (claims.nbf !== undefined && (!Number.isFinite(claims.nbf) || claims.nbf > seconds + 30))) throw new Error("invalid_token_time");
   if (claims.nonce !== nonce || typeof claims.sub !== "string" || !claims.sub.trim() || claims.sub.length > 512 || /[\u0000-\u001f\u007f]/.test(claims.sub)) throw new Error("invalid_nonce_or_subject");
-  let keys = await getKeys(iss);
-  let matches = keys.filter(key => key.kid === header.kid && key.kty === "RSA" && (!key.alg || key.alg === "RS256") && (!key.use || key.use === "sig"));
-  if (!matches.length) { keys = await getKeys(iss, true); matches = keys.filter(key => key.kid === header.kid && key.kty === "RSA" && (!key.alg || key.alg === "RS256") && (!key.use || key.use === "sig")); }
-  if (matches.length !== 1) throw new Error("unknown_or_ambiguous_key");
-  const publicKey = await crypto.subtle.importKey("jwk", matches[0], { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
-  if (!await crypto.subtle.verify("RSASSA-PKCS1-v1_5", publicKey, parsed.signature, encoder.encode(parsed.input))) throw new Error("invalid_signature");
-  return { iss, sub: claims.sub };
+  const { payload } = await jwtVerify(token,getJwks(iss),{
+    algorithms:["RS256"], issuer:iss, audience:env.AUTH0_CLIENT_ID,
+    clockTolerance:30, maxTokenAge:"15m",
+    requiredClaims:["iss","aud","exp","iat","sub"],
+    currentDate:new Date(now),
+  });
+  if (payload.nonce !== nonce || typeof payload.sub !== "string" || !payload.sub.trim() || payload.sub.length > 512 || /[\u0000-\u001f\u007f]/.test(payload.sub)) throw new Error("invalid_nonce_or_subject");
+  return { iss, sub:payload.sub };
 }
 function sameOrigin(request, env) { return request.headers.get("origin") === new URL(env.AUTH0_REDIRECT_URI).origin; }
 function validConfig(env) {
