@@ -164,3 +164,16 @@ rewriting the history above.
   installments written in another AI account. They were never Beta-1
   records. The owner approves each installment before publication.
 - The development pause is lifted with the adoption of the roadmap.
+
+## Alpha-1 Website D1 initialization, November 14, 2026
+
+- The owner confirmed that Alpha-1 had no real application data to carry
+  forward and directed initialization to proceed. The Sites database
+  viewer showed an existing `DB` binding with a seeded county registry
+  and empty application data tables. Use that binding and apply pending
+  migrations through the normal Sites deployment. The pre-migration hold
+  and MCP provenance sequence in DEPLOY-1A do not gate this initialization.
+- Keep one Website D1 and the shared dashboard/API/MCP architecture.
+  AUTH-3/AUTH-4 retain provider and first-owner ownership. Establish a
+  supported hosted backup and isolated restore before relying on hosted
+  D1 for real records.
