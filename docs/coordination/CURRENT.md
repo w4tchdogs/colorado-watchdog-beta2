@@ -66,7 +66,7 @@ Beta-1 data, banners and visual assets are **not** migrated into beta-2 automati
 | Banner carousel (BANNERS-4) | Merged, verified locally with synthetic fixtures | [PR #109](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/109); [banner-delivery.md](../architecture/banner-delivery.md#banners-4--accessible-banner-carousel) |
 | MCP administration | Merged, implemented locally: read-only Website inspection MCP (`d1.inspect` capability, aggregate counts only) and a Profiles readiness MCP (stdio, aggregate eligibility counts only). Read-only Website endpoint published in Alpha-1 v5; authenticated connection unverified. **No write, sync, import, or migration tool exists** | PR #95; [mcp-administration.md](../architecture/mcp-administration.md) |
 | Hosted D1 migration (0015, Lake/La Plata correction) | Hosted result verified in Alpha-1 v5: all 64 county pairs match | `website/migrations/0015_correct_lake_la_plata_county_names.sql`; Section D |
-| Hosted R2 provisioning | **Not done.** `r2: null` in `.openai/hosting.json` on `main` | `.openai/hosting.json` |
+| Hosted R2 provisioning | **Not done.** R2-1 PR open: `.openai/hosting.json` declares `"r2": "BUCKET"` on the branch, `main` still has `r2: null`. No Sites save or deploy has run, so no hosted bucket exists or is verified | `.openai/hosting.json`, R2-1 PR |
 | Website Profiles import (sync to D1) | **Not executed**; no changeset has ever been prepared and local sync tables are empty | Verified read-only by Claude, 2026-11-14 |
 | Local research intake | Complete for 79 batches across 64 counties | Verified read-only by Claude, 2026-11-14 |
 | Real banner import | **Not executed** (BANNERS-IMPORT-1 is a separate future task). Source: the workspace `banners\approved\` folder (152 approved originals) | [banner-delivery.md](../architecture/banner-delivery.md) |
@@ -128,6 +128,7 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | EDIT-1 | Merged, verified locally | [PR #110](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/110) | Hosted publication schema and public routes smoke-tested; staff access and publication workflow await AUTH-3 and EDIT-2 | 2026-11-14 |
 | BANNERS-4 (carousel) | Merged | [PR #109](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/109) | Real artwork awaits R2-1 and BANNERS-IMPORT-1 | 2026-11-14 |
 | BROWSE-1 | Merged, implemented locally. Statewide People and Organizations have bounded browse pages and retain name search. Hosted empty routes smoke-tested | [PR #111](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/111) | Hosted populated lists and pagination await eligible data | 2026-11-14 |
+| R2-1 | PR open, source only. Manifest declares `BUCKET` and keeps `DB`. Built and tested locally. Sites provisioning, deployed version, binding evidence and the synthetic object check are not done, because this session had no Sites connector | R2-1 PR | Sites save and deploy, timed with 💠archon | 2026-11-14 |
 | BANNERS-IMPORT-1 (real import) | Planned, not started | — | R2 provisioning | — |
 | Website Profiles import (sync to D1) | Not executed | No changeset ever prepared; local sync tables empty | Migration 003, R7/R8, hosted sync | 2026-11-14 |
 
