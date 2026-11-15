@@ -96,6 +96,7 @@ const allowed = new Set([
   "docs/architecture/public-site.md",
   "docs/architecture/d1-readiness.md",
   "docs/architecture/deploy-1-safety-assessment.md",
+  "docs/architecture/deploy-1a-migration-gate.md",
   "docs/architecture/auth-3-identity-assessment.md",
   "docs/architecture/county-identity-correction.md",
   ".openai/hosting.json",
