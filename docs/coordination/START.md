@@ -5,6 +5,7 @@
 **Read in this order for any substantial new assignment:** this page, then
 [CURRENT](CURRENT.md) (current architecture/implementation/deployment
 snapshot), then [decisions](../decisions.md) (binding owner decisions), then
+[ROADMAP](ROADMAP.md) (launch goals and ordered work), then
 the relevant track-specific architecture document and the latest related
 Issue or handoff. Retrieve only the context needed to advance the task — do
 not reread all of GitHub history, and do not require a new report for every
@@ -30,6 +31,7 @@ another chat.
 
 - **Main:** current accepted source, instructions and decisions
 - **[CURRENT](CURRENT.md):** short canonical current-state snapshot — read before decisions or architecture notes
+- **[ROADMAP](ROADMAP.md):** the owner's launch goals and the ordered backlog that reaches them
 - **Issues:** work in progress, discussion and AI session handoffs
 - **PRs:** durable changes and checks
 - **Architecture reports:** current technical assessment: [Fable's beta-2 architecture v4](../architecture/fable-assessment-rev4.md). Earlier baseline, kept as history: [v3](../architecture/fable-assessment-rev3.md). Google Drive is retired for coordination. GitHub is canonical

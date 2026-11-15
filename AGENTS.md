@@ -9,8 +9,10 @@ collaborator) follows this file. Start each substantial task at
 - **Owner:** sets direction and makes binding decisions. Only the owner
   deletes files, lifts a pause or changes a binding decision.
 - **💠archon:** the single coordinating chat for Website and Profiles. It
-  keeps [CURRENT](docs/coordination/CURRENT.md) accurate, prepares
-  assignments, prevents overlapping work and recommends next tasks.
+  keeps [CURRENT](docs/coordination/CURRENT.md) and
+  [ROADMAP](docs/coordination/ROADMAP.md) accurate, prepares assignments
+  from the roadmap's ordered backlog, prevents overlapping work and
+  recommends next tasks.
 - **Task chats and agents:** carry out one assignment and report the result
   through GitHub (PR, Issue or CURRENT row), not only in chat.
 - No AI is a mandatory reviewer or approval authority.
@@ -22,6 +24,7 @@ collaborator) follows this file. Start each substantial task at
 | Accepted source | GitHub `main` |
 | Binding owner decisions | [decisions.md](docs/decisions.md) |
 | Current state, assignments, blockers, pauses | [CURRENT](docs/coordination/CURRENT.md) |
+| Launch goals and ordered backlog | [ROADMAP](docs/coordination/ROADMAP.md) |
 | Work in progress and task handoffs | Issues and PRs |
 | Long reference reports | `docs/architecture/` (for example the [Fable assessment](docs/architecture/fable-assessment-rev4.md)) |
 | Private research, databases, banner originals, archives | The owner's local Watchdog folder only, never GitHub |

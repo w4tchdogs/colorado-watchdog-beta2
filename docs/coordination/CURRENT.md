@@ -1,8 +1,8 @@
 # Colorado Watchdog beta-2 — current state
 
-Revision: November 14, 2026. Evidence: GitHub `main` at `f7f4ed5` (PR #100), the WSO-2 completion audit, [decisions](../decisions.md), and the linked Issues/PRs below. Read this after [START](START.md) and before track-specific documents. Five-minute read.
+Revision: November 14, 2026. Evidence: GitHub `main` at `e9041f8` (PR #101), the WSO-2 completion audit, [decisions](../decisions.md), and the linked Issues/PRs below. Read this after [START](START.md) and before track-specific documents. Five-minute read.
 
-**Owner pause:** WSO-2 (Watchdog workspace consolidation) is complete and audited. All development remains paused until the owner explicitly lifts the pause. Coordination and documentation upkeep may continue.
+**Roadmap:** the owner's six launch goals and the ordered work to reach them are in [ROADMAP](ROADMAP.md). The development pause is lifted. Pick new work from the roadmap's ordered backlog and record assignments in section F.
 
 ## Status vocabulary
 
@@ -108,7 +108,8 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | WSO-1 | Complete; read-only workspace assessment. Filesystem inventory is valid; Git observations came from a stale local checkout at the PR #83 era and do not describe current `main` | Report in the local Watchdog workspace, `documents\reports\`: "Colorado Watchdog Workspace Organization Assessment and Proposed Plan rev2026-11-14 v1.docx" | — | 2026-11-14 |
 | WSO-2 | Complete; all Watchdog material consolidated into the local Watchdog folder, stale worktrees moved to `_trash` (nothing deleted), Profiles database moved to the private `profiles\` folder with hash, integrity and counts unchanged, Git worktrees repaired. Verified by Claude | Move plan v2, manifest and logs in the local workspace, `documents\workspace\wso-2\` | Owner cleanup of `_trash` and the `.moved-2026-11-14` sources | 2026-11-14 |
 | COORD-3 | Merged; Drive links replaced with repository copies of the Fable assessments, Drive retirement recorded, private paths generalized to `<private-root>` | [PR #100](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/100), `f7f4ed5` | — | 2026-11-14 |
-| COORD-4 | PR open; AGENTS, START, project instructions and the standard coordinator handoff refreshed; local workspace layout recorded; `banner_assets` folder renamed `banners` | Branch `coord-4-coordination-refresh` | — | 2026-11-14 |
+| COORD-4 | Merged; AGENTS, START, project instructions and the standard coordinator handoff refreshed; local workspace layout recorded; `banner_assets` folder renamed `banners` | [PR #101](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/101), `e9041f8` | — | 2026-11-14 |
+| COORD-5 | Roadmap adopted, launch goals recorded in decisions, development pause lifted on merge | Branch `coord-5-roadmap` | — | 2026-11-14 |
 | Profiles Archon retired | Complete | Owner decision, 2026-11-14 | — | 2026-11-14 |
 | VIS8-RESTORE-1 | Merged | PR #91, `db2903d1` | — | 2026-11-14 |
 | BANNERS-3 | Merged | PR #92, `0c08faf8` | R2 provisioning (for real import) | 2026-11-14 |
@@ -126,11 +127,13 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 
 No task above is owned by more than one AI at once; check this table and the linked Issue/PR before starting overlapping work.
 
-## G. Next safe tasks
+## G. Next tasks
 
-WSO-2 is complete. The following development tasks stay on hold until the owner lifts the pause.
-
-Any of: BANNERS-4 (carousel UI, no hosted dependency), visual-audit follow-ups, Posts/Stories publication-endpoint design, or read-only hosted-access diagnostics that do not write to production. Hosted MCP publication or any MCP write/sync/import tool, real data imports, migration 0015 application and Alpha-1 redeployment all require an explicit owner-scoped assignment first.
+Use the ordered backlog in [ROADMAP](ROADMAP.md). These need no hosted access
+and can start now: DATA-1, EDIT-1, BANNERS-4, BROWSE-1, the visual-audit
+follow-ups, the DEPLOY-1 and AUTH-3 assessments, and preparing the owner's
+drafts of "The Idlewild Story". Hosted MCP writes, real data imports,
+migration 0015 and Alpha-1 redeployment follow the roadmap's dependencies.
 
 ## Maintenance — when to update this file
 

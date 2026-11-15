@@ -18,8 +18,12 @@ is archived and is a visual reference only.
 
 **Canonical records:** https://github.com/w4tchdogs/colorado-watchdog-beta2
 Before substantial work, read docs/coordination/START.md, then CURRENT.md,
-then docs/decisions.md. AGENTS.md holds the shared rules. These records
-outrank chat memory, earlier chats and handoffs. Google Drive is retired.
+then docs/decisions.md, then docs/coordination/ROADMAP.md. AGENTS.md holds
+the shared rules. These records outrank chat memory, earlier chats and
+handoffs. Google Drive is retired.
+
+**Goal:** the six launch goals in ROADMAP.md. Choose and order work from its
+backlog.
 
 **Roles:** one 💠archon chat coordinates Website and Profiles. Task chats
 carry out one assignment and report through GitHub (PR, Issue or CURRENT
@@ -83,8 +87,10 @@ reviews.
 
 **Canonical records:** https://github.com/w4tchdogs/colorado-watchdog-beta2
 Before substantial work, read docs/coordination/START.md, then CURRENT.md,
-then docs/decisions.md. AGENTS.md holds the shared rules for every AI.
-These records outrank this Project's chats, memory and earlier handoffs.
+then docs/decisions.md, then docs/coordination/ROADMAP.md. AGENTS.md holds
+the shared rules for every AI. These records outrank this Project's chats,
+memory and earlier handoffs. The six launch goals in ROADMAP.md define what
+Beta-2 is working toward.
 
 **Projects:** Beta-2 is the only project under development. Beta-1
 (https://colorado-watchdog.futureguild2.chatgpt.site/) is archived and is a

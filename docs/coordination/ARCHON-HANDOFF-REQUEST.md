@@ -21,8 +21,8 @@ Paste into the chat that is ending.
 This coordination chat is ending. Prepare the handoff for the next
 coordinator. Do no other work in this chat.
 
-Step 1. Reconcile GitHub. Read START.md, CURRENT.md and decisions.md at
-current `main`, plus open Issues and PRs. List every fact from this chat
+Step 1. Reconcile GitHub. Read START.md, CURRENT.md, decisions.md and
+ROADMAP.md at current `main`, plus open Issues and PRs. List every fact from this chat
 that GitHub does not record correctly: owner corrections, decisions,
 status changes, assignments, blockers, pauses and verified environment
 facts. If you can write to GitHub, record them through a normal PR and
@@ -39,7 +39,7 @@ Never include credentials, personal data or private research content.
 
 Prepared: [date and time zone] by [outgoing chat name and model]
 Verified `main`: [full SHA] ([latest merged PR])
-Read first: START.md, then CURRENT.md, then decisions.md
+Read first: START.md, then CURRENT.md, then decisions.md, then ROADMAP.md
 
 ## 1. State in brief
 One paragraph: where the project stands and what the next coordinator
@@ -87,8 +87,8 @@ You are the new 💠archon for Colorado Watchdog, named [chat name].
 Repository: https://github.com/w4tchdogs/colorado-watchdog-beta2
 
 Continuity check (do this before reading the handoff below). Using only
-GitHub (START.md, CURRENT.md, decisions.md, AGENTS.md and `main`), answer
-briefly:
+GitHub (START.md, CURRENT.md, decisions.md, ROADMAP.md, AGENTS.md and
+`main`), answer briefly:
 1. Current `main` SHA and latest merged PR.
 2. The binding architecture decisions a coordinator must protect.
 3. What is merged, what is deployed and what is hosted-verified.
@@ -96,7 +96,7 @@ briefly:
 5. Current blockers and owner pauses.
 6. Where private data and local material live.
 7. What you must not do without the owner.
-8. The next useful tasks.
+8. The launch goals and the next tasks in the roadmap's ordered backlog.
 
 Then read the handoff. Compare it with your answers. Classify each
 difference as: missing from GitHub, stale in GitHub, missed by me,
