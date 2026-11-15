@@ -1,7 +1,10 @@
 # Colorado Watchdog project instructions
 
 Copy the matching block into the ChatGPT Project or Claude Project
-instructions. GitHub changes do not update Project settings automatically,
+instructions. For work in the Sites tab or through @sites, use the separate
+[Sites assignment block](#sites-assignment-block).
+
+GitHub changes do not update Project settings automatically,
 so recopy a block after it changes. Both blocks are deliberately short: the
 shared rules live in [AGENTS.md](../../AGENTS.md) and the current state in
 [CURRENT](CURRENT.md), so the instructions only need to point there and add
@@ -76,6 +79,32 @@ and task chats use docs/coordination/HANDOFF-TEMPLATE.md.
 the next useful step.
 
 ---
+
+## Sites assignment block
+
+Append this to a consequential sites (Sites tab) or @sites (chat
+integration) assignment and replace the bracketed text. Repeat it at the
+start of a new conversation.
+
+```text
+Use this existing Colorado Watchdog Beta-2 GitHub thread as the project
+record: [Issue or PR URL].
+
+Before wrapping up, post one handoff there. Summarize material findings,
+changes, checks actually run, and anything unverified or blocked. For
+source edits, include the PR, exact GitHub commit SHA, and changed files
+or scope. Record any changes to hosting settings, bindings, or data.
+
+Save or publish only when the assignment includes that action. Distinguish
+source edits, a saved Sites version, a live deployment, and live checks.
+For a save or deployment, include the exact GitHub source SHA or verified
+tree match, the Sites version, any deployment ID, and live check results.
+
+Return the direct link to the GitHub handoff in your final reply. If you
+cannot post, return a paste-ready handoff and the exact diff for any
+Sites-only edits. Reconcile those edits with GitHub before saving or
+publishing. Keep secrets out of the record.
+```
 
 ## Claude Project
 
