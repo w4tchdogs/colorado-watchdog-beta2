@@ -1514,12 +1514,28 @@ img {
   font-weight: 700;
 }
 @media (max-width: 44rem) {
-  .county-switch {
+  /* Compact county navigation: the name, the three links and the switcher
+     with "All counties" use as few rows as the width allows. */
+  .county-nav-inner {
+    gap: 0 var(--space-3);
+  }
+  .county-nav ul {
     flex: 1 1 100%;
+    gap: 0 var(--space-1);
+  }
+  .county-nav ul a {
+    padding: var(--space-2) var(--space-1) calc(var(--space-2) - 2px);
+  }
+  .county-switch {
+    flex: 1 1 0;
+    min-width: 0;
     margin-left: 0;
   }
   .county-switch select {
     flex: 1;
+  }
+  .county-nav-all {
+    flex: 0 0 auto;
   }
 }
 

@@ -850,3 +850,25 @@ test("supporting pages and unknown routes", async () => {
     }
   });
 });
+
+test("county navigation stays compact on narrow screens", () => {
+  const css = readFileSync(
+    new URL("../website/site/site.css", import.meta.url),
+    "utf8",
+  );
+  const block = css.match(
+    /@media \(max-width: 44rem\) \{\s*\/\* Compact county navigation[\s\S]*?\n\}\n/,
+  );
+  assert.ok(block, "compact county navigation rules are present");
+  const rule = (selector) => {
+    const start = block[0].indexOf(`${selector} {`);
+    return start < 0 ? "" : block[0].slice(start, block[0].indexOf("}", start));
+  };
+  // The three links take a full row, and the switcher shares a row with
+  // "All counties" instead of each wrapping onto its own row.
+  assert.match(rule(".county-nav ul"), /flex: 1 1 100%/);
+  assert.match(rule(".county-switch"), /flex: 1 1 0/);
+  assert.match(rule(".county-nav-all"), /flex: 0 0 auto/);
+  // The no-JavaScript Go button is never hidden by the compact layout.
+  assert.doesNotMatch(block[0], /display:\s*none/);
+});
