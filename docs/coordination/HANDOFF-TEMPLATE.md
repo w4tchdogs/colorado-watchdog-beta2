@@ -18,15 +18,11 @@ Use the 70% preparation and 80% fresh-chat guidelines when context utilization i
 task or a short session within it. Use the lightweight template below
 as-is; no extra process.
 
-**Archon successor handoff** — a heavier case, needed only when: replacing
-the 💠archon; transferring cross-project coordination responsibility; or
-ending a long-running Archon conversation. Task chats use this
-`HANDOFF-TEMPLATE.md` for routine task handoffs.
-Use [ARCHON-HANDOFF-REQUEST.md](ARCHON-HANDOFF-REQUEST.md) instead — it
-contains the actual reusable prompt that produces a complete,
-twelve-section continuation document for the incoming Archon. Do not use it
-for an ordinary small development task; the template below already covers
-that.
+**Coordinator handoff** is needed only when a 💠archon chat ends or
+coordination moves to another chat or AI. Use
+[ARCHON-HANDOFF-REQUEST.md](ARCHON-HANDOFF-REQUEST.md) for that. It holds
+the standard outgoing and incoming prompts. Do not use it for an ordinary
+development task. The template below covers that.
 
 ## Template
 

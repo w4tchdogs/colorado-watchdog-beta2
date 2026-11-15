@@ -22,9 +22,9 @@ leaving it chat-local; do this only for material cross-project change (see
 CURRENT's own maintenance note), not for routine PRs. See
 [AGENTS.md](../../AGENTS.md)'s "Architectural Continuity and Shared Project
 State" section for the full reasoning, and
-[ARCHON-HANDOFF-REQUEST.md](ARCHON-HANDOFF-REQUEST.md) to produce a complete
-successor handoff when replacing an Archon or ending a long-running
-coordination chat.
+[ARCHON-HANDOFF-REQUEST.md](ARCHON-HANDOFF-REQUEST.md) for the standard
+coordinator handoff when a 💠archon chat ends or coordination moves to
+another chat.
 
 ## Shared knowledge
 
@@ -41,6 +41,6 @@ The [current beta-2 planning handoff](../architecture/beta-2-planning-handoff.md
 
 Complete routine work without process overhead. Share progress in the relevant Issue and durable changes through a branch/PR. No AI has a mandatory reviewer role.
 
-See [AGENTS.md](../../AGENTS.md) for chat naming, progressive buttons and early handoffs. Related ChatGPT Projects can use the [short bootstrap](PROJECT-BOOTSTRAP.md).
+See [AGENTS.md](../../AGENTS.md) for roles, working rules, the local workspace layout, naming and handoffs. ChatGPT and Claude Project instructions come from [PROJECT-BOOTSTRAP.md](PROJECT-BOOTSTRAP.md).
 
-The existing beta-1 website has its own development history and master plan; keep that distinct from beta-2.
+Beta-1 is archived and not under development. Keep it distinct from beta-2 and use it only as a visual reference.

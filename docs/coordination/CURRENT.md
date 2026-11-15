@@ -1,6 +1,6 @@
 # Colorado Watchdog beta-2 — current state
 
-Revision: November 14, 2026. Evidence: GitHub `main` at `4d7916cf0cc870ef66cb843076a2df7c1ece8de2` (PR #99), the WSO-2 completion audit, [decisions](../decisions.md), and the linked Issues/PRs below. Read this after [START](START.md) and before track-specific documents. Five-minute read.
+Revision: November 14, 2026. Evidence: GitHub `main` at `f7f4ed5` (PR #100), the WSO-2 completion audit, [decisions](../decisions.md), and the linked Issues/PRs below. Read this after [START](START.md) and before track-specific documents. Five-minute read.
 
 **Owner pause:** WSO-2 (Watchdog workspace consolidation) is complete and audited. All development remains paused until the owner explicitly lifts the pause. Coordination and documentation upkeep may continue.
 
@@ -30,15 +30,17 @@ one was skipped, and Merged never implies Deployed.
 
 | Project | Repository / URL | Notes |
 | --- | --- | --- |
-| **Beta-1** — existing website | https://colorado-watchdog.futureguild2.chatgpt.site/ | Separate history, data and Sites project (`appgprj_6ae78d5c5bd881919b1790ebc0177a44`). Not modified by beta-2 work. |
+| **Beta-1** — archived website | https://colorado-watchdog.futureguild2.chatgpt.site/ | Archived and not under development. The Site remains online. Separate history, data and Sites project (`appgprj_6ae78d5c5bd881919b1790ebc0177a44`). Local files are in the workspace `archive\beta-1\`. Visual reference only. |
 | **Beta-2** — AI-first rebuild | https://github.com/w4tchdogs/colorado-watchdog-beta2 | This repository. Source of truth is `main`. |
 | **Beta-2 Alpha-1** — first deployed Site | https://colorado-watchdog-alpha1.futureguild2.chatgpt.site/ | Sites project `appgprj_6af7fb8f615c81918da0e4450ba336de`. Publicly reachable — see section D for the "Audience: public" evidence; "Alpha-1" names the deployment stage, not a private audience. |
 
 Beta-1 data, banners and visual assets are **not** migrated into beta-2 automatically. Each project keeps its own database, decisions and history.
 
+**Local workspace:** all local material is in the owner's Watchdog folder, laid out as described in [AGENTS.md](../../AGENTS.md#local-workspace). Approved banner originals for BANNERS-IMPORT-1 are in `banners\approved\`, with inventories and manifests in `banners\manifests\`. The private Profiles database is in `profiles\database\`.
+
 ## B. Architectural invariants (binding owner decisions — see [decisions.md](../decisions.md))
 
-- **AI-first administration**: one relational Website D1 database, R2 for files, and a shared dashboard/API/MCP service layer is the selected backbone — an approved requirement, not an optional add-on. MCP itself is **not yet implemented or connected** (see component matrix).
+- **AI-first administration**: one relational Website D1 database, R2 for files, and a shared dashboard/API/MCP service layer is the selected backbone — an approved requirement, not an optional add-on. A read-only MCP foundation is merged (PR #95). Hosted publication and write, sync and import tools are not implemented (see component matrix).
 - One Website D1 database; a **separate** local Windows SQLite Profiles research database (DB Browser for SQLite). Never merge or cross-query them.
 - Profiles-to-Website transfer only through the accepted synchronization architecture (M2 planner/commit/reversal); the Website assigns permanent entity IDs.
 - Versioned changesets, durable receipts, auditing and reversible operations are required for mutations.
@@ -66,7 +68,7 @@ Beta-1 data, banners and visual assets are **not** migrated into beta-2 automati
 | Hosted R2 provisioning | **Not done.** `r2: null` in `.openai/hosting.json` on `main` | `.openai/hosting.json` |
 | Website Profiles import (sync to D1) | **Not executed**; no changeset has ever been prepared and local sync tables are empty | Verified read-only by Claude, 2026-11-14 |
 | Local research intake | Complete for 79 batches across 64 counties | Verified read-only by Claude, 2026-11-14 |
-| Real banner import | **Not executed** (BANNERS-IMPORT-1 is a separate future task) | [banner-delivery.md](../architecture/banner-delivery.md) |
+| Real banner import | **Not executed** (BANNERS-IMPORT-1 is a separate future task). Source: the workspace `banners\approved\` folder (152 approved originals) | [banner-delivery.md](../architecture/banner-delivery.md) |
 | Public Site deployment (Alpha-1) | **Deployed**, but stale relative to `main` — see section D | — |
 | Visual audit | In progress; coverage ledger and several VIS fixes merged | PR #82–#92; `docs/coordination/visual-audit/` |
 
@@ -105,7 +107,8 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | COORD-2 | Merged | [PR #97](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/97), `e5704436` | — | 2026-11-14 |
 | WSO-1 | Complete; read-only workspace assessment. Filesystem inventory is valid; Git observations came from a stale local checkout at the PR #83 era and do not describe current `main` | Report in the local Watchdog workspace, `documents\reports\`: "Colorado Watchdog Workspace Organization Assessment and Proposed Plan rev2026-11-14 v1.docx" | — | 2026-11-14 |
 | WSO-2 | Complete; all Watchdog material consolidated into the local Watchdog folder, stale worktrees moved to `_trash` (nothing deleted), Profiles database moved to the private `profiles\` folder with hash, integrity and counts unchanged, Git worktrees repaired. Verified by Claude | Move plan v2, manifest and logs in the local workspace, `documents\workspace\wso-2\` | Owner cleanup of `_trash` and the `.moved-2026-11-14` sources | 2026-11-14 |
-| COORD-3 | This PR: Drive links replaced with repository copies of the Fable assessments, Drive retirement recorded, private paths generalized to `<private-root>` | Branch `coord-3-drive-retirement` | — | 2026-11-14 |
+| COORD-3 | Merged; Drive links replaced with repository copies of the Fable assessments, Drive retirement recorded, private paths generalized to `<private-root>` | [PR #100](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/100), `f7f4ed5` | — | 2026-11-14 |
+| COORD-4 | PR open; AGENTS, START, project instructions and the standard coordinator handoff refreshed; local workspace layout recorded; `banner_assets` folder renamed `banners` | Branch `coord-4-coordination-refresh` | — | 2026-11-14 |
 | Profiles Archon retired | Complete | Owner decision, 2026-11-14 | — | 2026-11-14 |
 | VIS8-RESTORE-1 | Merged | PR #91, `db2903d1` | — | 2026-11-14 |
 | BANNERS-3 | Merged | PR #92, `0c08faf8` | R2 provisioning (for real import) | 2026-11-14 |
