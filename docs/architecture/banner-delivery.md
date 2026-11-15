@@ -22,7 +22,7 @@ explicitly curated active/verified record may appear there. County order and
 primary selection remain independent. The public hero renders the first eligible
 record and enhances it with carousel controls when more records are available.
 
-The checked-in Sites hosting manifest retains `r2: null`, because the platform
+Until R2-1 is deployed and verified, the checked-in Sites hosting manifest on `main` retains `r2: null`. The R2-1 branch declares `"r2": "BUCKET"` as the Sites storage documentation describes, and hosted provisioning is unverified. The earlier reason was that the platform
 documentation does not specify a deployable R2 binding declaration and the
 existing project has not provisioned one. Source/runtime compatibility is
 prepared using the optional `BUCKET` binding. To continue in BANNERS-IMPORT-1,
