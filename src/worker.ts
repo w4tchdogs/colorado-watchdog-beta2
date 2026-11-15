@@ -36,8 +36,8 @@ const BETA2_SITES_PROJECT_ID = "appgprj_6af7fb8f615c81918da0e4450ba336de";
 // authenticated identity context or a verifiable Worker gateway assertion.
 // Never promote request headers into a VerifiedSitesContext here.
 
-// This diagnostic is deliberately separate from the public site and API routers.
-// Configure a one-time, random 256-bit secret in Sites before invoking it.
+// This diagnostic is separate from the public site and API routers.
+// Use a random 256-bit Sites secret for one invocation, then revoke the secret.
 const R2_DIAGNOSTIC_PATH = "/_ops/diagnostics/r2-binding";
 const R2_DIAGNOSTIC_KEY = "__watchdog_diagnostics/r2-binding-check/2026-11-15-v1";
 const R2_DIAGNOSTIC_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
@@ -47,11 +47,20 @@ function hasR2DiagnosticCredential(
   environment: RuntimeEnvironment,
 ): boolean {
   const token = environment.R2_DIAGNOSTIC_TOKEN;
-  return (
-    typeof token === "string" &&
-    R2_DIAGNOSTIC_TOKEN_PATTERN.test(token) &&
-    request.headers.get("authorization") === `Bearer ${token}`
-  );
+  if (
+    typeof token !== "string" ||
+    !R2_DIAGNOSTIC_TOKEN_PATTERN.test(token)
+  ) {
+    return false;
+  }
+  const expected = `Bearer ${token}`;
+  const supplied = request.headers.get("authorization") ?? "";
+  if (supplied.length !== expected.length) return false;
+  let difference = 0;
+  for (let index = 0; index < expected.length; index += 1) {
+    difference |= expected.charCodeAt(index) ^ supplied.charCodeAt(index);
+  }
+  return difference === 0;
 }
 
 async function runR2BindingDiagnostic(
@@ -62,12 +71,19 @@ async function runR2BindingDiagnostic(
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",
   };
-  if (request.method !== "POST" || !hasR2DiagnosticCredential(request, environment)) {
+  if (
+    request.method !== "POST" ||
+    !hasR2DiagnosticCredential(request, environment)
+  ) {
     // Do not reveal the route, whether a secret is configured, or binding state.
     return new Response(null, { status: 404, headers });
   }
 
-  let outcome: "binding_missing" | "head_null" | "head_object" | "head_failed";
+  let outcome:
+    | "binding_missing"
+    | "head_null"
+    | "head_object"
+    | "head_failed";
   if (!environment.BUCKET) {
     outcome = "binding_missing";
   } else {
