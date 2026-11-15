@@ -63,6 +63,7 @@ Beta-1 data, banners and visual assets are **not** migrated into beta-2 automati
 | Posts and Stories | Merged (content model + search, M3/VIS13-SEARCH-1); **no public publication endpoint** | PR #90; [public-site.md](../architecture/public-site.md) §"Not implemented" |
 | Banner inventory and lifecycle (BANNERS-1, BANNERS-2) | Merged, implemented locally | PR #64, #67; [banner-inventory.md](../architecture/banner-inventory.md), [banner-storage.md](../architecture/banner-storage.md) |
 | Banner delivery (BANNERS-3) | Merged, implemented locally; read-only public integration only | PR #92; [banner-delivery.md](../architecture/banner-delivery.md) |
+| Banner carousel (BANNERS-4) | Merged, verified locally with synthetic fixtures | [PR #109](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/109); [banner-delivery.md](../architecture/banner-delivery.md#banners-4--accessible-banner-carousel) |
 | MCP administration | Merged, implemented locally: read-only Website inspection MCP (`d1.inspect` capability, aggregate counts only) and a Profiles readiness MCP (stdio, aggregate eligibility counts only). **No write, sync, import, or migration tool exists**; no hosted Site has published or connected to the MCP endpoint | PR #95; [mcp-administration.md](../architecture/mcp-administration.md) |
 | Hosted D1 migration (0015, Lake/La Plata correction) | Merged to source; hosted application **blocked/undetermined** | `website/migrations/0015_correct_lake_la_plata_county_names.sql`; D1-0015-PREFLIGHT-1 (below) |
 | Hosted R2 provisioning | **Not done.** `r2: null` in `.openai/hosting.json` on `main` | `.openai/hosting.json` |
@@ -124,7 +125,7 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | MCP-1 (read-only foundation) | Merged | PR #95, `bc60154f` | — | 2026-11-14 |
 | MCP hosted publication / write tools | Planned, not started | — | Hosted Site MCP configuration (owner-scoped) | — |
 | Profiles Import Pilot | Assessment complete; readiness/hosted-sync unresolved | — | Hosted D1 admin access, R7/R8 | 2026-11-14 |
-| BANNERS-4 (carousel) | Planned, not started | — | BANNERS-3 (merged) | — |
+| BANNERS-4 (carousel) | Merged | [PR #109](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/109) | Real artwork awaits R2-1 and BANNERS-IMPORT-1 | 2026-11-14 |
 | BANNERS-IMPORT-1 (real import) | Planned, not started | — | R2 provisioning | — |
 | Website Profiles import (sync to D1) | Not executed | No changeset ever prepared; local sync tables empty | Migration 003, R7/R8, hosted sync | 2026-11-14 |
 
@@ -133,7 +134,7 @@ No task above is owned by more than one AI at once; check this table and the lin
 ## G. Next tasks
 
 Use the ordered backlog in [ROADMAP](ROADMAP.md). These need no hosted access
-and can start now: EDIT-1, BANNERS-4, BROWSE-1, the visual-audit follow-ups
+and can start now: EDIT-1, BROWSE-1, the visual-audit follow-ups
 and preparing the owner's drafts of "The Idlewild Story".
 AUTH-3 implementation awaits the owner's provider selection.
 DEPLOY-1 assessment is complete, but deployment is blocked pending a

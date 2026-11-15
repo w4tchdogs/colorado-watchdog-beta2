@@ -343,9 +343,11 @@ falls back to it with no broken picture and no layout shift.
 
 `forCounty(fips)` may return any number of banners; `forHome()` returns the
 curated statewide set. The site shows published records only, primary first,
-then by `order`, then by `bannerId`. This milestone displays the first one
-statically and exposes the count as `data-banner-count`. There are no
-slideshow controls and no animation.
+then by `order`, then by `bannerId`. The first banner is server-rendered.
+With multiple eligible banners, the browser reveals Previous, Next, Pause and
+Play controls below the frame. Rotation starts when a visitor chooses Play
+and is disabled while reduced motion is active. See
+[banner delivery](banner-delivery.md#banners-4--accessible-banner-carousel).
 
 **Lifecycle operations are data changes.** Add a record, change `order` or
 `primary`, set `status` to `unpublished`, or point `assetVersion` and `src` at
@@ -357,8 +359,6 @@ edit. Requirements on the future pipeline:
 - If images are served from another origin, pass it in
   `PublicSiteOptions.bannerOrigins` so it is added to the CSP `img-src`.
 - Supply `width` and `height` where known.
-- Any future rotation must offer real pause and next controls, keep image and
-  caption in step, and respect `prefers-reduced-motion`.
 
 **Synthetic fixtures.** `npm run site:dev:banners` shows generated SVG test
 patterns (21:9, 13:5 and 3:1; cover, contain, a top focal point, a missing

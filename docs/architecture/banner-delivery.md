@@ -19,8 +19,8 @@ return 404. Unsupported methods retain the site's `GET, HEAD` 405 behavior.
 
 Homepage display is opt-in: `homepage_order` is null by default. Only an
 explicitly curated active/verified record may appear there. County order and
-primary selection remain independent. The static presentation renders the
-first eligible selected record; it does not rotate.
+primary selection remain independent. The public hero renders the first eligible
+record and enhances it with carousel controls when more records are available.
 
 The checked-in Sites hosting manifest retains `r2: null`, because the platform
 documentation does not specify a deployable R2 binding declaration and the
@@ -32,7 +32,7 @@ Site or guess a bucket identifier. Rebuild and inspect the produced hosting
 manifest after Sites reports the binding; if the platform cannot attach it,
 keep the current null binding and use no live import.
 
-## BANNERS-4 — static data to accessible carousel
+## BANNERS-4 — accessible banner carousel
 
 **Data contract.** Consume the ordered `BannerPresentation[]` already supplied
 by BANNERS-3: stable banner ID, immutable version ID, county attribution, URL,
@@ -46,6 +46,10 @@ that changes the current index and updates image URL, alt, caption, banner ID
 and version together. Keep the URL version-specific. Do not start image
 preloading beyond the current and next eligible image.
 
+`bannerFrame` emits the first image and stores the ordered public presentation
+data in an escaped HTML attribute. `/assets/site.js` validates that data,
+reveals the controls, and requests images only when their slide is selected.
+
 **Controls and accessibility.** With two or more images, expose native Previous,
 Next, Pause and Play buttons with accessible names, visible keyboard focus and
 logical tab order. Announce the current item through a concise polite status.
@@ -54,6 +58,11 @@ focus, hover, pointer interaction, page visibility loss and explicit Pause; do
 not resume after a visitor explicitly paused. Play starts rotation only on
 explicit request. A reasonable default is 8 seconds, configurable through a
 bounded data attribute.
+
+The carousel starts paused. The `data-banner-interval` value is clamped to
+3–20 seconds and defaults to 8 seconds. Each interruption clears the timer.
+Visitors can still choose Previous or Next while rotation is paused, an image
+is unavailable, or reduced motion is active.
 
 **Layout and failure behavior.** Preserve the 3:1 frame, reserved caption area,
 current cover/contain and focal classes, responsive overlays and branded
