@@ -356,6 +356,17 @@ export function createContentService(
           details: { version: version + 1 },
         },
         () => {
+          if (
+            database
+              .prepare(
+                "SELECT 1 FROM content_publications WHERE content_id=? AND withdrawn_at IS NULL",
+              )
+              .get(target)
+          ) {
+            throw new ContentStateError(
+              "Withdraw published content before archiving",
+            );
+          }
           applyVersionedChange(
             database,
             target,

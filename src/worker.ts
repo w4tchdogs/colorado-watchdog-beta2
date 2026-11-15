@@ -6,15 +6,21 @@ import { AsyncD1Database } from "./database/d1.js";
 import { handleWebsiteMcpRequest } from "./mcp/website.js";
 import { createReportApiModule, type ReportApiOptions } from "./report-api.js";
 import { D1BannerPublicService } from "./services/banner-public.js";
+import { createContentPublicationService } from "./services/content-publication.js";
 import { createD1AccountServices } from "./services/d1-accounts.js";
 import { createD1WebsiteInspectionService } from "./services/d1-inspection.js";
 import { createD1PublicReadServices } from "./services/d1-public-reads.js";
 import type { ApplicationServices } from "./services/index.js";
 import { D1ReportIntakeStore } from "./services/report-intake-d1.js";
 import { createSitesIdentityAdapter } from "./services/sites-identity.js";
+import { createD1EditorialSource } from "./site/d1-editorial-source.js";
 import { createPublicSite, createWebsite } from "./site/index.js";
 import type { PublicSiteServices } from "./site/types.js";
 import { bundledSiteAssets } from "./site/worker-assets.js";
+import {
+  CONTENT_PUBLICATION_API_PATHS,
+  createContentApiTransport,
+} from "./transport/content-api.js";
 
 declare const __WATCHDOG_SITES_PROJECT_ID__: string | null;
 declare const __WATCHDOG_WEBSITE_MIGRATIONS__: readonly {
@@ -137,7 +143,12 @@ const worker = {
     environment: RuntimeEnvironment,
   ): Promise<Response> {
     const fallback = unavailableServices();
+    const pathname = new URL(request.url).pathname;
+    const publicationRoute =
+      pathname === CONTENT_PUBLICATION_API_PATHS.publish ||
+      pathname === CONTENT_PUBLICATION_API_PATHS.withdraw;
     if (!environment.DB) {
+      if (publicationRoute) return createContentApiTransport().fetch(request);
       if (new URL(request.url).pathname === "/mcp") {
         return new Response(
           JSON.stringify({ error: "inspection_unavailable" }),
@@ -185,6 +196,18 @@ const worker = {
           ? createSitesIdentityAdapter({ siteId })
           : undefined;
       const accounts = createD1AccountServices(database, sitesIdentity);
+      if (publicationRoute) {
+        const authorize = (
+          principal: NonNullable<
+            Awaited<ReturnType<typeof accounts.resolvePrincipal>>
+          >,
+        ) => accounts.hasCapability(principal, "content.publish");
+        return createContentApiTransport({
+          resolvePrincipal: accounts.resolvePrincipal,
+          authorize,
+          operations: createContentPublicationService(database, authorize),
+        }).fetch(request);
+      }
       const services = {
         ...fallback,
         ...reads,
@@ -212,6 +235,7 @@ const worker = {
       const reports = reportApi(environment, services, database);
       const site = createPublicSite({
         services: reads,
+        editorial: createD1EditorialSource(database),
         assets: bundledSiteAssets,
         ...(bannerService
           ? { banners: bannerService, bannerDelivery: bannerService }

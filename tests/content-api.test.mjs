@@ -795,7 +795,7 @@ test("Markdown, HTML, and links are stored and returned only as inert source tex
   });
 });
 
-test("the editorial API stays unregistered in the application, Worker, and services", async () => {
+test("the draft and revision API stays unregistered in the application and services", async () => {
   await withContentFixture(async ({ database, principal, service }) => {
     const author = await principal("author");
     service.createDraft(author, { contentType: "post", title: "Hidden" });
@@ -815,11 +815,7 @@ test("the editorial API stays unregistered in the application, Worker, and servi
       ),
       [],
     );
-    for (const file of [
-      "src/application.ts",
-      "src/worker.ts",
-      "src/services/index.ts",
-    ]) {
+    for (const file of ["src/application.ts", "src/services/index.ts"]) {
       assert.doesNotMatch(
         readFileSync(file, "utf8"),
         /content-api|services\/content|contracts\/content/,

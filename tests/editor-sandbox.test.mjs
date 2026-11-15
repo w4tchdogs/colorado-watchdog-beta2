@@ -295,7 +295,7 @@ test("unknown routes are not served as editorial API calls", async () => {
   }
 });
 
-test("the public application does not register the editorial API", async () => {
+test("the public application does not register the draft API", async () => {
   const response = await createApplication({}).fetch(
     new Request("https://example.invalid/internal/content/drafts/list", {
       method: "POST",
@@ -309,7 +309,7 @@ test("the public application does not register the editorial API", async () => {
       fileURLToPath(new URL(file, import.meta.url)),
       "utf8",
     );
-    assert.equal(/editor-dev|content-api|sandbox/i.test(source), false, file);
+    assert.equal(/editor-dev|sandbox/i.test(source), false, file);
   }
 });
 

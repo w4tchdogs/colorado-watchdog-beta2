@@ -1,29 +1,14 @@
-/**
- * Presentation model for the public Story and Post templates.
- *
- * This is not a publication contract. No publishing lifecycle exists yet, so
- * the production site uses `emptyEditorialSource` and never reads the
- * editorial tables, whose records are drafts or archived. The local preview
- * injects clearly fictional fixtures to demonstrate the templates.
- */
+/** Presentation model for public Story and Post templates. */
+import type {
+  EditorialLabel,
+  EditorialPathway,
+} from "../contracts/publication.js";
+
+export type {
+  EditorialLabel,
+  EditorialPathway,
+} from "../contracts/publication.js";
 export type EditorialType = "story" | "post";
-
-/**
- * Community Voices pathways. A pathway is an explicit editorial
- * classification supplied with an article. It is never derived from titles,
- * bylines, counties or prose.
- */
-export type EditorialPathway =
-  | "local-series"
-  | "guest-voices"
-  | "statewide-issues";
-
-/** An explicitly supplied series or topic. The slug is the filter key. */
-export interface EditorialLabel {
-  /** Lowercase letters, digits and hyphens, 1 to 60 characters. */
-  readonly slug: string;
-  readonly label: string;
-}
 
 export type ArticleBlock =
   | { readonly kind: "paragraph" | "heading" | "quote"; readonly text: string }
@@ -40,6 +25,7 @@ export interface EditorialArticle {
   /** True for local-preview demonstration fixtures. */
   readonly fictional: boolean;
   readonly body: readonly ArticleBlock[];
+  readonly markdown?: string;
   readonly related: {
     readonly counties: readonly { fips: string; name: string }[];
     readonly people: readonly { id: string; displayName: string }[];
@@ -56,8 +42,18 @@ export interface EditorialArticle {
 }
 
 export interface EditorialSource {
-  list(type: EditorialType): readonly EditorialArticle[];
-  get(type: EditorialType, slug: string): EditorialArticle | null;
+  list(
+    type: EditorialType,
+  ): readonly EditorialArticle[] | Promise<readonly EditorialArticle[]>;
+  /** If provided, reads only the newest cards needed for the homepage. */
+  previews?(
+    type: EditorialType,
+    limit: number,
+  ): Promise<readonly EditorialArticle[]>;
+  get(
+    type: EditorialType,
+    slug: string,
+  ): EditorialArticle | null | Promise<EditorialArticle | null>;
 }
 
 export const emptyEditorialSource: EditorialSource = {

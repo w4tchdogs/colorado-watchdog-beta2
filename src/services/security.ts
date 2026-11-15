@@ -1,6 +1,7 @@
 import type { WebsiteDatabase } from "../database/sqlite.js";
 
 export type Capability =
+  | "content.publish"
   | "d1.inspect"
   | "account.read"
   | "account.create"
@@ -56,7 +57,7 @@ const ROLE_CAPABILITIES: Readonly<
   Record<AccountRole, readonly Exclude<Capability, "checkpoint.prune">[]>
 > = {
   contributor: [],
-  editor: ["report.review"],
+  editor: ["report.review", "content.publish"],
   administrator: [
     "d1.inspect",
     "account.read",
@@ -70,6 +71,7 @@ const ROLE_CAPABILITIES: Readonly<
     "checkpoint.verify",
     "checkpoint.read",
     "banner.manage",
+    "content.publish",
     "report.review",
   ],
   owner: [
@@ -86,6 +88,7 @@ const ROLE_CAPABILITIES: Readonly<
     "checkpoint.verify",
     "checkpoint.read",
     "banner.manage",
+    "content.publish",
     "report.review",
   ],
 };
