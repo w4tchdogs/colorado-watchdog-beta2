@@ -1,46 +1,38 @@
 # BANNERS-4A screen reader verification
 
-Status: speech verification **open**. No Windows screen reader was available to the executing session, so nothing below was heard or captured from speech output. This note records what the code is designed to announce and the manual procedure for 💠archon or the owner.
+Status: verified with NVDA on the county carousel, with the gaps listed below. No carousel defect was confirmed, so no source or test changed.
 
-## Environment of the attempt
+## Environment
 
-- Windows 11 IoT Enterprise LTSC 2024 (10.0.26100), Google Chrome 157.0.8103.79.
-- NVDA and JAWS: not installed (no `nvda.exe` under Program Files, no uninstall entry). Windows Narrator ships with Windows but its speech log cannot be captured by the session, and installing NVDA would be a download that was not authorized.
-- Source tested: `main` at `ba565a6` (includes PR #109). No source change was made.
+- Windows 11 IoT Enterprise LTSC 2024 (10.0.26100), Google Chrome 157.0.8103.79, NVDA 2026.3.1 (installed from the NV Access download, signature valid).
+- Source tested: `main` at `afd312a`, served with `SITE_PORT=8811 npm run site:dev:banners` (synthetic fixtures only).
+- NVDA ran with input/output logging, and the quotes below are lines from its own speech log. Chrome ran with `--force-renderer-accessibility` and a separate profile.
+- Windows animation effects were off on the test computer, so Chrome reported `prefers-reduced-motion: reduce`. That was used as the real reduced-motion test. For playback tests the media query was overridden to no-preference through the Chrome DevTools protocol, and the image block was applied the same way. Nothing in the Windows settings was changed.
+- Keys were sent as synthetic keystrokes through the operating system. NVDA browse-mode quick keys (`b`, `Shift+b`, `g`) moved the reader, and Enter or Space activated buttons.
 
-## Announcements the code is designed to produce
+## Results (`/counties/08001`, two banners)
 
-From `src/site/banner.ts` and `website/site/site.js`:
-
-| Element | Accessible name or text |
+| Scenario | NVDA speech |
 | --- | --- |
-| Controls group | role group, "Banner carousel" |
-| Status (polite, atomic live region) | "Banner N of M", with " · Image unavailable" appended when the current image failed |
-| Buttons | "Previous banner", "Next banner", "Pause banner rotation", "Play banner rotation" |
-| Image | the selected slide's alt text, on a freshly created `img` each selection |
-| Caption | plain text in the frame, not in the live region |
+| Control names and order | "Banner carousel", "grouping", then "Previous banner button", "Next banner button", "Pause banner rotation button", "Play banner rotation button" |
+| Next | "Banner 2 of 2", then "Banner 1 of 2" on wraparound, each spoken once |
+| Previous | "Banner 1 of 2", then "Banner 2 of 2" on wraparound, each spoken once |
+| Focus after Enter or Space on Next | Stays on Next (checked with `document.activeElement`), position spoken each time |
+| Initial Pause and Play | Pause "unavailable", Play available |
+| Explicit Play | Only "unavailable" is spoken on the pressed Play button (it becomes disabled) and Pause becomes available. No "playing" text. |
+| Timed advance (about 8 seconds, 20 second window) | "Banner 2 of 2" then "Banner 1 of 2" through the live region |
+| Explicit Pause | Only "unavailable" is spoken on Pause. No advance in the following 11 seconds. |
+| Reduced motion (real Windows setting) | Play announced "unavailable", Enter on it did nothing, and Next and Previous still announced positions |
+| Blocked image on banner 2 | "Banner 2 of 2 · Image unavailable". Play stays "unavailable" and does not start. |
+| Recovery | Next to banner 1 then banner 2 with the block removed gave "Banner 1 of 2", "Banner 2 of 2" and Play became available |
+| Selected image and caption | "Synthetic 21 by 9 test pattern." with "graphic", then the caption "Synthetic 21:9 pattern, cover" as the next line, then the carousel group and its status |
 
-Points the speech test must confirm, because the code alone cannot:
+Duplicate or missing speech: none for position changes. The one duplicate seen ("Banner 2 of 2" followed by "Banner 2 of 2 · Image unavailable") is the intended status update when an image fails after the selection.
 
-1. Previous and Next announce "Banner N of M" once, including wraparound (1 to M and M to 1), and focus stays on the pressed button.
-2. Play and Pause change only `aria-disabled` on the buttons and do not update the live region, so no status text is expected on either. Confirm whether that silence is acceptable or a gap.
-3. A timed advance (default 8 seconds, after explicit Play) announces "Banner N of M" through the live region. Focus entering the carousel stops playback, so a timed advance can only be heard while focus is elsewhere.
-4. With `prefers-reduced-motion: reduce`, Play does nothing and Previous and Next still work.
-5. With one synthetic image blocked, the status reads "Banner N of M · Image unavailable", Play is disabled, and selecting a working banner returns the status to "Banner N of M".
-6. Alt text is read when browsing to the image, and the caption is read as separate text. Record any duplicate or missing speech.
+## Gaps and observations
 
-## Manual steps
-
-1. In the worktree or `main`, run `npm run site:dev:banners` and note the local URL it prints.
-2. Start NVDA (or the reader in use) with its speech viewer open (NVDA menu, Tools, Speech viewer). Record the NVDA and Chrome versions.
-3. Open the homepage, then `/counties/08001`. Press Tab from the page start to the carousel group. Record the order and the name spoken for each control.
-4. Press Enter or Space on Next until it wraps, then on Previous until it wraps back. Copy the speech viewer lines.
-5. Press Play, then move the reader's virtual cursor off the carousel (focus inside it stops playback, so a timed advance is only testable with focus elsewhere). Record what is spoken on Play, on each timed advance and on Pause.
-6. Turn on Windows Settings, Accessibility, Visual effects, Animation effects off (reduced motion), reload, press Play and confirm nothing advances while Next still works.
-7. In Chrome DevTools, Network, block the request URL of one fixture image, reload, select that banner and record the status. Unblock it, select the next banner and record the recovery.
-8. Browse to the selected image with the arrow keys and record how the alt text and caption are spoken.
-9. Paste the speech viewer text and any defects into the PR or an Issue.
-
-## Result
-
-Speech behavior: **not verified**. Prior evidence remains PR #109's Chrome accessibility-tree check. No carousel defect was confirmed or fixed here, and `tests/site-banner.test.mjs` was not changed.
+- Play and Pause give no explicit "playing" or "paused" confirmation. The only speech is "unavailable" on the pressed button, because the code toggles `aria-disabled` without touching the live region. This is a possible improvement for 💠archon to decide, not changed here.
+- The homepage has no carousel with the synthetic fixtures (they cover Adams, Boulder, Larimer and Weld counties only), so the homepage was not tested.
+- NVDA did not reliably speak plain Tab focus changes in this harness (the focus events were not reported after page loads), so tab order is verified from DOM order (Previous, Next, Pause, Play, all `tabindex` 0) and focus retention from `document.activeElement`, not from hearing each Tab.
+- One reader and one browser only (NVDA with Chrome). No JAWS, Narrator or Firefox.
+- Timed advance was heard with focus on the button that started it. Focus entering the carousel afterwards stops playback by design and was not re-tested by ear.
