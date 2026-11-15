@@ -832,11 +832,6 @@ img {
     cover;
   background-blend-mode: soft-light, normal;
 }
-/* Contain mode letterboxes on plain black; cover mode keeps the placeholder
-   underneath so a failed image still shows the brand, even without script. */
-.banner-frame.mode-contain.has-image .banner-placeholder {
-  background-image: none;
-}
 .banner-image {
   --fx: 50%;
   --fy: 50%;
@@ -853,6 +848,9 @@ img {
 .mode-contain .banner-image {
   object-fit: contain;
 }
+.mode-contain[data-banner-state="ready"] .banner-image {
+  background: #0d0d0d;
+}
 .banner-caption {
   position: absolute;
   right: 0;
@@ -864,9 +862,55 @@ img {
   color: #ffffff;
   font-size: 0.75rem;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
-.banner-frame:not(.has-image) .banner-caption {
+.banner-image[hidden],
+.banner-caption[hidden],
+.banner-controls[hidden],
+.banner-frame[data-banner-state="unavailable"] .banner-caption {
   display: none;
+}
+.banner-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.5rem 1rem;
+  background: var(--ink);
+  color: #ffffff;
+}
+.banner-status {
+  margin: 0;
+  font-size: 0.875rem;
+}
+@media (max-width: 40rem) {
+  .banner-status {
+    flex-basis: 100%;
+  }
+}
+.banner-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.banner-buttons button {
+  min-height: 44px;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.banner-buttons button[aria-disabled="true"] {
+  color: #bdbdbd;
+  cursor: default;
+}
+.banner-buttons button:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
 }
 .fx-0 {
   --fx: 0%;
@@ -1080,9 +1124,15 @@ img {
   .hero-content .wrap {
     width: min(100% - 5rem, var(--wrap));
   }
+  .hero-banner:has(.banner-controls:not([hidden])) {
+    display: grid;
+    grid-row: 1 / 3;
+    grid-template-rows: subgrid;
+  }
   /* Keep the caption readable above the text scrim. */
   .banner-caption {
     z-index: 2;
+    max-width: 44%;
   }
 }
 

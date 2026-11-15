@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { JSDOM } from "jsdom";
 import { createServices } from "../dist/services/index.js";
 import {
   bannerFrame,
@@ -177,6 +178,276 @@ test("a missing or failing image falls back to the placeholder", async () => {
     assert.ok(frame.querySelector(".banner-placeholder"));
     assert.equal(page.$("h1").textContent, "Weld County");
   });
+});
+
+const enhancement = readFileSync(`${STATIC_DIRECTORY}site.js`, "utf8");
+
+function carouselPage(markup, { reduced = false, interval, mutate } = {}) {
+  const { window } = new JSDOM(
+    `<section class="hero"><div class="hero-banner">${markup}</div></section>`,
+    { runScripts: "outside-only", pretendToBeVisual: true, url: ORIGIN },
+  );
+  const { document } = window;
+  const timers = new Map();
+  let nextTimer = 0;
+  let hidden = false;
+  const motion = new window.EventTarget();
+  motion.matches = reduced;
+  window.matchMedia = () => motion;
+  window.setInterval = (callback, delay) => {
+    timers.set(++nextTimer, { callback, delay });
+    return nextTimer;
+  };
+  window.clearInterval = (id) => timers.delete(id);
+  Object.defineProperty(document, "hidden", { get: () => hidden });
+  const frame = document.querySelector("[data-banner-frame]");
+  if (interval !== undefined) frame.dataset.bannerInterval = interval;
+  mutate?.(frame);
+  window.eval(enhancement);
+  const control = (name) => document.querySelector(`[data-banner-${name}]`);
+  return {
+    window,
+    frame,
+    timers,
+    motion,
+    control,
+    changeVisibility(value) {
+      hidden = value;
+      document.dispatchEvent(new window.Event("visibilitychange"));
+    },
+    tick() {
+      assert.equal(timers.size, 1);
+      timers.values().next().value.callback();
+    },
+  };
+}
+
+const carouselSlides = [
+  banner({ primary: true, caption: "First caption" }),
+  banner({
+    bannerId: "b2",
+    assetVersion: "v2",
+    src: "/assets/fixture-banner-21x9.v1.svg",
+    alt: "Another synthetic pattern",
+    caption: 'Second <caption> "quoted"',
+    width: 2100,
+    height: 900,
+    displayMode: "contain",
+    focalX: 0.2,
+    focalY: 0.95,
+  }),
+  banner({
+    bannerId: "b3",
+    assetVersion: "v3",
+    countyFips: "08013",
+    src: "/assets/fixture-banner-missing.v1.svg",
+  }),
+];
+
+test("carousel keeps a no-script fallback and synchronizes manual navigation", async () => {
+  await withBanners(
+    {
+      banners: {
+        forHome: () => carouselSlides,
+        forCounty: () => carouselSlides,
+      },
+    },
+    async (preview) => {
+      for (const [path, count] of [
+        ["/", 3],
+        ["/counties/08001", 2],
+      ]) {
+        const page = await get(preview, path);
+        const frame = page.$("[data-banner-frame]");
+        assert.equal(frame.dataset.bannerCount, String(count));
+        assert.equal(frame.dataset.bannerId, "b1");
+        assert.equal(frame.querySelector("img").alt, "Synthetic pattern");
+        assert.equal(
+          frame.querySelector(".banner-caption").textContent,
+          "First caption",
+        );
+        assert.ok(page.$("[data-banner-controls]").hidden);
+      }
+    },
+  );
+
+  const page = carouselPage(bannerFrame(carouselSlides, "08001").value);
+  const { frame, control, window } = page;
+  try {
+    assert.equal(control("controls").hidden, false);
+    assert.equal(control("status").getAttribute("aria-live"), "polite");
+    const buttons = [...control("controls").querySelectorAll("button")];
+    assert.deepEqual(
+      buttons.map((button) => button.getAttribute("aria-label")),
+      [
+        "Previous banner",
+        "Next banner",
+        "Pause banner rotation",
+        "Play banner rotation",
+      ],
+    );
+    assert.ok(
+      buttons.every(
+        (button) => button.type === "button" && button.tabIndex === 0,
+      ),
+    );
+    const firstImage = control("image");
+    const previous = control("previous");
+    previous.focus();
+    previous.click();
+    assert.equal(window.document.activeElement, previous);
+    assert.equal(frame.dataset.bannerId, "b2");
+    assert.equal(frame.dataset.bannerVersion, "v2");
+    assert.ok(frame.classList.contains("mode-contain"));
+    assert.equal(control("image").getAttribute("src"), carouselSlides[1].src);
+    assert.equal(control("image").alt, carouselSlides[1].alt);
+    assert.equal(control("image").width, 2100);
+    assert.equal(control("image").height, 900);
+    assert.equal(control("image").className, "banner-image fx-20 fy-95");
+    assert.equal(
+      frame.querySelector(".banner-caption").textContent,
+      carouselSlides[1].caption,
+    );
+    assert.equal(control("status").textContent, "Banner 2 of 2");
+    firstImage.dispatchEvent(new window.Event("error"));
+    assert.equal(frame.dataset.bannerState, "loading");
+    control("image").dispatchEvent(new window.Event("load"));
+    assert.equal(control("image").hidden, false);
+    control("next").click();
+    assert.equal(frame.dataset.bannerId, "b1");
+    assert.equal(control("status").textContent, "Banner 1 of 2");
+    assert.equal(control("image").getAttribute("width"), null);
+  } finally {
+    window.close();
+  }
+});
+
+test("play is intentional and each interruption clears its only timer", () => {
+  const page = carouselPage(bannerFrame(carouselSlides, "08001").value);
+  const { control, window, frame, timers, motion } = page;
+  const play = control("play");
+  const pause = control("pause");
+  try {
+    assert.equal(timers.size, 0);
+    assert.equal(pause.getAttribute("aria-disabled"), "true");
+    play.click();
+    play.click();
+    assert.equal(timers.size, 1);
+    assert.equal(timers.values().next().value.delay, 8000);
+    assert.equal(play.getAttribute("aria-disabled"), "true");
+    page.tick();
+    assert.equal(frame.dataset.bannerId, "b2");
+    pause.click();
+    assert.equal(timers.size, 0);
+    control("next").click();
+    assert.equal(timers.size, 0);
+    assert.equal(frame.dataset.bannerId, "b1");
+
+    for (const interrupt of [
+      () => control("next").focus(),
+      () =>
+        frame.closest(".hero").dispatchEvent(new window.Event("pointerenter")),
+      () =>
+        frame.dispatchEvent(new window.Event("pointerdown", { bubbles: true })),
+      () => page.changeVisibility(true),
+      () => window.dispatchEvent(new window.Event("pagehide")),
+    ]) {
+      play.click();
+      assert.equal(timers.size, 1);
+      interrupt();
+      assert.equal(timers.size, 0);
+      page.changeVisibility(false);
+      window.dispatchEvent(new window.Event("pageshow"));
+      assert.equal(timers.size, 0);
+    }
+    play.click();
+    motion.matches = true;
+    motion.dispatchEvent(new window.Event("change"));
+    assert.equal(timers.size, 0);
+    play.click();
+    assert.equal(timers.size, 0);
+    motion.matches = false;
+    motion.dispatchEvent(new window.Event("change"));
+    assert.equal(timers.size, 0);
+  } finally {
+    window.close();
+  }
+});
+
+test("reduced motion, bounded intervals and failed images retain manual navigation", () => {
+  const markup = bannerFrame(carouselSlides, null).value;
+  for (const [interval, expected] of [
+    ["20", 3000],
+    ["90000", 20000],
+    ["bad", 8000],
+  ]) {
+    const page = carouselPage(markup, { reduced: true, interval });
+    const { control, window, frame, timers, motion } = page;
+    try {
+      assert.equal(control("play").getAttribute("aria-disabled"), "true");
+      control("play").click();
+      assert.equal(timers.size, 0);
+      control("previous").click();
+      assert.equal(frame.dataset.bannerId, "b3");
+      motion.matches = false;
+      motion.dispatchEvent(new window.Event("change"));
+      control("play").click();
+      assert.equal(timers.values().next().value.delay, expected);
+      const failed = control("image");
+      failed.dispatchEvent(new window.Event("error"));
+      assert.equal(failed.hidden, true);
+      assert.ok(frame.querySelector(".banner-placeholder"));
+      assert.equal(frame.dataset.bannerState, "unavailable");
+      assert.equal(
+        control("status").textContent,
+        "Banner 3 of 3 · Image unavailable",
+      );
+      assert.equal(timers.size, 0);
+      control("play").click();
+      assert.equal(timers.size, 0);
+      control("next").click();
+      assert.equal(frame.dataset.bannerId, "b1");
+      assert.equal(timers.size, 0);
+    } finally {
+      window.close();
+    }
+  }
+});
+
+test("malformed presentations are excluded before rendering or navigation", () => {
+  const markup = bannerFrame(
+    [
+      ...carouselSlides,
+      banner({ bannerId: "bad-url", src: "data:image/png,unsafe" }),
+      banner({ bannerId: "no-version", assetVersion: null }),
+      banner({ bannerId: "no-alt", alt: " " }),
+      banner({ bannerId: "bad-county", countyFips: "unknown" }),
+      banner({ bannerId: "unpublished", status: "unpublished" }),
+    ],
+    null,
+  ).value;
+  const { frame, control, window } = carouselPage(markup, {
+    mutate(frame) {
+      assert.equal(frame.dataset.bannerCount, "3");
+      const slides = JSON.parse(frame.dataset.bannerSlides);
+      slides.push({ ...slides[0], src: "//example.invalid/unsafe.png" });
+      slides.push({ ...slides[0], focalX: "0 evil" });
+      frame.dataset.bannerSlides = JSON.stringify(slides);
+    },
+  });
+  try {
+    control("previous").click();
+    assert.equal(frame.dataset.bannerId, "b3");
+    assert.equal(control("status").textContent, "Banner 3 of 3");
+  } finally {
+    window.close();
+  }
+  for (const slides of [[], carouselSlides.slice(0, 1)]) {
+    assert.doesNotMatch(
+      bannerFrame(slides, null).value,
+      /data-banner-controls/,
+    );
+  }
 });
 
 test("selection handles add, unpublish, reorder and multiple banners as data", () => {

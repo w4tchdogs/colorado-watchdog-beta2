@@ -98,7 +98,7 @@ export function selectBanners(
   return banners
     .filter(
       (banner) =>
-        banner.status === "published" &&
+        banner?.status === "published" &&
         (countyFips === null || banner.countyFips === countyFips) &&
         safeBannerSrc(banner.src) !== null &&
         typeof banner.bannerId === "string" &&
@@ -120,36 +120,76 @@ function dimension(value: number | null | undefined): number | null {
     : null;
 }
 
+function presentBanner(banner: BannerPresentation) {
+  return {
+    bannerId: banner.bannerId,
+    assetVersion: banner.assetVersion,
+    countyFips: banner.countyFips,
+    src: safeBannerSrc(banner.src) ?? "",
+    alt: banner.alt,
+    caption: typeof banner.caption === "string" ? banner.caption.trim() : "",
+    width: dimension(banner.width),
+    height: dimension(banner.height),
+    mode: banner.displayMode === "contain" ? "contain" : "cover",
+    focalX: focalPercent(banner.focalX),
+    focalY: focalPercent(banner.focalY),
+    primary: banner.primary === true,
+    order: Number.isFinite(banner.order) ? banner.order : null,
+  };
+}
+
 /**
- * The fixed 3:1 banner frame. The branded placeholder is always present
- * underneath, so a missing, withdrawn or failed image never leaves a broken
- * picture or shifts the layout. This milestone shows one static banner; the
- * remaining count is exposed for a later, accessible rotation control.
+ * Render the first usable banner and keep the other selected presentations
+ * inert until the browser enhancement enables the controls.
  */
 export function bannerFrame(
   banners: readonly BannerPresentation[],
   countyFips: string | null,
 ): SafeHtml {
-  const selected = selectBanners(banners, countyFips);
+  const selected = selectBanners(banners, countyFips)
+    .filter(
+      (banner) =>
+        banner.bannerId.trim() &&
+        typeof banner.assetVersion === "string" &&
+        banner.assetVersion.trim() &&
+        typeof banner.alt === "string" &&
+        banner.alt.trim() &&
+        (banner.countyFips === null ||
+          (typeof banner.countyFips === "string" &&
+            /^\d{5}$/.test(banner.countyFips))),
+    )
+    .map(presentBanner);
   const banner = selected[0];
   if (!banner) {
     return html`<div class="banner-frame" data-banner-frame data-banner-count="0">
       <div class="banner-placeholder" aria-hidden="true"></div>
     </div>`;
   }
-  const mode: BannerDisplayMode =
-    banner.displayMode === "contain" ? "contain" : "cover";
-  const width = dimension(banner.width);
-  const height = dimension(banner.height);
-  return html`<div class="banner-frame has-image mode-${mode}" data-banner-frame
+  const { width, height } = banner;
+  const multiple = selected.length > 1;
+  return html`<div class="banner-frame has-image mode-${banner.mode}" data-banner-frame
       data-banner-id="${banner.bannerId}" data-banner-version="${banner.assetVersion}"
-      data-banner-count="${selected.length}">
+      data-banner-count="${selected.length}"
+      ${multiple ? html`data-banner-slides="${JSON.stringify(selected)}" data-banner-interval="8000"` : ""}>
     <div class="banner-placeholder" aria-hidden="true"></div>
-    <img class="banner-image fx-${focalPercent(banner.focalX)} fy-${focalPercent(banner.focalY)}" data-banner-image
-      src="${safeBannerSrc(banner.src) ?? ""}" alt="${banner.alt}"
+    <img class="banner-image fx-${banner.focalX} fy-${banner.focalY}" data-banner-image
+      src="${banner.src}" alt="${banner.alt}"
       ${width && height ? html`width="${width}" height="${height}"` : ""} decoding="async">
-    ${banner.caption ? html`<p class="banner-caption">${banner.caption}</p>` : ""}
-  </div>`;
+    <p class="banner-caption" ${banner.caption ? "" : html`hidden`}>${banner.caption}</p>
+  </div>
+  ${
+    multiple
+      ? html`<div class="banner-controls" data-banner-controls role="group" aria-label="Banner carousel" hidden>
+      <p class="banner-status" aria-live="polite" aria-atomic="true" data-banner-status>Banner 1 of ${selected.length}</p>
+      <div class="banner-buttons">
+        <button type="button" data-banner-previous aria-label="Previous banner">Previous</button>
+        <button type="button" data-banner-next aria-label="Next banner">Next</button>
+        <button type="button" data-banner-pause aria-label="Pause banner rotation" aria-disabled="true">Pause</button>
+        <button type="button" data-banner-play aria-label="Play banner rotation">Play</button>
+      </div>
+    </div>`
+      : ""
+  }`;
 }
 
 export interface BannerHeroOptions {
