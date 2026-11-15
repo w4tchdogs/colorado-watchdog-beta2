@@ -134,6 +134,21 @@ queried. Production currently supplies an empty editorial source; local preview
 uses fictional records. Draft and archived database records remain outside the
 public source contract. Matching is substring-based without fuzzy ranking.
 
+## Statewide directory browsing
+
+The People and Organizations routes browse the same public Website records
+used by name search when the trimmed query is empty. Nonempty searches still
+require at least two characters. A listing describes the Website database's
+coverage and makes no claim about current employment or a complete roster.
+
+SQL.js and D1 use the same keyset query. It orders by SQLite's ASCII
+case-insensitive name collation and then by binary public record ID. The
+default page contains 25 records, and the query requests one additional row to
+decide whether to show the next link. Browse cursors are scoped to the
+collection and contain the public anchor ID and a fingerprint of its sort key.
+A deleted or renamed anchor prompts a restart from the first page. Each page
+reads live records, so intervening data changes may affect later pages.
+
 ## Officials directory (M4-D)
 
 `/officials` restores the Beta-1 directory organization: two tabs (Named
@@ -365,21 +380,6 @@ patterns (21:9, 13:5 and 3:1; cover, contain, a top focal point, a missing
 image, and three records on one county) on Adams, Boulder, Denver, Larimer and
 Weld counties. They are geometric patterns, not artwork. No approved banner
 file and no Beta-1 banner is used anywhere in this repository.
-
-### Statewide directory browsing
-
-The People and Organizations routes browse the same public Website records
-used by name search when the trimmed query is empty. Nonempty searches still
-require at least two characters. A listing describes the Website database's
-coverage and makes no claim about current employment or a complete roster.
-
-SQL.js and D1 use the same keyset query. It orders by SQLite's ASCII
-case-insensitive name collation and then by binary public record ID. The
-default page contains 25 records, and the query requests one additional row to
-decide whether to show the next link. Browse cursors are scoped to the
-collection and contain the public anchor ID and a fingerprint of its sort key.
-A deleted or renamed anchor prompts a restart from the first page. Each page
-reads live records, so intervening data changes may affect later pages.
 
 ## Not implemented
 
