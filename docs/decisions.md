@@ -149,3 +149,18 @@ rewriting the history above.
   `archive\beta-1`.
 - Stale material is moved to the workspace `_trash` folder instead of being
   deleted. Only the owner deletes.
+
+## Beta-2 launch goals, November 14, 2026
+
+- Launch means Beta-2 replaces Beta-1 as the public site. It requires all
+  six goals in the [roadmap](coordination/ROADMAP.md): AI administration
+  through MCP, a populated hosted database with per-county counts, sign-in
+  and sign-up for admins and editors, guest grievance submission, a working
+  blog workspace with at least three published installments of "The
+  Idlewild Story", and Beta-1's look, search and browse functionality.
+- Public grievance counts include reviewed submissions only. Reporters may
+  submit under an anonymous name, as in Beta-1.
+- "The Idlewild Story" comes from the owner's existing drafts, about 15
+  installments written in another AI account. They were never Beta-1
+  records. The owner approves each installment before publication.
+- The development pause is lifted with the adoption of the roadmap.
