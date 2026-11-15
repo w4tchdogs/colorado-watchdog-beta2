@@ -39,7 +39,8 @@ const BETA2_SITES_PROJECT_ID = "appgprj_6af7fb8f615c81918da0e4450ba336de";
 // This diagnostic is separate from the public site and API routers.
 // Use a random 256-bit Sites secret for one invocation, then revoke the secret.
 const R2_DIAGNOSTIC_PATH = "/_ops/diagnostics/r2-binding";
-const R2_DIAGNOSTIC_KEY = "__watchdog_diagnostics/r2-binding-check/2026-11-15-v1";
+const R2_DIAGNOSTIC_KEY =
+  "__watchdog_diagnostics/r2-binding-check/2026-11-15-v1";
 const R2_DIAGNOSTIC_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
 
 function hasR2DiagnosticCredential(
@@ -47,10 +48,7 @@ function hasR2DiagnosticCredential(
   environment: RuntimeEnvironment,
 ): boolean {
   const token = environment.R2_DIAGNOSTIC_TOKEN;
-  if (
-    typeof token !== "string" ||
-    !R2_DIAGNOSTIC_TOKEN_PATTERN.test(token)
-  ) {
+  if (typeof token !== "string" || !R2_DIAGNOSTIC_TOKEN_PATTERN.test(token)) {
     return false;
   }
   const expected = `Bearer ${token}`;
@@ -79,11 +77,7 @@ async function runR2BindingDiagnostic(
     return new Response(null, { status: 404, headers });
   }
 
-  let outcome:
-    | "binding_missing"
-    | "head_null"
-    | "head_object"
-    | "head_failed";
+  let outcome: "binding_missing" | "head_null" | "head_object" | "head_failed";
   if (!environment.BUCKET) {
     outcome = "binding_missing";
   } else {
