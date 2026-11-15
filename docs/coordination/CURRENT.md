@@ -127,7 +127,7 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | Profiles Import Pilot | Assessment complete; readiness/hosted-sync unresolved | — | Hosted D1 admin access, R7/R8 | 2026-11-14 |
 | EDIT-1 | Merged, verified locally | [PR #110](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/110) | Hosted publication schema and public routes smoke-tested; staff access and publication workflow await AUTH-3 and EDIT-2 | 2026-11-14 |
 | BANNERS-4 (carousel) | Merged | [PR #109](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/109) | Real artwork awaits R2-1 and BANNERS-IMPORT-1 | 2026-11-14 |
-| BANNERS-4B (full-width heroes, playback speech) | PR open, verified locally with NVDA and Chrome on synthetic fixtures. Not deployed | PR pending | Real artwork awaits R2-1 and BANNERS-IMPORT-1 | 2026-11-14 |
+| BANNERS-4B (full-width heroes, playback speech) | PR open, verified locally with NVDA and Chrome on synthetic fixtures. Not deployed | [PR #120](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/120) | Real artwork awaits R2-1 and BANNERS-IMPORT-1 | 2026-11-14 |
 | BROWSE-1 | Merged, implemented locally. Statewide People and Organizations have bounded browse pages and retain name search. Hosted empty routes smoke-tested | [PR #111](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/111) | Hosted populated lists and pagination await eligible data | 2026-11-14 |
 | BANNERS-IMPORT-1 (real import) | Planned, not started | — | R2 provisioning | — |
 | Website Profiles import (sync to D1) | Not executed | No changeset ever prepared; local sync tables empty | Migration 003, R7/R8, hosted sync | 2026-11-14 |
