@@ -1,5 +1,10 @@
 import type { DirectoryPage, OrganizationType } from "./directory.js";
 
+export interface DirectoryBrowseRequest {
+  readonly limit?: number;
+  readonly cursor?: string | null;
+}
+
 export interface DirectorySearchRequest {
   readonly query: string;
   readonly limit?: number;

@@ -627,3 +627,87 @@ test("directory discovery HTTP routes validate input and preserve profile routes
     );
   });
 });
+
+for (const { table, column, method } of [
+  { table: "people", column: "display_name", method: "browsePeople" },
+  { table: "organizations", column: "name", method: "browseOrganizations" },
+]) {
+  test(`${table} browse is bounded and validates live continuation anchors`, async () => {
+    await fixture(async (database, services) => {
+      const browse = services[method];
+      assert.deepEqual(await browse({}), {
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+      });
+      const organization = table === "organizations";
+      const insert = database.prepare(
+        `INSERT INTO ${table} (id, ${column}${organization ? ", organization_type" : ""})
+         VALUES (?, ?${organization ? ", 'partner'" : ""})`,
+      );
+      insert.run("z-first", "Alpha Synthetic");
+      assert.deepEqual(
+        (await browse({})).items.map((item) => item.id),
+        ["z-first"],
+      );
+      for (let index = 49; index >= 0; index -= 1) {
+        const id = `same-${String(index).padStart(2, "0")}`;
+        insert.run(id, index % 2 ? "Fictional Same" : "fictional same");
+      }
+      insert.run("last", "Élan Fictional");
+
+      const first = await browse({});
+      const middle = await browse({ cursor: first.nextCursor });
+      const final = await browse({ cursor: middle.nextCursor });
+      assert.equal(first.items.length, 25);
+      assert.equal(middle.items.length, 25);
+      assert.equal(final.nextCursor, null);
+      assert.equal(final.hasMore, false);
+      assert.deepEqual(
+        [...first.items, ...middle.items, ...final.items].map(
+          (item) => item.id,
+        ),
+        [
+          "z-first",
+          ...Array.from(
+            { length: 50 },
+            (_, index) => `same-${String(index).padStart(2, "0")}`,
+          ),
+          "last",
+        ],
+      );
+      const search = organization
+        ? services.searchOrganizations
+        : services.searchPeople;
+      const searchCursor = search({ query: "fictional", limit: 1 }).nextCursor;
+      for (const cursor of [
+        "",
+        "x".repeat(257),
+        searchCursor,
+        first.nextCursor.replace("same-23", "same-24"),
+        first.nextCursor.replace(
+          table,
+          organization ? "people" : "organizations",
+        ),
+      ]) {
+        await assert.rejects(browse({ cursor }), DirectorySearchInputError);
+      }
+      assert.throws(() => search({ query: "a" }), DirectorySearchInputError);
+      await assert.rejects(browse({ limit: 101 }), DirectorySearchInputError);
+      await assert.rejects(
+        browse({ query: "fictional" }),
+        DirectorySearchInputError,
+      );
+      database
+        .prepare(
+          `UPDATE ${table} SET ${column} = ?, version = version + 1 WHERE id = ?`,
+        )
+        .run("Renamed Synthetic", middle.items.at(-1).id);
+      await assert.rejects(browse({ cursor: middle.nextCursor }), /stale/);
+      database
+        .prepare(`DELETE FROM ${table} WHERE id = ?`)
+        .run(first.items.at(-1).id);
+      await assert.rejects(browse({ cursor: first.nextCursor }), /stale/);
+    });
+  });
+}

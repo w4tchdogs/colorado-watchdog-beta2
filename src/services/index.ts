@@ -1,7 +1,10 @@
 import type { CheckpointService } from "../contracts/checkpoints.js";
 import type { CountyOverviewRequest } from "../contracts/county-overview.js";
 import type { DirectoryPageRequest } from "../contracts/directory.js";
-import type { DirectorySearchRequest } from "../contracts/directory-search.js";
+import type {
+  DirectoryBrowseRequest,
+  DirectorySearchRequest,
+} from "../contracts/directory-search.js";
 import type {
   CountyStructureRequest,
   OfficialsDirectoryRequest,
@@ -51,7 +54,12 @@ export {
 import { getCountyOverview } from "./county-overview.js";
 import { listCounties } from "./county-registry.js";
 import { listCountyOrganizations, listCountyRoleEntries } from "./directory.js";
-import { searchOrganizations, searchPeople } from "./directory-search.js";
+import {
+  browseOrganizations,
+  browsePeople,
+  searchOrganizations,
+  searchPeople,
+} from "./directory-search.js";
 import {
   getCountyStructure,
   listOfficials,
@@ -167,6 +175,10 @@ export interface ApplicationServices {
   getCountyStructure(
     input: CountyStructureRequest,
   ): ReturnType<typeof getCountyStructure>;
+  browsePeople(input: DirectoryBrowseRequest): ReturnType<typeof browsePeople>;
+  browseOrganizations(
+    input: DirectoryBrowseRequest,
+  ): ReturnType<typeof browseOrganizations>;
   searchPeople(input: DirectorySearchRequest): ReturnType<typeof searchPeople>;
   searchOrganizations(
     input: DirectorySearchRequest,
@@ -323,6 +335,15 @@ export function createServices(
     },
     getCountyStructure(input) {
       return getCountyStructure(
+        sqliteDirectoryRunner(requireDatabase()),
+        input,
+      );
+    },
+    browsePeople(input) {
+      return browsePeople(sqliteDirectoryRunner(requireDatabase()), input);
+    },
+    browseOrganizations(input) {
+      return browseOrganizations(
         sqliteDirectoryRunner(requireDatabase()),
         input,
       );

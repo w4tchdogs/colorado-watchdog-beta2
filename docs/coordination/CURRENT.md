@@ -126,6 +126,7 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | MCP hosted publication / write tools | Planned, not started | — | Hosted Site MCP configuration (owner-scoped) | — |
 | Profiles Import Pilot | Assessment complete; readiness/hosted-sync unresolved | — | Hosted D1 admin access, R7/R8 | 2026-11-14 |
 | BANNERS-4 (carousel) | Merged | [PR #109](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/109) | Real artwork awaits R2-1 and BANNERS-IMPORT-1 | 2026-11-14 |
+| BROWSE-1 | Merged, implemented locally. Statewide People and Organizations have bounded browse pages and retain name search. Hosted behavior unverified | [Public site architecture](../architecture/public-site.md#statewide-directory-browsing) | Alpha-1 deployment for hosted verification | 2026-11-14 |
 | BANNERS-IMPORT-1 (real import) | Planned, not started | — | R2 provisioning | — |
 | Website Profiles import (sync to D1) | Not executed | No changeset ever prepared; local sync tables empty | Migration 003, R7/R8, hosted sync | 2026-11-14 |
 
@@ -134,7 +135,7 @@ No task above is owned by more than one AI at once; check this table and the lin
 ## G. Next tasks
 
 Use the ordered backlog in [ROADMAP](ROADMAP.md). These need no hosted access
-and can start now: EDIT-1, BROWSE-1, the visual-audit follow-ups
+and can start now: EDIT-1, the visual-audit follow-ups
 and preparing the owner's drafts of "The Idlewild Story".
 AUTH-3 implementation awaits the owner's provider selection.
 DEPLOY-1 assessment is complete, but deployment is blocked pending a

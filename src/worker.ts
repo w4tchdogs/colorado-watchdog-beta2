@@ -43,6 +43,8 @@ function unavailableServices() {
     getCountyOverview: unavailable,
     listCountyOrganizations: unavailable,
     listCountyRoleEntries: unavailable,
+    browsePeople: unavailable,
+    browseOrganizations: unavailable,
     searchPeople: unavailable,
     searchOrganizations: unavailable,
     getPersonProfile: unavailable,
