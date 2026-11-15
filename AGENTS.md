@@ -78,6 +78,25 @@ longer a project record.
    reasoning level. Reserve the most expensive models for work that needs
    them.
 
+## Sites assignments and handoffs
+
+In project coordination, **sites** means the Sites tab in ChatGPT and
+**@sites** means the Sites integration used from a chat.
+
+When preparing an assignment for either, 💠archon includes the existing
+GitHub Issue or PR link and the [Sites assignment block].
+Use this for consequential investigations, source edits, and hosted
+operations. One handoff in the existing thread is enough.
+
+Before treating the work as handed off, 💠archon verifies the direct
+GitHub handoff link against the reported source and hosted state. If the
+session cannot post, carry its paste-ready handoff into that thread.
+Reconcile any Sites-only diff with GitHub before saving or publishing
+it. A pass in GitHub, a saved version, a deployment and a live check
+each establish different facts.
+
+[Sites assignment block]: docs/coordination/PROJECT-BOOTSTRAP.md#sites-assignment-block
+
 ## Boundaries and evidence
 
 - Beta-1 is archived and not under development. Use it only as a visual
