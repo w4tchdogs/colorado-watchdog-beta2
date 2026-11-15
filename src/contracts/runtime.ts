@@ -8,4 +8,6 @@ export interface RuntimeEnvironment {
   readonly DB?: D1Binding;
   /** Optional Sites R2 binding; pages keep their placeholder when absent. */
   readonly BUCKET?: R2BucketLike;
+  /** One-time 256-bit bearer secret for the isolated R2 binding diagnostic. */
+  readonly R2_DIAGNOSTIC_TOKEN?: string;
 }
