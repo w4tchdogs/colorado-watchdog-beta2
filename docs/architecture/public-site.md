@@ -99,9 +99,9 @@ and [D1 readiness](d1-readiness.md).
 | `/counties?q=`                                           | County directory with name or FIPS filter and letter navigation                                                         |
 | `/counties/{countyFips}`                                 | Banner hero, county navigation and switcher, overview, county organizations, affiliated organizations, documented roles |
 | `/officials`                                             | Officials directory: Named profiles and County structure (see below)                                                    |
-| `/people?query=&cursor=`                                 | People name search (`searchPeople`), kept for existing links                                                            |
+| `/people?query=&cursor=`                                 | People browse (`browsePeople`) or name search (`searchPeople`)                                                            |
 | `/people/{personId}`                                     | Person profile (`getPersonProfile`)                                                                                     |
-| `/organizations?query=&cursor=`                          | Organization search (`searchOrganizations`)                                                                             |
+| `/organizations?query=&cursor=`                          | Organization browse (`browseOrganizations`) or name search (`searchOrganizations`)                                                                             |
 | `/organizations/{organizationId}`                        | Organization profile, positions and roles                                                                               |
 | `/stories?q=`, `/posts?q=`, `/stories/{slug}`, `/posts/{slug}` | Editorial listing and article templates                                                                                 |
 | `/about`, `/reading-records`                             | Supporting pages                                                                                                        |
@@ -133,6 +133,21 @@ fields are not searched or rendered. No editorial table or separate index is
 queried. Production currently supplies an empty editorial source; local preview
 uses fictional records. Draft and archived database records remain outside the
 public source contract. Matching is substring-based without fuzzy ranking.
+
+## Statewide directory browsing
+
+The People and Organizations routes browse the same public Website records
+used by name search when the trimmed query is empty. Nonempty searches still
+require at least two characters. A listing describes the Website database's
+coverage and makes no claim about current employment or a complete roster.
+
+SQL.js and D1 use the same keyset query. It orders by SQLite's ASCII
+case-insensitive name collation and then by binary public record ID. The
+default page contains 25 records, and the query requests one additional row to
+decide whether to show the next link. Browse cursors are scoped to the
+collection and contain the public anchor ID and a fingerprint of its sort key.
+A deleted or renamed anchor prompts a restart from the first page. Each page
+reads live records, so intervening data changes may affect later pages.
 
 ## Officials directory (M4-D)
 
@@ -372,8 +387,6 @@ file and no Beta-1 banner is used anywhere in this repository.
 - Hosted deployment and Worker wiring of the site.
 - A hosted, verified human identity context for the private report review page.
 - Publication of Stories and Posts, and any public editorial endpoint.
-- Browsing all people or organizations without a search term (the search
-  contract requires two characters).
 - Banner inventory, storage, upload, publication, rotation and the Banner
   Manager (Issue #62). Only the presentation contract exists here.
 - Backward keyset paging, accounts, submissions, files.

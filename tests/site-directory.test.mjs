@@ -2,12 +2,34 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { get, withPreview } from "./site-fixtures.mjs";
 
-test("people directory prompts, searches and bounds its pages", async () => {
+test("people directory browses, searches and bounds its pages", async () => {
   await withPreview("fictional", async (preview) => {
     const blank = await get(preview, "/people");
     assert.equal(blank.status, 200);
-    assert.match(blank.main(), /Search people by name/);
-    assert.equal(blank.$$(".record-row").length, 0);
+    assert.equal(blank.$("#directory-results").textContent, "Browse people");
+    assert.equal(blank.$$(".record-row").length, 25);
+    const browseNext = blank.$('.pager a[rel="next"]').getAttribute("href");
+    assert.match(browseNext, /^\/people\?cursor=/);
+    const browseSecond = await get(preview, browseNext);
+    assert.ok(browseSecond.$$(".record-row").length > 0);
+    assert.equal(browseSecond.$(".pager a").getAttribute("href"), "/people");
+    assert.equal(
+      (await get(preview, browseNext.replace("/people", "/organizations")))
+        .status,
+      400,
+    );
+    assert.equal(
+      (await get(preview, `${browseNext}&query=fictional`)).status,
+      400,
+    );
+    assert.equal((await get(preview, "/people?cursor=")).status, 400);
+    const unrelated = await get(preview, "/people?ignored=yes");
+    assert.equal(unrelated.status, 400);
+    const whitespace = await get(preview, "/people?query=%20");
+    assert.deepEqual(
+      whitespace.$$(".record-title a").map((a) => a.href),
+      blank.$$(".record-title a").map((a) => a.href),
+    );
     assert.equal(blank.$("#people-search").getAttribute("minlength"), "2");
 
     const short = await get(preview, "/people?query=a");
@@ -133,7 +155,16 @@ test("person profile shows role history, counties, dates and citations", async (
 test("organization directory and profiles distinguish types and relationships", async () => {
   await withPreview("fictional", async (preview) => {
     const blank = await get(preview, "/organizations");
-    assert.match(blank.main(), /Search organizations by name/);
+    assert.equal(
+      blank.$("#directory-results").textContent,
+      "Browse organizations",
+    );
+    assert.ok(
+      blank
+        .$('a[href="/organizations/demo-regional-health"]')
+        .closest("li")
+        .querySelector(".type-regional"),
+    );
 
     const results = await get(preview, "/organizations?query=fictional");
     const badges = Object.fromEntries(
@@ -218,7 +249,10 @@ test("organization directory and profiles distinguish types and relationships", 
 test("empty database directories and profiles respond helpfully", async () => {
   await withPreview("empty", async (preview) => {
     for (const path of ["/people", "/organizations"]) {
-      assert.equal((await get(preview, path)).status, 200);
+      const empty = await get(preview, path);
+      assert.equal(empty.status, 200);
+      assert.match(empty.main(), /documented here yet/);
+      assert.equal(empty.$$(".record-row").length, 0);
     }
     const people = await get(preview, "/people?query=anyone");
     assert.equal(people.status, 200);

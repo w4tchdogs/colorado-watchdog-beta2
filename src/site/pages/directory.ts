@@ -22,7 +22,6 @@ interface DirectoryCopy {
   readonly intro: string;
   readonly label: string;
   readonly button: string;
-  readonly prompt: string;
 }
 
 const COPY: Readonly<Record<"people" | "organizations", DirectoryCopy>> = {
@@ -30,21 +29,17 @@ const COPY: Readonly<Record<"people" | "organizations", DirectoryCopy>> = {
     collection: "people",
     title: "People",
     intro:
-      "Search the people documented in public roles. Results match stored names only. People with the same name are separate records and are never merged by name.",
+      "Browse or search people documented in the Website database. The directory does not establish current employment and is not a complete government roster. People with the same name are separate records and are never merged by name.",
     label: "Person name",
     button: "Search people",
-    prompt:
-      "Enter at least two characters of a name. You can also start from a county to see the people documented there.",
   },
   organizations: {
     collection: "organizations",
     title: "Organizations",
     intro:
-      "Search county governments, offices, departments, divisions, regional organizations and partners. The type shown is the stored record type. It does not by itself make an organization a county department.",
+      "Browse or search documented county governments, offices, departments, divisions, regional organizations and partners. The type shown is the stored record type. It does not by itself make an organization a county department.",
     label: "Organization name",
     button: "Search organizations",
-    prompt:
-      "Enter at least two characters of a name. You can also start from a county to see the organizations documented there.",
   },
 };
 
@@ -54,9 +49,11 @@ async function results(
   query: string,
   cursor: string | null,
 ) {
-  const request = { query, limit: PAGE_SIZE, ...(cursor ? { cursor } : {}) };
+  const request = { limit: PAGE_SIZE, cursor: query ? cursor || null : cursor };
   if (copy.collection === "people") {
-    const page = await context.services.searchPeople(request);
+    const page = query
+      ? await context.services.searchPeople({ ...request, query })
+      : await context.services.browsePeople(request);
     const repeated = new Set<string>();
     const seen = new Set<string>();
     for (const item of page.items) {
@@ -74,7 +71,9 @@ async function results(
       ),
     };
   }
-  const page = await context.services.searchOrganizations(request);
+  const page = query
+    ? await context.services.searchOrganizations({ ...request, query })
+    : await context.services.browseOrganizations(request);
   return {
     page,
     rows: page.items.map(
@@ -94,6 +93,9 @@ export async function directoryPage(
   const base = `/${collection}`;
   const query = (parameters.get("query") ?? "").trim();
   const cursor = parameters.get("cursor");
+  const browse = query === "";
+  const heading = browse ? `Browse ${collection}` : "Search results";
+  const firstHref = withQuery(base, { query: query || null });
   if (
     query.length > MAX_QUERY ||
     (cursor !== null && cursor.length > MAX_CURSOR)
@@ -114,15 +116,7 @@ export async function directoryPage(
   });
 
   let outcome: SafeHtml;
-  if (query === "") {
-    outcome = emptyState(
-      `Search ${copy.title.toLowerCase()} by name`,
-      copy.prompt,
-      collection === "people"
-        ? html`<a class="button button-quiet" href="/officials">Browse the officials directory</a>`
-        : html`<a class="button button-quiet" href="/officials?directoryView=structure">Browse county structure</a>`,
-    );
-  } else if (query.length < MIN_QUERY) {
+  if (!browse && query.length < MIN_QUERY) {
     outcome = emptyState(
       "That search is too short",
       "Enter at least two characters so the search can return a bounded set of results.",
@@ -136,7 +130,7 @@ export async function directoryPage(
         error instanceof Error &&
         error.name === "DirectorySearchInputError"
       ) {
-        throw new BadRequest(withQuery(base, { query }));
+        throw new BadRequest(firstHref);
       }
       throw error;
     }
@@ -144,17 +138,28 @@ export async function directoryPage(
     outcome =
       rows.length === 0
         ? emptyState(
-            cursor ? "No more results" : `No ${collection} match "${query}"`,
-            "Only names stored in the database are searched, and the database is not a complete roster. A missing name means it has not been documented here.",
-            html`<a class="button button-quiet" href="/counties">Browse counties</a>`,
+            cursor
+              ? "No more results"
+              : browse
+                ? `No ${collection} documented here yet`
+                : `No ${collection} match "${query}"`,
+            browse
+              ? "Listings reflect records documented in the Website database and cover only part of the government roster."
+              : "Only names stored in the database are searched, and the database is not a complete roster. A missing name means it has not been documented here.",
+            browse && cursor
+              ? html`<a class="button button-quiet" href="${firstHref}">Back to first page</a>`
+              : html`<a class="button button-quiet" href="/counties">Browse counties</a>`,
           )
-        : html`<p class="result-count" role="status">${cursor ? "More results" : "Results"} for "${query}"${page.hasMore ? ", continued on the next page" : ""}.</p>
+        : html`<p class="result-count" role="status">${browse ? `Showing ${rows.length} records from the Website database` : `${cursor ? "More results" : "Results"} for "${query}"`}${page.hasMore ? ", continued on the next page" : ""}.</p>
             <ul class="record-list">${rows}</ul>
             ${pager({
-              label: "Result pages",
-              firstHref: cursor ? withQuery(base, { query }) : null,
+              label: browse ? "Directory pages" : "Result pages",
+              firstHref: cursor ? firstHref : null,
               nextHref: page.hasMore
-                ? withQuery(base, { query, cursor: page.nextCursor })
+                ? withQuery(base, {
+                    query: query || null,
+                    cursor: page.nextCursor,
+                  })
                 : null,
             })}`;
   }
@@ -164,6 +169,6 @@ export async function directoryPage(
     description: copy.intro,
     section: collection === "people" ? "officials" : collection,
     breadcrumbs: [{ label: "Home", href: "/" }, { label: copy.title }],
-    body: html`${pageHeader(copy.title, copy.intro, undefined, "Statewide directory")}${form}<section class="section results" aria-label="Search results">${outcome}</section>`,
+    body: html`${pageHeader(copy.title, copy.intro, undefined, "Statewide directory")}${form}<section class="section results" aria-labelledby="directory-results"><h2 id="directory-results">${heading}</h2>${outcome}</section>`,
   };
 }

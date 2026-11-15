@@ -5,11 +5,16 @@ import {
   type OrganizationType,
 } from "../contracts/directory.js";
 import type {
+  DirectoryBrowseRequest,
   DirectorySearchRequest,
   OrganizationSearchPage,
+  OrganizationSearchResult,
   PersonSearchPage,
+  PersonSearchResult,
 } from "../contracts/directory-search.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
+
+import type { DirectoryQueryRunner } from "./officials-directory.js";
 
 type SearchKind = "people" | "organizations";
 type SearchConfig = {
@@ -46,23 +51,134 @@ export function searchPeople(
   database: WebsiteDatabase,
   request: DirectorySearchRequest,
 ): PersonSearchPage {
-  return searchRecords(database, request, "people", (row) => ({
+  return searchRecords(database, request, "people", personResult);
+}
+
+function personResult(row: Record<string, unknown>): PersonSearchResult {
+  return {
     id: asString(row.id),
     displayName: asString(row.name),
     version: asNumber(row.version),
-  }));
+  };
 }
 
 export function searchOrganizations(
   database: WebsiteDatabase,
   request: DirectorySearchRequest,
 ): OrganizationSearchPage {
-  return searchRecords(database, request, "organizations", (row) => ({
+  return searchRecords(database, request, "organizations", organizationResult);
+}
+
+function organizationResult(
+  row: Record<string, unknown>,
+): OrganizationSearchResult {
+  return {
     id: asString(row.id),
     name: asString(row.name),
     type: row.organization_type as OrganizationType,
     version: asNumber(row.version),
-  }));
+  };
+}
+
+export function browsePeople(
+  runner: DirectoryQueryRunner,
+  request: DirectoryBrowseRequest,
+): Promise<PersonSearchPage> {
+  return browseRecords(runner, request, "people", personResult);
+}
+
+export function browseOrganizations(
+  runner: DirectoryQueryRunner,
+  request: DirectoryBrowseRequest,
+): Promise<OrganizationSearchPage> {
+  return browseRecords(runner, request, "organizations", organizationResult);
+}
+
+async function browseRecords<T>(
+  runner: DirectoryQueryRunner,
+  request: DirectoryBrowseRequest,
+  kind: SearchKind,
+  project: (row: Record<string, unknown>) => T,
+): Promise<DirectoryPage<T>> {
+  if (
+    !request ||
+    typeof request !== "object" ||
+    Array.isArray(request) ||
+    Object.keys(request).some((key) => key !== "limit" && key !== "cursor")
+  ) {
+    throw new DirectorySearchInputError("browse request is malformed");
+  }
+  const limit = request.limit ?? DEFAULT_DIRECTORY_PAGE_SIZE;
+  if (
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > MAX_DIRECTORY_PAGE_SIZE
+  ) {
+    throw new DirectorySearchInputError(
+      `limit must be an integer from 1 to ${MAX_DIRECTORY_PAGE_SIZE}`,
+    );
+  }
+
+  const { table, nameColumn } = SEARCH_CONFIG[kind];
+  const sort = `${nameColumn} COLLATE NOCASE, id COLLATE BINARY`;
+  let after: readonly string[] = [];
+  if (request.cursor != null) {
+    const cursor =
+      typeof request.cursor === "string" && request.cursor.length <= 256
+        ? /^browse1\.(people|organizations)\.([A-Za-z0-9._:-]{1,128})\.([a-f0-9]{64})$/.exec(
+            request.cursor,
+          )
+        : null;
+    const id = cursor?.[2];
+    if (!id || cursor?.[1] !== kind) {
+      throw new DirectorySearchInputError(
+        "cursor is malformed or incompatible",
+      );
+    }
+    const anchor = await runner.first(
+      `SELECT ${nameColumn} AS name FROM ${table} WHERE id = ?`,
+      [id],
+    );
+    if (
+      !anchor ||
+      request.cursor !== (await browseCursor(kind, id, asString(anchor.name)))
+    ) {
+      throw new DirectorySearchInputError("cursor is invalid or stale");
+    }
+    after = [asString(anchor.name), id];
+  }
+
+  const rows = await runner.all(
+    `SELECT id, ${nameColumn} AS name, version
+            ${kind === "organizations" ? ", organization_type" : ""}
+     FROM ${table}
+     ${after.length ? `WHERE (${sort}) > (?, ?)` : ""}
+     ORDER BY ${sort}
+     LIMIT ?`,
+    limit + 1,
+    [...after, limit + 1],
+  );
+  const hasMore = rows.length > limit;
+  const selected = rows.slice(0, limit);
+  const last = selected.at(-1);
+  return {
+    items: selected.map(project),
+    hasMore,
+    nextCursor:
+      hasMore && last
+        ? await browseCursor(kind, asString(last.id), asString(last.name))
+        : null,
+  };
+}
+
+async function browseCursor(kind: SearchKind, id: string, name: string) {
+  // Detect changes to the anchor's public sort key without embedding the name.
+  const bytes = new TextEncoder().encode(JSON.stringify([kind, id, name]));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const fingerprint = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return `browse1.${kind}.${id}.${fingerprint}`;
 }
 
 function searchRecords<T>(

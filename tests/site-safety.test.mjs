@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createApplication } from "../dist/application.js";
 import { StorageUnavailableError } from "../dist/contracts/storage.js";
+import { AsyncD1Database } from "../dist/database/d1.js";
 import { migrateWebsiteDatabase } from "../dist/database/migrations.js";
 import { openWebsiteDatabase } from "../dist/database/sqlite.js";
+import { createD1PublicReadServices } from "../dist/services/d1-public-reads.js";
 import { createServices } from "../dist/services/index.js";
 import { citation } from "../dist/site/components.js";
 import { formatStoredDate } from "../dist/site/format.js";
@@ -264,6 +266,24 @@ test("service failures become clear error pages", async () => {
     services: createServices(),
   });
   assert.equal((await get(noDatabase, "/")).status, 503);
+  const failedD1 = createPublicSite({
+    assets: siteAssets(),
+    services: createD1PublicReadServices(
+      new AsyncD1Database({
+        prepare() {
+          throw new Error("private D1 detail");
+        },
+      }),
+    ),
+  });
+  for (const site of [noDatabase, failedD1]) {
+    for (const path of ["/people", "/organizations"]) {
+      const unavailable = await get(site, path);
+      assert.equal(unavailable.status, 503);
+      assert.match(unavailable.main(), /temporarily unavailable/);
+      assert.doesNotMatch(unavailable.text, /private D1 detail/);
+    }
+  }
   assert.equal((await get(noDatabase, "/about")).status, 200);
 });
 

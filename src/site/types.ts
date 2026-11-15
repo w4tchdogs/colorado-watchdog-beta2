@@ -12,6 +12,8 @@ export type PublicSiteServices = Pick<
   | "getCountyOverview"
   | "listCountyOrganizations"
   | "listCountyRoleEntries"
+  | "browsePeople"
+  | "browseOrganizations"
   | "searchPeople"
   | "searchOrganizations"
   | "getPersonProfile"

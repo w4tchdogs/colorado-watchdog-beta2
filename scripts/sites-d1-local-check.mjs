@@ -337,6 +337,11 @@ async function main() {
     INSERT INTO organizations (id,name,organization_type,county_fips) VALUES
       ('d1-test-county-org','Synthetic Adams County','county_government','08001'),
       ('d1-test-partner','Synthetic Regional Partner','partner',NULL);
+    WITH RECURSIVE extra_orgs(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM extra_orgs WHERE n < 50)
+    INSERT INTO organizations (id,name,organization_type)
+      SELECT printf('synthetic-org-%02d',n),
+        CASE WHEN n % 2 = 0 THEN 'Synthetic Shared Name' ELSE 'synthetic shared name' END,
+        'partner' FROM extra_orgs;
     INSERT INTO organization_county_affiliations (id,organization_id,county_fips,relationship_type)
       VALUES ('d1-test-affiliation','d1-test-partner','08001','serves');
     INSERT INTO people (id,display_name) VALUES
@@ -605,6 +610,70 @@ async function main() {
     assert.ok(next, "first directory page has a next link");
     const nextPage = await fetch(new URL(next.replaceAll("&amp;", "&"), base));
     assert.equal(nextPage.status, 200);
+
+    for (const [collection, count] of [
+      ["people", 27],
+      ["organizations", 52],
+    ]) {
+      assert.equal(
+        (await fetch(`${base}/${collection}?ignored=yes`)).status,
+        400,
+      );
+      let href = `/${collection}`;
+      const ids = [];
+      let firstCursor;
+      while (href) {
+        const response = await fetch(`${base}${href}`);
+        const body = await response.text();
+        assert.equal(response.status, 200, body);
+        assert.match(body, new RegExp(`Browse ${collection}`));
+        const pageIds = Array.from(
+          body.matchAll(
+            new RegExp(
+              `class="record-title"><a href="/${collection}/([^"]+)"`,
+              "g",
+            ),
+          ),
+          (match) => match[1],
+        );
+        assert.equal(pageIds.length, Math.min(25, count - ids.length));
+        ids.push(...pageIds);
+        href = body.match(/rel="next" href="([^"]+)"/)?.[1];
+        if (href) {
+          assert.match(href, new RegExp(`^/${collection}\\?cursor=`));
+          firstCursor ??= new URL(href, base).searchParams.get("cursor");
+        }
+      }
+      assert.equal(new Set(ids).size, count);
+      if (collection === "organizations") {
+        assert.deepEqual(
+          ids.slice(2),
+          Array.from(
+            { length: 50 },
+            (_, i) => `synthetic-org-${String(i + 1).padStart(2, "0")}`,
+          ),
+        );
+      }
+      const other = collection === "people" ? "organizations" : "people";
+      assert.equal(
+        (await fetch(`${base}/${other}?cursor=${firstCursor}`)).status,
+        400,
+      );
+      assert.equal(
+        (await fetch(`${base}/${collection}?cursor=${firstCursor}0`)).status,
+        400,
+      );
+      assert.equal(
+        (
+          await fetch(
+            `${base}/${collection}?query=Synthetic&cursor=${firstCursor}`,
+          )
+        ).status,
+        400,
+      );
+      const short = await fetch(`${base}/${collection}?query=a`);
+      assert.match(await short.text(), /That search is too short/);
+    }
 
     const person = await fetch(`${base}/people/d1-test-person-a`);
     assert.match(await person.text(), /Synthetic Clerk/);

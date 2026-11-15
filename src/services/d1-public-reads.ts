@@ -30,11 +30,16 @@ import type {
   PersonProfilePageRequest,
   PersonProfileRole,
 } from "../contracts/person-profile.js";
+import { StorageUnavailableError } from "../contracts/storage.js";
 import type { AsyncD1Database } from "../database/d1.js";
 import type { PublicSiteServiceResults } from "../site/types.js";
 import { CountyOverviewInputError } from "./county-overview.js";
 import { DirectoryInputError } from "./directory.js";
-import { DirectorySearchInputError } from "./directory-search.js";
+import {
+  browseOrganizations,
+  browsePeople,
+  DirectorySearchInputError,
+} from "./directory-search.js";
 import {
   d1DirectoryRunner,
   getCountyStructure,
@@ -219,6 +224,16 @@ export function createD1PublicReadServices(
       }),
     );
     return makePage(items, rows.length > page.limit, (item) => item.role.id);
+  }
+
+  const directoryRunner = d1DirectoryRunner(database);
+  async function browse<T>(read: () => Promise<T>): Promise<T> {
+    try {
+      return await read();
+    } catch (error) {
+      if (error instanceof DirectorySearchInputError) throw error;
+      throw new StorageUnavailableError();
+    }
   }
 
   async function searchPeople(input: DirectorySearchRequest) {
@@ -501,6 +516,9 @@ export function createD1PublicReadServices(
     getCountyOverview,
     listCountyOrganizations,
     listCountyRoleEntries,
+    browsePeople: (input) => browse(() => browsePeople(directoryRunner, input)),
+    browseOrganizations: (input) =>
+      browse(() => browseOrganizations(directoryRunner, input)),
     searchPeople,
     searchOrganizations,
     getPersonProfile,
