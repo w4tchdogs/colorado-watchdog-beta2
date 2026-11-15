@@ -54,19 +54,22 @@ Use absolute database and plan paths outside this repository. A plan contains
 private names and claim/evidence IDs; keep it in the owner's private Profiles
 reports directory.
 
+In the commands below, `<private-root>` is the owner's private Profiles folder
+(`profiles\` in the local Watchdog workspace, outside this checkout).
+
 ```powershell
 python -B -m research preview-identity `
-  "C:\Users\n\AppData\Local\ColoradoWatchdog\Profiles\database\research.sqlite" `
-  --output "C:\Users\n\AppData\Local\ColoradoWatchdog\Profiles\reports\identity-plan.json"
+  "<private-root>\database\research.sqlite" `
+  --output "<private-root>\reports\identity-plan.json"
 
 python -B -m research apply-identity `
-  "C:\Users\n\AppData\Local\ColoradoWatchdog\Profiles\database\research.sqlite" `
-  --plan "C:\Users\n\AppData\Local\ColoradoWatchdog\Profiles\reports\identity-plan.json" `
+  "<private-root>\database\research.sqlite" `
+  --plan "<private-root>\reports\identity-plan.json" `
   --expect-plan-sha256 <SHA256-from-preview> --actor "evidence-based-identity-foundation"
 
 python -B -m research verify-identity `
-  "C:\Users\n\AppData\Local\ColoradoWatchdog\Profiles\database\research.sqlite" `
-  --plan "C:\Users\n\AppData\Local\ColoradoWatchdog\Profiles\reports\identity-plan.json"
+  "<private-root>\database\research.sqlite" `
+  --plan "<private-root>\reports\identity-plan.json"
 ```
 
 The plan records source classifications, person creation, supported claim

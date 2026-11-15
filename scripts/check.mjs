@@ -28,6 +28,8 @@ const allowed = new Set([
   "docs/coordination/PROJECT-BOOTSTRAP.md",
   "docs/architecture/beta-2-planning-handoff.md",
   "docs/architecture/county-map-geometry.md",
+  "docs/architecture/fable-assessment-rev3.md",
+  "docs/architecture/fable-assessment-rev4.md",
   ".github/ISSUE_TEMPLATE/scoped-task.md",
   ".github/pull_request_template.md",
   "package.json",
@@ -367,13 +369,16 @@ for (const file of files) {
   if (!["100644", "100755"].includes(mode))
     errors.push(`Non-regular file: ${file}`);
   const bytes = staged ? git("show", `:${file}`) : readFileSync(file);
-  // Large files have scoped limits: the lockfile and bundled county geometry.
+  // Large files have scoped limits: the lockfile, bundled county geometry and
+  // the repository copy of the Fable revision 4 assessment.
   const sizeLimit =
     file === "package-lock.json"
       ? 256 * 1024
       : file === "src/site/colorado-county-map.json"
         ? 1024 * 1024
-        : 64 * 1024;
+        : file === "docs/architecture/fable-assessment-rev4.md"
+          ? 96 * 1024
+          : 64 * 1024;
   if (bytes.length > sizeLimit)
     errors.push(`File exceeds ${sizeLimit / 1024} KiB: ${file}`);
   let content;

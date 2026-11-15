@@ -1,6 +1,6 @@
 # R0 — local research foundation
 
-Implemented against [Fable architecture revision 4](https://drive.google.com/file/d/1ux9NG09zr9DkztRGYtc-Z3uXBZ81ncI0/view) and [Profiles Coverage and Source-Intelligence v2](https://drive.google.com/file/d/1se6iAtL8czdLnV-AjvKAezSmYV0ayHKn/view). Validation uses invented people, units and example.invalid URLs; Routt, Denver and Weld are conceptual mapping cases.
+Implemented against [Fable architecture revision 4](../architecture/fable-assessment-rev4.md) and Profiles Coverage and Source-Intelligence v2 (a private local document in the owner's Watchdog workspace, not in this repository). Validation uses invented people, units and example.invalid URLs; Routt, Denver and Weld are conceptual mapping cases.
 
 ## Use
 

@@ -32,8 +32,8 @@ coordination chat.
 - **[CURRENT](CURRENT.md):** short canonical current-state snapshot — read before decisions or architecture notes
 - **Issues:** work in progress, discussion and AI session handoffs
 - **PRs:** durable changes and checks
-- **Drive:** long reference reports. Current technical assessment: [Fable's beta-2 architecture v4](https://drive.google.com/file/d/1ux9NG09zr9DkztRGYtc-Z3uXBZ81ncI0/view). Earlier baseline, kept as history: [v3](https://drive.google.com/file/d/1W8STh6s2qJWrDUELR66djYzzfJelt4g_/view)
-- **Local workspace:** development and research material
+- **Architecture reports:** current technical assessment: [Fable's beta-2 architecture v4](../architecture/fable-assessment-rev4.md). Earlier baseline, kept as history: [v3](../architecture/fable-assessment-rev3.md). Google Drive is retired for coordination. GitHub is canonical
+- **Local workspace:** development material, private research, the Profiles database and archives, all inside the owner's Watchdog folder and never committed
 
 The [current beta-2 planning handoff](../architecture/beta-2-planning-handoff.md) covers the proposed website architecture and separate 19-table SQLite research database; it is historical planning context — check [CURRENT](CURRENT.md) for what is actually implemented. Revision 4 folds the owner's decisions into one assessment. [Decisions](../decisions.md) shows which revision 4 items are owner decisions and which are technical proposals.
 
