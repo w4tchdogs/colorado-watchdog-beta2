@@ -1,3 +1,4 @@
+import { ARTICLE_SLUG } from "../../contracts/publication.js";
 import {
   articleTags,
   COMMUNITY_VOICES_HEAD,
@@ -26,6 +27,7 @@ import type {
 } from "../editorial-source.js";
 import { formatStoredDate } from "../format.js";
 import { html, path, type SafeHtml } from "../html.js";
+import { renderPublicMarkdown } from "../public-markdown.js";
 import { NotFound, type Page, type SiteContext } from "../types.js";
 
 const KINDS = {
@@ -94,15 +96,15 @@ function block(item: ArticleBlock): SafeHtml {
   }
 }
 
-export function editorialListPage(
+export async function editorialListPage(
   context: SiteContext,
   type: EditorialType,
   filters: EditorialFilters = {},
-): Page {
+): Promise<Page> {
   const kind = KINDS[type];
   const base = `/${kind.base}`;
   // Filters apply to the complete public collection, never a displayed subset.
-  const all = context.editorial.list(type);
+  const all = await context.editorial.list(type);
   const matches = filterArticles(all, filters);
   const filtered = hasFilters(filters);
   const summary = resultSummary(
@@ -155,14 +157,14 @@ export function editorialListPage(
   };
 }
 
-export function articlePage(
+export async function articlePage(
   context: SiteContext,
   type: EditorialType,
   slug: string,
-): Page {
+): Promise<Page> {
   const kind = KINDS[type];
-  const article = /^[a-z0-9-]{1,120}$/.test(slug)
-    ? context.editorial.get(type, slug)
+  const article = ARTICLE_SLUG.test(slug)
+    ? await context.editorial.get(type, slug)
     : null;
   if (!article) throw new NotFound(kind.singular.toLowerCase());
   const { counties, people, organizations } = article.related;
@@ -186,7 +188,7 @@ export function articlePage(
         ${articleMeta(article)}
       </header>
       <div class="article-layout">
-        <div class="article-body">${article.body.map(block)}</div>
+        <div class="article-body">${article.markdown === undefined ? article.body.map(block) : renderPublicMarkdown(article.markdown)}</div>
         <aside class="article-aside" aria-label="Related records and sources">
           ${
             hasRelated

@@ -1,6 +1,7 @@
 # Native Posts and Stories foundation
 
-Migration `0009_content_foundation.sql`, `src/contracts/content.ts` and `src/services/content.ts` add the first internal content model. Migration `0010_content_revisions.sql` and `src/transport/content-api.ts` (M3-B) add durable revisions and an internal editorial API. None of this adds public routes, an editor, publication, media or WordPress integration. The service and the transport are not registered in `ApplicationServices`, the application, the Worker or MCP.
+Migration `0009_content_foundation.sql`, `src/contracts/content.ts` and `src/services/content.ts` add the first internal content model. Migration `0010_content_revisions.sql` and `src/transport/content-api.ts` (M3-B) add durable revisions and an internal editorial API. EDIT-1 adds public article pages and registers publication operations in the
+Worker. The draft and revision transports remain local, and the MCP is read-only.
 
 ## Model
 
@@ -50,8 +51,37 @@ The content service also keeps its own injected default-deny policy, so transpor
 
 ## Content safety
 
-Bodies, including stored HTML, Markdown links and embedded content, are inert source text. The API returns them only as JSON strings with `bodyFormat: "markdown"`. The only renderer is the local editorial preview described in [editorial-workspace.md](editorial-workspace.md), which never assigns HTML and shows raw HTML as text. A future publication renderer must do the same.
+Bodies, including stored HTML, Markdown links and embedded content, are inert source text. The API returns them only as JSON strings with `bodyFormat: "markdown"`. The local editorial preview and public article pages use the same Markdown parser. Both render raw HTML as text and allow only safe link targets.
 
 ## Limits
 
-Every revision stores a full copy of the body, so storage grows with edits and no retention or compaction exists. There is no publication state, approval workflow or hosted D1 verification of migrations 0009 and 0010. SQL.js tests do not prove hosted D1 behavior. Principal resolution for the transport is supplied by the host and no production wiring exists.
+Every revision stores a full copy of the body, so storage grows with edits and no retention or compaction exists. Approval workflow and hosted D1 verification remain pending. SQL.js tests do not prove hosted D1 behavior. The host supplies principal resolution for the transport.
+
+## Publication (EDIT-1)
+
+Migration `0017_content_publication.sql` adds the publication record and an
+archive guard. The working item keeps its existing draft or archived status
+and revision history. Publishing selects the current nonempty draft revision
+and stores its public byline, citation links and explicit classification.
+Edits to the working draft leave the public revision and its links intact.
+Withdrawal hides that revision immediately and is required before archiving
+a live item. After withdrawal, publishing can select the latest eligible
+revision under the same slug. A slug is reserved per content type, including
+during withdrawal.
+
+The Worker accepts JSON POST requests at
+`/internal/content/publication/publish` and
+`/internal/content/publication/withdraw`. Both require a verified active
+principal with `content.publish` (editor, administrator or owner) and fields
+`id`, `expectedVersion` (working draft version) and
+`expectedPublicationVersion` (zero for a first publication). Publish also
+requires `slug` and `metadata.byline`, with optional `pathway`, `series`,
+`topics` and `sources` inside `metadata`. Both operations return the
+publication version, pinned revision version, ID, slug and public status.
+The D1 batch verifies the actor and versions before writing, and commits the
+transition and its audit event together. Audit records identify the actor and
+revision without copying article text or citation URLs.
+
+Migration 0017 is verified against disposable local D1. Hosted application
+depends on DEPLOY-1's migration and recovery gates. Hosted human access and
+the editorial workspace depend on AUTH-3 and EDIT-2.

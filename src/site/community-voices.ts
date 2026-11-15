@@ -14,6 +14,7 @@ import type {
 } from "./editorial-source.js";
 import { countyTitle, isCountyFips } from "./format.js";
 import { html, type SafeHtml, trusted, withQuery } from "./html.js";
+import { publicMarkdownText } from "./public-markdown.js";
 
 /** Stylesheet for these components, loaded through `Page.head`. */
 export const COMMUNITY_VOICES_HEAD: SafeHtml = html`<link rel="stylesheet" href="/assets/community-voices.css">`;
@@ -144,6 +145,9 @@ function searchableText(article: EditorialArticle): string {
     article.title,
     article.summary,
     article.byline,
+    article.markdown === undefined
+      ? undefined
+      : publicMarkdownText(article.markdown),
     ...article.body.flatMap((block) =>
       block.kind === "list" ? block.items : [block.text],
     ),

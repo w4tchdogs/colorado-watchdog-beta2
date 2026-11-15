@@ -69,10 +69,217 @@ async function waitFor(url) {
   throw new Error("The local Sites Worker did not start");
 }
 
+async function verifyPublication(
+  base,
+  { editorToken, contributorToken, disabledToken },
+) {
+  const root = `${base}/internal/content/publication`;
+  const draft = {
+    id: "fictional-story",
+    expectedVersion: 1,
+    expectedPublicationVersion: 0,
+  };
+  const story = {
+    ...draft,
+    slug: "fictional-river",
+    metadata: {
+      byline: "Fictional Reporter",
+      pathway: "local-series",
+      series: { slug: "river-series", label: "River Series" },
+      topics: [{ slug: "water", label: "Water" }],
+      sources: [
+        {
+          title: "Fictional meeting minutes",
+          url: "https://example.test/minutes",
+        },
+      ],
+    },
+  };
+  const change = (action, input, token = editorToken) =>
+    fetch(`${root}/${action}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(input),
+    });
+  const privateDrafts = await fetch(`${base}/internal/content/drafts/list`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${editorToken}`,
+    },
+    body: "{}",
+  });
+  assert.equal(privateDrafts.status, 404);
+  const read = (path) => fetch(`${base}${path}`);
+  const reject = async (action, input, status, error, token) => {
+    const response = await change(action, input, token);
+    assert.equal(response.status, status, await response.clone().text());
+    assert.deepEqual(await response.json(), { error });
+  };
+  const publish = async (input) => {
+    const response = await change("publish", input);
+    assert.equal(response.status, 200, await response.clone().text());
+    return response.json();
+  };
+
+  assert.match(await (await read("/stories")).text(), /No stories yet/);
+  assert.equal((await read("/stories/fictional-river")).status, 404);
+  await reject("publish", story, 401, "authentication_required", null);
+  await reject("publish", story, 401, "authentication_required", disabledToken);
+  await reject(
+    "publish",
+    story,
+    401,
+    "authentication_required",
+    `cwa_${"Z".repeat(43)}`,
+  );
+  await reject("publish", story, 403, "forbidden", contributorToken);
+  await reject(
+    "publish",
+    { ...story, slug: "river--committee" },
+    400,
+    "invalid_request",
+  );
+  await reject(
+    "publish",
+    { ...story, authorId: "d1-test-editor" },
+    400,
+    "invalid_request",
+  );
+  await reject(
+    "publish",
+    { ...story, expectedVersion: 2 },
+    409,
+    "version_conflict",
+  );
+  await reject(
+    "publish",
+    {
+      ...story,
+      metadata: {
+        ...story.metadata,
+        sources: [{ title: "Malformed", url: "https://example.test\\bad" }],
+      },
+    },
+    400,
+    "invalid_request",
+  );
+
+  const competing = await Promise.all([
+    change("publish", story),
+    change("publish", story),
+  ]);
+  competing.sort((a, b) => a.status - b.status);
+  assert.equal(competing[0].status, 200, await competing[0].clone().text());
+  assert.deepEqual(await competing[0].json(), {
+    contentId: story.id,
+    slug: story.slug,
+    publicationVersion: 1,
+    revisionVersion: 1,
+    status: "published",
+  });
+  assert.equal(competing[1].status, 409);
+  assert.deepEqual(await competing[1].json(), { error: "version_conflict" });
+  await reject(
+    "publish",
+    { ...story, expectedPublicationVersion: 1 },
+    409,
+    "invalid_state",
+  );
+  await reject(
+    "publish",
+    { ...story, id: "other-story" },
+    409,
+    "slug_conflict",
+  );
+  const posts = {
+    ...story,
+    id: "fictional-post",
+    metadata: { byline: "Fictional Reporter" },
+  };
+  await publish(posts);
+  assert.match(await (await read("/posts")).text(), /Fictional Dispatch/);
+  assert.equal((await read("/posts/fictional-river")).status, 200);
+
+  const article = await read("/stories/fictional-river");
+  assert.equal(article.status, 200);
+  assert.equal(article.headers.get("cache-control"), "no-store");
+  const detail = await article.text();
+  assert.match(detail, /<strong>synthetic watershed<\/strong>/);
+  assert.match(detail, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(detail, /https:\/\/example\.test\/records/);
+  assert.match(detail, /https:\/\/example\.test\/minutes/);
+  assert.match(detail, /\/counties\/08001/);
+  assert.match(detail, /\/people\/d1-test-person-a/);
+  assert.match(detail, /\/organizations\/d1-test-county-org/);
+  assert.doesNotMatch(
+    detail,
+    /javascript:|Unpublished|publicationVersion|d1-test-editor/,
+  );
+  const listing = await (
+    await read(
+      "/stories?q=synthetic+watershed&pathway=local-series&county=08001&series=river-series&topic=water",
+    )
+  ).text();
+  assert.match(listing, /Fictional River Committee/);
+  assert.doesNotMatch(listing, /Unpublished Canary|Another fictional Story/);
+  assert.doesNotMatch(
+    await (await read("/stories?q=secret+phrase")).text(),
+    /Unpublished Canary/,
+  );
+  assert.match(await (await read("/")).text(), /Fictional River Committee/);
+  assert.equal((await read("/stories/private-story")).status, 404);
+  assert.equal((await read("/stories/%E0%A4")).status, 404);
+
+  await reject(
+    "withdraw",
+    { ...draft, expectedPublicationVersion: 2 },
+    409,
+    "version_conflict",
+  );
+  const withdrawal = { ...draft, expectedPublicationVersion: 1 };
+  const withdrawn = await change("withdraw", withdrawal);
+  assert.equal(withdrawn.status, 200);
+  assert.equal((await withdrawn.json()).status, "withdrawn");
+  assert.equal((await read("/stories/fictional-river")).status, 404);
+  assert.match(await (await read("/stories")).text(), /No stories yet/);
+  assert.doesNotMatch(
+    await (await read("/")).text(),
+    /Fictional River Committee/,
+  );
+  await reject(
+    "withdraw",
+    { ...withdrawal, expectedPublicationVersion: 2 },
+    409,
+    "invalid_state",
+  );
+  await reject(
+    "publish",
+    { ...story, id: "other-story" },
+    409,
+    "slug_conflict",
+  );
+  const republished = await publish({
+    ...story,
+    expectedPublicationVersion: 2,
+  });
+  assert.equal(republished.publicationVersion, 3);
+  assert.equal((await read("/stories/fictional-river")).status, 200);
+  assert.equal(
+    (await change("withdraw", { ...withdrawal, id: posts.id })).status,
+    200,
+  );
+  assert.match(await (await read("/posts")).text(), /No posts yet/);
+}
+
 async function main() {
   const agentToken = `cwa_${"A".repeat(43)}`;
   const ownerToken = `cwa_${"O".repeat(43)}`;
   const editorToken = `cwa_${"E".repeat(43)}`;
+  const disabledToken = `cwa_${"D".repeat(43)}`;
   const contributorToken = `cwa_${"C".repeat(43)}`;
   const { hashCredential } = await import(
     pathToFileURL(join(root, "dist", "services", "security.js"))
@@ -80,6 +287,7 @@ async function main() {
   const agentHash = await hashCredential(agentToken);
   const ownerHash = await hashCredential(ownerToken);
   const editorHash = await hashCredential(editorToken);
+  const disabledHash = await hashCredential(disabledToken);
   const contributorHash = await hashCredential(contributorToken);
   const migrations = [
     "0001_counties.sql",
@@ -98,6 +306,7 @@ async function main() {
     "0014_owner_bootstrap_audit.sql",
     "0015_correct_lake_la_plata_county_names.sql",
     "0016_banner_homepage_curation.sql",
+    "0017_content_publication.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(
@@ -170,6 +379,25 @@ async function main() {
       ('d1-sites-expired-id','d1-sites-editor','chatgpt-sites:appgprj_6af7fb8f615c81918da0e4450ba336de','synthetic-sites-expired','2000-01-01T00:00:00.000Z',NULL),
       ('d1-sites-revoked-id','d1-sites-editor','chatgpt-sites:appgprj_6af7fb8f615c81918da0e4450ba336de','synthetic-sites-revoked',NULL,'2026-11-13T00:00:00.000Z'),
       ('d1-sites-other-project-id','d1-sites-owner','chatgpt-sites:appgprj_00000000000000000000000000000000','synthetic-other-project-subject',NULL,NULL);
+    INSERT INTO content_items (id,content_type,title,summary,body,created_by_account_id,last_edited_by_account_id) VALUES
+      ('fictional-story','story','Fictional River Committee','A fictional county meeting.',
+       '## Meeting notes' || char(10,10) || 'A **synthetic watershed**. <script>alert(1)</script> [blocked](javascript:alert(1)) [records](https://example.test/records)',
+       'd1-test-editor','d1-test-editor'),
+      ('fictional-post','post','Fictional Dispatch','A fictional Post.','A fictional dispatch from the records office.','d1-test-editor','d1-test-editor'),
+      ('private-story','story','Unpublished Canary',NULL,'Unpublished secret phrase','d1-test-editor','d1-test-editor'),
+      ('other-story','story','Another fictional Story',NULL,'Fictional competing slug.','d1-test-editor','d1-test-editor');
+    INSERT INTO content_revisions (
+      content_id,version,change_kind,title,summary,body,status,county_fips_json,person_ids_json,organization_ids_json,edited_by_account_id
+    ) SELECT id,version,'create',title,summary,body,status,
+      CASE WHEN id='fictional-story' THEN '["08001"]' ELSE '[]' END,
+      CASE WHEN id='fictional-story' THEN '["d1-test-person-a"]' ELSE '[]' END,
+      CASE WHEN id='fictional-story' THEN '["d1-test-county-org"]' ELSE '[]' END,
+      last_edited_by_account_id FROM content_items;
+    INSERT INTO accounts (id,kind,role,display_name,status) VALUES
+      ('d1-test-disabled-editor','agent','editor','Synthetic Disabled Editor','disabled');
+    INSERT INTO identities (id,account_id,provider,subject,credential_hash) VALUES
+      ('d1-test-disabled-key','d1-test-disabled-editor','agent-key','d1-test-disabled-key','${disabledHash}');
+
   `,
   );
   command([
@@ -218,6 +446,12 @@ async function main() {
     const homeHtml = await homepage.text();
     assert.match(homeHtml, /64 counties/);
     assert.match(homeHtml, /data-banner-count="0"/);
+
+    await verifyPublication(base, {
+      editorToken,
+      contributorToken,
+      disabledToken,
+    });
 
     const unauthorizedStaffPage = await fetch(`${base}/admin/reports`);
     assert.equal(unauthorizedStaffPage.status, 401);
@@ -886,6 +1120,30 @@ async function main() {
     ).status,
     503,
   );
+  for (const environment of [
+    {},
+    {
+      DB: {
+        prepare() {
+          throw new Error("Private storage error");
+        },
+      },
+    },
+  ]) {
+    const listing = await siteWorker.default.fetch(
+      new Request("https://site.test/stories"),
+      environment,
+    );
+    assert.equal(listing.status, 200);
+    assert.match(await listing.text(), /No stories yet/);
+    const detail = await siteWorker.default.fetch(
+      new Request("https://site.test/stories/private"),
+      environment,
+    );
+    assert.equal(detail.status, 404);
+    assert.doesNotMatch(await detail.text(), /Private storage error/);
+  }
+
   const disabledSubmission = await siteWorker.default.fetch(
     new Request("https://site.test/api/v1/reports", {
       method: "POST",
@@ -911,7 +1169,7 @@ async function main() {
   );
   assert.equal(offLoopbackTestSubmission.status, 429);
   console.log(
-    `Sites Worker D1 report integration passed (${migrations.length} migrations, 64 counties, report routes/assets, durable private intake, staff authorization, and disabled non-loopback submissions).`,
+    `Sites Worker D1 report and publication integration passed (${migrations.length} migrations, 64 counties, report routes/assets, durable private intake, staff authorization, and disabled non-loopback submissions).`,
   );
 }
 
