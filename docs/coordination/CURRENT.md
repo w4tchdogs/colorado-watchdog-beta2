@@ -118,7 +118,7 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | VIS8-FIPS-1 | Merged | PR #89 | — | 2026-11-14 |
 | AUTH-2 | Merged | PR #88 | — | 2026-11-14 |
 | D1-0015-PREFLIGHT-1 | Complete, with access limitation | — | Hosted D1 admin access | 2026-11-14 |
-| DEPLOY-1 safety assessment | Complete; deployment blocked pending supported migration gate, authenticated MCP bootstrap and hosted D1 provenance/recovery evidence | [Assessment PR](https://github.com/w4tchdogs/colorado-watchdog-beta2/pulls) | Platform migration behavior; hosted D1 preflight through MCP | 2026-11-14 |
+| DEPLOY-1 safety assessment | Complete; deployment blocked pending supported migration gate, authenticated MCP bootstrap and hosted D1 provenance/recovery evidence | [PR #107](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/107) | Platform migration behavior; hosted D1 preflight through MCP | 2026-11-14 |
 | D1-0015-ACCESS-1 | Superseded by MCP-first architecture | — | — | 2026-11-14 |
 | MCP-1 (read-only foundation) | Merged | PR #95, `bc60154f` | — | 2026-11-14 |
 | MCP hosted publication / write tools | Planned, not started | — | Hosted Site MCP configuration (owner-scoped) | — |
