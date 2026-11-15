@@ -14,7 +14,12 @@ const submission = {
   },
   idempotencyKey: "synthetic-api-001",
 };
-function setup(role = null, configure = true, sharedStore = null) {
+function setup(
+  role = null,
+  configure = true,
+  sharedStore = null,
+  check = async () => ({ allowed: true }),
+) {
   const store = sharedStore ?? new MemoryReportIntakeStore();
   const principal = role ? { accountId: `synthetic-${role}`, role } : null;
   const api = createReportApiModule({
@@ -37,11 +42,7 @@ function setup(role = null, configure = true, sharedStore = null) {
     guestSubmissions: configure
       ? {
           enabled: true,
-          abuseControl: {
-            async check() {
-              return { allowed: true };
-            },
-          },
+          abuseControl: { check },
         }
       : undefined,
   });
@@ -108,6 +109,65 @@ test("missing abuse boundary fails closed and rejects cross-origin requests", as
     }),
   );
   assert.equal(cross.status, 403);
+});
+
+test("synthetic challenge results gate anonymous guest intake before report storage", async () => {
+  const acceptedTokens = new Set();
+  const { api, store } = setup(null, true, null, async (request) => {
+    const token = request.headers.get("x-report-challenge");
+    if (token === "synthetic-unavailable") throw new Error("fixture outage");
+    if (token !== "synthetic-valid" || acceptedTokens.has(token)) {
+      return { allowed: false, retryAfterSeconds: 15 };
+    }
+    acceptedTokens.add(token);
+    return { allowed: true };
+  });
+  const submit = (token, idempotencyKey) =>
+    api.fetch(
+      new Request("https://local.test/api/v1/reports", {
+        method: "POST",
+        headers: {
+          origin: "https://local.test",
+          "content-type": "application/json",
+          "x-report-challenge": token,
+        },
+        body: JSON.stringify({
+          ...submission,
+          idempotencyKey,
+          reporter: { ...submission.reporter, name: "Synthetic alias" },
+        }),
+      }),
+    );
+
+  const allowed = await submit(
+    "synthetic-valid",
+    "synthetic-challenge-allowed",
+  );
+  assert.equal(allowed.status, 201);
+  const { reference } = await allowed.json();
+  assert.ok(store.reportIdForReference(reference));
+
+  for (const [outcome, token] of [
+    ["denied", "synthetic-denied"],
+    ["expired", "synthetic-expired"],
+    ["replayed", "synthetic-valid"],
+  ]) {
+    const refused = await submit(token, `synthetic-challenge-${outcome}`);
+    assert.equal(refused.status, 429, outcome);
+    assert.equal(refused.headers.get("retry-after"), "15", outcome);
+    assert.deepEqual(await refused.json(), { error: "rate_limited" }, outcome);
+  }
+
+  const unavailable = await submit(
+    "synthetic-unavailable",
+    "synthetic-challenge-unavailable",
+  );
+  assert.equal(unavailable.status, 503);
+  assert.deepEqual(await unavailable.json(), { error: "service_unavailable" });
+  const { request: staff } = setup("editor", true, store);
+  const queue = await staff("/api/v1/reports?limit=10");
+  const { reports } = await queue.json();
+  assert.equal(reports.length, 1);
 });
 
 test("only editor, administrator, and owner can list or read private reports", async () => {
