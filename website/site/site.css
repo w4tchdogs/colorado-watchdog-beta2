@@ -816,7 +816,8 @@ img {
   overflow: hidden;
   background: #0d0d0d;
 }
-.banner-placeholder {
+.banner-placeholder,
+.banner-image::before {
   position: absolute;
   inset: 0;
   background-color: #0d0d0d;
@@ -831,6 +832,11 @@ img {
     auto 86%,
     cover;
   background-blend-mode: soft-light, normal;
+}
+/* Browsers that render generated content on a broken image can show the
+   branded fallback even when JavaScript is unavailable. */
+.banner-image::before {
+  content: "";
 }
 .banner-image {
   --fx: 50%;
