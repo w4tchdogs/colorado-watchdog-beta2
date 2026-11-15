@@ -40,7 +40,7 @@ Beta-1 data, banners and visual assets are **not** migrated into beta-2 automati
 
 ## B. Architectural invariants (binding owner decisions — see [decisions.md](../decisions.md))
 
-- **AI-first administration**: one relational Website D1 database, R2 for files, and a shared dashboard/API/MCP service layer is the selected backbone — an approved requirement, not an optional add-on. A read-only MCP foundation is merged (PR #95). Hosted publication and write, sync and import tools are not implemented (see component matrix).
+- **AI-first administration**: one relational Website D1 database, R2 for files, and a shared dashboard/API/MCP service layer is the selected backbone — an approved requirement, not an optional add-on. A read-only MCP foundation is merged (PR #95). Alpha-1 v5 publishes the read-only endpoint. Hosted authenticated use and write, sync and import tools remain open (see component matrix).
 - One Website D1 database; a **separate** local Windows SQLite Profiles research database (DB Browser for SQLite). Never merge or cross-query them.
 - Profiles-to-Website transfer only through the accepted synchronization architecture (M2 planner/commit/reversal); the Website assigns permanent entity IDs.
 - Versioned changesets, durable receipts, auditing and reversible operations are required for mutations.
@@ -64,36 +64,34 @@ Beta-1 data, banners and visual assets are **not** migrated into beta-2 automati
 | Banner inventory and lifecycle (BANNERS-1, BANNERS-2) | Merged, implemented locally | PR #64, #67; [banner-inventory.md](../architecture/banner-inventory.md), [banner-storage.md](../architecture/banner-storage.md) |
 | Banner delivery (BANNERS-3) | Merged, implemented locally; read-only public integration only | PR #92; [banner-delivery.md](../architecture/banner-delivery.md) |
 | Banner carousel (BANNERS-4) | Merged, verified locally with synthetic fixtures | [PR #109](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/109); [banner-delivery.md](../architecture/banner-delivery.md#banners-4--accessible-banner-carousel) |
-| MCP administration | Merged, implemented locally: read-only Website inspection MCP (`d1.inspect` capability, aggregate counts only) and a Profiles readiness MCP (stdio, aggregate eligibility counts only). **No write, sync, import, or migration tool exists**; no hosted Site has published or connected to the MCP endpoint | PR #95; [mcp-administration.md](../architecture/mcp-administration.md) |
-| Hosted D1 migration (0015, Lake/La Plata correction) | Merged to source; hosted application **blocked/undetermined** | `website/migrations/0015_correct_lake_la_plata_county_names.sql`; D1-0015-PREFLIGHT-1 (below) |
+| MCP administration | Merged, implemented locally: read-only Website inspection MCP (`d1.inspect` capability, aggregate counts only) and a Profiles readiness MCP (stdio, aggregate eligibility counts only). Read-only Website endpoint published in Alpha-1 v5; authenticated connection unverified. **No write, sync, import, or migration tool exists** | PR #95; [mcp-administration.md](../architecture/mcp-administration.md) |
+| Hosted D1 migration (0015, Lake/La Plata correction) | Hosted result verified in Alpha-1 v5: all 64 county pairs match | `website/migrations/0015_correct_lake_la_plata_county_names.sql`; Section D |
 | Hosted R2 provisioning | **Not done.** `r2: null` in `.openai/hosting.json` on `main` | `.openai/hosting.json` |
 | Website Profiles import (sync to D1) | **Not executed**; no changeset has ever been prepared and local sync tables are empty | Verified read-only by Claude, 2026-11-14 |
 | Local research intake | Complete for 79 batches across 64 counties | Verified read-only by Claude, 2026-11-14 |
 | Real banner import | **Not executed** (BANNERS-IMPORT-1 is a separate future task). Source: the workspace `banners\approved\` folder (152 approved originals) | [banner-delivery.md](../architecture/banner-delivery.md) |
-| Public Site deployment (Alpha-1) | **Deployed**, but stale relative to `main` — see section D | — |
+| Public Site deployment (Alpha-1) | **Deployed** as v5; public routes and D1 readiness smoke-tested | — |
 | Visual audit | In progress; coverage ledger and several VIS fixes merged | PR #82–#92; `docs/coordination/visual-audit/` |
 
 ## D. Deployment state (separate from source)
 
-Last independently verified Alpha-1 deployment:
+Alpha-1 v5 deployed and verified on November 14, 2026 (America/Denver).
 
-- Project ID: `appgprj_6af7fb8f615c81918da0e4450ba336de`
-- Deployed Site version: 4
-- Deployment ID: `appgdep_6af83c64720481918de17534a66b2a42`
-- Source commit: `85653665761466b3ec20213091f89da890f936ed`
-- Audience: public
-- Logical D1 binding: `DB`; R2: not provisioned at that deployment
+- Site: [Colorado Watchdog Alpha-1](https://colorado-watchdog-alpha1.futureguild2.chatgpt.site/), public, project `appgprj_6af7fb8f615c81918da0e4450ba336de`.
+- Deployment: `appgdep_6af9439582688191b558e8f777591503`, Sites source `ddd5bc7fdc42440c33ad423d0ecc60b87d32c5b6`. It has the identical Git tree `bfb116cdbee415c437a1043d5928db62f9c331df` as [GitHub main `5a4f88d`](https://github.com/w4tchdogs/colorado-watchdog-beta2/commit/5a4f88d6b8b95b6cf452b67b42d579f28f62d8ea).
+- Sites archive digest: `sha256:062a3c83f79001dcc5ff625ad6dad567675310f5cb626e77c54305a966305b19`. The archive packaged migrations 0001–0017 and retained the existing `DB` binding. R2 was not provisioned.
 
-**This evidence is last-verified, not rechecked live in this revision.** `main` has advanced beyond the recorded source commit `8565366`. A later merge to `main` is never assumed to be deployed — redeploying Alpha-1 is a separate, explicit action. Do not treat the commit on `main` as what visitors currently see.
+Before deploy, Sites showed the seeded registry and empty accounts, identities, people, organizations, reports, editorial content, banners and sync tables. The registry matched the accepted pre-0015 state with only Lake and La Plata swapped. The owner directed initialization to proceed. After deploy, the same Site's `DB` showed all 64 expected pairs, including `08065 Lake` and `08067 La Plata`, and the expected `owner_bootstrap_audit`, `banner_assets.homepage_order` and `content_publications` schema changes.
+
+HTTP checks passed for the homepage, county directory, both corrected county pages, People, Organizations, Posts, Stories, report entry, CSS and Website D1 readiness. Anonymous requests to the account admin and staff report APIs returned HTTP 401. Sites confirms MCP publication. Authenticated MCP calls, exact platform/application migration-ledger reconciliation and hosted restore remain unverified. Version 4 in the prior assessments is historical. Future GitHub merges require a separate deployment.
 
 ## E. Current blockers / open dependencies
 
-- **Hosted D1 migration 0015** — not confirmed applied to the hosted database. D1-0015-PREFLIGHT-1 completed with an access limitation (no verified administrative hosted-D1 access); D1-0015-ACCESS-1 (a standalone one-off coding plan to get that access) is **superseded** by the MCP-first architecture — administration should come through MCP, not a bespoke access script.
-- **DEPLOY-1 safety assessment — complete; deployment remains blocked.** The read-only Sites metadata confirms Alpha-1 version 4 is deployed from `85653665761466b3ec20213091f89da890f936ed`, the current Site audience is public, and the version metadata reports no MCP publication. The assessed artifact packages migrations 0014–0016, including 0015. EDIT-1 adds migration 0017 to the local build; the installed Sites storage reference documents migrations before Worker upload. DEPLOY-1A found no verified hold for 0015 or compatible least-privilege bootstrap. Hosted D1 history, registry and recovery remain unverified. See [DEPLOY-1](../architecture/deploy-1-safety-assessment.md) and [DEPLOY-1A](../architecture/deploy-1a-migration-gate.md).
-- **MCP connectivity and authorization** — approved architecture; a read-only local foundation (Website inspection + Profiles readiness) is merged (PR #95). Hosted Site publication of the MCP endpoint, any write/sync/import tool, and R2 inspection are **not implemented** and remain the open part of this architecture.
+- **DEPLOY-1 and D1-0015** — Alpha-1 v5 is deployed and the hosted county registry is verified. The [owner's initialization decision](../decisions.md#alpha-1-website-d1-initialization-november-14-2026) supersedes the [DEPLOY-1A](../architecture/deploy-1a-migration-gate.md) migration hold for this initialization. Exact migration execution history and hosted restore remain unverified.
+- **MCP connectivity and authorization** — the read-only endpoint is published. AUTH-3/AUTH-4, an inspection-only credential and authenticated connection verification remain open. Write, sync, import and R2 inspection tools are future work.
 - **R2 provisioning** — needed before BANNERS-IMPORT-1 (real banner import) or any R2-backed MCP file storage.
 - **Profiles research eligibility and hosted synchronization** — R7/R8 give the sync design; no real personnel data has been screened for hosted sync, and the Website-side sync route remains internal/unregistered ([d1-readiness.md](../architecture/d1-readiness.md)).
-- **Verified hosted D1 administrative access** — no trustworthy stable Sites subject is currently exposed to the Worker ([account-management.md](../architecture/account-management.md), [beta-2-planning-handoff.md](../architecture/beta-2-planning-handoff.md)); this blocks both migration 0015 application and first-owner bootstrap.
+- **Verified Website administrator identity and recovery** — AUTH-3 provider selection and AUTH-4 owner bootstrap remain open. Exercise hosted backup and isolated restore before relying on D1 for real records.
 - The second research campaign (`research-campaign-2026-11-13-campaign2`, Archuleta, Boulder, Eagle, El Paso, Routt and La Plata) is complete on disk and unimported. Its Routt file uses county code `08049` (Grand), and Routt is `08107`. A corrected working copy now exists in the private `profiles\intake\` folder and the original is unchanged. The local importer now accepts the campaign’s “Official county source role” grouping label as its own value (PR #105), and the corrected Routt copy previews as 3 of 3 valid. The other five files were not previewed. Do not import without revalidation. Active county research remains paused by the owner.
 - Twenty-two older encrypted local research backups exist and are unrestorable with current code, because backup and restore require the full migration 003 schema. A new post-003 encrypted backup was restored and verified on 2026-11-14 (DATA-1). A plaintext pre-003 copy is in the private `profiles\backups\` folder.
 
@@ -120,15 +118,16 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | AUTH-2 | Merged | PR #88 | — | 2026-11-14 |
 | AUTH-3 | Assessment complete. Implementation blocked | [Identity assessment](../architecture/auth-3-identity-assessment.md) | Owner selects provider. Hosted trust and runtime behavior require verification before enablement. | 2026-11-14 |
 | D1-0015-PREFLIGHT-1 | Complete, with access limitation | — | Hosted D1 admin access | 2026-11-14 |
-| DEPLOY-1 safety assessment | Complete; deployment blocked pending supported migration gate, authenticated MCP bootstrap and hosted D1 provenance/recovery evidence | [PR #107](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/107) | Platform migration behavior; hosted D1 preflight through MCP | 2026-11-14 |
-| DEPLOY-1A migration gate and MCP bootstrap | Assessment complete; Alpha-1 deployment blocked | [Evidence and next action](../architecture/deploy-1a-migration-gate.md) | Supported 0015 hold or migration-free binding; AUTH-3/AUTH-4 and an inspection-only grant; hosted provenance and restore evidence | 2026-11-14 |
+| DEPLOY-1 | Alpha-1 v5 deployed; public routes and D1 readiness smoke-tested | Section D; [assessment PR #107](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/107) | Hosted recovery remains open | 2026-11-14 |
+| DEPLOY-1A migration gate and MCP bootstrap | Historical assessment complete; owner initialization decision supersedes its deployment blocker | [Evidence](../architecture/deploy-1a-migration-gate.md) | Authenticated inspection and hosted recovery remain open | 2026-11-14 |
+| D1-0015 | Hosted effect verified in Alpha-1 v5, including all 64 FIPS/name pairs | Section D | Exact execution-ledger reconciliation unverified | 2026-11-14 |
 | D1-0015-ACCESS-1 | Superseded by MCP-first architecture | — | — | 2026-11-14 |
 | MCP-1 (read-only foundation) | Merged | PR #95, `bc60154f` | — | 2026-11-14 |
-| MCP hosted publication / write tools | Planned, not started | — | Hosted Site MCP configuration (owner-scoped) | — |
+| MCP-2 | Read-only endpoint published; authenticated connection and protected calls unverified | Section D | AUTH-3/AUTH-4, inspection-only credential and hosted transport verification | 2026-11-14 |
 | Profiles Import Pilot | Assessment complete; readiness/hosted-sync unresolved | — | Hosted D1 admin access, R7/R8 | 2026-11-14 |
-| EDIT-1 | Merged, verified locally | [PR #110](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/110) | Hosted application of migration 0017 depends on DEPLOY-1; hosted editorial access depends on AUTH-3 and EDIT-2 | 2026-11-14 |
+| EDIT-1 | Merged, verified locally | [PR #110](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/110) | Hosted publication schema and public routes smoke-tested; staff access and publication workflow await AUTH-3 and EDIT-2 | 2026-11-14 |
 | BANNERS-4 (carousel) | Merged | [PR #109](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/109) | Real artwork awaits R2-1 and BANNERS-IMPORT-1 | 2026-11-14 |
-| BROWSE-1 | Merged, implemented locally. Statewide People and Organizations have bounded browse pages and retain name search. Hosted behavior unverified | [PR #111](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/111) | Alpha-1 deployment for hosted verification | 2026-11-14 |
+| BROWSE-1 | Merged, implemented locally. Statewide People and Organizations have bounded browse pages and retain name search. Hosted empty routes smoke-tested | [PR #111](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/111) | Hosted populated lists and pagination await eligible data | 2026-11-14 |
 | BANNERS-IMPORT-1 (real import) | Planned, not started | — | R2 provisioning | — |
 | Website Profiles import (sync to D1) | Not executed | No changeset ever prepared; local sync tables empty | Migration 003, R7/R8, hosted sync | 2026-11-14 |
 
@@ -140,10 +139,9 @@ Use the ordered backlog in [ROADMAP](ROADMAP.md). These need no hosted access
 and can start now: the visual-audit follow-ups and preparing the owner's
 drafts of "The Idlewild Story".
 AUTH-3 implementation awaits the owner's provider selection.
-DEPLOY-1 assessment is complete, but deployment is blocked pending a
-supported migration gate, authenticated MCP bootstrap and hosted D1 preflight.
-Hosted MCP writes, real data imports, migration 0015 and Alpha-1 redeployment
-follow the roadmap's dependencies.
+Alpha-1 v5 is deployed. Complete authenticated MCP verification, R2 provisioning
+and hosted D1 recovery work as dependencies allow. Hosted MCP writes and real
+data imports follow the roadmap.
 
 ## Maintenance — when to update this file
 
