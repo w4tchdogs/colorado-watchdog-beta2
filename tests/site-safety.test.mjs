@@ -7,6 +7,7 @@ import { migrateWebsiteDatabase } from "../dist/database/migrations.js";
 import { openWebsiteDatabase } from "../dist/database/sqlite.js";
 import { createD1PublicReadServices } from "../dist/services/d1-public-reads.js";
 import { createServices } from "../dist/services/index.js";
+import sitesWorker from "../dist/server/index.js";
 import { citation } from "../dist/site/components.js";
 import { formatStoredDate } from "../dist/site/format.js";
 import { html, safeExternalUrl } from "../dist/site/html.js";
@@ -230,6 +231,79 @@ test("responses carry security headers and the site is read-only", async () => {
       404,
     );
   });
+});
+
+test("the ChatGPT editor can frame only opted-in public browsing pages", async () => {
+  const database = await openWebsiteDatabase();
+  try {
+    migrateWebsiteDatabase(database);
+    const site = createPublicSite({
+      services: createServices({ database }),
+      assets: siteAssets(),
+      allowChatGptEditor: true,
+      reportReviewAccess: async () => null,
+    });
+    for (const path of ["/", "/counties", "/counties/08001", "/stories"]) {
+      const page = await get(site, path);
+      assert.equal(page.status, 200, path);
+      const policy = page.headers.get("content-security-policy");
+      assert.match(policy, /; frame-ancestors https:\/\/chatgpt\.com$/);
+      assert.match(policy, /default-src 'none'/);
+      assert.equal(page.headers.get("x-frame-options"), null, path);
+    }
+    for (const path of [
+      "/submit-report",
+      "/track-report",
+      "/admin/reports",
+      "/admin%2Freports/",
+      "/assets/site.css",
+      "/missing",
+    ]) {
+      const page = await get(site, path, {
+        headers: { origin: "https://chatgpt.com", "sec-fetch-dest": "iframe" },
+      });
+      assert.match(
+        page.headers.get("content-security-policy"),
+        /; frame-ancestors 'none'$/,
+        path,
+      );
+      assert.equal(page.headers.get("x-frame-options"), "DENY", path);
+    }
+  } finally {
+    database.close();
+  }
+});
+
+test("the bundled Worker opts in only on the Alpha-1 public origin", async () => {
+  const alpha = "https://colorado-watchdog-alpha1.futureguild2.chatgpt.site";
+  const environment = {
+    DB: {
+      prepare() {
+        throw new Error("The About page should not query D1");
+      },
+    },
+  };
+  const allowed = await sitesWorker.fetch(
+    new Request(`${alpha}/about`),
+    environment,
+  );
+  assert.equal(allowed.status, 200);
+  assert.match(
+    allowed.headers.get("content-security-policy"),
+    /; frame-ancestors https:\/\/chatgpt\.com$/,
+  );
+  const denied = await sitesWorker.fetch(
+    new Request("https://watchdog.test/about", {
+      headers: { origin: "https://chatgpt.com" },
+    }),
+    environment,
+  );
+  assert.equal(denied.status, 200);
+  assert.match(
+    denied.headers.get("content-security-policy"),
+    /; frame-ancestors 'none'$/,
+  );
+  assert.equal(denied.headers.get("x-frame-options"), "DENY");
 });
 
 test("service failures become clear error pages", async () => {
