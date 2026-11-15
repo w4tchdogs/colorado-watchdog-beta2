@@ -36,6 +36,55 @@ const BETA2_SITES_PROJECT_ID = "appgprj_6af7fb8f615c81918da0e4450ba336de";
 // authenticated identity context or a verifiable Worker gateway assertion.
 // Never promote request headers into a VerifiedSitesContext here.
 
+// This diagnostic is deliberately separate from the public site and API routers.
+// Configure a one-time, random 256-bit secret in Sites before invoking it.
+const R2_DIAGNOSTIC_PATH = "/_ops/diagnostics/r2-binding";
+const R2_DIAGNOSTIC_KEY = "__watchdog_diagnostics/r2-binding-check/2026-11-15-v1";
+const R2_DIAGNOSTIC_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
+
+function hasR2DiagnosticCredential(
+  request: Request,
+  environment: RuntimeEnvironment,
+): boolean {
+  const token = environment.R2_DIAGNOSTIC_TOKEN;
+  return (
+    typeof token === "string" &&
+    R2_DIAGNOSTIC_TOKEN_PATTERN.test(token) &&
+    request.headers.get("authorization") === `Bearer ${token}`
+  );
+}
+
+async function runR2BindingDiagnostic(
+  request: Request,
+  environment: RuntimeEnvironment,
+): Promise<Response> {
+  const headers = {
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+  };
+  if (request.method !== "POST" || !hasR2DiagnosticCredential(request, environment)) {
+    // Do not reveal the route, whether a secret is configured, or binding state.
+    return new Response(null, { status: 404, headers });
+  }
+
+  let outcome: "binding_missing" | "head_null" | "head_object" | "head_failed";
+  if (!environment.BUCKET) {
+    outcome = "binding_missing";
+  } else {
+    try {
+      outcome = (await environment.BUCKET.head(R2_DIAGNOSTIC_KEY))
+        ? "head_object"
+        : "head_null";
+    } catch {
+      outcome = "head_failed";
+    }
+  }
+
+  // Keep production logs limited to the four result categories above.
+  console.info(`r2_binding_diagnostic:${outcome}`);
+  return new Response(null, { status: 204, headers });
+}
+
 function unavailableServices() {
   const unavailable = () => {
     throw new StorageUnavailableError();
@@ -149,6 +198,9 @@ const worker = {
     const publicationRoute =
       pathname === CONTENT_PUBLICATION_API_PATHS.publish ||
       pathname === CONTENT_PUBLICATION_API_PATHS.withdraw;
+    if (pathname === R2_DIAGNOSTIC_PATH) {
+      return runR2BindingDiagnostic(request, environment);
+    }
     if (!environment.DB) {
       if (publicationRoute) return createContentApiTransport().fetch(request);
       if (new URL(request.url).pathname === "/mcp") {
