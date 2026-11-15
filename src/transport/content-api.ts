@@ -23,6 +23,12 @@ import {
   MAX_CONTENT_TITLE_LENGTH,
   type NewContentDraft,
 } from "../contracts/content.js";
+import type {
+  PublicationReceipt,
+  PublicationRequest,
+  PublishRequest,
+} from "../contracts/publication.js";
+import { StorageUnavailableError } from "../contracts/storage.js";
 import { StaleVersionError } from "../database/versioned-writes.js";
 import {
   ContentInputError,
@@ -32,6 +38,10 @@ import {
   ContentStateError,
 } from "../services/content.js";
 import {
+  ContentSlugConflictError,
+  validPublicationRequest,
+} from "../services/content-publication.js";
+import {
   AuthorizationError,
   type TrustedPrincipal,
 } from "../services/security.js";
@@ -39,13 +49,18 @@ import {
 /**
  * Internal editorial transport for a future editorial workspace.
  *
- * Unregistered: nothing in `createApplication`, the Worker, or MCP creates it.
+ * The Worker registers the publication routes. Draft routes remain local.
  * Authentication, per-operation authorization and every operation handler are
  * opt-in, and each absent piece denies. Business rules stay in the content
  * service. This adapter only parses structure, bounds input and sanitizes
  * output. Article bodies are Markdown source text and are never rendered,
  * interpreted or echoed into errors.
  */
+export const CONTENT_PUBLICATION_API_PATHS = {
+  publish: "/internal/content/publication/publish",
+  withdraw: "/internal/content/publication/withdraw",
+} as const;
+
 export const CONTENT_API_PATHS = {
   createDraft: "/internal/content/drafts/create",
   getDraft: "/internal/content/drafts/get",
@@ -59,7 +74,11 @@ export const CONTENT_API_PATHS = {
   restoreRevision: "/internal/content/revisions/restore",
 } as const;
 
-export type ContentTransportOperation = keyof typeof CONTENT_API_PATHS;
+const CONTENT_ROUTES = {
+  ...CONTENT_API_PATHS,
+  ...CONTENT_PUBLICATION_API_PATHS,
+};
+export type ContentTransportOperation = keyof typeof CONTENT_ROUTES;
 
 /** Largest accepted request body, enough for a maximum body with JSON escaping. */
 export const MAX_CONTENT_REQUEST_BYTES = 600_000;
@@ -68,6 +87,14 @@ const MAX_CONTENT_RESPONSE_BYTES = 1_048_576;
 type MaybePromise<T> = T | Promise<T>;
 
 export interface ContentTransportOperations {
+  readonly publish?: (
+    principal: TrustedPrincipal,
+    input: PublishRequest,
+  ) => MaybePromise<PublicationReceipt>;
+  readonly withdraw?: (
+    principal: TrustedPrincipal,
+    input: PublicationRequest,
+  ) => MaybePromise<PublicationReceipt>;
   readonly createDraft?: (
     principal: TrustedPrincipal,
     input: NewContentDraft,
@@ -166,9 +193,9 @@ export function createContentApiTransport(
 
 const ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const OPERATION_BY_PATH = new Map<string, ContentTransportOperation>(
-  (
-    Object.entries(CONTENT_API_PATHS) as [ContentTransportOperation, string][]
-  ).map(([operation, path]) => [path, operation]),
+  (Object.entries(CONTENT_ROUTES) as [ContentTransportOperation, string][]).map(
+    ([operation, path]) => [path, operation],
+  ),
 );
 
 async function handleRequest(
@@ -231,6 +258,26 @@ async function execute(
 ): Promise<Response> {
   const ops = operations as ContentTransportOperations;
   switch (operation) {
+    case "publish":
+    case "withdraw": {
+      const receipt =
+        operation === "publish"
+          ? await ops.publish?.(principal, input as unknown as PublishRequest)
+          : await ops.withdraw?.(
+              principal,
+              input as unknown as PublicationRequest,
+            );
+      if (!receipt) return internal();
+      const { contentId, slug, publicationVersion, revisionVersion, status } =
+        receipt;
+      return sanitized({
+        contentId,
+        slug,
+        publicationVersion,
+        revisionVersion,
+        status,
+      });
+    }
     case "createDraft":
       return item(
         await ops.createDraft?.(principal, input as unknown as NewContentDraft),
@@ -310,6 +357,10 @@ async function execute(
 }
 
 function failure(error: unknown): Response {
+  if (error instanceof ContentSlugConflictError)
+    return json(409, { error: "slug_conflict" });
+  if (error instanceof StorageUnavailableError)
+    return json(503, { error: "dependency_unavailable" });
   if (error instanceof AuthorizationError)
     return json(403, { error: "forbidden" });
   if (error instanceof ContentNotFoundError)
@@ -333,6 +384,11 @@ function parseInput(
 ): Record<string, unknown> | null {
   if (!isRecord(value)) return null;
   switch (operation) {
+    case "publish":
+    case "withdraw":
+      return validPublicationRequest(value, operation === "publish")
+        ? value
+        : null;
     case "createDraft": {
       if (
         !closed(value, [

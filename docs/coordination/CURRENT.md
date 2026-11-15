@@ -54,13 +54,13 @@ Beta-1 data, banners and visual assets are **not** migrated into beta-2 automati
 | Component | Status | Evidence |
 | --- | --- | --- |
 | Website application foundation (M0-A–D) | Merged, implemented locally | `src/application.ts`, `src/worker.ts`; [site-foundation.md](../architecture/site-foundation.md) |
-| Website D1 schema (migrations 0001–0016) | Merged, implemented locally (Wrangler local D1) | `website/migrations/`; [d1-readiness.md](../architecture/d1-readiness.md) |
+| Website D1 schema (migrations 0001–0017) | Merged, implemented locally (Wrangler local D1) | `website/migrations/`; [d1-readiness.md](../architecture/d1-readiness.md) |
 | Accounts and security (ACCT-1, AUTH-1, AUTH-2) | Merged, implemented locally; fails closed without a verified Sites identity | PR #70, #81, #88; [account-management.md](../architecture/account-management.md) |
 | Profiles research foundation (R0) | Merged, implemented locally; repository tests use synthetic fixtures only. The live local research database contains real research data: 64 counties, 79 import batches, 20,797 role claims, 2,988 sources, 2,692 organizational units, 6,706 position targets and 3,256 research people. Research migrations 001–003 are applied (003 applied 2026-11-14 under DATA-1; its seven sync tables are empty). Verified by Claude, 2026-11-14 | [R0-foundation.md](../research/R0-foundation.md) |
 | R7/R8 synchronization preparation | Merged, implemented locally; hosted sync still unresolved | PR #71, #73; [R7](../research/R7-profiles-website-integration.md), [R8](../research/R8-profiles-sync-operator.md) |
 | M2 synchronization (planner/commit/reversal) | Merged; PR #66 (M2-G2) title itself notes "completion pending" — treat the async reversal path as implemented-locally, not fully closed out | PR #66; [m2-g0-transaction-guard.md](../architecture/m2-g0-transaction-guard.md) |
 | Public directory, person/organization profiles (M4-D) | Merged, implemented locally | PR #80; [public-site.md](../architecture/public-site.md) |
-| Posts and Stories | Merged (content model + search, M3/VIS13-SEARCH-1); **no public publication endpoint** | PR #90; [public-site.md](../architecture/public-site.md) §"Not implemented" |
+| Posts and Stories | Merged, verified locally (EDIT-1); publish, withdraw and published-only public pages | [Content foundation](../architecture/content-foundation.md#publication-edit-1); [public site](../architecture/public-site.md#editorial-templates) |
 | Banner inventory and lifecycle (BANNERS-1, BANNERS-2) | Merged, implemented locally | PR #64, #67; [banner-inventory.md](../architecture/banner-inventory.md), [banner-storage.md](../architecture/banner-storage.md) |
 | Banner delivery (BANNERS-3) | Merged, implemented locally; read-only public integration only | PR #92; [banner-delivery.md](../architecture/banner-delivery.md) |
 | Banner carousel (BANNERS-4) | Merged, verified locally with synthetic fixtures | [PR #109](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/109); [banner-delivery.md](../architecture/banner-delivery.md#banners-4--accessible-banner-carousel) |
@@ -89,7 +89,7 @@ Last independently verified Alpha-1 deployment:
 ## E. Current blockers / open dependencies
 
 - **Hosted D1 migration 0015** — not confirmed applied to the hosted database. D1-0015-PREFLIGHT-1 completed with an access limitation (no verified administrative hosted-D1 access); D1-0015-ACCESS-1 (a standalone one-off coding plan to get that access) is **superseded** by the MCP-first architecture — administration should come through MCP, not a bespoke access script.
-- **DEPLOY-1 safety assessment — complete; deployment remains blocked.** The read-only Sites metadata confirms Alpha-1 version 4 is deployed from `85653665761466b3ec20213091f89da890f936ed`, the current Site audience is public, and the version metadata reports no MCP publication. Current `main` packages migrations 0014–0016, including 0015; current official Sites docs do not establish migration execution order, deferral, atomicity or retry behavior. Hosted D1 history/registry remains unknown. See [DEPLOY-1 assessment](../architecture/deploy-1-safety-assessment.md) and its PR.
+- **DEPLOY-1 safety assessment — complete; deployment remains blocked.** The read-only Sites metadata confirms Alpha-1 version 4 is deployed from `85653665761466b3ec20213091f89da890f936ed`, the current Site audience is public, and the version metadata reports no MCP publication. The assessed artifact packages migrations 0014–0016, including 0015. EDIT-1 adds migration 0017 to the local build; current official Sites docs do not establish migration execution order, deferral, atomicity or retry behavior. Hosted D1 history/registry remains unknown. See [DEPLOY-1 assessment](../architecture/deploy-1-safety-assessment.md) and its PR.
 - **MCP connectivity and authorization** — approved architecture; a read-only local foundation (Website inspection + Profiles readiness) is merged (PR #95). Hosted Site publication of the MCP endpoint, any write/sync/import tool, and R2 inspection are **not implemented** and remain the open part of this architecture.
 - **R2 provisioning** — needed before BANNERS-IMPORT-1 (real banner import) or any R2-backed MCP file storage.
 - **Profiles research eligibility and hosted synchronization** — R7/R8 give the sync design; no real personnel data has been screened for hosted sync, and the Website-side sync route remains internal/unregistered ([d1-readiness.md](../architecture/d1-readiness.md)).
@@ -125,8 +125,9 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | MCP-1 (read-only foundation) | Merged | PR #95, `bc60154f` | — | 2026-11-14 |
 | MCP hosted publication / write tools | Planned, not started | — | Hosted Site MCP configuration (owner-scoped) | — |
 | Profiles Import Pilot | Assessment complete; readiness/hosted-sync unresolved | — | Hosted D1 admin access, R7/R8 | 2026-11-14 |
+| EDIT-1 | Merged, verified locally | [PR #110](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/110) | Hosted application of migration 0017 depends on DEPLOY-1; hosted editorial access depends on AUTH-3 and EDIT-2 | 2026-11-14 |
 | BANNERS-4 (carousel) | Merged | [PR #109](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/109) | Real artwork awaits R2-1 and BANNERS-IMPORT-1 | 2026-11-14 |
-| BROWSE-1 | Merged, implemented locally. Statewide People and Organizations have bounded browse pages and retain name search. Hosted behavior unverified | [Public site architecture](../architecture/public-site.md#statewide-directory-browsing) | Alpha-1 deployment for hosted verification | 2026-11-14 |
+| BROWSE-1 | Merged, implemented locally. Statewide People and Organizations have bounded browse pages and retain name search. Hosted behavior unverified | [PR #111](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/111) | Alpha-1 deployment for hosted verification | 2026-11-14 |
 | BANNERS-IMPORT-1 (real import) | Planned, not started | — | R2 provisioning | — |
 | Website Profiles import (sync to D1) | Not executed | No changeset ever prepared; local sync tables empty | Migration 003, R7/R8, hosted sync | 2026-11-14 |
 
@@ -135,8 +136,8 @@ No task above is owned by more than one AI at once; check this table and the lin
 ## G. Next tasks
 
 Use the ordered backlog in [ROADMAP](ROADMAP.md). These need no hosted access
-and can start now: EDIT-1, the visual-audit follow-ups
-and preparing the owner's drafts of "The Idlewild Story".
+and can start now: the visual-audit follow-ups and preparing the owner's
+drafts of "The Idlewild Story".
 AUTH-3 implementation awaits the owner's provider selection.
 DEPLOY-1 assessment is complete, but deployment is blocked pending a
 supported migration gate, authenticated MCP bootstrap and hosted D1 preflight.

@@ -227,12 +227,13 @@ are in.
 
 ## Editorial templates
 
-No publication contract exists. The site never reads the editorial tables,
-whose rows are drafts or archived. Story and Post pages render from an injected
-`EditorialSource` (`src/site/editorial-source.ts`), a presentation model only.
-The default source is empty, so `/stories` and `/posts` show empty states. The
-local preview injects fictional fixtures, each marked "Fictional
-demonstration".
+Story and Post pages render through `EditorialSource`. The Worker uses an
+asynchronous D1 adapter that projects only active publications and their
+pinned revisions. County, person and organization links resolve from the
+published revision. The site renders Markdown with escaped text and allowlisted
+links. Listings, search and homepage cards see only published articles.
+Unavailable editorial storage produces empty collections and safe article 404s.
+The local preview can still use its fictional fixtures.
 
 ### Community Voices listing (VIS-004)
 

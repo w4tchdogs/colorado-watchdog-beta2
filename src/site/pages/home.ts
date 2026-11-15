@@ -52,8 +52,14 @@ export async function homePage(context: SiteContext): Promise<Page> {
       }),
     })),
   );
-  const stories = context.editorial.list("story").slice(0, 2);
-  const posts = context.editorial.list("post").slice(0, 3);
+  const previews = async (type: "story" | "post", limit: number) =>
+    context.editorial.previews
+      ? context.editorial.previews(type, limit)
+      : (await context.editorial.list(type)).slice(0, limit);
+  const [stories, posts] = await Promise.all([
+    previews("story", 2),
+    previews("post", 3),
+  ]);
 
   const lead = bannerHero({
     variant: "home",
