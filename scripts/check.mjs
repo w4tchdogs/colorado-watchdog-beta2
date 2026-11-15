@@ -198,6 +198,7 @@ const allowed = new Set([
   "docs/architecture/editorial-workspace.md",
   "docs/architecture/banner-storage.md",
   "docs/architecture/banner-delivery.md",
+  "docs/architecture/banner-screen-reader-verification.md",
   "src/services/banner-public.ts",
   "tests/banner-public.test.mjs",
   "website/migrations/0016_banner_homepage_curation.sql",
