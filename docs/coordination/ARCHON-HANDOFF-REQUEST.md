@@ -28,7 +28,9 @@ status changes, assignments, blockers, pauses and verified environment
 facts. If you can write to GitHub, record them through a normal PR and
 merge it once checks pass. Otherwise list each exact edit (file, section,
 new text) in section 6 of the handoff. Never claim an update you have not
-confirmed.
+confirmed. For unfinished sites or @sites work, verify the GitHub handoff
+link or identify the exact handoff still to post in section 6. Follow
+AGENTS.md's "Sites assignments and handoffs" section.
 
 Step 2. Write the handoff in exactly the format below. Do not restate
 anything GitHub already records correctly. Link to it instead. Include
@@ -97,6 +99,9 @@ GitHub (START.md, CURRENT.md, decisions.md, ROADMAP.md, AGENTS.md and
 6. Where private data and local material live.
 7. What you must not do without the owner.
 8. The launch goals and the next tasks in the roadmap's ordered backlog.
+9. How to prepare a sites or @sites assignment and verify its GitHub
+   handoff. Use AGENTS.md and the Sites assignment block in
+   docs/coordination/PROJECT-BOOTSTRAP.md.
 
 Then read the handoff. Compare it with your answers. Classify each
 difference as: missing from GitHub, stale in GitHub, missed by me,
