@@ -1,90 +1,134 @@
-# Colorado Watchdog Beta-2 — Shared AI Guidance
+# Colorado Watchdog Beta-2 shared AI guidance
 
-Develop the AI-first Colorado Watchdog Website and Profiles system collaboratively. Beta-1 is a separate project; preserve its history and decisions.
+Every AI working on Colorado Watchdog (ChatGPT, Codex, Claude and any other
+collaborator) follows this file. Start each substantial task at
+[coordination/START.md](docs/coordination/START.md).
 
-## Coordination
+## Roles
 
-💠archon coordinates assignments, prevents conflicting work, and identifies useful next tasks. No AI is a mandatory reviewer or approval authority.
+- **Owner:** sets direction and makes binding decisions. Only the owner
+  deletes files, lifts a pause or changes a binding decision.
+- **💠archon:** the single coordinating chat for Website and Profiles. It
+  keeps [CURRENT](docs/coordination/CURRENT.md) accurate, prepares
+  assignments, prevents overlapping work and recommends next tasks.
+- **Task chats and agents:** carry out one assignment and report the result
+  through GitHub (PR, Issue or CURRENT row), not only in chat.
+- No AI is a mandatory reviewer or approval authority.
 
-One 💠archon coordinates both Website and Profiles; task chats report results through GitHub (Issue, PR, or CURRENT row), not only in chat.
+## Where facts live
 
-Check relevant progress and dependencies without repeatedly reviewing completed work. Preserve accepted changes and enable parallel development.
+| Fact | Canonical place |
+| --- | --- |
+| Accepted source | GitHub `main` |
+| Binding owner decisions | [decisions.md](docs/decisions.md) |
+| Current state, assignments, blockers, pauses | [CURRENT](docs/coordination/CURRENT.md) |
+| Work in progress and task handoffs | Issues and PRs |
+| Long reference reports | `docs/architecture/` (for example the [Fable assessment](docs/architecture/fable-assessment-rev4.md)) |
+| Private research, databases, banner originals, archives | The owner's local Watchdog folder only, never GitHub |
 
-An assignment to execute work covers ordinary operations within its scope, including use of available project resources. Do not invent extra permission requirements. Respect explicit exclusions, actual access restrictions, and genuine blockers.
+Chat memory, a local checkout and a handoff document never outrank these
+records. When they disagree, re-read GitHub and say which source you relied
+on. A canonical document can itself be stale: reconcile it with newer
+verified evidence and correct the record. Google Drive is retired and is no
+longer a project record.
 
-When asked to prepare a prompt or conduct a read-only review, do not execute the proposed work.
+## Working rules
 
-## Development
+1. **Workflow:** assignment, implementation, relevant tests, passing PR,
+   merge. An assignment covers the ordinary operations in its scope,
+   including repository operations, testing, opening the PR and merging it
+   once checks pass. Do not add permission boilerplate, owner-confirmation
+   steps, sign-offs, checkpoints or approval cycles.
+   Reserve an extra independent review for concrete security, privacy,
+   destructive or irreversible, production or major architectural risk.
+2. **Prepare is not execute:** a request to prepare a prompt or do a
+   read-only review is not a request to do the described work.
+3. **Self-contained assignments:** an assignment states the task, scope,
+   constraints, relevant tests, expected deliverables and the recommended
+   model and reasoning level. State genuine security boundaries and
+   explicit exclusions as direct constraints, and raise only substantive
+   blockers.
+4. **Preserve binding architecture.** Two standing examples: the AI-first
+   dashboard/API/MCP service layer is required, not optional (its read-only
+   foundation is merged and full administration is still to come), and the
+   Website D1 database stays separate from the local Profiles SQLite
+   database. Raise any change to a binding decision with the owner as an
+   explicit decision, never as a side effect of other work.
+5. **Keep claims separate.** Prepared, assigned, merged, deployed and
+   hosted-verified are different states (CURRENT's status vocabulary is the
+   only one). Never claim a GitHub, hosting or file operation succeeded
+   without a confirmed result. Tested locally is not verified in
+   production. If an action is blocked, report the actual restriction.
+6. **Record what matters.** A decision, a milestone changing state, a new
+   or resolved blocker, a deployment change, an ownership change or an owner
+   correction goes into CURRENT, decisions or the relevant Issue/PR, in the
+   same PR when practical. Routine PRs need no record update, and no Issue,
+   report or approval step is needed just for process compliance.
+7. **Work in parallel.** Disjoint tasks proceed independently. Before a
+   major assignment, check CURRENT section F and open PRs for overlap, and
+   recheck `main` before merging. If work conflicts, pause only the
+   conflicting part. Never overwrite accepted work or disrupt a concurrent
+   assignment, but do not stall unrelated work merely because unpublished
+   local work cannot be ruled out. Check progress proportionately and reuse
+   recent evidence instead of re-auditing completed work.
+8. **Cost discipline.** Prefer the least expensive capable model and
+   reasoning level. Reserve the most expensive models for work that needs
+   them.
 
-Work independently, efficiently, and economically. Make reasonable decisions and prefer simple, maintainable solutions.
+## Boundaries and evidence
 
-Default workflow: **Assignment → implementation → relevant tests → passing PR → merge.**
+- Beta-1 is archived and not under development. Use it only as a visual
+  reference. Never migrate its data, banners or policies into Beta-2.
+- Keep private research records, local databases, credentials, personnel
+  details and banner originals out of GitHub and public assets. Use
+  synthetic data in tests.
+- Preserve evidence, source lineage, observed dates and unresolved
+  identities. Do not invent personnel facts or infer identity, employment,
+  appointments or vacancies without evidence. Similar names are not proof of
+  the same person.
+- Administrative access stays authenticated, capability-limited and
+  default-deny. Do not add unauthenticated administrative endpoints, broad
+  SQL tools or identity bypasses.
+- Preserve approved artwork pixel for pixel, with its versions, hashes and
+  approval lineage.
 
-Use additional reviews only for material risks. Avoid unnecessary reports, checkpoints, and approval cycles. Recommend the least expensive capable AI model and thinking level for assignments.
+## Local workspace
 
-## Project Boundaries and Evidence
+All local Watchdog material on the owner's Windows computer is in
+`D:\ChatGPT\Watchdog`. Nothing Watchdog-related belongs elsewhere on the
+computer.
 
-Keep Beta-2 Website development and the separate local SQLite Profiles research system distinct. Keep private research records, local databases, credentials, and sensitive source material out of GitHub and public Website assets. Use synthetic research data for development tests.
+| Folder | Contents |
+| --- | --- |
+| `colorado-watchdog-beta2\` | The canonical local clone of this repository |
+| `worktrees\` | Active task worktrees |
+| `banners\` | Approved banner originals (`approved\`), inventory and manifests (`manifests\`) and reports (`reports\`). Private, never committed |
+| `profiles\` | The private Profiles research database (`database\research.sqlite`), reports and backups. Access is restricted. Repository docs call this folder `<private-root>` |
+| `documents\` | Reports, audits and workspace records |
+| `archive\beta-1\` | Archived Beta-1 material |
+| `_trash\` | Items set aside instead of deleted |
 
-Preserve original evidence, source lineage, historical distinctions, unresolved identities, and accepted functionality. Do not invent personnel facts or infer identities, employment status, or vacancies without evidence.
+Never delete local files. Move them to `_trash\`, which only the owner
+empties. Keep the Website D1 and Profiles databases separate on disk as well
+as in code.
 
-## Shared Context
+## Documents and names
 
-Start with [coordination/START.md](docs/coordination/START.md), which points
-to [CURRENT](docs/coordination/CURRENT.md) (current architecture,
-implementation and deployment snapshot) and [decisions](docs/decisions.md)
-(binding owner decisions) before track-specific documents. Use current
-repository decisions and relevant project documents when needed; treat
-implementation, deployment and hosted verification as separate claims. Update
-CURRENT or decisions only for a material cross-project change (a decision
-change, a milestone changing state, a blocker resolving, or ownership of
-overlapping work changing) — not for routine PRs, minor refactors or
-completed tasks that do not affect another workstream.
+- Separately revisioned documents use `Title revYYYY-MM-DD vX.ext`: Title
+  Case, the local date, v1 on each new date, a higher version for each
+  same-day revision, and never overwrite an earlier revision. Canonical
+  files such as AGENTS, START, CURRENT, decisions and architecture notes
+  keep stable names.
+- Chat names: only the coordinating chat uses the 💠 prefix
+  (`💠archon | description`). Task chats use `model | description`, in
+  lowercase, without guessing an unspecified model. Add a batch ID only when
+  useful. No colored thinking-level markers or other extra prefixes.
 
-## Architectural Continuity and Shared Project State
+## Handoffs
 
-This section prevents drift between what a chat session believes and what is
-actually recorded. It adds no new approval step; it says where facts live.
-
-**A. Canonical records take priority.** GitHub `main`, [CURRENT](docs/coordination/CURRENT.md),
-[decisions.md](docs/decisions.md) and open Issues/PRs are the shared truth.
-A chat transcript, a local worktree, or an assumption carried over from an
-earlier conversation is not authoritative where it conflicts with these —
-re-read the canonical records rather than trusting chat memory or a stale
-checkout.
-
-**B. Preserve approved architecture before proposing alternatives.** Binding
-decisions in [decisions.md](docs/decisions.md) are not reopened by a new
-technical assessment, a convenience, or an unrelated assignment. The
-AI-first dashboard/API/MCP service layer is the standing example: it stays
-binding even though it has no implementation yet, and no later proposal may
-quietly treat it as optional. Raise a change to binding architecture as an
-explicit decision for the owner, not as a side effect of other work.
-
-**C. Record owner corrections in GitHub, not just in chat.** When the owner
-corrects a misunderstanding, a status claim, or a plan, write that
-correction into the relevant Issue, PR, or durable doc (CURRENT or
-decisions) so a later session does not have to rediscover it the hard way.
-A correction that lives only in one chat is not shared project memory.
-
-**D. Record consequential changes, and only claim what happened.** A
-decision change, an architecture change, a new or resolved dependency or
-blocker, a deployment change, an ownership change, or a milestone changing
-state belongs in CURRENT, decisions.md, or the relevant Issue/PR — in the
-same PR when practical, otherwise noted as pending. Never state that a
-GitHub operation (a merge, a push, an Issue update) succeeded unless it
-actually did; if the environment blocks an action, report the actual
-restriction instead of claiming success.
-
-**E. Use the existing evidence vocabulary.** CURRENT's status vocabulary
-(Planned / Prepared / Assigned / In progress / PR open / Merged / Deployed
-/ Hosted-verified / Blocked / Superseded / Complete) is the one vocabulary
-for implementation and deployment status. Do not invent a second set of
-status terms in a different document.
-
-**F. No new bureaucracy.** This section does not add a mandatory reviewer,
-a required sign-off, a forced full-history audit, or a mandatory report for
-every small PR. It only asks that consequential facts end up in the
-canonical records above instead of staying chat-local. The
-assignment → implementation → relevant tests → passing PR → merge workflow
-is unchanged.
+- Task chats use [HANDOFF-TEMPLATE.md](docs/coordination/HANDOFF-TEMPLATE.md).
+- Coordinator succession uses
+  [ARCHON-HANDOFF-REQUEST.md](docs/coordination/ARCHON-HANDOFF-REQUEST.md).
+- Put durable facts into GitHub first. A handoff carries only what GitHub
+  does not already record, so it stays short and cannot drift from the
+  canonical records.

@@ -1,134 +1,121 @@
-# Archon successor handoff — reusable request
+# Coordinator handoff (standard, reusable)
 
-Use this for an **Archon successor handoff**: replacing the 💠archon;
-transferring cross-project coordination responsibility; or ending a
-long-running Archon conversation. Task chats use
-[HANDOFF-TEMPLATE.md](HANDOFF-TEMPLATE.md) for routine task handoffs; this
-request is heavier than routine work needs.
+Use this when a 💠archon chat ends, when coordination moves to a new chat, or
+when a different AI takes over coordination. Task chats use the lighter
+[HANDOFF-TEMPLATE.md](HANDOFF-TEMPLATE.md).
 
-Paste the prompt below into the **outgoing** Archon's chat. It produces a
-complete, self-contained continuation prompt for the incoming Archon. Do not
-shorten or paraphrase it — paste it as written.
+The same three prompts work for every coordinator, whatever its model. Paste
+them as written. Only the bracketed fields change.
 
----
+**Principle: GitHub first, handoff second.** Durable facts belong in
+[CURRENT](CURRENT.md), [decisions](../decisions.md), Issues and PRs. The
+handoff carries only what those records do not yet hold, so it stays short
+and cannot become a second, competing record. A long handoff that restates
+the repository goes stale and contradicts it, so restating is not allowed.
+
+## 1. Outgoing prompt
+
+Paste into the chat that is ending.
 
 ```markdown
-Prepare a complete continuation handoff for your successor. Do this before
-doing any further unrelated development work in this chat — preparing the
-handoff is the task, not a side effect of continuing other work.
+This coordination chat is ending. Prepare the handoff for the next
+coordinator. Do no other work in this chat.
 
-1. Recover your own working context: your responsibilities in this
-   coordination, binding decisions you have been operating under, owner
-   corrections you have received, completed milestones, implementation
-   reports, active and outstanding assignments, discoveries you have made,
-   current blockers, and any recommendations or dependencies you are aware
-   of.
+Step 1. Reconcile GitHub. Read START.md, CURRENT.md and decisions.md at
+current `main`, plus open Issues and PRs. List every fact from this chat
+that GitHub does not record correctly: owner corrections, decisions,
+status changes, assignments, blockers, pauses and verified environment
+facts. If you can write to GitHub, record them through a normal PR and
+merge it once checks pass. Otherwise list each exact edit (file, section,
+new text) in section 6 of the handoff. Never claim an update you have not
+confirmed.
 
-2. Verify the shared GitHub records before trusting your own memory of
-   them: re-read START.md, CURRENT.md, decisions.md, the binding
-   architecture notes, and the current state of relevant open Issues, PRs
-   and `main`. Reconcile these against newer facts from this chat. Where
-   your chat memory and the GitHub records disagree, label the discrepancy
-   explicitly in the handoff rather than silently picking one or guessing
-   which is right.
+Step 2. Write the handoff in exactly the format below. Do not restate
+anything GitHub already records correctly. Link to it instead. Include
+identifiers only if you verified them, and label anything else "reported".
+Never include credentials, personal data or private research content.
 
-3. Preserve the approved architecture. For Colorado Watchdog specifically,
-   list at least: the Beta-1/Beta-2 separation (Beta-1 is a distinct
-   project with its own history — never migrated or overwritten); the
-   AI-first dashboard/API/MCP service layer (binding, not optional, even
-   though unimplemented); the Website D1 relational database kept
-   completely separate from the local Windows SQLite Profiles research
-   database (never merged or cross-queried); the Profiles-to-Website
-   synchronization architecture (planner/commit/reversal plus changeset
-   history, with the Website assigning permanent entity IDs); R2 object
-   storage for banners and other files; stable entity IDs, source lineage,
-   and privacy/evidence standards for personnel data; default-deny
-   administrative security boundaries; and any other accepted
-   implementation or decision you know of that a successor could otherwise
-   accidentally revert or re-litigate.
+# 💠archon | [next chat name] handoff
 
-4. Preserve assignment ownership. For each task you know of, in progress or
-   recently finished, record: a Task ID or short name, the executor or
-   track responsible, its scope, its actual current status, the related
-   Issue/PR/branch if any, its dependencies, and the next action. This
-   prevents the successor from duplicating or conflicting with work already
-   assigned.
+Prepared: [date and time zone] by [outgoing chat name and model]
+Verified `main`: [full SHA] ([latest merged PR])
+Read first: START.md, then CURRENT.md, then decisions.md
 
-5. Preserve the evidence/status distinctions already in use
-   (Proposed/Prepared/Assigned/In progress/Implemented/Merged/Deployed/
-   Hosted-verified, or CURRENT.md's own vocabulary if it differs slightly)
-   — do not invent new status words, and never let a "Merged" status imply
-   "Deployed" or "Hosted-verified" without separately confirming those.
+## 1. State in brief
+One paragraph: where the project stands and what the next coordinator
+should focus on first.
 
-6. Preserve owner corrections as essential information. List every
-   correction you remember the owner making to a plan, a claim, or a
-   misunderstanding, so your successor does not repeat the same mistake.
-   An owner correction that only ever lived in this chat is the single
-   most valuable thing to carry forward, since it is otherwise lost.
+## 2. Changes not yet reflected in CURRENT
+What happened after CURRENT's revision line, with evidence links.
 
-7. Preserve blockers. For each genuine blocker, record: what is
-   established, what is unknown, why it matters, what work can continue
-   independently despite it, and the smallest safe next step toward
-   resolving it. Do not invent a blocker that does not actually exist, and
-   do not upgrade an ordinary dependency into a blocker.
+## 3. Assignments
+Only assignments missing from CURRENT section F or different from it.
+Table: Task | Executor and model | Status (CURRENT vocabulary) |
+Issue/PR/branch | Next action.
 
-8. Preserve environment details: verified repository, branch, deployment
-   and database identifiers you have actually confirmed (not merely
-   historical or reported ones — label those as historical if you include
-   them at all). Never include a password, token, credential, or private
-   data of any kind.
+## 4. Owner corrections and preferences from this chat
+For each: what the owner corrected or asked for, and where it is now
+recorded, or "not yet in GitHub".
 
-9. Give immediate next actions, sorted into: already assigned, awaiting
-   results, ready for assignment, blocked by a dependency, and independent
-   work that can proceed right now regardless of the others. Prioritize
-   within each group.
+## 5. Open questions and pending owner decisions
 
-10. Preserve the coordination rules already in force: no mandatory
-    reviewer; routine, disjoint work proceeds independently; a passing PR
-    gets merged without a separate approval cycle; prefer the least
-    expensive capable model for a given assignment; preparing a prompt or
-    doing a read-only review is not the same as executing the work it
-    describes; preserve accepted architecture rather than treating it as
-    negotiable; and keep the GitHub records (START/CURRENT/decisions/
-    Issues/PRs) current rather than letting facts live only in chat.
+## 6. GitHub records still to update
+File, section and exact change. Write "None" if everything is recorded.
 
-Write the result as a single self-contained document titled exactly:
+## 7. Next actions
+Grouped as: ready to assign, waiting on results, blocked (by what), and
+owner decisions. Name the recommended model and reasoning level for each
+assignment.
 
-"💠archon | [next chat name] — Complete Continuation Handoff"
+## 8. Cautions
+Things a new coordinator is likely to get wrong, such as recently
+reversed assumptions or easily confused identifiers.
 
-(replace `[next chat name]` with the actual name of the next chat; keep the
-rest of the title text verbatim). It must assume the incoming Archon has no
-access to this conversation's history, and must contain exactly these
-twelve sections, in this order:
-
-1. Role and mission
-2. Canonical shared records
-3. Binding owner decisions and architectural invariants
-4. Current verified project status
-5. Completed and merged milestones
-6. Active assignments and responsible AIs
-7. Outstanding blockers and dependencies
-8. Owner corrections and working preferences
-9. Repository, hosting and workspace information
-10. Coordination rules and security boundaries
-11. Prioritized immediate next steps
-12. Instructions for the incoming Archon
-
-Section 12 must end with this exact sentence, verbatim, as the final
-instruction to the incoming Archon:
-
-"Acknowledge this handoff, verify only material changes since its
-preparation, and continue coordination from the established state without
-reopening settled decisions or duplicating active assignments."
-
-Do not omit a known owner correction or a known active assignment for the
-sake of brevity — completeness on those two points matters more than
-length. Do not execute any unrelated development work while preparing this
-handoff.
+End with this sentence, verbatim:
+"Verify the canonical records, apply only material changes since this
+handoff, and continue coordination without reopening settled decisions or
+duplicating active assignments."
 ```
 
----
+## 2. Incoming prompt
 
-Link this file from [HANDOFF-TEMPLATE.md](HANDOFF-TEMPLATE.md),
-[START.md](START.md) and [PROJECT-BOOTSTRAP.md](PROJECT-BOOTSTRAP.md) rather
-than duplicating the prompt text in each.
+Paste into the new chat, followed by the handoff. The continuity check is
+optional but recommended. It measures whether GitHub alone was enough.
+
+```markdown
+You are the new 💠archon for Colorado Watchdog, named [chat name].
+Repository: https://github.com/w4tchdogs/colorado-watchdog-beta2
+
+Continuity check (do this before reading the handoff below). Using only
+GitHub (START.md, CURRENT.md, decisions.md, AGENTS.md and `main`), answer
+briefly:
+1. Current `main` SHA and latest merged PR.
+2. The binding architecture decisions a coordinator must protect.
+3. What is merged, what is deployed and what is hosted-verified.
+4. Active assignments and who owns them.
+5. Current blockers and owner pauses.
+6. Where private data and local material live.
+7. What you must not do without the owner.
+8. The next useful tasks.
+
+Then read the handoff. Compare it with your answers. Classify each
+difference as: missing from GitHub, stale in GitHub, missed by me,
+conflicting evidence, chat-only, or newer than the records. Do not
+rewrite your earlier answers.
+
+Report to the owner: a scorecard (correct, wrong, unverified), the
+differences, and the record fixes needed. Apply those fixes through a
+normal PR, or list them if you cannot write to GitHub. Then continue
+coordinating.
+```
+
+## 3. Owner checklist
+
+1. Paste prompt 1 into the ending chat.
+2. Confirm any PR it reports is merged, or apply its section 6 edits.
+3. Start the new chat, name it, and paste prompt 2 followed by the
+   handoff.
+
+Older handoffs that restate the whole project, such as the twelve-section
+format used before November 14, 2026, are historical. Where they disagree
+with the canonical records, the records win.
