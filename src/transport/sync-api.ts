@@ -1,9 +1,9 @@
 import type { SyncPlan } from "../contracts/sync.js";
 import {
   MAX_SYNC_DIAGNOSTICS,
-  MAX_SYNC_ITEMS_BY_SIZE,
   MAX_SYNC_DUPLICATE_FLAGS,
   MAX_SYNC_ITEM_BYTES,
+  MAX_SYNC_ITEMS_BY_SIZE,
   MAX_SYNC_REQUEST_BYTES,
   SYNC_CONTRACT_VERSION,
   type SyncChangeSetRequest,
