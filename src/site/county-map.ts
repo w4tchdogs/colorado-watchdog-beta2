@@ -78,6 +78,7 @@ export function renderCountyMap(
   counties: readonly { fips: string; name: string }[],
   matches: ReadonlySet<string>,
   map: CountyMapGeometry = COUNTY_MAP,
+  status = "Choose a county",
 ): SafeHtml {
   if (!validateCountyMap(counties, map)) {
     return html`<p class="county-map-fallback" role="note">
@@ -89,7 +90,7 @@ export function renderCountyMap(
   return html`<figure class="county-map-figure">
     <a class="county-map-skip" href="#county-directory">Skip the map and browse all 64 counties</a>
     <div class="county-map-frame">
-      <p class="county-map-status" data-map-status role="status" aria-live="polite">Choose a county</p>
+      <p class="county-map-status" data-map-status>${status}</p>
       <svg class="county-map" viewBox="${map.viewBox}" role="group"
         aria-labelledby="county-map-title" aria-describedby="county-map-description">
         <title id="county-map-title">Interactive map of Colorado counties</title>
