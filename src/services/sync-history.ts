@@ -1,4 +1,8 @@
-import type { SyncEntity } from "../contracts/sync.js";
+import {
+  MAX_SYNC_ITEMS_BY_SIZE,
+  MAX_SYNC_RESULT_BYTES,
+  type SyncEntity,
+} from "../contracts/sync.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
 import { insertAuditEvent } from "./audit.js";
 import {
@@ -7,7 +11,7 @@ import {
 } from "./duplicate-flags.js";
 import { hasCapability, newId, type TrustedPrincipal } from "./security.js";
 
-const MAX_BATCH_ITEMS = 200;
+const MAX_BATCH_ITEMS = MAX_SYNC_ITEMS_BY_SIZE;
 const MAX_KEY_LENGTH = 128;
 const SAFE_FAILURE =
   "The batch could not be safely reversed; no changes were applied.";
@@ -475,7 +479,8 @@ function parseInverse(value: unknown, expectedIndex: unknown): Inverse | null {
 }
 
 function parseResult(value: unknown): { items: unknown[] } | null {
-  if (typeof value !== "string" || value.length > 65536) return null;
+  if (typeof value !== "string" || value.length > MAX_SYNC_RESULT_BYTES)
+    return null;
   try {
     const result = JSON.parse(value) as { status?: unknown; items?: unknown };
     return result.status === "committed" &&

@@ -73,10 +73,10 @@ test("Website D1 inspection is read-only, bounded and provenance-conservative", 
 
     const history = await fixture.call("website_migration_history", {});
     assert.equal(history.orderedHistoryValid, true);
-    assert.equal(history.migrations.length, 22);
+    assert.equal(history.migrations.length, 23);
     assert.equal(
       history.migrations.at(-1).name,
-      "0022_unstructured_person_roles.sql",
+      "0023_sync_batch_result_size.sql",
     );
 
     const references = await fixture.call("website_county_reference_counts", {

@@ -653,6 +653,7 @@ async function main() {
     "0020_role_source_publisher_classification.sql",
     "0021_report_challenge_claims.sql",
     "0022_unstructured_person_roles.sql",
+    "0023_sync_batch_result_size.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(

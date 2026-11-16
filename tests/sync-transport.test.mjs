@@ -187,7 +187,9 @@ test("enforces total and per-item request bounds while streaming", async () => {
     const transport = createSyncApiTransport(
       dependencies(await principalFor(), { dryRun: async () => planResult }),
     );
-    const oversizedBody = JSON.stringify({ padding: "x".repeat(512 * 1024) });
+    const oversizedBody = JSON.stringify({
+      padding: "x".repeat(8 * 1024 * 1024),
+    });
     const oversized = await transport.fetch(
       jsonRequest(SYNC_API_PATHS.dryRun, null, {}, { body: oversizedBody }),
     );
@@ -486,7 +488,7 @@ test("handler exceptions return bounded errors without leaking details", async (
 
 test("oversized service results are replaced with a bounded generic response", async () => {
   await withPrincipal(async ({ principalFor }) => {
-    const privateValue = "private-result".repeat(50_000);
+    const privateValue = "private-result".repeat(700_000);
     const transport = createSyncApiTransport(
       dependencies(await principalFor(), {
         dryRun: async () => ({

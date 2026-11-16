@@ -219,3 +219,9 @@ People, Roles, Sources, and their supporting tables. Preserve the original row
 values and evidence, keep the machine-facing CSV and export keys stable, and
 ship the schema migration and updated Profiles tools together. The local
 operator procedure is in [the Profiles foundation guide](research/R0-foundation.md#plain-language-columns-in-db-browser).
+
+## Website sync batch size limits, November 16, 2026
+
+- The original 200 change, 25 citation and 200 changed row caps were first-draft defaults with no measured basis and are removed. A batch is bounded by an 8 MiB request and 32 KiB per change, and the design target is up to 10,000 changes per batch.
+- Website migration 0023 widens the stored batch result limit from 64 KiB to 1,900,000 bytes so a 10,000 change batch fits inside the 2 MB D1 row limit.
+- This is verified locally only. Hosted D1 limits on one atomic batch of that size and on Worker subrequests have not been tested, so hosted use of very large batches needs its own check before it is enabled.

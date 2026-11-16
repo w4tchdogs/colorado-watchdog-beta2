@@ -1,4 +1,8 @@
-import type { SyncEntity } from "../contracts/sync.js";
+import {
+  MAX_SYNC_ITEMS_BY_SIZE,
+  MAX_SYNC_RESULT_BYTES,
+  type SyncEntity,
+} from "../contracts/sync.js";
 import type {
   AsyncD1Database,
   D1BatchStatement,
@@ -7,7 +11,8 @@ import type {
 import type { TrustedPrincipal } from "./security.js";
 import type { D1SyncAuthorizer } from "./sync-commit-d1.js";
 
-const MAX_ITEMS = 200;
+const MAX_ITEMS = MAX_SYNC_ITEMS_BY_SIZE;
+const PAGE_ROWS = 1_000;
 const MAX_KEY = 128;
 const SAFE_FAILURE =
   "The batch could not be safely reversed; no changes were applied.";
@@ -141,12 +146,20 @@ export async function reverseSyncBatchD1(
       reversedAt: prior.reversed_at,
       replayed: false,
     };
-  const rows = await db.all<Record<string, unknown>>(
-    `SELECT item_index, client_ref, entity, target_id, outcome, previous_version, committed_version, inverse_json
-     FROM sync_batch_items WHERE batch_id = ? ORDER BY item_index`,
-    MAX_ITEMS + 1,
-    [batchId],
-  );
+  // D1 reads are bounded per statement, so a batch of any size is read in pages.
+  const rows: Record<string, unknown>[] = [];
+  for (let after = -1; rows.length <= MAX_ITEMS; ) {
+    const page = await db.all<Record<string, unknown>>(
+      `SELECT item_index, client_ref, entity, target_id, outcome, previous_version, committed_version, inverse_json
+       FROM sync_batch_items WHERE batch_id = ? AND item_index > ? ORDER BY item_index`,
+      PAGE_ROWS,
+      [batchId, after],
+    );
+    rows.push(...page);
+    const last = page.at(-1);
+    if (page.length < PAGE_ROWS || !last) break;
+    after = Number(last.item_index);
+  }
   try {
     if (!rows.length || rows.length > MAX_ITEMS) return blocked();
     const expectedCount = committedItemCount(batch.result_json);
@@ -245,13 +258,18 @@ export async function reverseSyncBatchD1(
       if (item.outcome === "reused") continue;
       if (item.outcome === "created") {
         for (const [child, column] of dependents[item.entity] ?? []) {
-          const refs = await db.all<{ id: string }>(
-            `SELECT id FROM "${child}" WHERE "${column}" = ?`,
-            MAX_ITEMS + 1,
-            [item.targetId],
-          );
-          if (refs.some((ref) => !created.has(`${child}:${ref.id}`)))
-            return blocked();
+          for (let afterId = ""; ; ) {
+            const refs = await db.all<{ id: string }>(
+              `SELECT id FROM "${child}" WHERE "${column}" = ? AND id > ? ORDER BY id`,
+              PAGE_ROWS,
+              [item.targetId, afterId],
+            );
+            if (refs.some((ref) => !created.has(`${child}:${ref.id}`)))
+              return blocked();
+            const lastRef = refs.at(-1);
+            if (refs.length < PAGE_ROWS || !lastRef) break;
+            afterId = lastRef.id;
+          }
         }
         statements.push(
           db.prepare(
@@ -395,7 +413,8 @@ function parseInverse(row: Record<string, unknown>): Inverse {
   return v as unknown as Inverse;
 }
 function committedItemCount(value: unknown): number | null {
-  if (typeof value !== "string" || value.length > 65536) return null;
+  if (typeof value !== "string" || value.length > MAX_SYNC_RESULT_BYTES)
+    return null;
   try {
     const result = JSON.parse(value) as { status?: unknown; items?: unknown };
     return result.status === "committed" &&

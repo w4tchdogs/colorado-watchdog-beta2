@@ -155,8 +155,55 @@ class UnstructuredRoleTests(unittest.TestCase):
         self.assertEqual(summary["eligible_claims"], 2)
         self.assertEqual(summary["distinct_eligible_profiles"], 2)
         self.assertEqual(summary["role_claims_planned"], 1)
-        self.assertEqual(summary["eligible_claims_not_planned_because_of_caps"], 1)
+        self.assertEqual(summary["eligible_claims_not_planned_because_of_request_size"], 1)
         self.assertEqual(summary["operations_planned"], 3)
+
+    def test_there_is_no_count_cap_on_changes_or_citations(self):
+        # 250 people, 30 distinct citations: beyond the former 200-change and 25-citation caps.
+        payload = csv_bytes([observation(COUNTY, full_name=f"Synthetic Person {index}",
+                                         source_url=f"https://example.invalid/{COUNTY}/source-{index % 30}")
+                             for index in range(250)])
+        batch = ingest_csv(self.db, payload, file_name="bulk.csv", version_label="bulk",
+                           provenance="synthetic", selected=True)
+        claims = list(self.db.execute(
+            'SELECT c."Role claim ID" AS id,c."Evidence record ID" AS evidence_id,e."Source ID" AS source_id '
+            'FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+            'WHERE e."Import batch ID"=? ORDER BY c."Role claim ID"', (batch,)))
+        for source_id in {claim["source_id"] for claim in claims}:
+            self.db.execute("UPDATE sources SET \"Previous source category\"='official',\"Publisher type\"='official',"
+                            "\"Document type\"='official_page' WHERE \"Source ID\"=?", (source_id,))
+        for index, claim in enumerate(claims):
+            self.db.execute('UPDATE evidence_links SET "Source title as observed"=? WHERE "Evidence record ID"=?',
+                            (f"Synthetic source {claim['source_id']}", claim["evidence_id"]))
+            self.db.execute('INSERT INTO research_people("Profile ID","County code","Full name","Identity review status","Evidence for identity") '
+                            "VALUES(?,?,?,'evidence_supported',?)",
+                            (f"person-bulk-{index}", COUNTY, f"Synthetic Person {index}", claim["evidence_id"]))
+            self.db.execute('UPDATE role_claims SET "Linked profile"=?,"Office or department as published"=? WHERE "Role claim ID"=?',
+                            (f"person-bulk-{index}", f"Synthetic Office {index}", claim["id"]))
+        self.db.commit()
+        generated = build_changeset(self.db, SITE, county_fips=COUNTY)
+        summary = generated["eligibility_summary"]
+        self.assertFalse(generated["truncated"])
+        self.assertEqual(summary["role_claims_planned"], 250)
+        self.assertEqual(summary["distinct_eligible_profiles"], 250)
+        self.assertEqual(generated["planned_operations_by_entity"]["role_sources"], 30)
+        self.assertEqual(summary["operations_planned"], 530)
+        self.assertLess(len(str(generated["request"])), 8 * 1024 * 1024)
+
+    def test_changeset_ends_at_the_request_size_limit(self):
+        from research import sync
+        original = sync.MAX_REQUEST_BYTES
+        sync.MAX_REQUEST_BYTES = 2500
+        try:
+            for tag in ("a", "b", "c", "d", "e", "f"):
+                self.add_role(tag, office="Synthetic Office " + tag)
+            generated = build_changeset(self.db, SITE, county_fips=COUNTY)
+        finally:
+            sync.MAX_REQUEST_BYTES = original
+        self.assertTrue(generated["truncated"])
+        self.assertLess(0, generated["eligibility_summary"]["role_claims_planned"])
+        self.assertLess(generated["eligibility_summary"]["role_claims_planned"], 6)
+        self.assertEqual(generated["eligibility_summary"]["eligible_claims"], 6)
 
     def test_county_scope_and_reruns_are_deterministic(self):
         self.add_role("a", office="Synthetic Office A")

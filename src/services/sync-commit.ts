@@ -6,8 +6,6 @@ import type {
   SyncPlanError,
 } from "../contracts/sync.js";
 import {
-  MAX_SYNC_CHANGES,
-  MAX_SYNC_CITATIONS,
   MAX_SYNC_DUPLICATE_FLAGS,
   MAX_SYNC_ITEM_BYTES,
   MAX_SYNC_REQUEST_BYTES,
@@ -74,10 +72,9 @@ interface ItemInverse {
 
 const SAFE_ERRORS: Readonly<Record<string, string>> = {
   invalid_request: "The changeset structure is invalid.",
-  request_too_large: "The request exceeds the 512 KiB limit.",
-  too_many_changes: "A changeset must contain from 1 through 200 changes.",
+  request_too_large: "The request exceeds the 8 MiB limit.",
+  no_changes: "A changeset must contain at least one change.",
   item_too_large: "A change exceeds the 32 KiB item limit.",
-  too_many_citations: "A request may contain at most 25 source citations.",
   too_many_duplicate_flags: "A request may contain at most 20 duplicate flags.",
   invalid_idempotency_key: "The idempotency key is invalid.",
   idempotency_mismatch:
@@ -306,9 +303,7 @@ function validateStructure(
     return error("invalid_request");
   }
   if (size > MAX_SYNC_REQUEST_BYTES) return error("request_too_large");
-  if (request.changes.length < 1 || request.changes.length > MAX_SYNC_CHANGES)
-    return error("too_many_changes");
-  let citations = 0;
+  if (request.changes.length < 1) return error("no_changes");
   try {
     for (const change of request.changes) {
       if (
@@ -316,12 +311,10 @@ function validateStructure(
         MAX_SYNC_ITEM_BYTES
       )
         return error("item_too_large");
-      if (isRecord(change) && change.op === "register_source") citations += 1;
     }
   } catch {
     return error("invalid_request");
   }
-  if (citations > MAX_SYNC_CITATIONS) return error("too_many_citations");
   if (
     request.duplicateFlags !== undefined &&
     (!Array.isArray(request.duplicateFlags) ||
