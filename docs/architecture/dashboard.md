@@ -59,7 +59,7 @@ A contributor sees their own account and the one action they have, My Account, w
 
 The existing editorial workspace runs inside the shell unchanged in behavior: listing, search, type and status filters, sorting, paging, draft editing, the safe Markdown preview, save, archive and restore, relationships and revision history. See [editorial-workspace.md](editorial-workspace.md). `mountEditorApp` gained a `host` option so the shell owns the page chrome and the account switch. Seed content is fictional Lorem Ipsum.
 
-Publication is not offered in the dashboard. The local sandbox mounts the draft routes only, so publish and withdraw could not be verified here and are left to hosted EDIT-2.
+Publication is not offered in Posts & Stories. The local sandbox mounts the draft routes only, so post and story publish and withdraw could not be verified here and are left to hosted EDIT-2. The Banners tab is separate: it can publish, restore and withdraw banner publications within the disposable local sandbox, as verified in [PR #156](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/156) and [Issue #146](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/146).
 
 ### Stale-save conflict
 
@@ -118,5 +118,5 @@ A hosted dashboard needs a Worker route that serves the shell without the `sandb
 
 - Local sandbox only. No hosted route, deployment or hosted verification.
 - Beta-1 was reviewed from archived source only (`lib/site-navigation.mjs`, `app/workspace.tsx` and `app/my-profile.tsx`): grouped sidebar sections, role-gated entries and a profile page open to every signed-in account. The running Beta-1 dashboard was not opened, so no screen-level parity is claimed.
-- No publication controls, no self-service account edits and no administrative counts.
+- No Posts & Stories publication controls, no self-service account edits and no administrative counts. The Banners tab can publish, restore and withdraw within the disposable local sandbox, as verified in [PR #156](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/156) and [Issue #146](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/146).
 - The standalone editor shell in `mountEditorApp` remains for the existing editorial tests. The sandbox serves the dashboard.
