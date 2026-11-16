@@ -1,6 +1,6 @@
 # Website human sign-in (AUTH-3-WEB)
 
-Status: implemented and tested locally with synthetic identities. Both hosts carry the sign-in code, and sign-in remains disabled. Follow [CURRENT](../coordination/CURRENT.md#d-deployment-state-separate-from-source) for deployment and operator evidence.
+Status: implemented and tested locally with synthetic identities. Cloudflare staging owner sign-in is hosted-verified. Sites sign-in remains disabled. See the [hosted staging sign-in evidence](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/174#issuecomment-6932672296).
 
 ## What it does
 
@@ -103,7 +103,7 @@ The active first-owner target is the [Cloudflare staging Worker](../deployment/c
 
 ## Not yet verified
 
-Hosted GitHub sign-in remains unverified. The earlier Sites questions include whether its gateway forwards `/auth/*`, the callback query string and the `__Host-` cookies on the canonical origin, outbound HTTPS from the Worker to the tenant, applying migration 0019 to the hosted D1, a hosted sign-in and sign-out, hosted identity revocation, and an unlinked hosted account. The isolated pilot verified the provider and Worker runtime behavior but not this integration.
+A separate hosted unlinked-account result is unreported. The earlier Sites questions include whether its gateway forwards `/auth/*`, the callback query string and the `__Host-` cookies on the canonical origin, outbound HTTPS from the Worker to the tenant, applying migration 0019 to the hosted D1, a hosted sign-in and sign-out, hosted identity revocation, and an unlinked hosted account. The isolated pilot verified the provider and Worker runtime behavior but not this integration.
 
 ## Decisions still open
 

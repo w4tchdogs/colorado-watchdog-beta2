@@ -11,7 +11,7 @@ variables and secrets survive later Wrangler deployments. It leaves
 value is exactly `true`. Keep the live setting `false` until first-owner
 bootstrap is verified, then enable it on the staging Worker.
 
-The staging release and resource inventory are in [Cloudflare staging evidence](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/173). The runtime-variable preservation change is merged in [PR #174](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/174). For its deployment status and the first-owner handoff, see the [staging deploy blocker](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/174#issuecomment-6932436990) and [CURRENT](../coordination/CURRENT.md#d-deployment-state-separate-from-source).
+The staging release and resource inventory are in [Cloudflare staging evidence](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/173). The runtime-variable preservation change is merged in [PR #174](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/174). For its deployment status and the first-owner handoff, see the [hosted staging sign-in evidence](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/174#issuecomment-6932672296) and [CURRENT](../coordination/CURRENT.md#d-deployment-state-separate-from-source).
 
 ## Operator inputs
 

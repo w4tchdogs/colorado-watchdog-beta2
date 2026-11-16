@@ -56,9 +56,8 @@ that show the state of profiles, departments and grievances.
 - **Done when:** owners, administrators and editors can sign up or be
   invited, sign in on the hosted Site and reach the pages and tools their
   role allows.
-- **Today:** the account model and default-off AUTH-3-WEB source are merged. The separate Auth0/GitHub pilot verified linked browser sign-in, sign-out and disabled-session denial. Alpha-1 sign-in has not been deployed or verified. First-owner and invitation work remain separate.
-- **Remaining:** a verified hosted identity method (AUTH-3), owner bootstrap
-  (AUTH-4), and invitation or sign-up for editors and administrators
+- **Today:** the account model and AUTH-3-WEB are merged. Cloudflare staging's first owner, GitHub sign-in, dashboard, refresh and sign-out are hosted-verified. The original Sites deployment remains disabled. See the [hosted staging sign-in evidence](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/174#issuecomment-6932672296).
+- **Remaining:** a separate hosted unlinked-account check and invitation or sign-up for editors and administrators
   (AUTH-5).
 
 ### Goal 4. Guest grievance submission
@@ -100,7 +99,7 @@ Several goals depend on the same hosted groundwork. These come first.
 | --- | --- | --- | --- |
 | DEPLOY-1 | Maintain existing Sites Alpha-1 during the Cloudflare transition | Every hosted goal | Sites v14 deployed. Cloudflare staging public reads and D1 verified. See [CURRENT](CURRENT.md#d-deployment-state-separate-from-source) for both environments |
 | D1-0015 | Apply and verify the Lake and La Plata correction during Alpha-1 initialization | Goal 2 | Hosted registry verified in v5 |
-| AUTH-3 | Verified hosted human identity for sign-in | Goals 3, 4 (staff), 5 | Pilot hosted checks recorded on #125. Website source merged default-off in #133; hosted Website verification open |
+| AUTH-3 | Verified hosted human identity for sign-in | Goals 3, 4 (staff), 5 | Pilot hosted checks recorded on #125. Cloudflare staging owner sign-in hosted-verified in #174 |
 | MCP-2 | Publish read-only MCP and verify authenticated inspection | Goal 1, hosted D1 administration | Endpoint published; authenticated verification open |
 | R2-1 | Verify storage at the active deployment target | BANNERS-IMPORT-1 | Cloudflare staging storage round trip verified. App-level banner upload and Sites R2 inventory remain open |
 
@@ -118,7 +117,7 @@ is lifted.
 | 2 | MCP-2 | Hosted read-only MCP publication and authenticated inspection | DEPLOY-1; AUTH-3/AUTH-4 and inspection-only credential for protected calls | 1 |
 | 3 | D1-0015 | Verify the complete hosted county registry after migration 0015 | DEPLOY-1 initialization | 2 |
 | 4 | AUTH-3 | Choose and implement a verified hosted identity method at $0 cost | Owner decision | 3 |
-| 5 | AUTH-4 | Create and verify the first owner on Cloudflare staging | AUTH-3 and a verified private D1 operator path | 3 |
+| 5 | AUTH-4 | Cloudflare staging first owner created and verified | [PR #174 hosted evidence](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/174#issuecomment-6932672296) | 3 |
 | 6 | R2-1 | Verify app-level R2 behavior on Cloudflare staging | DEPLOY-1 | 2 |
 
 ### Phase 2. AI administration
@@ -158,7 +157,7 @@ is lifted.
 | 22 | VIS-20 | Visual parity check on the deployed Site | Phase 4 | 6 |
 | 23 | LAUNCH-1 | Launch readiness check against all six goals, then the switch from Beta-1 | All | All |
 
-**Can proceed locally:** prepare the Adams pilot, inventory approved banners and continue scoped visual-audit follow-ups. Check CURRENT for the active staging sign-in task and hosted import dependencies.
+**Can proceed locally:** prepare the Adams pilot, inventory approved banners and continue scoped visual-audit follow-ups. Check CURRENT for the staging sign-in evidence and hosted import dependencies.
 
 ## Owner decisions
 
