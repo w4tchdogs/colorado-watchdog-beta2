@@ -83,7 +83,9 @@ const server = createServer(async (incoming, outgoing) => {
     const response = await application.fetch(request);
 
     outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-    outgoing.end(await response.text());
+    outgoing.end(
+      method === "HEAD" ? undefined : Buffer.from(await response.arrayBuffer()),
+    );
   } catch {
     outgoing.writeHead(500, {
       "cache-control": "no-store",
