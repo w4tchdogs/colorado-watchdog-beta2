@@ -111,7 +111,7 @@ Several goals depend on the same hosted groundwork. These come first.
 | --- | --- | --- | --- |
 | DEPLOY-1 | Initialize the existing Alpha-1 Website D1 and publish the accepted source | Every hosted goal | Deployed as v5; see CURRENT |
 | D1-0015 | Apply and verify the Lake and La Plata correction during Alpha-1 initialization | Goal 2 | Hosted registry verified in v5 |
-| AUTH-3 | Verified hosted human identity for sign-in | Goals 3, 4 (staff), 5 | Blocked (Sites identity) |
+| AUTH-3 | Verified hosted human identity for sign-in | Goals 3, 4 (staff), 5 | Website source in review, disabled by default. Hosted verification open |
 | MCP-2 | Publish read-only MCP and verify authenticated inspection | Goal 1, hosted D1 administration | Endpoint published; authenticated verification open |
 | R2-1 | Provision the R2 binding on the existing Site | BANNERS-IMPORT-1 | Planned |
 

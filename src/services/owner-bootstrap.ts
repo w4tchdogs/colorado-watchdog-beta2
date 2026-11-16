@@ -139,7 +139,7 @@ async function verifySchema(database: AsyncD1Database): Promise<void> {
   );
   const expected = loadWebsiteMigrations();
   if (
-    expected.length !== 18 ||
+    expected.length !== 19 ||
     history.length !== expected.length ||
     history.some((row, index) => {
       const migration = expected[index];

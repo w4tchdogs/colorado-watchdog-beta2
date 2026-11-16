@@ -78,14 +78,15 @@ export function createD1AccountServices(
     }
 
     // Only the injected hosting adapter may return a verified identity. The
-    // D1 service never promotes arbitrary request headers to a human claim.
+    // D1 service never promotes arbitrary request headers to a human claim,
+    // and a human claim can only resolve to a human account.
     const claim = await humanIdentityAdapter?.resolve(request);
     if (!claim?.provider.trim() || !claim.subject.trim()) return null;
     const row = await database.first<Row>(
       `SELECT a.id, a.kind, a.role, i.id identity_id, i.expires_at
        FROM identities i JOIN accounts a ON a.id = i.account_id
        WHERE i.provider = ? AND i.subject = ? AND i.credential_hash IS NULL
-         AND i.revoked_at IS NULL AND a.status = 'active'`,
+         AND i.revoked_at IS NULL AND a.status = 'active' AND a.kind = 'human'`,
       [claim.provider, claim.subject],
     );
     if (!row || !validPrincipalRow(row, now())) return null;
