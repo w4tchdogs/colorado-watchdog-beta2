@@ -57,6 +57,9 @@ export interface SearchFormOptions {
   readonly name: string;
   readonly value?: string;
   readonly hint?: string;
+  /** Visually hides the label while keeping it as the accessible name. */
+  readonly labelHidden?: boolean;
+  readonly placeholder?: string;
   readonly button: string;
   readonly minLength?: number;
   readonly maxLength?: number;
@@ -67,10 +70,11 @@ export interface SearchFormOptions {
 export function searchForm(options: SearchFormOptions): SafeHtml {
   const hintId = `${options.id}-hint`;
   return html`<form class="search-form" action="${options.action}" method="get" role="search">
-    <label for="${options.id}">${options.label}</label>
+    <label for="${options.id}"${options.labelHidden ? trusted(' class="visually-hidden"') : ""}>${options.label}</label>
     <div class="search-row">
       <input id="${options.id}" name="${options.name}" type="search" value="${options.value ?? ""}"
         autocomplete="off" spellcheck="false"
+        ${options.placeholder ? html`placeholder="${options.placeholder}"` : ""}
         ${options.minLength ? html`minlength="${options.minLength}" required` : ""}
         maxlength="${options.maxLength ?? 100}"
         ${options.hint ? html`aria-describedby="${hintId}"` : ""}
