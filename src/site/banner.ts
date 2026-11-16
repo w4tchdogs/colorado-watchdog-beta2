@@ -31,7 +31,7 @@ export interface BannerPresentation {
   /** Intrinsic pixel size of the source image, when known. */
   readonly width?: number | null;
   readonly height?: number | null;
-  /** `cover` fills the 3:1 frame; `contain` shows the whole image. */
+  /** `cover` fills the banner frame; `contain` shows the whole image. */
   readonly displayMode?: BannerDisplayMode;
   /** Normalized focal point, 0 (left/top) to 1 (right/bottom). Default 0.5. */
   readonly focalX?: number;
@@ -205,9 +205,8 @@ export interface BannerHeroOptions {
 }
 
 /**
- * Page hero built on the banner frame. On wide screens the heading overlays
- * the artwork; on narrow screens it sits below, so the panorama is never
- * covered or cropped to fit text.
+ * Page hero built on the banner frame. The copy overlays the artwork, and the
+ * frame can grow when the copy wraps on narrow screens.
  */
 export function bannerHero(options: BannerHeroOptions): SafeHtml {
   return html`<section class="hero hero-${options.variant}" aria-labelledby="hero-title">
