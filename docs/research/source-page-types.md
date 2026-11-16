@@ -1,8 +1,10 @@
 # Source page types
 
-R7 sends a source to the Website only when `sources.page_type` is exactly `official_page`, `public_document` or `other_public`. No import path sets it, so these commands do.
+`sources.publisher_classification` records whether the publisher is `official`, `unofficial` or unresolved. This does not replace the separate `sources.page_type` field. R7 sends a source to the Website only when the publisher classification is `official` and `page_type` is exactly `official_page`, `public_document` or `other_public`.
 
-The rule `url-extension/v1` plans a value for each source already classified `official` whose `page_type` is empty. A URL path ending in .pdf, .doc, .docx, .xls, .xlsx, .ppt, .pptx, .csv, .txt or .rtf gets `public_document`. Every other official source gets `official_page`. Sources not classified official and sources that already have a value are never touched. `other_public` is never assigned automatically.
+The rule `url-extension/v1` plans a value for each source with publisher classification `official` whose `page_type` is empty. A URL path ending in .pdf, .doc, .docx, .xls, .xlsx, .ppt, .pptx, .csv, .txt or .rtf gets `public_document`. Every other official source gets `official_page`. This rule classifies only page/document type: the suffix does not prove who published it. Sources not classified official and sources that already have a value are never touched. `other_public` is never assigned automatically.
+
+Use the evidence-led publisher workflow in [publisher classification and private export](publisher-classification-and-private-export.md) to establish source authority. It preserves legacy `official_status` values and classifies linked unresolved publishers only when evidence supports a decision. A profile with no linked source exports a null classification; an unresolved linked publisher remains explicitly unresolved.
 
 ```powershell
 $db = "D:/ChatGPT/Watchdog/profiles/database/research.sqlite"

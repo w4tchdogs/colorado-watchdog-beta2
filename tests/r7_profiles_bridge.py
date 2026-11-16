@@ -40,7 +40,8 @@ def setup(path):
     ]
     for i, (sid, url, kind) in enumerate(sources):
         db.execute(
-            "INSERT INTO sources(id,original_url,page_type,official_status,recorded_at) VALUES(?,?,?,'official',?)",
+            "INSERT INTO sources(id,original_url,page_type,official_status,publisher_classification,recorded_at) "
+            "VALUES(?,?,?,'official','official',?)",
             (sid, url, kind, NOW),
         )
     ev = {}

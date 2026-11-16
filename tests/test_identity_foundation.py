@@ -72,7 +72,7 @@ class IdentityFoundationTests(unittest.TestCase):
 
     def test_name_variant_operation_accepts_only_literal_nicknames_field_links(self):
         _, [claim] = self.add_batch([{"full_name": "Synthetic Rowan Example", "nicknames": "Rowan"}])
-        self.db.execute("UPDATE sources SET official_status='official' WHERE id=?", (claim["source_id"],))
+        self.db.execute("UPDATE sources SET official_status='official',publisher_classification='official' WHERE id=?", (claim["source_id"],))
         self.db.commit()
         created = operator.bootstrap_person(self.db, county_fips="08107", claim_id=claim["id"],
                                             published_name=claim["published_name"], evidence_id=claim["evidence_id"],
@@ -93,7 +93,7 @@ class IdentityFoundationTests(unittest.TestCase):
             {"full_name": "Synthetic Rowan Example", "title": "Fixture Treasurer"},
             {"full_name": "Synthetic Rowan Example", "title": "Fixture Coordinator"},
         ])
-        self.db.execute("UPDATE sources SET official_status='official' WHERE id=?", (claims[0]["source_id"],))
+        self.db.execute("UPDATE sources SET official_status='official',publisher_classification='official' WHERE id=?", (claims[0]["source_id"],))
         self.db.commit()
         created = operator.bootstrap_person(self.db, county_fips="08107", claim_id=claims[0]["id"],
                                             published_name=claims[0]["published_name"], evidence_id=claims[0]["evidence_id"],
@@ -112,7 +112,7 @@ class IdentityFoundationTests(unittest.TestCase):
             {"full_name": "Synthetic Rowan Example", "title": "Fixture Treasurer"},
             {"full_name": "Synthetic Rowan Example", "title": "Fixture Coordinator"},
         ])
-        self.db.execute("UPDATE sources SET official_status='official' WHERE id=?", (claims[0]["source_id"],))
+        self.db.execute("UPDATE sources SET official_status='official',publisher_classification='official' WHERE id=?", (claims[0]["source_id"],))
         self.db.commit()
         self.quote_evidence(claims[0]["source_id"],
                             "Synthetic Rowan Example, Fixture Treasurer, also serves as fixture coordinator.")
@@ -132,7 +132,7 @@ class IdentityFoundationTests(unittest.TestCase):
             {"full_name": "Synthetic Rowan Example", "title": "Fixture Coordinator",
              "responsibility": "Listed in official source"},
         ])
-        self.db.execute("UPDATE sources SET official_status='official' WHERE id=?", (claims[0]["source_id"],))
+        self.db.execute("UPDATE sources SET official_status='official',publisher_classification='official' WHERE id=?", (claims[0]["source_id"],))
         self.db.commit()
         self.quote_evidence(claims[0]["source_id"],
                             "Synthetic Rowan Example, Fixture Treasurer, also listed as Listed in official source.")
@@ -281,7 +281,7 @@ class IdentityFoundationTests(unittest.TestCase):
 
     def test_cross_county_connection_association_is_rejected(self):
         _, [home] = self.add_batch([{"full_name": "Synthetic Rowan Example"}])
-        self.db.execute("UPDATE sources SET official_status='official' WHERE id=?", (home["source_id"],))
+        self.db.execute("UPDATE sources SET official_status='official',publisher_classification='official' WHERE id=?", (home["source_id"],))
         self.db.commit()
         created = operator.bootstrap_person(self.db, county_fips="08107", claim_id=home["id"],
                                             published_name=home["published_name"], evidence_id=home["evidence_id"],

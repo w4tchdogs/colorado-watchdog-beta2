@@ -39,3 +39,8 @@ applies tombstone/refresh rules from its verified-receipt boundary.
 All verification uses synthetic disposable research and Website databases.
 Hosted D1 behavior, credentials, authorization grants, network transport, and
 production synchronization remain prerequisites outside R8.
+
+Publisher classification and local exports are documented separately in
+[publisher classification and private export](publisher-classification-and-private-export.md).
+Those exports remain in the owner's private Watchdog workspace and do not
+invoke R6 or create a Website changeset.

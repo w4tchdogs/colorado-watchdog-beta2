@@ -159,7 +159,7 @@ def _connection_evidence_rows(db, county_fips):
     """Load only direct evidence in this county's batches or established source context."""
     return [dict(row) for row in db.execute(
         "SELECT e.id,e.source_id,e.batch_id,e.raw_record_json,e.quotation,e.observed_title,"
-        "s.official_status,b.county_fips AS batch_county FROM evidence_links e "
+        "s.publisher_classification AS official_status,b.county_fips AS batch_county FROM evidence_links e "
         "JOIN sources s ON s.id=e.source_id LEFT JOIN scrape_batches b ON b.id=e.batch_id "
         "WHERE b.county_fips=? OR e.id IN (SELECT n.evidence_id FROM name_variants n "
         "JOIN research_people p ON p.id=n.person_id WHERE p.county_fips=?) "
@@ -234,8 +234,10 @@ def _identity_connection_edges(db, county_fips, rows, *, planned_sources, allow_
 
 
 def _source_proposals(db):
-    sources = list(db.execute("SELECT id,original_url,official_status FROM sources ORDER BY id"))
-    eligible_sources = {source["id"] for source in sources if source["official_status"] == "unknown"}
+    sources = list(db.execute("SELECT id,original_url,official_status,publisher_classification FROM sources ORDER BY id"))
+    eligible_sources = {source["id"] for source in sources
+                        if source["publisher_classification"] == "unresolved"
+                        and source["official_status"] == "unknown"}
     if not eligible_sources:
         return []
     sources_by_id = {source["id"]: source for source in sources}
@@ -244,7 +246,7 @@ def _source_proposals(db):
             "SELECT c.id,c.county_fips,c.evidence_id,c.published_name,c.published_title,c.responsibility,"
             "e.source_id,e.raw_record_json,e.quotation,e.observed_title FROM role_claims c "
             "JOIN evidence_links e ON e.id=c.evidence_id JOIN sources s ON s.id=e.source_id "
-            "WHERE s.official_status='unknown' ORDER BY c.county_fips,c.id"):
+            "WHERE s.official_status='unknown' AND s.publisher_classification='unresolved' ORDER BY c.county_fips,c.id"):
         source = sources_by_id[row["source_id"]]
         if _official_host(source["original_url"]) and row["source_id"] not in direct_role_proof \
                 and _direct_name_role(row):
@@ -260,7 +262,7 @@ def _source_proposals(db):
             "JOIN sources s ON s.id=e.source_id JOIN (SELECT DISTINCT ce.source_id,rc.county_fips "
             "FROM role_claims rc JOIN evidence_links ce ON ce.id=rc.evidence_id) sc "
             "ON sc.source_id=e.source_id JOIN counties c ON c.fips=sc.county_fips "
-            "WHERE s.official_status='unknown' ORDER BY e.source_id,e.id,sc.county_fips"):
+            "WHERE s.official_status='unknown' AND s.publisher_classification='unresolved' ORDER BY e.source_id,e.id,sc.county_fips"):
         source = sources_by_id[row["source_id"]]
         if _official_host(source["original_url"]) or row["source_id"] in documented_authority:
             continue
@@ -309,7 +311,7 @@ def _load_county_claims(db, county_fips):
         "SELECT c.id,c.county_fips,c.evidence_id,c.person_id,c.published_name,c.published_title,"
         "c.responsibility,c.source_listing_status,c.supersedes_id,c.unit_id,c.target_id,"
         "e.source_id,e.raw_record_json,e.quotation,e.observed_title,e.batch_id,e.source_version_key,"
-        "s.original_url,s.official_status,b.family_id,b.lineage_kind,b.selected,b.parent_batch_id,"
+        "s.original_url,s.publisher_classification AS official_status,b.family_id,b.lineage_kind,b.selected,b.parent_batch_id,"
         "b.county_fips AS batch_county FROM role_claims c "
         "JOIN evidence_links e ON e.id=c.evidence_id JOIN sources s ON s.id=e.source_id "
         "LEFT JOIN scrape_batches b ON b.id=e.batch_id WHERE c.county_fips=? ORDER BY c.id",
@@ -768,6 +770,12 @@ def _expected_source_events(proposals, run_id, actor):
             # applied v1 plans; this field never represents a source visit.
             detail["verified_host"] = item["host"]
         events.append(_event(run_id, "source_classified", "sources", item["source_id"], detail, actor))
+        publisher_detail = {"before": {"publisher_classification": "unresolved"},
+                            "after": {"publisher_classification": "official"},
+                            "supporting_evidence_id": item["evidence_id"], "basis": item["basis"],
+                            "source_visit_recorded": False}
+        events.append(_event(run_id, "source_publisher_classified", "sources", item["source_id"],
+                             publisher_detail, actor))
     return events
 
 
@@ -895,8 +903,9 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
         source_events = _expected_source_events(plan["source_classifications"], source_run_id, saved_actor)
         _verify_run_and_events(db, source_run_id, source_note, source_events)
         for proposal in plan["source_classifications"]:
-            status = db.execute("SELECT official_status FROM sources WHERE id=?", (proposal["source_id"],)).fetchone()
-            if status is None or status[0] != proposal["to_status"]:
+            status = db.execute("SELECT official_status,publisher_classification FROM sources WHERE id=?",
+                                (proposal["source_id"],)).fetchone()
+            if status is None or status[0] != proposal["to_status"] or status[1] != "official":
                 raise ValueError("A previously classified source changed after identity application")
     elif source_expected_count:
         db.execute("BEGIN IMMEDIATE")
@@ -905,14 +914,16 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
             if fresh_proposals != plan["source_classifications"]:
                 raise ValueError("Source evidence or classification state changed after the identity preview")
             for proposal in plan["source_classifications"]:
-                current = db.execute("SELECT official_status FROM sources WHERE id=?", (proposal["source_id"],)).fetchone()
-                if current is None or current[0] != proposal["from_status"]:
+                current = db.execute("SELECT official_status,publisher_classification FROM sources WHERE id=?",
+                                     (proposal["source_id"],)).fetchone()
+                if current is None or current[0] != proposal["from_status"] or current[1] != "unresolved":
                     raise ValueError("Source classification changed after the identity preview")
             now = timestamp()
             db.execute("INSERT INTO research_runs VALUES (?,?,?,?,?,?,?,?)",
                        (source_run_id, "screening", "reconstructed", actor, now, now, now, source_note))
             for proposal in plan["source_classifications"]:
-                updated = db.execute("UPDATE sources SET official_status='official' WHERE id=? AND official_status='unknown'",
+                updated = db.execute("UPDATE sources SET official_status='official',publisher_classification='official' "
+                                     "WHERE id=? AND official_status='unknown' AND publisher_classification='unresolved'",
                                      (proposal["source_id"],))
                 if updated.rowcount != 1:
                     raise ValueError("Source classification changed during application")
@@ -1050,8 +1061,9 @@ def verify_identity_application(db, plan):
         events = _expected_source_events(plan["source_classifications"], run_id, run[0])
         _verify_run_and_events(db, run_id, note, events)
         for proposal in plan["source_classifications"]:
-            status = db.execute("SELECT official_status FROM sources WHERE id=?", (proposal["source_id"],)).fetchone()
-            if status is None or status[0] != proposal["to_status"]:
+            status = db.execute("SELECT official_status,publisher_classification FROM sources WHERE id=?",
+                                (proposal["source_id"],)).fetchone()
+            if status is None or status[0] != proposal["to_status"] or status[1] != "official":
                 raise ValueError("Identity source classification differs from the plan")
     for county in plan["counties"]:
         run_id = _run_id(digest, county["county_fips"])

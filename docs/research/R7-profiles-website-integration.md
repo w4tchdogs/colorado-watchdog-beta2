@@ -7,10 +7,11 @@ unresolved identities, unclassified source types, unsupported organization
 hierarchy, non-current roles and private notes. It uses local permanent research
 IDs as deterministic request references; equal names never associate people.
 
-Website source types are accepted only when `sources.page_type` is explicitly
-`official_page`, `public_document` or `other_public`, and the source has already
-been classified `official`. Citation URL bytes must equal the retained source
-URL. Other labels are treated as ambiguous and omitted for review. Organization
+Website source types are accepted only when `sources.publisher_classification`
+is `official`, `sources.page_type` is explicitly `official_page`,
+`public_document` or `other_public`, and citation URL bytes equal the retained
+source URL. `page_type` describes the page or document; it does not establish
+the publisher. Unofficial and unresolved publishers are omitted for review. Organization
 parentage is emitted only from an existing explicit local parent decision with
 its evidence. Partner organizations have no county department parent; county
 coverage is represented with `organization_county_affiliations`.
