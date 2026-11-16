@@ -67,7 +67,7 @@ These tests cannot establish hosted gateway isolation.
 
 `src/services/owner-bootstrap.ts` exposes an administrative D1 operation and is
 not mounted as a Worker route. It checks the exact Beta-2 project and `DB`
-binding inputs, verifies the full Website migration inventory (0001–0019 at the AUTH-3-WEB merge), including names and hashes, plus the append-only
+binding inputs, verifies the full Website migration inventory (0001–0021 on current `main`), including names and hashes, plus the append-only
 bootstrap audit schema, and supports read-only dry run. The write uses a single
 D1 atomic batch with guarded inserts for one active human owner, the exact
 `chatgpt-sites:<project-id>` subject link, and a distinct
@@ -75,6 +75,8 @@ D1 atomic batch with guarded inserts for one active human owner, the exact
 operator reference and target account, never the subject. Repeating the exact
 completed operation is idempotent; a different owner, conflicting identity,
 or partial state is rejected.
+
+The operation takes an optional `provider`. It defaults to the Sites provider above. To link the first owner for Website human sign-in, pass `auth0:` plus the exact `AUTH0_ISSUER` (a bare HTTPS issuer with a trailing slash). Any other provider is refused. The Auth0 steps are in [human-sign-in.md](human-sign-in.md#enabling-sign-in-on-alpha-1).
 
 No live owner was created or linked. The available Sites connector cannot write
 the live D1 database, and no trustworthy stable Sites subject is exposed to the

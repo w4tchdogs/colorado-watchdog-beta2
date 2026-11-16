@@ -1174,7 +1174,12 @@ test("private responses are not cacheable and anonymous browsing is unchanged", 
       baseline.headers.get("cache-control"),
       anonymous.headers.get("cache-control"),
     );
-    assert.equal(await baseline.text(), await anonymous.text());
+    // The only difference is the shared-header sign-in entry, which exists
+    // only while sign-in is enabled.
+    const entry = /<div class="header-account">[\s\S]*?<\/div>/;
+    const withEntry = await anonymous.text();
+    assert.match(withEntry, entry);
+    assert.equal(await baseline.text(), withEntry.replace(entry, ""));
     for (const path of [
       "/",
       "/counties/08001",

@@ -74,7 +74,18 @@ export interface PublicSiteOptions {
   readonly reportChallenge?: { readonly sitekey: string };
   /** Server-side ACCT-1 check for the private staff review page. */
   readonly reportReviewAccess?: (request: Request) => Promise<401 | 403 | null>;
+  /**
+   * Shared-header entry to the dashboard. Absent means no entry: the header
+   * shows nothing about signing in. The host supplies it only while Website
+   * sign-in and the dashboard are both available. It reports whether this
+   * request has a live human session, which only chooses between the sign-in
+   * link and the Dashboard link. It grants nothing.
+   */
+  readonly accountEntry?: (request: Request) => Promise<AccountEntry>;
 }
+
+/** What the shared header offers: sign in, or go to the dashboard. */
+export type AccountEntry = "signed-out" | "signed-in";
 
 export interface SiteContext {
   readonly services: PublicSiteServiceResults;

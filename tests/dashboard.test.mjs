@@ -406,7 +406,7 @@ test("hosted and public entry points expose no dashboard fixture or account swit
     readFileSync(fileURLToPath(new URL(file, import.meta.url)), "utf8");
   for (const file of ["../src/application.ts", "../src/worker.ts"]) {
     assert.equal(
-      /editor-dev|sandbox|dashboard-api|services\/dashboard|x-test-human-subject|createTestHumanIdentityAdapter/i.test(
+      /editor-dev|sandbox|dashboard-api|services\/dashboard\.js|x-test-human-subject|createTestHumanIdentityAdapter/i.test(
         read(file),
       ),
       false,
@@ -418,7 +418,7 @@ test("hosted and public entry points expose no dashboard fixture or account swit
   for (const marker of [
     "x-test-human-subject",
     "sandbox-subject",
-    "/internal/dashboard/",
+    "LOCAL SANDBOX",
     "x-editor-token",
     "sbx-owner",
   ]) {
@@ -430,6 +430,7 @@ test("dashboard browser code keeps nothing in browser storage", () => {
   for (const file of [
     "dashboard.js",
     "dashboard-client.js",
+    "dashboard-sandbox.js",
     "dashboard-views.js",
     "banner-admin-client.js",
     "banner-views.js",
