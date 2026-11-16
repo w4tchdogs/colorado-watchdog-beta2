@@ -84,7 +84,11 @@ export const overviewView: DashboardViewFactory = (context) => {
   if (data.view !== "overview") return { destroy() {} };
   const h = helper(context.doc);
   const others = data.modules.filter((module) => module.id !== "overview");
-  const staffTools = others.some((module) => module.id !== "account");
+  // A module this role will get but that is not available yet still means the
+  // role has staff tools. Only a role with none at all gets the plain note.
+  const staffTools =
+    others.some((module) => module.id !== "account") ||
+    data.planned.length > 0;
 
   const children: Node[] = [
     h("h1", { id: "overview-heading" }, `Welcome, ${data.account.displayName}`),
@@ -165,7 +169,7 @@ export const overviewView: DashboardViewFactory = (context) => {
         h(
           "p",
           { class: "help" },
-          "These parts of the dashboard are not built yet. They have no page and no data here.",
+          "These parts of the dashboard are not available yet. They have no page and no data here.",
         ),
         moduleList(h, data.planned, null),
       ),

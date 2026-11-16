@@ -4,8 +4,8 @@ import {
   createBannerAdminClient,
 } from "./banner-admin-client.js";
 import { createBannersView } from "./banner-views.js";
-import { mountDashboard } from "./dashboard.js";
 import { createDashboardClient } from "./dashboard-client.js";
+import { mountSandboxDashboard, sandboxHeaders } from "./dashboard-sandbox.js";
 import {
   accountView,
   createPostsView,
@@ -35,7 +35,10 @@ if (root) {
     account: () => session.account,
   };
   const editorClient = createEditorApiClient(connection);
-  const dashboardClient = createDashboardClient(connection);
+  const dashboardClient = createDashboardClient({
+    fetch: sameOriginFetch,
+    headers: sandboxHeaders(connection),
+  });
   const bannerFetch: BannerAdminFetch = (input, init) =>
     fetch(input, {
       ...init,
@@ -60,7 +63,7 @@ if (root) {
     } catch {
       // The shell still loads and reports its own errors.
     }
-    mountDashboard(root, {
+    mountSandboxDashboard(root, {
       doc: document,
       client: dashboardClient,
       publicSiteUrl,

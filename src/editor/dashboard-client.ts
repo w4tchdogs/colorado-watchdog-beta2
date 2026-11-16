@@ -6,8 +6,6 @@ import {
   EditorApiError,
   type EditorErrorCode,
   type FetchLike,
-  SANDBOX_ACCOUNT_HEADER,
-  SANDBOX_TOKEN_HEADER,
 } from "./api-client.js";
 
 /**
@@ -27,10 +25,12 @@ export interface DashboardClient {
 
 export interface DashboardClientOptions {
   readonly fetch: FetchLike;
-  /** Sandbox only: the per-launch token the local server embeds in the page. */
-  readonly token: string;
-  /** Sandbox only: which synthetic account the request speaks for. */
-  readonly account: () => string;
+  /**
+   * Extra request headers. The local sandbox uses this for its per-launch
+   * token and synthetic account. The hosted dashboard passes nothing, so the
+   * server decides the caller from the Website session cookie alone.
+   */
+  readonly headers?: () => Record<string, string>;
 }
 
 const KNOWN_CODES = new Set<string>([
@@ -56,8 +56,7 @@ export function createDashboardClient(
       response = await options.fetch(path, {
         method,
         headers: {
-          [SANDBOX_TOKEN_HEADER]: options.token,
-          [SANDBOX_ACCOUNT_HEADER]: options.account(),
+          ...(options.headers?.() ?? {}),
           ...(method === "POST" ? { "content-type": "application/json" } : {}),
         },
         ...(method === "POST" ? { body: JSON.stringify(payload) } : {}),

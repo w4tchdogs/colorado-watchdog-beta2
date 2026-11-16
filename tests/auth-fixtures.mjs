@@ -144,7 +144,7 @@ export async function createWorld(options = {}) {
     AUTH0_REDIRECT_URI: `${ORIGIN}/auth/callback`,
     DB: world.d1,
   };
-  seedAccounts(world);
+  if (options.seed !== false) seedAccounts(world);
   return world;
 }
 

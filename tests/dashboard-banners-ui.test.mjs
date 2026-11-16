@@ -3,8 +3,11 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createBannerAdminClient } from "../dist/editor/banner-admin-client.js";
 import { createBannersView } from "../dist/editor/banner-views.js";
-import { mountDashboard } from "../dist/editor/dashboard.js";
 import { createDashboardClient } from "../dist/editor/dashboard-client.js";
+import {
+  mountSandboxDashboard,
+  sandboxHeaders,
+} from "../dist/editor/dashboard-sandbox.js";
 import { accountView, overviewView } from "../dist/editor/dashboard-views.js";
 import { bannerAdminFixtures } from "./d1/banner-admin-fixtures.mjs";
 
@@ -48,28 +51,34 @@ async function mountBanners({
     account: () => session.account,
   };
   let previewCount = 0;
-  const dashboard = mountDashboard(window.document.getElementById("app"), {
-    doc: window.document,
-    client: createDashboardClient(connection),
-    publicSiteUrl: null,
-    views: {
-      overview: overviewView,
-      account: accountView,
-      banners: createBannersView({
-        client: createBannerAdminClient(connection),
-        createPreviewUrl: (_bytes, _mediaType) =>
-          `blob:preview-${++previewCount}-${_mediaType}-${_bytes.byteLength}`,
-        revokePreviewUrl: () => {},
+  const dashboard = mountSandboxDashboard(
+    window.document.getElementById("app"),
+    {
+      doc: window.document,
+      client: createDashboardClient({
+        fetch: connection.fetch,
+        headers: sandboxHeaders(connection),
       }),
-    },
-    sandbox: {
-      accounts: ACCOUNTS,
-      current: () => session.account,
-      switchTo: (key) => {
-        session.account = key;
+      publicSiteUrl: null,
+      views: {
+        overview: overviewView,
+        account: accountView,
+        banners: createBannersView({
+          client: createBannerAdminClient(connection),
+          createPreviewUrl: (_bytes, _mediaType) =>
+            `blob:preview-${++previewCount}-${_mediaType}-${_bytes.byteLength}`,
+          revokePreviewUrl: () => {},
+        }),
+      },
+      sandbox: {
+        accounts: ACCOUNTS,
+        current: () => session.account,
+        switchTo: (key) => {
+          session.account = key;
+        },
       },
     },
-  });
+  );
   const $ = (selector) => window.document.querySelector(selector);
   const $$ = (selector) => [...window.document.querySelectorAll(selector)];
   const text = (selector) => $(selector)?.textContent ?? "";

@@ -242,6 +242,47 @@ img {
 .site-nav a[aria-current] {
   border-bottom-color: #ffffff;
 }
+/* Shared-header entry to the dashboard (visual reference: the archived
+   Beta-1 masthead login button: transparent, white border, white uppercase
+   text, dark fill on hover and focus). */
+.header-account {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+  max-width: 15rem;
+}
+.header-login {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.5rem 1rem;
+  color: #ffffff;
+  background: transparent;
+  border: 1px solid #ffffff;
+  border-radius: 2px;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  text-decoration: none;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.header-login:hover,
+.header-login:focus-visible {
+  color: #ffffff;
+  background: var(--ink);
+  border-color: #ffffff;
+}
+.header-login-note {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: right;
+}
 .nav-toggle {
   padding: var(--space-2) var(--space-4);
   min-height: 2.75rem;
@@ -256,6 +297,9 @@ img {
   cursor: pointer;
 }
 @media (min-width: 60rem) {
+  .header-account {
+    order: 3;
+  }
   .nav-toggle {
     display: none;
   }
@@ -264,6 +308,19 @@ img {
   }
 }
 @media (max-width: 59.99rem) {
+  .header-account {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    max-width: none;
+    flex-basis: 100%;
+    order: 4;
+  }
+  .header-login-note {
+    flex: 1 1 12rem;
+    text-align: left;
+  }
   .js .site-nav {
     display: none;
   }

@@ -38,15 +38,6 @@ export type DashboardViewFactory = (
   context: DashboardViewContext,
 ) => DashboardViewHandle;
 
-export interface DashboardSandboxSwitch {
-  readonly accounts: readonly {
-    readonly key: string;
-    readonly label: string;
-  }[];
-  current(): string;
-  switchTo(key: string): void;
-}
-
 export interface DashboardOptions {
   readonly doc: Document;
   readonly client: DashboardClient;
@@ -54,10 +45,29 @@ export interface DashboardOptions {
   /** Absolute or root-relative address of the public site, when known. */
   readonly publicSiteUrl?: string | null;
   /**
-   * Local sandbox only. A hosted shell never passes this, so the synthetic
-   * account switch has no hosted counterpart.
+   * Optional strip above the header. The local sandbox uses it for its strip with its synthetic account
+   * switch. The hosted entry never passes it, and the switch code lives in
+   * `dashboard-sandbox.ts`, which the hosted bundle does not include.
    */
-  readonly sandbox?: DashboardSandboxSwitch;
+  readonly topStrip?: (hooks: DashboardStripHooks) => HTMLElement;
+  /** Sandbox wording for the page title and the signed-out panel. */
+  readonly titleSuffix?: string;
+  readonly signedOutNote?: string;
+  /**
+   * Hosted sign-out. Renders a same-origin form that posts to the Website
+   * sign-out route, which revokes the session and clears its cookie. The
+   * sandbox never passes this.
+   */
+  readonly signOut?: { readonly action: string };
+}
+
+/** What the shell lends to a strip it did not build itself. */
+export interface DashboardStripHooks {
+  /** False when the open view has unsaved work and the user stays. */
+  canLeave(): boolean;
+  announce(text: string): void;
+  /** Reloads the session and the open view for the account now in use. */
+  restart(): void;
 }
 
 export interface Dashboard {
@@ -131,13 +141,18 @@ export function mountDashboard(
   });
   const accountSlot = h("div", { class: "dash-account" });
 
-  const sandboxBar = options.sandbox ? buildSandboxBar(options.sandbox) : null;
+  const topStrip =
+    options.topStrip?.({
+      canLeave: () => !(handle?.canLeave && !handle.canLeave()),
+      announce,
+      restart: () => void start(),
+    }) ?? null;
 
   const shell = h(
     "div",
     { class: "dash" },
     h("a", { class: "skip-link", href: "#main" }, "Skip to content"),
-    sandboxBar,
+    topStrip,
     h(
       "header",
       { class: "dash-topbar" },
@@ -160,38 +175,6 @@ export function mountDashboard(
   );
   clear(root);
   root.appendChild(shell);
-
-  function buildSandboxBar(sandbox: DashboardSandboxSwitch): HTMLElement {
-    const select = h("select", { id: "sandbox-account" });
-    for (const account of sandbox.accounts) {
-      select.appendChild(h("option", { value: account.key }, account.label));
-    }
-    select.value = sandbox.current();
-    select.addEventListener("change", () => {
-      if (handle?.canLeave && !handle.canLeave()) {
-        select.value = sandbox.current();
-        return;
-      }
-      sandbox.switchTo(select.value);
-      announce(`Now acting as ${select.selectedOptions[0]?.text ?? ""}`);
-      void start();
-    });
-    return h(
-      "div",
-      { class: "dash-sandbox", id: "sandbox-bar" },
-      h(
-        "p",
-        { class: "sandbox-flag", id: "sandbox-flag" },
-        "LOCAL SANDBOX - fictional data only, nothing is published",
-      ),
-      h(
-        "div",
-        { class: "account-switch" },
-        h("label", { for: "sandbox-account" }, "Acting as"),
-        select,
-      ),
-    );
-  }
 
   // -------------------------------------------------------- menu states
   const setSidebarOpen = (open: boolean) => {
@@ -340,6 +323,18 @@ export function mountDashboard(
         ),
         options.publicSiteUrl ? h("li", {}, siteLink("menu-site")) : null,
       ),
+      options.signOut
+        ? h(
+            "form",
+            {
+              method: "post",
+              action: options.signOut.action,
+              class: "dash-signout",
+              id: "menu-signout-form",
+            },
+            h("button", { type: "submit", id: "menu-signout" }, "Sign out"),
+          )
+        : null,
     );
     setAccountMenuOpen(false);
     replaceChildren(doc, accountSlot, accountButton, accountMenu);
@@ -352,7 +347,7 @@ export function mountDashboard(
       h("span", { class: "dash-crumb-root" }, "Dashboard"),
       label ? h("span", { class: "dash-crumb-page" }, label) : null,
     );
-    doc.title = `${label ? `${label} - ` : ""}Colorado Watchdog dashboard${options.sandbox ? " (local sandbox)" : ""}`;
+    doc.title = `${label ? `${label} - ` : ""}Colorado Watchdog dashboard${options.titleSuffix ?? ""}`;
   }
 
   function panel(
@@ -434,13 +429,7 @@ export function mountDashboard(
         "state-signed-out",
         "Sign in required",
         "The dashboard is available to signed-in accounts. No account is signed in, or this account is not active.",
-        options.sandbox
-          ? h(
-              "p",
-              {},
-              "In this local sandbox, choose an account under Acting as.",
-            )
-          : null,
+        options.signedOutNote ? h("p", {}, options.signedOutNote) : null,
       );
       return;
     }

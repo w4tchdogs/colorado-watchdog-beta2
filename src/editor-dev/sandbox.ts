@@ -209,6 +209,11 @@ const STATIC_FILES: Readonly<
     file: "dashboard.js",
     type: "text/javascript; charset=utf-8",
   },
+  "/app/dashboard-sandbox.js": {
+    directory: "script",
+    file: "dashboard-sandbox.js",
+    type: "text/javascript; charset=utf-8",
+  },
   "/app/dashboard-client.js": {
     directory: "script",
     file: "dashboard-client.js",

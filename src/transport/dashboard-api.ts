@@ -1,26 +1,36 @@
+import type {
+  DashboardSession,
+  DashboardView,
+} from "../contracts/dashboard.js";
 import { DASHBOARD_API_PATHS } from "../contracts/dashboard.js";
-import {
-  type DashboardService,
-  DashboardViewNotFoundError,
-} from "../services/dashboard.js";
+import { DashboardViewNotFoundError } from "../services/dashboard.js";
 import {
   AuthorizationError,
   type TrustedPrincipal,
 } from "../services/security.js";
 
 /**
- * Internal dashboard transport (EDIT-2 local slice).
- *
- * It is mounted only by the local sandbox. Neither `src/application.ts` nor
- * `src/worker.ts` registers it. Authentication and the service are opt-in and
- * each absent piece denies. The principal always comes from the host's
- * resolver. No request field names an account, a role or a capability.
+ * Dashboard transport. The local sandbox mounts it over the synchronous
+ * service. The hosted Worker mounts it over the asynchronous D1 service, only
+ * while Website human sign-in is enabled. Authentication and the service are
+ * opt-in and each absent piece denies. The principal always comes from the
+ * host's resolver. No request field names an account, a role or a capability.
  */
+export interface DashboardTransportService {
+  session(
+    principal: TrustedPrincipal,
+  ): DashboardSession | Promise<DashboardSession>;
+  view(
+    principal: TrustedPrincipal,
+    id: string,
+  ): DashboardView | Promise<DashboardView>;
+}
+
 export interface DashboardTransportDependencies {
   readonly resolvePrincipal?: (
     request: Request,
   ) => Promise<TrustedPrincipal | null>;
-  readonly service?: DashboardService;
+  readonly service?: DashboardTransportService;
 }
 
 const MAX_REQUEST_BYTES = 512;
@@ -57,7 +67,7 @@ async function handle(
   if (!service) return json(503, { error: "operation_unavailable" });
 
   try {
-    if (isSession) return json(200, { ...service.session(principal) });
+    if (isSession) return json(200, { ...(await service.session(principal)) });
     if (
       request.headers
         .get("content-type")
@@ -85,7 +95,7 @@ async function handle(
     )
       return json(400, { error: "invalid_request" });
     return json(200, {
-      ...service.view(principal, (body as { view: string }).view),
+      ...(await service.view(principal, (body as { view: string }).view)),
     });
   } catch (error) {
     if (error instanceof AuthorizationError)

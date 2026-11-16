@@ -27,6 +27,7 @@ import { personPage } from "./pages/person.js";
 import { reportPage } from "./pages/report.js";
 import { staffReportsPage } from "./pages/staff-reports.js";
 import {
+  type AccountEntry,
   BadRequest,
   NotFound,
   type Page,
@@ -260,6 +261,7 @@ export function createPublicSite(options: PublicSiteOptions) {
     head: boolean,
     extra = {},
     headers = SECURITY_HEADERS,
+    entry: AccountEntry | null = null,
   ): Response =>
     page.redirect
       ? new Response(null, {
@@ -270,7 +272,7 @@ export function createPublicSite(options: PublicSiteOptions) {
             "cache-control": "no-store",
           },
         })
-      : new Response(head ? null : renderDocument(page, preview), {
+      : new Response(head ? null : renderDocument(page, preview, entry), {
           status: page.status ?? 200,
           headers: {
             ...headers,
@@ -283,6 +285,7 @@ export function createPublicSite(options: PublicSiteOptions) {
   return {
     async fetch(request: Request): Promise<Response> {
       const head = request.method === "HEAD";
+      let entry: AccountEntry | null = null;
       try {
         const url = new URL(request.url);
         if (isStaffReportsPath(url.pathname)) {
@@ -362,6 +365,14 @@ export function createPublicSite(options: PublicSiteOptions) {
           });
         }
 
+        if (options.accountEntry) {
+          try {
+            entry = await options.accountEntry(request);
+          } catch {
+            // The entry only picks a link. A failed check shows sign-in.
+            entry = "signed-out";
+          }
+        }
         const context: SiteContext = {
           services: options.services,
           editorial,
@@ -386,10 +397,11 @@ export function createPublicSite(options: PublicSiteOptions) {
                 pathname.replace(/\/+$/, "") === "/submit-report"
               ? challengeHeaders
               : SECURITY_HEADERS,
+          entry,
         );
       } catch (error) {
         try {
-          return respond(errorToPage(error), head);
+          return respond(errorToPage(error), head, {}, SECURITY_HEADERS, entry);
         } catch {
           return new Response("Internal error", {
             status: 500,

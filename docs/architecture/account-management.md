@@ -76,6 +76,8 @@ operator reference and target account, never the subject. Repeating the exact
 completed operation is idempotent; a different owner, conflicting identity,
 or partial state is rejected.
 
+The operation takes an optional `provider`. It defaults to the Sites provider above. To link the first owner for Website human sign-in, pass `auth0:` plus the exact `AUTH0_ISSUER` (a bare HTTPS issuer with a trailing slash). Any other provider is refused. The Auth0 steps are in [human-sign-in.md](human-sign-in.md#enabling-sign-in-on-alpha-1).
+
 No live owner was created or linked. The available Sites connector cannot write
 the live D1 database, and no trustworthy stable Sites subject is exposed to the
 Worker. Do not run the bootstrap against production until a verified subject
