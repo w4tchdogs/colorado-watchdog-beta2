@@ -3,8 +3,9 @@ import {
   MAX_DIRECTORY_PAGE_SIZE,
   type OrganizationType,
 } from "../contracts/directory.js";
-import type {
-  OrganizationProfileCounty,
+import {
+  MAX_PROFILE_SUBUNITS,
+  type OrganizationProfileCounty,
   OrganizationProfilePage,
   OrganizationProfilePageRequest,
   OrganizationProfileParent,
@@ -76,6 +77,15 @@ export function getOrganizationProfile(
   const hasMore = rows.length > input.limit;
   const selected = rows.slice(0, input.limit);
   const counties = getOrganizationCounties(database, input.organizationId);
+  const subunitRows = database
+    .prepare(
+      `SELECT id, name, organization_type, parent_relationship
+       FROM organizations
+       WHERE parent_organization_id = ?
+       ORDER BY name COLLATE BINARY, id COLLATE BINARY
+       LIMIT ?`,
+    )
+    .all(input.organizationId, MAX_PROFILE_SUBUNITS + 1);
 
   const parentOrganization =
     organization.parent_organization_id === null
@@ -90,6 +100,15 @@ export function getOrganizationProfile(
       version: asNumber(organization.version),
     },
     parentOrganization,
+    subunits: subunitRows.slice(0, MAX_PROFILE_SUBUNITS).map((row) => ({
+      id: asString(row.id),
+      name: asString(row.name),
+      type: row.organization_type as OrganizationType,
+      relationshipType: row.parent_relationship as
+        | "reports_to"
+        | "grouped_under",
+    })),
+    subunitsTruncated: subunitRows.length > MAX_PROFILE_SUBUNITS,
     counties: counties.get(input.organizationId) ?? [],
     items: selected.map(
       (row): OrganizationProfilePosition => ({

@@ -34,6 +34,16 @@ export interface OrganizationProfileParent {
   readonly relationshipType: "reports_to" | "grouped_under";
 }
 
+export interface OrganizationProfileSubunit {
+  readonly id: string;
+  readonly name: string;
+  readonly type: OrganizationType;
+  readonly relationshipType: "reports_to" | "grouped_under";
+}
+
+/** Direct subunits listed on a profile. Longer lists are cut here. */
+export const MAX_PROFILE_SUBUNITS = 50;
+
 export interface OrganizationProfilePosition {
   readonly id: string;
   readonly title: string;
@@ -49,6 +59,9 @@ export interface OrganizationProfilePage
     readonly version: number;
   };
   readonly parentOrganization: OrganizationProfileParent | null;
+  /** Direct subunits only, ordered by name then id, at most MAX_PROFILE_SUBUNITS. */
+  readonly subunits: readonly OrganizationProfileSubunit[];
+  readonly subunitsTruncated: boolean;
   readonly counties: readonly OrganizationProfileCounty[];
 }
 

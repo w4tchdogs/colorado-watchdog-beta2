@@ -872,3 +872,23 @@ test("county navigation stays compact on narrow screens", () => {
   // The no-JavaScript Go button is never hidden by the compact layout.
   assert.doesNotMatch(block[0], /display:\s*none/);
 });
+
+test("organization pages link parent and subunits both ways", async () => {
+  await withPreview("fictional", async (preview) => {
+    const works = await get(preview, "/organizations/demo-adams-works");
+    assert.equal(works.status, 200);
+    assert.deepEqual(
+      works.$$(".subunit-list a").map((a) => a.getAttribute("href")),
+      ["/organizations/demo-adams-roads"],
+    );
+    assert.ok(works.$('a[href="/organizations/demo-adams-gov"]'));
+
+    const roads = await get(preview, "/organizations/demo-adams-roads");
+    assert.ok(roads.$('a[href="/organizations/demo-adams-works"]'));
+    assert.equal(roads.$(".subunit-list"), null);
+    assert.match(
+      roads.$("#context-heading").parentElement.textContent,
+      /No subunit is recorded/,
+    );
+  });
+});
