@@ -17,12 +17,64 @@ python -m research sync-reconcile D:\private\profiles.sqlite --submission-id <su
 
 `sync-eligibility` returns the eligible/excluded counts, reason-coded exclusions,
 and the deterministic changeset fingerprint. `sync-preview` also returns the
-proposed public-contract request. Both are read-only. R7 excludes unresolved
+proposed public-contract request. Both are read-only. Add `--county-fips 08001`
+to either command for one canonical Colorado county. R7 first limits claim
+observations and required organization dependencies to that county, then applies
+the existing maximum 200-operation cap. Parent organizations required by those
+observations remain in parent-before-child order; shared people, positions,
+sources and organizations are emitted once. Without the flag, statewide
+behavior is unchanged. County-scoped preview is an eligibility diagnostic;
+`sync-prepare` remains the existing explicitly reviewed statewide workflow.
+
+Preview diagnostics report candidate claims, claims skipped because their batch
+is unselected, selected-batch claims evaluated, distinct people, claims excluded
+by reason, claims with planned role operations, planned operations by Website
+entity, and truncation separately. The preview lists at most 200 individual
+exclusions. Both commands remain read-only. R7 excludes unresolved
 identity associations, unsupported organization or position relationships,
 unselected claims, insufficient source classification, private notes, and
 updates without explicit evidence-backed approval pinned to the current Website
 version. Output excludes local evidence bodies, research notes, and stored
 submission response bodies.
+
+## Reviewed batch selection
+
+Changing which existing family member is selected for eligibility analysis is
+a separate local operator action. Preview writes a row-level plan outside the
+source checkout. If another family version is selected, the preview displays
+the batch that would be replaced. The plan records the intended operator and
+reason, before/after selection, full family membership and latest decision
+state. Apply requires the exact plan SHA and performs the selection update and
+audit event in one immediate transaction. A repeated apply is idempotent.
+Reversals are previewed and applied separately; they can restore the previous
+batch or restore no selection. A stale plan or reversal after a later family
+decision is rejected.
+
+```powershell
+$db = 'D:/ChatGPT/Watchdog/profiles/database/research.sqlite'
+$plan = 'D:/ChatGPT/Watchdog/profiles/reports/adams-selection-plan-YYYY-MM-DD-v1.json'
+python -B -m research preview-batch-selection $db --batch-id <existing-batch-id> `
+  --actor 'operator' --reason 'Documented selection reason' --output $plan
+python -B -m research apply-batch-selection $db --plan $plan --expect-plan-sha256 <plan-sha256>
+python -B -m research sync-eligibility $db --site-key colorado_watchdog_alpha1 --county-fips 08001
+python -B -m research sync-preview $db --site-key colorado_watchdog_alpha1 --county-fips 08001
+```
+
+To restore a previously selected state, use the audit event ID from the applied
+operation and create a new private reversal plan:
+
+```powershell
+$reverse = 'D:/ChatGPT/Watchdog/profiles/reports/adams-selection-reversal-YYYY-MM-DD-v1.json'
+python -B -m research preview-batch-selection-reversal $db --event-id <selection-event-id> `
+  --actor 'operator' --reason 'Documented reversal reason' --output $reverse
+python -B -m research apply-batch-selection-reversal $db --plan $reverse `
+  --expect-plan-sha256 <plan-sha256>
+```
+
+Selection changes only existing batch `selected` flags and adds an audit run and
+event. It does not alter identities, organization relationships or evidence.
+No command here prepares or sends a Website changeset. Keep all plans and
+identifiers in the private workspace.
 
 Preparation requires `--select all` to make the operator's selection explicit
 and `--expect-fingerprint` to match the current preview. The 200-change R7
