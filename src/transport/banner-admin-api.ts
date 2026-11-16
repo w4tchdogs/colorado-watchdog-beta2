@@ -1,3 +1,4 @@
+import { exactSameOrigin } from "../auth/http.js";
 import type {
   BannerAdministration,
   BannerMetadataChange,
@@ -227,11 +228,6 @@ function checkWriteHeaders(request: Request, route: Route): Response | null {
     return json(415, { error: "unsupported_media_type" });
   }
   return null;
-}
-
-function exactSameOrigin(request: Request): boolean {
-  const origin = request.headers.get("origin");
-  return origin !== null && origin === new URL(request.url).origin;
 }
 
 // ----------------------------------------------------------------- execution

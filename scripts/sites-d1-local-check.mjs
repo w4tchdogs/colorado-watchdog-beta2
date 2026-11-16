@@ -6,6 +6,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  runHumanSignInChecks,
+  SIGN_IN_CLIENT_SECRET,
+  SIGN_IN_ISSUER,
+  SIGN_IN_SEED_SQL,
+  startSyntheticTenant,
+} from "../tests/d1/human-sign-in-checks.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const config = join(root, "wrangler.sites-test.toml");
@@ -642,6 +649,7 @@ async function main() {
     "0016_banner_homepage_curation.sql",
     "0017_content_publication.sql",
     "0018_banner_publications.sql",
+    "0019_human_sign_in.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(
@@ -755,7 +763,7 @@ async function main() {
 
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
-  const startWorker = async (workerConfig = config) => {
+  const startWorker = async (extraArguments = [], workerConfig = config) => {
     worker = spawn(
       process.execPath,
       [
@@ -770,6 +778,7 @@ async function main() {
         workerConfig,
         "--persist-to",
         persist,
+        ...extraArguments,
       ],
       {
         cwd: root,
@@ -818,7 +827,7 @@ async function main() {
         )
         .replace(/\[\[r2_buckets\]\][\s\S]*?(?=\n\[|$)/g, ""),
     );
-    await startWorker(noBucketConfig);
+    await startWorker([], noBucketConfig);
     const unavailable = await fetch(`${base}/api/admin/banners/counties`, {
       headers: { authorization: `Bearer ${agentToken}` },
     });
@@ -1530,6 +1539,54 @@ async function main() {
       (await fetch(`${base}/api/v1/reports`, { headers: staffHeaders })).status,
       401,
     );
+    // AUTH-3-WEB: sign-in is off by default, then enabled with synthetic
+    // settings against a synthetic provider on loopback.
+    const tenantPort = await freePort();
+    const tenant = await startSyntheticTenant(tenantPort);
+    try {
+      worker.kill("SIGTERM");
+      await new Promise((resolveExit) => worker.once("exit", resolveExit));
+      const seedFile = join(persist, "synthetic-sign-in.sql");
+      writeFileSync(seedFile, SIGN_IN_SEED_SQL);
+      command([
+        "d1",
+        "execute",
+        "DB",
+        "--config",
+        config,
+        "--local",
+        "--persist-to",
+        persist,
+        "--file",
+        seedFile,
+      ]);
+      await startWorker();
+      await runHumanSignInChecks({
+        base,
+        tenant,
+        ownerHeaders,
+        restart: async ({ enabled }) => {
+          worker.kill("SIGTERM");
+          await new Promise((resolveExit) => worker.once("exit", resolveExit));
+          await startWorker(
+            Object.entries({
+              AUTH0_ENABLED: enabled ? "true" : "false",
+              AUTH0_ISSUER: SIGN_IN_ISSUER,
+              AUTH0_CLIENT_ID: "synthetic-client-id",
+              AUTH0_CLIENT_SECRET: SIGN_IN_CLIENT_SECRET,
+              AUTH0_CANONICAL_ORIGIN: base,
+              AUTH0_REDIRECT_URI: `${base}/auth/callback`,
+              AUTH0_TEST_UPSTREAM: tenant.origin,
+            }).flatMap(([name, value]) => ["--var", `${name}:${value}`]),
+          );
+        },
+      });
+      console.log(
+        "Human sign-in integration passed in the bundled Worker on local D1: default off, login, callback replay and concurrent claims, unlinked denial, live role, disable and revocation changes, cross-origin writes, agent precedence, sign-out and disabled sessions.",
+      );
+    } finally {
+      await tenant.close();
+    }
     if (process.env.SITES_D1_BROWSER_PAUSE === "1") {
       console.log(`Synthetic browser test is ready at ${base}`);
       await delay(180_000);

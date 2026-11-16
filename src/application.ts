@@ -33,8 +33,11 @@ const PEOPLE_PROFILE_PATH = /^\/api\/people\/(.*)$/;
 const ORGANIZATION_PROFILE_PATH = /^\/api\/organizations(?:\/([^/]*))?$/;
 const ORGANIZATION_ROLES_PATH = /^\/api\/organizations\/([^/]+)\/roles$/;
 
-export function createApplication(services: ApplicationServices) {
-  const accountAdmin = createAccountAdminModule(services);
+export function createApplication(
+  services: ApplicationServices,
+  options: { readonly humanSignIn?: boolean } = {},
+) {
+  const accountAdmin = createAccountAdminModule(services, options);
   return {
     async fetch(request: Request): Promise<Response> {
       try {

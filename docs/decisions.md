@@ -11,9 +11,8 @@ dated status update follows them rather than rewriting them.
 modular architecture with one relational Website D1 database, R2 files, and a
 shared dashboard/API/MCP service layer**. This is an owner decision, not a
 proposal, and later planning must not demote MCP to an optional add-on. See
-[CURRENT](coordination/CURRENT.md) for its current implementation state —
-a read-only local foundation is merged; hosted publication and any
-write/sync/import tool are not.
+[CURRENT](coordination/CURRENT.md) for its current implementation,
+publication and hosted verification state.
 
 Current technical assessment: [Fable assessment revision 4](architecture/fable-assessment-rev4.md). See the [revision 4 section](#revision-4-technical-assessment-november-12-2026) below. The first two sections are the earlier decision records and remain as written.
 
@@ -177,3 +176,9 @@ rewriting the history above.
   AUTH-3/AUTH-4 retain provider and first-owner ownership. Establish a
   supported hosted backup and isolated restore before relying on hosted
   D1 for real records.
+
+## Dashboard priority and content pause, November 15, 2026
+
+- Prioritize one WordPress-style Website dashboard for signed-in human account holders, editors, administrators and the owner. Show tabs and actions according to existing server-verified capabilities. The prepared first slice is Overview, My Account and a working Posts & Stories workflow. Use the archived Beta-1 dashboard as a layout and workflow reference.
+- Hold CONTENT-1 and use generic Lorem Ipsum in local editorial fixtures. Keep the real Idlewild drafts private and the existing launch goal on the backlog.
+- The dashboard is the manual operator surface while hosted D1/R2 access and verification are open. The existing Website D1/R2 and shared dashboard/API/MCP backbone still applies. The supplied generic CMS prompt and framework, browser-storage and generic database follow-ups are reference material only. The owner will say when the prepared Fable assignment is initiated.

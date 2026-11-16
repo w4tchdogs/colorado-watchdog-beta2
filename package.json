@@ -35,6 +35,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
+    "jose": "6.2.17",
     "jpeg-js": "^0.4.4"
   }
 }
