@@ -398,7 +398,7 @@ const files = git("ls-files", "-z")
 const present = new Set(files);
 // COORD-1: content captured while scanning tracked files, checked after the
 // main loop. Keep this cheap and tied to files already read above; do not
-  // hardcode a commit SHA (it would fail after every normal merge).
+// hardcode a commit SHA (it would fail after every normal merge).
 const coord1Files = new Set([
   "docs/coordination/CURRENT.md",
   "docs/coordination/START.md",
