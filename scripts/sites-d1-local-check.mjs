@@ -681,10 +681,20 @@ async function main() {
       ('d1-test-county-org','Synthetic Adams County','county_government','08001'),
       ('d1-test-partner','Synthetic Regional Partner','partner',NULL);
     WITH RECURSIVE extra_orgs(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM extra_orgs WHERE n < 50)
-    INSERT INTO organizations (id,name,organization_type)
+    INSERT INTO organizations
+      (id,name,organization_type,county_fips,parent_organization_id,parent_relationship)
       SELECT printf('synthetic-org-%02d',n),
         CASE WHEN n % 2 = 0 THEN 'Synthetic Shared Name' ELSE 'synthetic shared name' END,
-        'partner' FROM extra_orgs;
+        'partner','08001','d1-test-county-org',
+        CASE WHEN n % 2 = 0 THEN 'reports_to' ELSE 'grouped_under' END
+      FROM extra_orgs;
+    INSERT INTO organizations
+      (id,name,organization_type,county_fips,parent_organization_id,parent_relationship)
+      VALUES
+      ('d1-test-subunit-nested','Zzz Synthetic Nested Subunit','department',
+        '08001','synthetic-org-01','grouped_under'),
+      ('d1-test-subunit-overflow','Zzz Synthetic Subunit Overflow','department',
+        '08001','d1-test-county-org','reports_to');
     INSERT INTO organization_county_affiliations (id,organization_id,county_fips,relationship_type)
       VALUES ('d1-test-affiliation','d1-test-partner','08001','serves');
     INSERT INTO people (id,display_name) VALUES
@@ -1012,7 +1022,7 @@ async function main() {
 
     for (const [collection, count] of [
       ["people", 27],
-      ["organizations", 52],
+      ["organizations", 54],
     ]) {
       assert.equal(
         (await fetch(`${base}/${collection}?ignored=yes`)).status,
@@ -1045,13 +1055,14 @@ async function main() {
       }
       assert.equal(new Set(ids).size, count);
       if (collection === "organizations") {
-        assert.deepEqual(
-          ids.slice(2),
-          Array.from(
+        assert.deepEqual(ids.slice(2), [
+          ...Array.from(
             { length: 50 },
             (_, i) => `synthetic-org-${String(i + 1).padStart(2, "0")}`,
           ),
-        );
+          "d1-test-subunit-nested",
+          "d1-test-subunit-overflow",
+        ]);
       }
       const other = collection === "people" ? "organizations" : "people";
       assert.equal(
@@ -1079,7 +1090,58 @@ async function main() {
     const organization = await fetch(
       `${base}/organizations/d1-test-county-org`,
     );
-    assert.match(await organization.text(), /Synthetic Clerk/);
+    const organizationHtml = await organization.text();
+    assert.equal(organization.status, 200, organizationHtml);
+    assert.match(organizationHtml, /Synthetic Clerk/);
+    const subunitsHtml = organizationHtml.match(
+      /<ul class="subunit-list">([\s\S]*?)<\/ul>/,
+    )?.[1];
+    assert.ok(subunitsHtml, "organization page renders its subunit list");
+    const listedSubunits = Array.from(
+      subunitsHtml.matchAll(/<li>([\s\S]*?)<\/li>/g),
+      ([, item]) => ({
+        id: item.match(/href="\/organizations\/([^"]+)"/)?.[1],
+        name: item.match(/href="\/organizations\/[^"]+">([^<]+)<\/a>/)?.[1],
+        relationship: item.match(
+          /\((reports to|grouped under) this organization\)/,
+        )?.[1],
+      }),
+    );
+    assert.deepEqual(listedSubunits, [
+      ...Array.from({ length: 25 }, (_, i) => {
+        const n = (i + 1) * 2;
+        return {
+          id: `synthetic-org-${String(n).padStart(2, "0")}`,
+          name: "Synthetic Shared Name",
+          relationship: "reports to",
+        };
+      }),
+      {
+        id: "d1-test-subunit-overflow",
+        name: "Zzz Synthetic Subunit Overflow",
+        relationship: "reports to",
+      },
+      ...Array.from({ length: 24 }, (_, i) => {
+        const n = i * 2 + 1;
+        return {
+          id: `synthetic-org-${String(n).padStart(2, "0")}`,
+          name: "synthetic shared name",
+          relationship: "grouped under",
+        };
+      }),
+    ]);
+    assert.match(organizationHtml, /Only the first 50 subunits are listed\./);
+    assert.doesNotMatch(
+      subunitsHtml,
+      /d1-test-partner|d1-test-subunit-nested|synthetic-org-49/,
+    );
+
+    const childOrganization = await fetch(
+      `${base}/organizations/d1-test-partner`,
+    );
+    const childOrganizationHtml = await childOrganization.text();
+    assert.equal(childOrganization.status, 200, childOrganizationHtml);
+    assert.match(childOrganizationHtml, /No subunit is recorded\./);
 
     // M4-D officials directory through the hosted D1 read path.
     const officials = await fetch(`${base}/officials`);
