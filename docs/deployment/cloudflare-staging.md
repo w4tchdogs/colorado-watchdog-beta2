@@ -3,7 +3,7 @@
 This configuration is separate from `wrangler.sites-test.toml`. It deploys the
 existing Sites Worker build to a `workers.dev` URL with a production runtime
 and authentication, Turnstile and guest intake disabled. It does not declare
-custom routes or domains.
+custom routes or domains, and Wrangler Preview URLs are disabled.
 
 ## Operator inputs
 

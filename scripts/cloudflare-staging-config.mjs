@@ -66,6 +66,7 @@ await writeFile(
     `main = "../dist/server/index.js"\n` +
     `compatibility_date = "2026-11-13"\n` +
     `workers_dev = true\n` +
+    `preview_urls = false\n` +
     `account_id = "${accountId}"\n\n` +
     `[vars]\nAPP_ENV = "production"\nAUTH0_ENABLED = "false"\nREPORTS_TURNSTILE = "disabled"\n\n` +
     `[[d1_databases]]\nbinding = "DB"\ndatabase_name = "colorado-watchdog-alpha1-staging"\ndatabase_id = "${d1Id}"\nmigrations_dir = "cloudflare-staging-migrations"\n\n` +
