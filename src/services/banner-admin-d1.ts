@@ -2,6 +2,9 @@ import type {
   BannerAdminBanner,
   BannerAdministration,
   BannerAdminVersion,
+  BannerChangeResult,
+  BannerMetadataChange,
+  BannerPublicationRecord,
   BannerReconciliationClass,
   BannerReconciliationItem,
   BannerStageRequest,
@@ -9,8 +12,19 @@ import type {
   CountyBannerDetail,
   CountyBannerPage,
   ListCountiesRequest,
+  PublicationMetadata,
+  PublicationOrigin,
+  PublishRequest,
+  ReorderCountyRequest,
+  ReorderCountyResult,
+  RestoreRequest,
+  UpdateMetadataRequest,
+  WithdrawRequest,
 } from "../contracts/banner-administration.js";
-import { BANNER_ADMIN_LIMITS } from "../contracts/banner-administration.js";
+import {
+  BANNER_ADMIN_LIMITS,
+  BANNER_PUBLICATION_LIST_LIMIT,
+} from "../contracts/banner-administration.js";
 import type {
   BannerAssetStatus,
   BannerDisplayMode,
@@ -45,6 +59,16 @@ export class BannerStageError extends Error {
   ) {
     super(message);
     this.name = "BannerStageError";
+  }
+}
+
+/** The version has no recorded publication, so the caller must supply the text. */
+export class BannerSnapshotRequiredError extends BannerConflictError {
+  constructor() {
+    super(
+      "This version has no recorded publication. Supply explicit caption, alt text, display mode and focal point to restore it",
+    );
+    this.name = "BannerSnapshotRequiredError";
   }
 }
 
@@ -101,6 +125,105 @@ function mapVersion(row: Row, selectedId: string | null): BannerAdminVersion {
     operationState: optStr(row, "op_state") as BannerStageState | null,
     isSelected: id === selectedId,
   };
+}
+
+function mapPublication(row: Row): BannerPublicationRecord {
+  return {
+    id: str(row, "id"),
+    versionId: str(row, "version_id"),
+    sequence: num(row, "sequence"),
+    origin: str(row, "origin") as PublicationOrigin,
+    restoredFromPublicationId: optStr(row, "restored_from_publication_id"),
+    caption: str(row, "caption"),
+    altText: str(row, "alt_text"),
+    displayMode: str(row, "display_mode") as BannerDisplayMode,
+    focalX: num(row, "focal_x"),
+    focalY: num(row, "focal_y"),
+    bannerRowVersion: num(row, "banner_row_version"),
+    publishedByAccountId: str(row, "published_by_account_id"),
+    publishedAt: str(row, "published_at"),
+  };
+}
+
+function validateSnapshot(metadata: PublicationMetadata): void {
+  validText(metadata.caption, "caption", 500);
+  validText(metadata.altText, "alt text", 1_000);
+  if (metadata.altText.trim() === "")
+    throw new BannerValidationError("Alt text must not be blank");
+  if (!["cover", "contain"].includes(metadata.displayMode))
+    throw new BannerValidationError("Invalid display mode");
+  for (const focal of [metadata.focalX, metadata.focalY])
+    if (!Number.isFinite(focal) || focal < 0 || focal > 1)
+      throw new BannerValidationError(
+        "Focal coordinates must be between zero and one",
+      );
+}
+
+const CHANGE_FIELDS = [
+  "caption",
+  "altText",
+  "displayOrder",
+  "homepageOrder",
+  "isPrimary",
+  "displayMode",
+  "focalX",
+  "focalY",
+];
+
+/** Copies only known fields. Unknown fields are refused, not ignored. */
+function validateChange(input: BannerMetadataChange): BannerMetadataChange {
+  if (!input || typeof input !== "object")
+    throw new BannerValidationError("Invalid metadata change");
+  const keys = Object.keys(input).filter(
+    (key) => (input as Record<string, unknown>)[key] !== undefined,
+  );
+  if (keys.length === 0)
+    throw new BannerValidationError("No metadata change supplied");
+  const unknown = keys.find((key) => !CHANGE_FIELDS.includes(key));
+  if (unknown) throw new BannerValidationError("Unknown metadata field");
+  const change = input;
+  if (change.caption !== undefined) validText(change.caption, "caption", 500);
+  if (change.altText !== undefined)
+    validText(change.altText, "alt text", 1_000);
+  if (
+    change.displayOrder !== undefined &&
+    (!Number.isInteger(change.displayOrder) || change.displayOrder < 0)
+  )
+    throw new BannerValidationError("Invalid display order");
+  if (
+    change.homepageOrder !== undefined &&
+    change.homepageOrder !== null &&
+    (!Number.isInteger(change.homepageOrder) || change.homepageOrder < 0)
+  )
+    throw new BannerValidationError("Invalid homepage order");
+  if (change.isPrimary !== undefined && typeof change.isPrimary !== "boolean")
+    throw new BannerValidationError("Invalid primary flag");
+  if (
+    change.displayMode !== undefined &&
+    !["cover", "contain"].includes(change.displayMode)
+  )
+    throw new BannerValidationError("Invalid display mode");
+  for (const focal of [change.focalX, change.focalY])
+    if (
+      focal !== undefined &&
+      (!Number.isFinite(focal) || focal < 0 || focal > 1)
+    )
+      throw new BannerValidationError(
+        "Focal coordinates must be between zero and one",
+      );
+  return change;
+}
+
+/** Stable JSON with sorted keys, so a request fingerprint ignores key order. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`)
+      .join(",")}}`;
+  return JSON.stringify(value) ?? "null";
 }
 
 function likePattern(value: string): string {
@@ -166,21 +289,23 @@ export class D1BannerAdministration implements BannerAdministration {
     bannerId: string,
     summary: string,
     details: Record<string, string>,
+    targetType: "banner" | "county" = "banner",
   ): D1BatchStatement {
     assertCredentialFree({
       action,
-      targetType: "banner",
+      targetType,
       targetId: bannerId,
       summary,
       details,
     });
     return this.database.prepare(
       `INSERT INTO audit_events (id, actor_account_id, action, target_type, target_id, summary, details_json)
-       VALUES (?, ?, ?, 'banner', ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         this.newIdentifier(),
         principal.accountId,
         action,
+        targetType,
         bannerId,
         summary,
         JSON.stringify(details),
@@ -918,5 +1043,778 @@ export class D1BannerAdministration implements BannerAdministration {
         ? { note: image.decodeNote }
         : {}),
     };
+  }
+
+  // ------------------------------------------------------------ publication
+
+  async listPublications(
+    principal: TrustedPrincipal,
+    bannerId: string,
+  ): Promise<readonly BannerPublicationRecord[]> {
+    await this.authorize(principal);
+    this.validateBannerId(bannerId);
+    const rows = await this.database.all<Row>(
+      "SELECT * FROM banner_publications WHERE banner_id = ? ORDER BY sequence DESC",
+      BANNER_PUBLICATION_LIST_LIMIT,
+      [bannerId],
+    );
+    return rows.map(mapPublication);
+  }
+
+  async publish(
+    principal: TrustedPrincipal,
+    request: PublishRequest,
+  ): Promise<BannerChangeResult> {
+    await this.authorize(principal);
+    this.validateKey(request.idempotencyKey);
+    this.validateBannerId(request.bannerId);
+    validText(request.versionId, "version ID", 128);
+    this.validateRowVersion(request.expectedRowVersion);
+    if (request.metadata) validateSnapshot(request.metadata);
+    const fingerprint = await this.fingerprint("publish", principal, {
+      bannerId: request.bannerId,
+      versionId: request.versionId,
+      expectedRowVersion: request.expectedRowVersion,
+      metadata: request.metadata ?? null,
+    });
+    return this.select({
+      principal,
+      key: request.idempotencyKey,
+      fingerprint,
+      action: "publish",
+      bannerId: request.bannerId,
+      expectedRowVersion: request.expectedRowVersion,
+      plan: async () => {
+        const banner = await this.expectBanner(
+          request.bannerId,
+          request.expectedRowVersion,
+        );
+        const version = await this.verifiedVersion(
+          request.bannerId,
+          request.versionId,
+        );
+        const metadata: PublicationMetadata = request.metadata ?? {
+          caption: str(banner, "caption"),
+          altText: str(banner, "alt_text"),
+          displayMode: str(banner, "display_mode") as BannerDisplayMode,
+          focalX: num(banner, "focal_x"),
+          focalY: num(banner, "focal_y"),
+        };
+        validateSnapshot(metadata);
+        await this.verifyStoredObject(version);
+        return {
+          origin: "publish",
+          restoredFrom: null,
+          metadata,
+          versionId: request.versionId,
+          auditAction: "banner.published",
+          summary: "Banner version published",
+        };
+      },
+    });
+  }
+
+  async restore(
+    principal: TrustedPrincipal,
+    request: RestoreRequest,
+  ): Promise<BannerChangeResult> {
+    await this.authorize(principal);
+    this.validateKey(request.idempotencyKey);
+    this.validateBannerId(request.bannerId);
+    validText(request.versionId, "version ID", 128);
+    this.validateRowVersion(request.expectedRowVersion);
+    if (request.publicationId !== undefined && request.metadata !== undefined)
+      throw new BannerValidationError(
+        "Give a recorded publication or explicit metadata, not both",
+      );
+    if (request.publicationId !== undefined)
+      validText(request.publicationId, "publication ID", 128);
+    if (request.metadata) validateSnapshot(request.metadata);
+    const fingerprint = await this.fingerprint("restore", principal, {
+      bannerId: request.bannerId,
+      versionId: request.versionId,
+      expectedRowVersion: request.expectedRowVersion,
+      publicationId: request.publicationId ?? null,
+      metadata: request.metadata ?? null,
+    });
+    return this.select({
+      principal,
+      key: request.idempotencyKey,
+      fingerprint,
+      action: "restore",
+      bannerId: request.bannerId,
+      expectedRowVersion: request.expectedRowVersion,
+      plan: async () => {
+        await this.expectBanner(request.bannerId, request.expectedRowVersion);
+        const version = await this.verifiedVersion(
+          request.bannerId,
+          request.versionId,
+        );
+        let metadata: PublicationMetadata;
+        let origin: PublicationOrigin;
+        let restoredFrom: string | null = null;
+        if (request.metadata) {
+          metadata = request.metadata;
+          origin = "restore_explicit";
+        } else {
+          const recorded = request.publicationId
+            ? await this.database.first<Row>(
+                "SELECT * FROM banner_publications WHERE id = ? AND banner_id = ? AND version_id = ?",
+                [request.publicationId, request.bannerId, request.versionId],
+              )
+            : await this.database.first<Row>(
+                "SELECT * FROM banner_publications WHERE banner_id = ? AND version_id = ? ORDER BY sequence DESC LIMIT 1",
+                [request.bannerId, request.versionId],
+              );
+          if (!recorded) {
+            if (request.publicationId)
+              throw new BannerConflictError(
+                "That publication does not belong to this version",
+              );
+            throw new BannerSnapshotRequiredError();
+          }
+          metadata = mapPublication(recorded);
+          origin = "restore_recorded";
+          restoredFrom = str(recorded, "id");
+        }
+        await this.verifyStoredObject(version);
+        return {
+          origin,
+          restoredFrom,
+          metadata,
+          versionId: request.versionId,
+          auditAction: "banner.restored",
+          summary: "Retained banner version restored",
+        };
+      },
+    });
+  }
+
+  async withdraw(
+    principal: TrustedPrincipal,
+    request: WithdrawRequest,
+  ): Promise<BannerChangeResult> {
+    await this.authorize(principal);
+    this.validateKey(request.idempotencyKey);
+    this.validateBannerId(request.bannerId);
+    this.validateRowVersion(request.expectedRowVersion);
+    const fingerprint = await this.fingerprint("withdraw", principal, {
+      bannerId: request.bannerId,
+      expectedRowVersion: request.expectedRowVersion,
+    });
+    const replay = await this.replayOf<BannerChangeResult>(
+      request.idempotencyKey,
+      fingerprint,
+    );
+    if (replay) return replay;
+    const banner = await this.expectBanner(
+      request.bannerId,
+      request.expectedRowVersion,
+    );
+    if (str(banner, "status") !== "active")
+      throw new BannerConflictError("Only an active banner can be withdrawn");
+    const selected = optStr(banner, "selected_version_id");
+    const rowVersion = request.expectedRowVersion + 1;
+    return this.commit<BannerChangeResult>({
+      principal,
+      key: request.idempotencyKey,
+      fingerprint,
+      action: "withdraw",
+      targetType: "banner",
+      targetId: request.bannerId,
+      result: {
+        bannerId: request.bannerId,
+        status: "withdrawn",
+        selectedVersionId: selected,
+        rowVersion,
+        publicationId: null,
+      },
+      expect: () =>
+        this.expectBanner(request.bannerId, request.expectedRowVersion),
+      statements: () => [
+        this.database.prepare(
+          `UPDATE banner_assets SET status = 'withdrawn', version = version + 1,
+             updated_by_account_id = ?, updated_at = ${NOW}
+           WHERE id = ? AND version = ? AND status = 'active'`,
+          [principal.accountId, request.bannerId, request.expectedRowVersion],
+        ),
+        this.changed(),
+      ],
+      audit: this.audit(
+        principal,
+        "banner.withdrawn",
+        request.bannerId,
+        "Banner withdrawn",
+        { versionId: selected ?? "none", rowVersion: String(rowVersion) },
+      ),
+    });
+  }
+
+  async updateMetadata(
+    principal: TrustedPrincipal,
+    request: UpdateMetadataRequest,
+  ): Promise<BannerChangeResult> {
+    await this.authorize(principal);
+    this.validateKey(request.idempotencyKey);
+    this.validateBannerId(request.bannerId);
+    this.validateRowVersion(request.expectedRowVersion);
+    const change = validateChange(request.change);
+    const fingerprint = await this.fingerprint("update_metadata", principal, {
+      bannerId: request.bannerId,
+      expectedRowVersion: request.expectedRowVersion,
+      change,
+    });
+    const replay = await this.replayOf<BannerChangeResult>(
+      request.idempotencyKey,
+      fingerprint,
+    );
+    if (replay) return replay;
+    const banner = await this.expectBanner(
+      request.bannerId,
+      request.expectedRowVersion,
+    );
+    const county = str(banner, "county_fips");
+    const status = str(banner, "status") as BannerAssetStatus;
+    const selected = optStr(banner, "selected_version_id");
+    const next = {
+      caption: change.caption ?? str(banner, "caption"),
+      altText: change.altText ?? str(banner, "alt_text"),
+      displayOrder: change.displayOrder ?? num(banner, "display_order"),
+      homepageOrder:
+        change.homepageOrder !== undefined
+          ? change.homepageOrder
+          : optNum(banner, "homepage_order"),
+      isPrimary: change.isPrimary ?? num(banner, "is_primary") === 1,
+      displayMode:
+        change.displayMode ??
+        (str(banner, "display_mode") as BannerDisplayMode),
+      focalX: change.focalX ?? num(banner, "focal_x"),
+      focalY: change.focalY ?? num(banner, "focal_y"),
+    };
+    const snapshotChanged =
+      next.caption !== str(banner, "caption") ||
+      next.altText !== str(banner, "alt_text") ||
+      next.displayMode !== str(banner, "display_mode") ||
+      next.focalX !== num(banner, "focal_x") ||
+      next.focalY !== num(banner, "focal_y");
+    const record = snapshotChanged && selected !== null;
+    if ((status === "active" || record) && next.altText.trim() === "")
+      throw new BannerValidationError(
+        "A banner with a selected image needs non-blank alt text",
+      );
+    if (next.displayOrder !== num(banner, "display_order")) {
+      const taken = await this.database.first(
+        "SELECT 1 AS ok FROM banner_assets WHERE county_fips = ? AND display_order = ? AND id <> ?",
+        [county, next.displayOrder, request.bannerId],
+      );
+      if (taken)
+        throw new BannerConflictError(
+          "Another banner in this county already uses that display order",
+        );
+    }
+    if (
+      next.homepageOrder !== null &&
+      next.homepageOrder !== optNum(banner, "homepage_order")
+    ) {
+      const taken = await this.database.first(
+        "SELECT 1 AS ok FROM banner_assets WHERE homepage_order = ? AND id <> ?",
+        [next.homepageOrder, request.bannerId],
+      );
+      if (taken)
+        throw new BannerConflictError(
+          "Another banner already uses that homepage order",
+        );
+    }
+    const publicationId = record ? this.newIdentifier() : null;
+    const rowVersion = request.expectedRowVersion + 1;
+    return this.commit<BannerChangeResult>({
+      principal,
+      key: request.idempotencyKey,
+      fingerprint,
+      action: "update_metadata",
+      targetType: "banner",
+      targetId: request.bannerId,
+      result: {
+        bannerId: request.bannerId,
+        status,
+        selectedVersionId: selected,
+        rowVersion,
+        publicationId,
+      },
+      expect: () =>
+        this.expectBanner(request.bannerId, request.expectedRowVersion),
+      statements: () => [
+        ...(next.isPrimary
+          ? [
+              this.database.prepare(
+                `UPDATE banner_assets SET is_primary = 0, version = version + 1,
+                   updated_by_account_id = ?, updated_at = ${NOW}
+                 WHERE county_fips = ? AND is_primary = 1 AND id <> ?`,
+                [principal.accountId, county, request.bannerId],
+              ),
+            ]
+          : []),
+        this.database.prepare(
+          `UPDATE banner_assets SET caption = ?, alt_text = ?, display_order = ?, homepage_order = ?,
+             is_primary = ?, display_mode = ?, focal_x = ?, focal_y = ?, version = version + 1,
+             updated_by_account_id = ?, updated_at = ${NOW}
+           WHERE id = ? AND version = ?`,
+          [
+            next.caption,
+            next.altText,
+            next.displayOrder,
+            next.homepageOrder,
+            next.isPrimary ? 1 : 0,
+            next.displayMode,
+            next.focalX,
+            next.focalY,
+            principal.accountId,
+            request.bannerId,
+            request.expectedRowVersion,
+          ],
+        ),
+        this.changed(),
+        ...(publicationId && selected
+          ? [
+              this.publicationInsert({
+                id: publicationId,
+                bannerId: request.bannerId,
+                versionId: selected,
+                origin: "metadata_edit",
+                restoredFrom: null,
+                metadata: next,
+                rowVersion,
+                accountId: principal.accountId,
+              }),
+            ]
+          : []),
+      ],
+      audit: this.audit(
+        principal,
+        "banner.metadata.updated",
+        request.bannerId,
+        "Banner metadata updated",
+        {
+          fields: Object.keys(change).sort().join(","),
+          rowVersion: String(rowVersion),
+          ...(publicationId ? { publicationId } : {}),
+        },
+      ),
+    });
+  }
+
+  async reorderCounty(
+    principal: TrustedPrincipal,
+    request: ReorderCountyRequest,
+  ): Promise<ReorderCountyResult> {
+    await this.authorize(principal);
+    this.validateKey(request.idempotencyKey);
+    if (!/^08\d{3}$/.test(request.countyFips))
+      throw new BannerValidationError(
+        "County FIPS must be five Colorado digits",
+      );
+    const ids = request.orderedBannerIds;
+    if (
+      !Array.isArray(ids) ||
+      ids.length === 0 ||
+      ids.length > BANNER_ADMIN_LIMITS.countyPageMax
+    )
+      throw new BannerValidationError("Invalid banner order");
+    for (const id of ids) {
+      this.validateBannerId(id);
+      this.validateRowVersion(request.expectedRowVersions[id]);
+    }
+    const fingerprint = await this.fingerprint("reorder", principal, {
+      countyFips: request.countyFips,
+      orderedBannerIds: ids,
+      expectedRowVersions: ids.map((id) => request.expectedRowVersions[id]),
+    });
+    const replay = await this.replayOf<ReorderCountyResult>(
+      request.idempotencyKey,
+      fingerprint,
+    );
+    if (replay) return replay;
+    const current = await this.currentOrder(
+      request.countyFips,
+      ids,
+      request.expectedRowVersions,
+    );
+    const moved = ids.filter((id, index) => current.get(id)?.order !== index);
+    if (moved.length === 0)
+      throw new BannerValidationError("The banner order is unchanged");
+    const base =
+      Math.max(-1, ...[...current.values()].map((row) => row.order)) +
+      ids.length +
+      1;
+    const phase = (second: boolean): D1BatchStatement[] =>
+      ids.flatMap((id, index) => {
+        const before = current.get(id);
+        if (!before || before.order === index) return [];
+        return [
+          this.database.prepare(
+            `UPDATE banner_assets SET display_order = ?, version = version + 1,
+               updated_by_account_id = ?, updated_at = ${NOW}
+             WHERE id = ? AND county_fips = ? AND version = ?`,
+            [
+              second ? index : base + index,
+              principal.accountId,
+              id,
+              request.countyFips,
+              before.version + (second ? 1 : 0),
+            ],
+          ),
+          this.changed(),
+        ];
+      });
+    return this.commit<ReorderCountyResult>({
+      principal,
+      key: request.idempotencyKey,
+      fingerprint,
+      action: "reorder",
+      targetType: "county",
+      targetId: request.countyFips,
+      result: {
+        countyFips: request.countyFips,
+        banners: ids.map((id, index) => {
+          const before = current.get(id);
+          return {
+            bannerId: id,
+            displayOrder: index,
+            rowVersion:
+              (before?.version ?? 0) + (before?.order === index ? 0 : 2),
+          };
+        }),
+      },
+      expect: async () => {
+        await this.currentOrder(
+          request.countyFips,
+          ids,
+          request.expectedRowVersions,
+        );
+      },
+      statements: () => [
+        this.assertion(
+          "(SELECT COUNT(*) FROM banner_assets WHERE county_fips = ?) = ?",
+          [request.countyFips, ids.length],
+        ),
+        ...phase(false),
+        ...phase(true),
+      ],
+      audit: this.audit(
+        principal,
+        "banner.order.updated",
+        request.countyFips,
+        "County banner order updated",
+        { count: String(ids.length), moved: String(moved.length) },
+        "county",
+      ),
+    });
+  }
+
+  // -------------------------------------------------------- change plumbing
+
+  private validateKey(key: string): void {
+    validText(key, "idempotency key", 200);
+    if (key.trim() === "")
+      throw new BannerValidationError("Invalid idempotency key");
+  }
+
+  private validateBannerId(id: string): void {
+    if (typeof id !== "string" || !BANNER_ID.test(id))
+      throw new BannerValidationError("Invalid banner ID");
+  }
+
+  private validateRowVersion(value: unknown): void {
+    if (!Number.isInteger(value) || (value as number) < 1)
+      throw new BannerValidationError("Invalid expected row version");
+  }
+
+  private async fingerprint(
+    action: string,
+    principal: TrustedPrincipal,
+    payload: unknown,
+  ): Promise<string> {
+    return sha256Hex(
+      new TextEncoder().encode(
+        canonical({ action, actor: principal.accountId, payload }),
+      ),
+    );
+  }
+
+  /** The stored result of an earlier identical request, or a conflict on key reuse. */
+  private async replayOf<T extends { replayed: boolean }>(
+    key: string,
+    fingerprint: string,
+  ): Promise<T | null> {
+    const row = await this.database.first<Row>(
+      "SELECT request_sha256, result_json FROM banner_admin_operations WHERE idempotency_key = ?",
+      [key],
+    );
+    if (!row) return null;
+    if (str(row, "request_sha256") !== fingerprint)
+      throw new BannerConflictError(
+        "Idempotency key was already used for a different request",
+      );
+    return {
+      ...(JSON.parse(str(row, "result_json")) as object),
+      replayed: true,
+    } as T;
+  }
+
+  private async expectBanner(
+    bannerId: string,
+    expectedRowVersion: number,
+  ): Promise<Row> {
+    const banner = await this.database.first<Row>(
+      "SELECT * FROM banner_assets WHERE id = ?",
+      [bannerId],
+    );
+    if (!banner) throw new BannerConflictError("Banner does not exist");
+    if (num(banner, "version") !== expectedRowVersion)
+      throw new BannerConflictError("Stale banner row version");
+    return banner;
+  }
+
+  private async verifiedVersion(
+    bannerId: string,
+    versionId: string,
+  ): Promise<Row> {
+    const version = await this.database.first<Row>(
+      "SELECT * FROM banner_asset_versions WHERE id = ? AND banner_id = ?",
+      [versionId, bannerId],
+    );
+    if (!version || str(version, "state") !== "verified")
+      throw new BannerConflictError(
+        "Only a verified version belonging to this banner can be selected",
+      );
+    return version;
+  }
+
+  /** Rereads the object and compares size and digest before anything selects it. */
+  private async verifyStoredObject(version: Row): Promise<void> {
+    const stored = await this.storage.get(str(version, "object_key"));
+    if (
+      !stored ||
+      stored.byteSize !== num(version, "byte_size") ||
+      stored.body.byteLength !== num(version, "byte_size") ||
+      (await sha256Hex(stored.body)) !== str(version, "sha256") ||
+      stored.metadata.sha256 !== str(version, "sha256") ||
+      stored.metadata.versionId !== str(version, "id")
+    )
+      throw new BannerConflictError(
+        "Stored image is missing or failed size and digest verification",
+      );
+  }
+
+  private async currentOrder(
+    countyFips: string,
+    ids: readonly string[],
+    expectedVersions: Readonly<Record<string, number>>,
+  ): Promise<Map<string, { order: number; version: number }>> {
+    const rows = await this.database.all<Row>(
+      "SELECT id, display_order, version FROM banner_assets WHERE county_fips = ? ORDER BY display_order, id",
+      BANNER_ADMIN_LIMITS.countyPageMax + 1,
+      [countyFips],
+    );
+    const known = new Map(
+      rows.map((row) => [
+        str(row, "id"),
+        { order: num(row, "display_order"), version: num(row, "version") },
+      ]),
+    );
+    if (
+      rows.length !== ids.length ||
+      new Set(ids).size !== ids.length ||
+      ids.some((id) => !known.has(id))
+    )
+      throw new BannerConflictError(
+        "Reordering must include each county banner exactly once",
+      );
+    for (const id of ids)
+      if (known.get(id)?.version !== expectedVersions[id])
+        throw new BannerConflictError("Stale banner row version");
+    return known;
+  }
+
+  private publicationInsert(input: {
+    id: string;
+    bannerId: string;
+    versionId: string;
+    origin: PublicationOrigin;
+    restoredFrom: string | null;
+    metadata: PublicationMetadata;
+    rowVersion: number;
+    accountId: string;
+  }): D1BatchStatement {
+    return this.database.prepare(
+      `INSERT INTO banner_publications (id, banner_id, version_id, sequence, origin, restored_from_publication_id,
+         caption, alt_text, display_mode, focal_x, focal_y, banner_row_version, published_by_account_id)
+       VALUES (?, ?, ?, (SELECT COALESCE(MAX(sequence), 0) + 1 FROM banner_publications WHERE banner_id = ?),
+         ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.id,
+        input.bannerId,
+        input.versionId,
+        input.bannerId,
+        input.origin,
+        input.restoredFrom,
+        input.metadata.caption,
+        input.metadata.altText,
+        input.metadata.displayMode,
+        input.metadata.focalX,
+        input.metadata.focalY,
+        input.rowVersion,
+        input.accountId,
+      ],
+    );
+  }
+
+  /** Publish and restore share one write: select, set metadata, record, audit. */
+  private async select(spec: {
+    principal: TrustedPrincipal;
+    key: string;
+    fingerprint: string;
+    action: "publish" | "restore";
+    bannerId: string;
+    expectedRowVersion: number;
+    plan: () => Promise<{
+      origin: PublicationOrigin;
+      restoredFrom: string | null;
+      metadata: PublicationMetadata;
+      versionId: string;
+      auditAction: string;
+      summary: string;
+    }>;
+  }): Promise<BannerChangeResult> {
+    const replay = await this.replayOf<BannerChangeResult>(
+      spec.key,
+      spec.fingerprint,
+    );
+    if (replay) return replay;
+    const plan = await spec.plan();
+    const publicationId = this.newIdentifier();
+    const rowVersion = spec.expectedRowVersion + 1;
+    return this.commit<BannerChangeResult>({
+      principal: spec.principal,
+      key: spec.key,
+      fingerprint: spec.fingerprint,
+      action: spec.action,
+      targetType: "banner",
+      targetId: spec.bannerId,
+      result: {
+        bannerId: spec.bannerId,
+        status: "active",
+        selectedVersionId: plan.versionId,
+        rowVersion,
+        publicationId,
+      },
+      expect: async () => {
+        await this.expectBanner(spec.bannerId, spec.expectedRowVersion);
+        await this.verifiedVersion(spec.bannerId, plan.versionId);
+      },
+      statements: () => [
+        this.assertion(
+          "EXISTS (SELECT 1 FROM banner_asset_versions WHERE id = ? AND banner_id = ? AND state = 'verified')",
+          [plan.versionId, spec.bannerId],
+        ),
+        this.database.prepare(
+          `UPDATE banner_assets SET selected_version_id = ?, status = 'active', caption = ?, alt_text = ?,
+             display_mode = ?, focal_x = ?, focal_y = ?, version = version + 1,
+             updated_by_account_id = ?, updated_at = ${NOW}
+           WHERE id = ? AND version = ?`,
+          [
+            plan.versionId,
+            plan.metadata.caption,
+            plan.metadata.altText,
+            plan.metadata.displayMode,
+            plan.metadata.focalX,
+            plan.metadata.focalY,
+            spec.principal.accountId,
+            spec.bannerId,
+            spec.expectedRowVersion,
+          ],
+        ),
+        this.changed(),
+        this.publicationInsert({
+          id: publicationId,
+          bannerId: spec.bannerId,
+          versionId: plan.versionId,
+          origin: plan.origin,
+          restoredFrom: plan.restoredFrom,
+          metadata: plan.metadata,
+          rowVersion,
+          accountId: spec.principal.accountId,
+        }),
+        this.database.prepare(
+          `UPDATE banner_stage_operations SET state = 'activated', updated_at = ${NOW}
+           WHERE version_id = ? AND state = 'verified'`,
+          [plan.versionId],
+        ),
+      ],
+      audit: this.audit(
+        spec.principal,
+        plan.auditAction,
+        spec.bannerId,
+        plan.summary,
+        {
+          versionId: plan.versionId,
+          publicationId,
+          origin: plan.origin,
+          rowVersion: String(rowVersion),
+          ...(plan.restoredFrom ? { restoredFrom: plan.restoredFrom } : {}),
+        },
+      ),
+    });
+  }
+
+  /**
+   * Runs the guarded batch with the idempotency ledger row and the audit event
+   * in the same atomic write. If it fails, nothing was written. The failure is
+   * then explained: lost authority, a concurrent identical request, a stale
+   * read or a constraint.
+   */
+  private async commit<T extends { replayed: boolean }>(spec: {
+    principal: TrustedPrincipal;
+    key: string;
+    fingerprint: string;
+    action: "publish" | "withdraw" | "restore" | "update_metadata" | "reorder";
+    targetType: "banner" | "county";
+    targetId: string;
+    result: Omit<T, "replayed">;
+    expect: () => Promise<unknown>;
+    statements: () => D1BatchStatement[];
+    audit: D1BatchStatement;
+  }): Promise<T> {
+    try {
+      await this.guarded(spec.principal, () => [
+        ...spec.statements(),
+        this.database.prepare(
+          `INSERT INTO banner_admin_operations (id, idempotency_key, request_sha256, action, target_type, target_id, result_json, account_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            this.newIdentifier(),
+            spec.key,
+            spec.fingerprint,
+            spec.action,
+            spec.targetType,
+            spec.targetId,
+            JSON.stringify(spec.result),
+            spec.principal.accountId,
+          ],
+        ),
+        spec.audit,
+      ]);
+    } catch (error) {
+      await this.authorize(spec.principal);
+      const replay = await this.replayOf<T>(spec.key, spec.fingerprint);
+      if (replay) return replay;
+      await spec.expect();
+      if (error instanceof Error && /UNIQUE|constraint/i.test(error.message))
+        throw new BannerConflictError(
+          "Change conflicts with another banner's order or primary setting",
+        );
+      throw error;
+    }
+    return { ...spec.result, replayed: false } as T;
   }
 }

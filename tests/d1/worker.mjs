@@ -8,6 +8,7 @@ import {
 import { D1ReportIntakeStore } from "../../src/services/report-intake-d1.ts";
 import { commitSyncChangesetD1 } from "../../src/services/sync-commit-d1.ts";
 import { reverseSyncBatchD1 } from "../../src/services/sync-revert-d1.ts";
+import { runBannerPublishChecks } from "./banner-publish-checks.mjs";
 import { runBannerAdminChecks } from "./banner-admin-checks.mjs";
 
 const json = (value, status = 200) =>
@@ -167,7 +168,14 @@ export default {
     }
     if (url.pathname === "/banners/verify" && request.method === "POST") {
       try {
-        return json(await runBannerAdminChecks(env, await request.json()));
+        const fixtures = await request.json();
+        const admin = await runBannerAdminChecks(env, fixtures);
+        const publish = await runBannerPublishChecks(env, fixtures);
+        return json({
+          success: true,
+          checks: admin.checks,
+          publishChecks: publish.checks,
+        });
       } catch (error) {
         return json({ success: false, error: String(error) }, 500);
       }
@@ -735,12 +743,12 @@ export default {
     ).all();
     check(
       "ordered custom migration history and checksums",
-      history.results?.length === 17 &&
+      history.results?.length === 18 &&
         history.results.every(
           (row, index) =>
             row.version === index + 1 &&
             row.name ===
-              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake", "owner_bootstrap_audit", "correct_lake_la_plata_county_names", "banner_homepage_curation", "content_publication"][index]}.sql` &&
+              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake", "owner_bootstrap_audit", "correct_lake_la_plata_county_names", "banner_homepage_curation", "content_publication", "banner_publications"][index]}.sql` &&
             /^[0-9a-f]{64}$/.test(row.sha256),
         ),
     );
@@ -1082,10 +1090,10 @@ export default {
       },
     );
     check(
-      "generation triggers cover all 26 dependency tables",
-      generationTriggers.results?.length === 78 &&
-        dependencyTables.results?.length === 26 &&
-        triggerCoverage.size === 26 &&
+      "generation triggers cover all 28 dependency tables",
+      generationTriggers.results?.length === 84 &&
+        dependencyTables.results?.length === 28 &&
+        triggerCoverage.size === 28 &&
         completeCoverage,
     );
     await env.DB.prepare(`INSERT INTO accounts (id, kind, role, display_name)
