@@ -160,28 +160,58 @@ async function login(request, env, db) {
   url.search = new URLSearchParams({ response_type:"code", client_id:env.AUTH0_CLIENT_ID, redirect_uri:env.AUTH0_REDIRECT_URI, scope:"openid", state, nonce, code_challenge:challenge, code_challenge_method:"S256", prompt:"login" }).toString();
   return response(null, 302, { location:url.href, "set-cookie":setCookie(STATE_COOKIE,browser,300) });
 }
+// Callback diagnostics. Fixed labels and an optional numeric upstream HTTP status are the only fields ever logged. Never pass URLs, errors, bodies, codes, state, nonce, PKCE values, tokens, cookies, secrets or identifiers here.
+const DIAG_OUTCOMES = {
+  input: ["state_or_cookie_missing", "transaction_rejected", "code_missing_or_duplicate_after_consume", "provider_error_param_after_consume"],
+  token_request: ["started", "fetch_failed", "upstream_rejected", "response_unparseable", "response_received"],
+  id_token: ["verified", "verification_failed"],
+  identity: ["linked", "not_linked", "lookup_or_bootstrap_failed"],
+  session: ["created", "creation_failed"],
+  callback: ["completed"],
+};
+function diag(stage, outcome, upstreamStatus) {
+  try {
+    if (!DIAG_OUTCOMES[stage]?.includes(outcome)) return;
+    const entry = { event: "auth3_callback", stage, outcome };
+    if (Number.isInteger(upstreamStatus) && upstreamStatus >= 100 && upstreamStatus <= 599) entry.upstream_status = upstreamStatus;
+    console.log(JSON.stringify(entry));
+  } catch {}
+}
 async function callback(request, env, db) {
   if (new URL(request.url).origin !== PILOT_ORIGIN) return response("Not found",404,{"set-cookie":clearCookie(STATE_COOKIE)});
   if (!validConfig(env)) return response("Pilot sign-in is disabled.", 503, { "set-cookie":clearCookie(STATE_COOKIE) });
   const url = new URL(request.url);
   const states = url.searchParams.getAll("state"), codes = url.searchParams.getAll("code");
   const stateCookie = cookie(request, STATE_COOKIE);
-  if (states.length !== 1 || !states[0] || !stateCookie) return response("Sign-in could not be completed.", 400, { "set-cookie":clearCookie(STATE_COOKIE) });
+  if (states.length !== 1 || !states[0] || !stateCookie) { diag("input", "state_or_cookie_missing"); return response("Sign-in could not be completed.", 400, { "set-cookie":clearCookie(STATE_COOKIE) }); }
   const txn = await db.prepare("UPDATE auth_transactions SET consumed_at=? WHERE state_hash=? AND browser_hash=? AND consumed_at IS NULL AND expires_at>? RETURNING nonce,verifier").bind(new Date().toISOString(), await hash(states[0]), await hash(stateCookie), new Date().toISOString()).first();
-  if (!txn) return response("Sign-in could not be completed.", 400, { "set-cookie":clearCookie(STATE_COOKIE) });
-  if (codes.length !== 1 || !codes[0] || url.searchParams.has("error")) return response("Sign-in could not be completed.", 400, { "set-cookie":clearCookie(STATE_COOKIE) });
+  if (!txn) { diag("input", "transaction_rejected"); return response("Sign-in could not be completed.", 400, { "set-cookie":clearCookie(STATE_COOKIE) }); }
+  if (url.searchParams.has("error")) { diag("input", "provider_error_param_after_consume"); return response("Sign-in could not be completed.", 400, { "set-cookie":clearCookie(STATE_COOKIE) }); }
+  if (codes.length !== 1 || !codes[0]) { diag("input", "code_missing_or_duplicate_after_consume"); return response("Sign-in could not be completed.", 400, { "set-cookie":clearCookie(STATE_COOKIE) }); }
+  let step = { stage:"token_request", outcome:"fetch_failed" };
   try {
     const iss = issuer(env);
+    diag("token_request", "started");
     const tokenResponse = await fetch(new URL("oauth/token", iss), { method:"POST", redirect:"error", headers:{"content-type":"application/json",accept:"application/json"}, body:JSON.stringify({ grant_type:"authorization_code", client_id:env.AUTH0_CLIENT_ID, client_secret:env.AUTH0_CLIENT_SECRET, code:codes[0], redirect_uri:env.AUTH0_REDIRECT_URI, code_verifier:txn.verifier }) });
-    if (!tokenResponse.ok) throw new Error("token_exchange_failed");
+    if (!tokenResponse.ok) { step = { stage:"token_request", outcome:"upstream_rejected", status:tokenResponse.status }; throw new Error("token_exchange_failed"); }
+    step = { stage:"token_request", outcome:"response_unparseable", status:tokenResponse.status };
     const tokens = await tokenResponse.json();
+    diag("token_request", "response_received", tokenResponse.status);
+    step = { stage:"id_token", outcome:"verification_failed" };
     const identity = await verifyIdToken(tokens.id_token, env, txn.nonce);
+    diag("id_token", "verified");
+    step = { stage:"identity", outcome:"lookup_or_bootstrap_failed" };
     const link = (await activeLink(db, identity.iss, identity.sub)) ?? (await bootstrapLink(db, env, identity));
-    if (!link) return response("This identity is not linked to the pilot test account.", 403, { "set-cookie":clearCookie(STATE_COOKIE) });
+    if (!link) { diag("identity", "not_linked"); return response("This identity is not linked to the pilot test account.", 403, { "set-cookie":clearCookie(STATE_COOKIE) }); }
+    diag("identity", "linked");
+    step = { stage:"session", outcome:"creation_failed" };
     const raw = randomToken();
     await db.prepare("INSERT INTO auth_sessions(id,token_hash,provider,issuer,subject,account_id,identity_id,issued_at,idle_expires_at,absolute_expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), await hash(raw), `auth0:${identity.iss}`, identity.iss, identity.sub, link.account_id, link.identity_id, new Date().toISOString(), new Date(Date.now()+30*60_000).toISOString(), new Date(Date.now()+8*60*60_000).toISOString()).run();
+    diag("session", "created");
+    diag("callback", "completed");
     return response(null, 302, { location:"/auth/test-view", "set-cookie":[setCookie(COOKIE,raw,8*60*60), clearCookie(STATE_COOKIE)] });
   } catch {
+    diag(step.stage, step.outcome, step.status);
     return response("Sign-in could not be completed.", 400, { "set-cookie":clearCookie(STATE_COOKIE) });
   }
 }

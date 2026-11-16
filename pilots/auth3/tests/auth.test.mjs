@@ -389,4 +389,115 @@ test("the setting value never appears in responses", async () => {
     assert.equal(JSON.stringify([...callback.headers]).includes(SUB), false);
   }
 });
+// Callback diagnostics. Synthetic sensitive values below must never reach the logs.
+const CODE = "synthetic-code-LEAK-1";
+const LEAKS = [CODE, "synthetic-secret", "LEAK-error-detail", "LEAK-body-detail", SUB, "synthetic-bootstrap-tenant.example"];
+const ALLOWED_KEYS = ["event", "outcome", "stage", "upstream_status"];
+async function diagRun(db, { code = CODE, extra = "", tokenFetch, idToken } = {}) {
+  const start = await worker.fetch(new Request(`${origin}/auth/login`), { ...baseEnv, DB:db });
+  const state = new URL(start.headers.get("location")).searchParams.get("state");
+  const browser = start.headers.get("set-cookie").split(";")[0].split("=")[1];
+  const txn = db.sqlite.prepare("SELECT nonce,verifier FROM auth_transactions ORDER BY rowid DESC LIMIT 1").get();
+  const idTok = idToken ?? await token(txn.nonce);
+  const realFetch = globalThis.fetch, realLog = console.log, logs = [];
+  globalThis.fetch = async input => {
+    const url = String(input);
+    if (url.endsWith("/oauth/token")) return tokenFetch ? tokenFetch() : new Response(JSON.stringify({ id_token:idTok }), { headers:{ "content-type":"application/json" } });
+    if (url.endsWith("/.well-known/jwks.json")) return new Response(JSON.stringify({ keys:[jwk] }), { headers:{ "content-type":"application/json" } });
+    throw new Error(`Unexpected outbound request ${url}`);
+  };
+  console.log = (...args) => { logs.push(args); };
+  const query = `${code === null ? "" : `code=${code}&`}state=${state}${extra}`;
+  try {
+    const callback = await worker.fetch(new Request(`${origin}/auth/callback?${query}`, { headers:{ cookie:`__Host-wd-auth3-state=${browser}` } }), { ...baseEnv, DB:db });
+    return { callback, logs, secrets:[...LEAKS, state, browser, txn.nonce, txn.verifier, idTok, idTok.split(".")[2]] };
+  } finally { globalThis.fetch = realFetch; console.log = realLog; }
+}
+const entries = logs => logs.map(args => { assert.equal(args.length, 1); return JSON.parse(args[0]); });
+function assertClean(result) {
+  const text = JSON.stringify(result.logs);
+  for (const secret of result.secrets) assert.equal(text.includes(secret), false, `log leaked ${secret}`);
+  for (const entry of entries(result.logs)) {
+    assert.deepEqual(Object.keys(entry).filter(k => !ALLOWED_KEYS.includes(k)), []);
+    assert.equal(entry.event, "auth3_callback");
+  }
+}
+const summary = logs => entries(logs).map(e => `${e.stage}:${e.outcome}${e.upstream_status ? `:${e.upstream_status}` : ""}`);
+
+test("diagnostics: a successful callback logs each stage in order, allowlisted fields only", async () => {
+  const db = makeDb();
+  const result = await diagRun(db);
+  assert.equal(result.callback.status, 302);
+  assert.deepEqual(summary(result.logs), ["token_request:started", "token_request:response_received:200", "id_token:verified", "identity:linked", "session:created", "callback:completed"]);
+  assertClean(result);
+});
+
+const FAILURES = [
+  { name: "token fetch fails", opts: { tokenFetch: () => { throw new Error("LEAK-error-detail synthetic-secret"); } }, expect: ["token_request:started", "token_request:fetch_failed"] },
+  { name: "upstream rejects with 401", opts: { tokenFetch: () => new Response('{"error":"LEAK-body-detail synthetic-secret"}', { status:401, headers:{ "content-type":"application/json" } }) }, expect: ["token_request:started", "token_request:upstream_rejected:401"] },
+  { name: "upstream returns 500", opts: { tokenFetch: () => new Response("LEAK-body-detail", { status:500 }) }, expect: ["token_request:started", "token_request:upstream_rejected:500"] },
+  { name: "token response is not JSON", opts: { tokenFetch: () => new Response("LEAK-body-detail not json", { status:200 }) }, expect: ["token_request:started", "token_request:response_unparseable:200"] },
+  { name: "ID token fails verification", opts: { idToken: "not.a.jwt" }, expect: ["token_request:started", "token_request:response_received:200", "id_token:verification_failed"] },
+  { name: "missing code after the transaction is consumed", opts: { code: null }, expect: ["input:code_missing_or_duplicate_after_consume"] },
+  { name: "provider error parameter after the transaction is consumed", opts: { extra: "&error=access_denied&error_description=LEAK-body-detail" }, expect: ["input:provider_error_param_after_consume"] },
+];
+for (const failure of FAILURES) {
+  test(`diagnostics: ${failure.name} keeps the generic 400 and logs only labels`, async () => {
+    const db = makeDb();
+    const result = await diagRun(db, failure.opts);
+    mustNotLink(db, result, 400);
+    assert.equal(await result.callback.text(), "Sign-in could not be completed.");
+    assert.deepEqual(identityRow(db), [SEEDED]);
+    assert.deepEqual(summary(result.logs), failure.expect);
+    assertClean(result);
+  });
+}
+
+test("diagnostics: identity lookup failure keeps the generic 400", async () => {
+  const db = makeDb(sql => { if (sql.includes("FROM identities i JOIN accounts a")) throw new Error("LEAK-error-detail"); });
+  const result = await diagRun(db);
+  mustNotLink(db, result, 400);
+  assert.deepEqual(summary(result.logs).slice(-2), ["id_token:verified", "identity:lookup_or_bootstrap_failed"]);
+  assertClean(result);
+});
+
+test("diagnostics: bootstrap failure is reported as an identity-stage failure", async () => {
+  const db = makeDb(sql => { if (sql.startsWith("UPDATE identities")) throw new Error("LEAK-error-detail"); });
+  const result = await diagRun(db);
+  mustNotLink(db, result, 400);
+  assert.equal(summary(result.logs).at(-1), "identity:lookup_or_bootstrap_failed");
+  assertClean(result);
+});
+
+test("diagnostics: no eligible link keeps the 403 and logs not_linked", async () => {
+  const db = makeDb();
+  db.sqlite.exec("UPDATE accounts SET status='disabled'");
+  const result = await diagRun(db);
+  mustNotLink(db, result, 403);
+  assert.deepEqual(summary(result.logs).slice(-2), ["id_token:verified", "identity:not_linked"]);
+  assertClean(result);
+});
+
+test("diagnostics: session creation failure keeps the generic 400", async () => {
+  const db = makeDb(sql => { if (sql.startsWith("INSERT INTO auth_sessions")) throw new Error("LEAK-error-detail"); });
+  const result = await diagRun(db);
+  mustNotLink(db, result, 400);
+  assert.deepEqual(summary(result.logs).slice(-2), ["identity:linked", "session:creation_failed"]);
+  assertClean(result);
+});
+
+test("diagnostics: a callback whose state matches no transaction logs a rejection", async () => {
+  const db = makeDb();
+  const start = await worker.fetch(new Request(`${origin}/auth/login`), { ...baseEnv, DB:db });
+  const state = new URL(start.headers.get("location")).searchParams.get("state");
+  const browser = start.headers.get("set-cookie").split(";")[0].split("=")[1];
+  const logs = [], realLog = console.log;
+  console.log = (...args) => { logs.push(args); };
+  try {
+    const res = await worker.fetch(new Request(`${origin}/auth/callback?code=${CODE}&state=wrong-${state}`, { headers:{ cookie:`__Host-wd-auth3-state=${browser}` } }), { ...baseEnv, DB:db });
+    assert.equal(res.status, 400);
+  } finally { console.log = realLog; }
+  assert.deepEqual(summary(logs), ["input:transaction_rejected"]);
+  assert.equal(JSON.stringify(logs).includes(state), false);
+});
 }

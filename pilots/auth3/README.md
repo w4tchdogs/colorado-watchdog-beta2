@@ -48,6 +48,42 @@ This is the plan for a later hosted session. None of it has been done. Only the 
 
 Local verification only: the guarded SQL runs against real SQLite (`node:sqlite`) using the deployed Drizzle migration and synthetic data in `tests/bootstrap.test.mjs`. That is not D1 itself. Hosted D1 behavior is unverified until the session above.
 
+## Callback diagnostics
+
+Each `/auth/callback` attempt writes one JSON line per stage to the Worker's application log. A line holds only `event` (always `auth3_callback`), `stage`, `outcome` and, when Auth0 answered the token request, `upstream_status` (the numeric HTTP status). Nothing else is logged: no URLs, errors, stacks, request or response bodies, codes, state, nonce, PKCE values, tokens, cookies, secrets or account identifiers. Browser responses are unchanged.
+
+### Matching one fresh attempt
+
+1. Note the UTC time, then sign in once with the disposable GitHub account.
+2. In the Sites Worker events for the pilot, find the `GET /auth/callback` request closest to that time. Read the `auth3_callback` lines logged with it, in order. Match by timestamp and request only, never by copying values from the callback URL.
+3. The last line shows where the attempt stopped. A complete sign-in ends with `callback` / `completed`.
+
+### Stage and outcome labels
+
+| stage / outcome | Meaning |
+| --- | --- |
+| `input` / `state_or_cookie_missing` | State or the state cookie was missing or duplicated. Transaction not consumed. |
+| `input` / `transaction_rejected` | No unconsumed, unexpired transaction matched the state and cookie. Not consumed by this request. |
+| `input` / `provider_error_param_after_consume` | The callback carried an `error` parameter. The transaction was consumed. |
+| `input` / `code_missing_or_duplicate_after_consume` | The `code` parameter was missing, empty or repeated. The transaction was consumed. |
+| `token_request` / `started` | Input accepted. The token request to Auth0 is about to be sent. |
+| `token_request` / `fetch_failed` | The request threw before any HTTP response (network failure, redirect refused). Auth0 may not have received it. |
+| `token_request` / `upstream_rejected` | Auth0 answered with a non-success status, shown as `upstream_status`. A 401 or 403 usually means a client ID or secret or authentication-method mismatch, and a 400 usually means a bad code, verifier or redirect URI. |
+| `token_request` / `response_unparseable` | Auth0 answered with a success status but the body was not JSON. |
+| `token_request` / `response_received` | Auth0 returned a success status and parseable JSON. |
+| `id_token` / `verification_failed` | The ID token was missing, malformed, or failed signature, issuer, audience, expiry, nonce or subject checks, or the JWKS fetch failed. |
+| `id_token` / `verified` | The ID token passed every check. |
+| `identity` / `lookup_or_bootstrap_failed` | The identity lookup or the one-time bootstrap update threw a database error. |
+| `identity` / `not_linked` | No eligible linked identity was found. The browser sees the 403 page. |
+| `identity` / `linked` | An eligible linked identity was found. |
+| `session` / `creation_failed` | Inserting the session row failed. |
+| `session` / `created` | The session row was inserted. |
+| `callback` / `completed` | The callback finished with a redirect to `/auth/test-view`. |
+
+Reading the sequence: no `token_request` / `started` line means input was rejected first. `started` with nothing after it, or followed by `fetch_failed`, means no usable answer came back from Auth0. A `started` line with no later line at all, as opposed to a failure label, means the Worker stopped without reaching the handler's catch (for example a timeout or cancelled request), and the token request has no timeout of its own.
+
+These labels were exercised locally with synthetic data only. They have not been observed on the hosted Site until the attempt above is run.
+
 ## Sign out
 
 The signed-in test page sends `Referrer-Policy: same-origin` so that the browser sends the page's own origin as `Origin` on the Sign out form POST. Every other response keeps `Referrer-Policy: no-referrer`, including the OAuth login redirect and callback. Without this narrow exception a browser form POST under `no-referrer` sends `Origin: null`, which the logout origin check correctly rejects. The logout endpoint still requires the exact pilot origin. Missing, `null`, foreign and lookalike origins are denied with 403 and leave the session active.
