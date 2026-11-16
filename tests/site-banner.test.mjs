@@ -687,7 +687,8 @@ test("owner logo and mascot artwork are used sparingly", async () => {
       home.$(".site-header .brand").textContent,
       /Accountability Starts with Being Heard/,
     );
-    assert.equal(home.$$("svg").length, 0);
+    assert.equal(home.$$("svg").length, 4);
+    assert.equal(home.$$(".discovery-card > svg[aria-hidden=true]").length, 4);
     const mascots = (page) =>
       page.$$("img.mascot").map((img) => img.getAttribute("src"));
     assert.deepEqual(mascots(home), ["/assets/brand-mascot-standing.png"]);

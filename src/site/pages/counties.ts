@@ -1,9 +1,4 @@
-import {
-  countyIndexGrid,
-  emptyState,
-  pageHeader,
-  searchForm,
-} from "../components.js";
+import { emptyState, pageHeader, searchForm } from "../components.js";
 import { renderCountyMap } from "../county-map.js";
 import { countyTitle } from "../format.js";
 import { html, path, type SafeHtml, trusted } from "../html.js";
@@ -117,6 +112,29 @@ function countCell(value: number | null, label: string): SafeHtml {
     : html`<td data-label="${label}">${value}</td>`;
 }
 
+function countyIndexGrid(
+  counties: readonly { fips: string; name: string }[],
+  matches: ReadonlySet<string>,
+): SafeHtml {
+  const alphabetic = [...counties].sort(
+    (left, right) =>
+      left.name.localeCompare(right.name, "en") ||
+      left.fips.localeCompare(right.fips),
+  );
+  return html`<ol class="county-index-grid">
+    ${alphabetic.map(
+      (
+        county,
+      ) => html`<li data-county data-fips="${county.fips}"${matches.has(county.fips) ? trusted(' class="is-match"') : ""}>
+        <a href="${path("counties", county.fips)}" title="${countyTitle(county.name)}, FIPS ${county.fips}">
+          <span class="cell-name">${county.name}<span class="visually-hidden"> County, FIPS ${county.fips}</span></span>
+          <span class="cell-code" aria-hidden="true">${county.fips}</span>
+        </a>
+      </li>`,
+    )}
+  </ol>`;
+}
+
 export async function countiesPage(
   context: SiteContext,
   query: string,
@@ -143,6 +161,7 @@ export async function countiesPage(
     undefined,
     `${all.length} counties · one statewide record`,
   )}
+  <p class="county-browse"><a class="county-browse-all" href="#county-directory">Browse all ${all.length} counties</a></p>
   ${renderCountyMap(all, shown, undefined, active ? matchingStatus(matchCount) : IDLE_STATUS)}
   ${searchForm({
     action: "/counties",
@@ -157,7 +176,10 @@ export async function countiesPage(
     maxLength: 40,
     inputAttributes: trusted("data-county-filter"),
   })}
-  <p class="county-browse"><a class="county-browse-all" href="#county-directory">Browse all ${all.length} counties</a></p>
+  <section id="county-directory" aria-labelledby="county-directory-title">
+    <h2 id="county-directory-title">Search and browse all counties</h2>
+    ${countyIndexGrid(all, shown)}
+  </section>
   <div data-county-empty ${active && matchCount === 0 ? "" : trusted("hidden")}>
     ${emptyState(
       "No county matches that search",
@@ -205,10 +227,6 @@ export async function countiesPage(
         })}
       </tbody>
     </table>
-  </section>
-  <section id="county-directory" aria-labelledby="county-directory-title">
-    <h2 id="county-directory-title">Search and browse all counties</h2>
-    ${countyIndexGrid(all, shown)}
   </section>
 </div>`;
 
