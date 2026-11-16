@@ -80,7 +80,7 @@ that show the state of profiles, departments and grievances.
   the hosted Site, and at least the first three installments of "The
   Idlewild Story" are published.
 - **Today:** the content model, revision history, search, local editorial workspace, publication endpoint and public article rendering are merged. Hosted editorial sign-in remains open.
-- **Remaining:** build the local capability-based dashboard foundation first (EDIT-2 local slice). Use fictional Lorem Ipsum for the preview. Hosted EDIT-2 still depends on Website identity and account access. CONTENT-1 is paused; the existing real drafts and the launch content requirement remain on the backlog.
+- **Remaining:** the local capability-based dashboard (EDIT-2), including the Banners module (BANNER-ADMIN-4), is merged and verified locally with Lorem Ipsum and synthetic images. Hosted EDIT-2 still depends on Website identity and account access. CONTENT-1 is paused; the existing real drafts and the launch content requirement remain on the backlog.
 
 ### Goal 6. Beta-1 look, search and browse
 

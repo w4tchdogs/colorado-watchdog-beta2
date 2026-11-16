@@ -58,7 +58,8 @@ const server = createServer(async (incoming, outgoing) => {
     if (method !== "GET" && method !== "HEAD") {
       for await (const chunk of incoming) {
         size += chunk.length;
-        if (size > 700_000) {
+        // Stage uploads carry a full banner image (25 MiB limit + overhead).
+        if (size > 27_262_976) {
           outgoing.writeHead(413, { "content-type": "application/json" });
           outgoing.end(JSON.stringify({ error: "request_too_large" }));
           return;
