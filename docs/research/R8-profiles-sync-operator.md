@@ -26,6 +26,17 @@ sources and organizations are emitted once. Without the flag, statewide
 behavior is unchanged. County-scoped preview is an eligibility diagnostic;
 `sync-prepare` remains the existing explicitly reviewed statewide workflow.
 
+## Owner profile rule and implementation status
+
+The owner decision recorded in docs/decisions.md (November 16, 2026) says a
+Profile needs a county, a name, and at least one of office, position, or job
+description. Same-county claims with the same name merge when office, position,
+or job description align. Unknown organization type or hierarchy alone is not
+an exclusion. The current identity planner and R7 builder do not yet implement
+this rule; preview exclusions still describe the old code path and must not be
+reported as final eligibility under the owner rule. A follow-up implementation
+and fresh county preview are required. The live Adams batch remains unselected.
+
 Preview diagnostics report candidate claims, claims skipped because their batch
 is unselected, selected-batch claims evaluated, distinct people, claims excluded
 by reason, claims with planned role operations, planned operations by Website
