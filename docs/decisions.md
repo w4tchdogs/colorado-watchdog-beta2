@@ -211,3 +211,11 @@ rewriting the history above.
 - An unknown organization type or unresolved hierarchy is not, by itself, a reason to exclude an otherwise qualifying Profile.
 - Keep each supported role, its office/position/job-description text, county association, source citation and evidence history. Do not turn a responsibility into a job title.
 - This decision supersedes conflicting earlier identity evidence defaults and R7 eligibility assumptions. The existing identity planner and R7 generator have not yet implemented it; their current previews must be labeled as pre-decision code behavior until updated. The official/unofficial role-citation requirements recorded above remain separate.
+
+## Profiles database column names, November 16, 2026
+
+Use the approved plain-language names as actual SQLite column identifiers in
+People, Roles, Sources, and their supporting tables. Preserve the original row
+values and evidence, keep the machine-facing CSV and export keys stable, and
+ship the schema migration and updated Profiles tools together. The local
+operator procedure is in [the Profiles foundation guide](research/R0-foundation.md#plain-language-columns-in-db-browser).

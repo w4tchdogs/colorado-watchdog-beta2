@@ -40,7 +40,7 @@ def setup(path):
     ]
     for i, (sid, url, kind) in enumerate(sources):
         db.execute(
-            "INSERT INTO sources(id,original_url,page_type,official_status,publisher_classification,recorded_at) "
+            'INSERT INTO sources("Source ID","Original source URL","Document type","Previous source category","Publisher type","Recorded on") '
             "VALUES(?,?,?,'official','official',?)",
             (sid, url, kind, NOW),
         )
@@ -51,7 +51,7 @@ def setup(path):
         url = dict((x[0], x[1]) for x in sources)[source]
         raw = json.dumps({"fixture": key})
         db.execute(
-            "INSERT INTO evidence_links(id,source_id,observed_title,observed_url,locator,batch_id,raw_record_json,raw_record_sha256,occurrences_json,run_id,recorded_at) VALUES(?,?,?,?,?,'batch',?,?,?,?,?)",
+            "INSERT INTO evidence_links(\"Evidence record ID\",\"Source ID\",\"Source title as observed\",\"Source URL as observed\",\"Evidence location\",\"Import batch ID\",\"Original record\",\"Original record fingerprint\",\"Where the record appeared\",\"Research run ID\",\"Recorded on\") VALUES(?,?,?,?,?,'batch',?,?,?,?,?)",
             (
                 eid,
                 source,
@@ -88,7 +88,7 @@ def setup(path):
     ]
     for uid, kind, parent in units:
         db.execute(
-            "INSERT INTO org_units(id,county_fips,source_label,kind,parent_id,parent_relation,parent_evidence_id) VALUES(?,'08001',?,?,?, ?,?)",
+            "INSERT INTO org_units(\"Office or unit ID\",\"County code\",\"Office or unit label as published\",\"Organization type\",\"Parent office or unit\",\"Relationship to parent\",\"Evidence for parent relationship\") VALUES(?,'08001',?,?,?, ?,?)",
             (
                 uid,
                 kind.title()
@@ -109,7 +109,7 @@ def setup(path):
         )
         ev_key = {"department": "dept"}.get(uid, uid)
         db.execute(
-            "INSERT INTO org_names(id,unit_id,name,kind,evidence_id) VALUES(?,?,?,'published',?)",
+            "INSERT INTO org_names(\"Office name record ID\",\"Office or unit ID\",\"Name\",\"Name type\",\"Evidence for this name\") VALUES(?,?,?,'published',?)",
             ("name-" + uid, uid, uid, ev[ev_key]),
         )
     targets = [
@@ -121,7 +121,7 @@ def setup(path):
     ]
     for tid, unit, title in targets:
         db.execute(
-            "INSERT INTO role_targets(id,unit_id,county_fips,documented_title,evidence_id) VALUES(?,?,'08001',?,?)",
+            "INSERT INTO role_targets(\"Position ID\",\"Office or unit ID\",\"County code\",\"Documented position title\",\"Evidence for position\") VALUES(?,?,'08001',?,?)",
             (
                 tid,
                 unit,
@@ -146,7 +146,7 @@ def setup(path):
     ]
     for pid, name, state, evidence_id in people:
         db.execute(
-            "INSERT INTO research_people(id,county_fips,display_name,identity_state,identity_evidence_id) VALUES(?,'08001',?,?,?)",
+            "INSERT INTO research_people(\"Profile ID\",\"County code\",\"Full name\",\"Identity review status\",\"Evidence for identity\") VALUES(?,'08001',?,?,?)",
             (pid, name, state, evidence_id),
         )
     claims = [
@@ -174,7 +174,7 @@ def setup(path):
     evidence("role-p", "src2")
     for cid, pid, unit, target, key, aff in claims:
         db.execute(
-            "INSERT INTO role_claims(id,county_fips,evidence_id,person_id,unit_id,target_id,published_name,published_title,source_listing_status,affiliation,private_note) VALUES(?,'08001',?,?,?,?,?,?,'Listed',?,'PRIVATE FIXTURE NOTE MUST NOT LEAVE SQLITE')",
+            "INSERT INTO role_claims(\"Role claim ID\",\"County code\",\"Evidence record ID\",\"Linked profile\",\"Linked office or unit\",\"Linked position\",\"Name as published\",\"Position as published\",\"Listing status\",\"Affiliation\",\"Private review notes\") VALUES(?,'08001',?,?,?,?,?,?,'Listed',?,'PRIVATE FIXTURE NOTE MUST NOT LEAVE SQLITE')",
             (
                 cid,
                 ev[key],
@@ -253,7 +253,7 @@ def ack(path, receipt_text, submission_id):
 def prepare_update(path):
     db = connect(path)
     evidence = db.execute(
-        "SELECT identity_evidence_id FROM research_people WHERE id='person-a'"
+        "SELECT \"Evidence for identity\" AS identity_evidence_id FROM research_people WHERE \"Profile ID\"='person-a'"
     ).fetchone()[0]
     approval = approve_site_update(
         db,
@@ -311,7 +311,7 @@ def ack_update(path, receipt_text, submission_id):
             {"display_name": "stale"},
             1,
             db.execute(
-                "SELECT identity_evidence_id FROM research_people WHERE id='person-a'"
+                "SELECT \"Evidence for identity\" AS identity_evidence_id FROM research_people WHERE \"Profile ID\"='person-a'"
             ).fetchone()[0],
             now=NOW,
         )

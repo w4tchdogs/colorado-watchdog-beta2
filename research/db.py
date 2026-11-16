@@ -19,13 +19,14 @@ def connect(path=":memory:"):
     return db
 
 
-def migrate(db, directory=MIGRATIONS):
+def migrate(db, directory=MIGRATIONS, *, through_version=None):
     """Apply packaged migrations atomically; refuse edited/applied or unknown history."""
     if db.in_transaction:
         raise ValueError("Finish the current transaction before migrating")
     if db.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
         raise ValueError("Foreign keys must be enabled")
-    files = sorted(Path(directory).glob("[0-9][0-9][0-9]_*.sql"))
+    files = (sorted(Path(directory).glob("[0-9][0-9][0-9]_*.sql"))
+             if through_version is None else migration_prefix(through_version, directory))
     if not files:
         raise ValueError("No migrations found")
     names = [p.name for p in files]
@@ -74,9 +75,10 @@ def validate_database(db):
     }
 
 
-def validate_migration_history(db, directory=MIGRATIONS):
+def validate_migration_history(db, directory=MIGRATIONS, *, through_version=None):
     """Read-only verification that every packaged migration is already applied."""
-    files = sorted(Path(directory).glob("[0-9][0-9][0-9]_*.sql"))
+    files = (sorted(Path(directory).glob("[0-9][0-9][0-9]_*.sql"))
+             if through_version is None else migration_prefix(through_version, directory))
     names = [path.name for path in files]
     versions = [int(name[:3]) for name in names]
     if not files or versions != list(range(1, len(files) + 1)):
@@ -101,6 +103,14 @@ def validate_migration_history(db, directory=MIGRATIONS):
     return {"integrity": integrity, "schema_version": len(files), "migration_count": len(files)}
 
 
+def migration_prefix(version, directory=MIGRATIONS):
+    """Return the packaged migrations through a validated SQLite schema version."""
+    files = sorted(Path(directory).glob("[0-9][0-9][0-9]_*.sql"))
+    if not isinstance(version, int) or not 1 <= version <= len(files):
+        raise ValueError("Database has an unsupported migration version")
+    return files[:version]
+
+
 def seed_counties(db):
     """Add the canonical public county registry without repairing conflicting rows."""
     if db.in_transaction:
@@ -114,7 +124,7 @@ def seed_counties(db):
     with db:
         db.execute("BEGIN IMMEDIATE")
         validate_migration_history(db)
-        rows = list(db.execute("SELECT fips,name FROM counties ORDER BY fips"))
+        rows = list(db.execute('SELECT "County code" AS fips,"County name" AS name FROM counties ORDER BY fips'))
         existing = {row["fips"]: row["name"] for row in rows}
         names = {row["name"]: row["fips"] for row in rows}
         present = [{"fips": fips, "name": name} for fips, name in sorted(existing.items())
@@ -136,7 +146,7 @@ def seed_counties(db):
             return {"status": "conflict", "inserted": [], "already_present": present,
                     "conflicts": conflicts}
         missing = [(fips, name) for fips, name in sorted(COUNTIES.items()) if fips not in existing]
-        db.executemany("INSERT INTO counties(fips,name) VALUES (?,?)", missing)
+        db.executemany('INSERT INTO counties("County code","County name") VALUES (?,?)', missing)
         return {"status": "seeded" if missing else "already_present",
                 "inserted": [{"fips": fips, "name": name} for fips, name in missing],
                 "already_present": present, "conflicts": []}

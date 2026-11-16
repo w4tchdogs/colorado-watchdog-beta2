@@ -69,7 +69,7 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
     with db:
         # Serialize replay and selection checks with the write transaction.
         db.execute("BEGIN IMMEDIATE")
-        county_record = db.execute("SELECT name FROM counties WHERE fips=?", (county,)).fetchone()
+        county_record = db.execute('SELECT "County name" AS name FROM counties WHERE "County code"=?', (county,)).fetchone()
         if county_record is None:
             raise ValueError("County is missing from the target database registry")
         if county_record["name"] != COUNTIES[county]:
@@ -90,8 +90,8 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
                 raise ValueError("Mapping definition changed without a version change")
             for digest in grouped:
                 prior = db.execute(
-                    "SELECT c.supersedes_id FROM role_claims c JOIN evidence_links e ON e.id=c.evidence_id "
-                    "WHERE e.batch_id=? AND e.raw_record_sha256=?",
+                    'SELECT c."Earlier claim this replaces" AS supersedes_id FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+                    'WHERE e."Import batch ID"=? AND e."Original record fingerprint"=?',
                     (existing["id"], digest),
                 ).fetchone()
                 if prior is None:
@@ -99,8 +99,8 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
                 if prior[0] != correction_links[digest]:
                     raise ValueError("Replay correction links differ from recorded lineage")
             if return_result:
-                counts = db.execute("SELECT count(*) FROM role_claims c JOIN evidence_links e ON e.id=c.evidence_id "
-                                    "WHERE e.batch_id=?", (existing["id"],)).fetchone()[0]
+                counts = db.execute('SELECT count(*) FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+                                    'WHERE e."Import batch ID"=?', (existing["id"],)).fetchone()[0]
                 return _delivery_result(existing["id"], created=False, version=version,
                                         file_sha256=parsed["file_sha256"], county=county,
                                         record_count=len(rows), claim_count=counts,
@@ -124,10 +124,10 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
         for digest, occurrences in grouped.items():
             row = occurrences[0]
             v = row["values"]
-            source = db.execute("SELECT id FROM sources WHERE original_url=?", (v["source_url"],)).fetchone()
+            source = db.execute('SELECT "Source ID" AS id FROM sources WHERE "Original source URL"=?', (v["source_url"],)).fetchone()
             source_id = source[0] if source else new_id("source")
             if not source:
-                db.execute("INSERT INTO sources(id,original_url,recorded_at) VALUES (?,?,?)",
+                db.execute('INSERT INTO sources("Source ID","Original source URL","Recorded on") VALUES (?,?,?)',
                            (source_id, v["source_url"], now))
             evidence_id = f"evidence_{uuid5(NAMESPACE_URL, batch_id + ':' + digest)}"
             claim_id = f"claim_{uuid5(NAMESPACE_URL, evidence_id)}"
@@ -135,17 +135,17 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
             parent_evidence_id = None
             if parent_claim_id:
                 prior = db.execute(
-                    "SELECT c.evidence_id FROM role_claims c JOIN evidence_links e ON e.id=c.evidence_id "
-                    "WHERE c.id=? AND e.batch_id=? AND c.county_fips=?",
+                    'SELECT c."Evidence record ID" AS evidence_id FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+                    'WHERE c."Role claim ID"=? AND e."Import batch ID"=? AND c."County code"=?',
                     (parent_claim_id, parent_batch_id, county),
                 ).fetchone()
                 if not prior:
                     raise ValueError("Correction must reference a claim in the specified parent batch")
                 parent_evidence_id = prior[0]
             db.execute(
-                "INSERT INTO evidence_links(id,source_id,source_version_key,observed_title,observed_url,"
-                "source_date,source_date_precision,source_date_basis,reported_checked_date,locator,"
-                "batch_id,raw_record_json,raw_record_sha256,occurrences_json,supersedes_id,run_id,recorded_at) "
+                'INSERT INTO evidence_links("Evidence record ID","Source ID","Source version ID","Source title as observed","Source URL as observed",'
+                '"Source date","Source date precision","How the source date was determined","Reported check date","Evidence location",'
+                '"Import batch ID","Original record","Original record fingerprint","Where the record appeared","Earlier evidence record this replaces","Research run ID","Recorded on") '
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (evidence_id, source_id, None, v["source_title"], v["source_url"],
                  v["source_date"] or None, row["source_date_precision"], "reported" if v["source_date"] else None,
@@ -155,9 +155,9 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
                                  for o in occurrences]), parent_evidence_id, run_id, now),
             )
             db.execute(
-                "INSERT INTO role_claims(id,county_fips,evidence_id,published_name,published_title,"
-                "responsibility,source_listing_status,legacy_display_group,grouping_basis,department_label,"
-                "division_label,program_location,private_note,supersedes_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                'INSERT INTO role_claims("Role claim ID","County code","Evidence record ID","Name as published","Position as published",'
+                '"Job description or duties","Listing status","Original display group","Reason for grouping","Office or department as published",'
+                '"Division or unit as published","Program or location as published","Private review notes","Earlier claim this replaces") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                 (claim_id, county, evidence_id, v["full_name"], v["title"] or None, v["responsibility"] or None,
                  ("Listed" if v["listing_status"] == "Listed in official source" else v["listing_status"]), v["display_group"], v["grouping_basis"], v["department"], v["division"],
                  v["program_location"], v["private_note"], parent_claim_id),
@@ -187,11 +187,11 @@ def set_parent(db, *, unit_id, parent_id, relation, evidence_id, run_id):
     with db:
         db.execute("BEGIN IMMEDIATE")
         previous = db.execute(
-            "SELECT parent_id,parent_relation,parent_evidence_id FROM org_units WHERE id=?", (unit_id,),
+            'SELECT "Parent office or unit" AS parent_id,"Relationship to parent" AS parent_relation,"Evidence for parent relationship" AS parent_evidence_id FROM org_units WHERE "Office or unit ID"=?', (unit_id,),
         ).fetchone()
         if previous is None:
             raise ValueError("Unknown organization unit")
-        db.execute("UPDATE org_units SET parent_id=?,parent_relation=?,parent_evidence_id=? WHERE id=?",
+        db.execute('UPDATE org_units SET "Parent office or unit"=?,"Relationship to parent"=?,"Evidence for parent relationship"=? WHERE "Office or unit ID"=?',
                    (parent_id, relation, evidence_id, unit_id))
         now = timestamp()
         db.execute("INSERT INTO research_events VALUES (?,?,?,?,?,?,?,?,?)",

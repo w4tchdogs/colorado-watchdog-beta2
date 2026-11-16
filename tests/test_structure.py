@@ -120,8 +120,8 @@ class StructureFoundationTests(unittest.TestCase):
         self.assertEqual(first["status"], "applied")
         self.assertEqual(second["status"], "already_applied")
         self.assertEqual(self.db.execute("SELECT count(*) FROM research_events").fetchone()[0], event_count)
-        self.assertEqual(self.db.execute("SELECT count(*) FROM role_claims WHERE unit_id IS NOT NULL").fetchone()[0], 9)
-        self.assertEqual(self.db.execute("SELECT count(*) FROM role_claims WHERE target_id IS NOT NULL").fetchone()[0], 4)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM role_claims WHERE "Linked office or unit" IS NOT NULL').fetchone()[0], 9)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM role_claims WHERE "Linked position" IS NOT NULL').fetchone()[0], 4)
         self.assertEqual(self.db.execute("SELECT count(*) FROM research_people").fetchone()[0], 0)
         self.assertEqual(self.db.execute("SELECT count(*) FROM possible_matches").fetchone()[0], 0)
         self.assertEqual(self.db.execute("SELECT count(*) FROM source_visits").fetchone()[0], 0)
@@ -174,7 +174,7 @@ class StructureFoundationTests(unittest.TestCase):
         plan = build_structure_plan(self.db)
         unit = plan["units"][0]
         name = plan["names"][0]
-        self.db.execute("INSERT INTO org_units(id,county_fips,source_label,kind) VALUES (?,?,?,?)",
+        self.db.execute('INSERT INTO org_units("Office or unit ID","County code","Office or unit label as published","Organization type") VALUES (?,?,?,?)',
                         (unit["id"], unit["county_fips"], unit["source_label"], unit["kind"]))
         self.db.execute("INSERT INTO org_names VALUES (?,?,?,?,?,?,?)",
                         (name["id"], unit["id"], "Contradictory synthetic name", "published",
@@ -183,7 +183,7 @@ class StructureFoundationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Conflicting existing organization name"):
             apply_structure_plan(self.db, plan, expected_sha256=plan_sha256(plan), actor="synthetic-test")
         self.assertEqual(self.db.execute("SELECT count(*) FROM research_runs WHERE note LIKE 'org-position-foundation/%'").fetchone()[0], 0)
-        self.assertEqual(self.db.execute("SELECT count(*) FROM role_claims WHERE unit_id IS NOT NULL").fetchone()[0], 0)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM role_claims WHERE "Linked office or unit" IS NOT NULL').fetchone()[0], 0)
         self.assertEqual(self.db.execute("SELECT count(*) FROM role_targets").fetchone()[0], 0)
         self.assertEqual(self.db.execute("PRAGMA foreign_key_check").fetchall(), [])
 
