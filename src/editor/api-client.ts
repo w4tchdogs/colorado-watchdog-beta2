@@ -72,6 +72,8 @@ export interface SandboxInfo {
     readonly fips: string;
     readonly name: string;
   }[];
+  /** Loopback address of the local public site preview, when one is known. */
+  readonly publicSiteUrl?: string | null;
 }
 
 export type FetchLike = (

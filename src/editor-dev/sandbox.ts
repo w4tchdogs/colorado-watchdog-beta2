@@ -2,14 +2,17 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ContentAction } from "../contracts/content.js";
+import { DASHBOARD_API_PATHS } from "../contracts/dashboard.js";
 import { migrateWebsiteDatabase } from "../database/migrations.js";
 import {
   openWebsiteDatabase,
   type WebsiteDatabase,
 } from "../database/sqlite.js";
 import { createContentService } from "../services/content.js";
+import { createDashboardService } from "../services/dashboard.js";
 import {
   createTestHumanIdentityAdapter,
+  hasCapability,
   resolvePrincipal,
   type TrustedPrincipal,
 } from "../services/security.js";
@@ -18,12 +21,14 @@ import {
   createContentApiTransport,
   createContentTransportOperations,
 } from "../transport/content-api.js";
+import { createDashboardApiTransport } from "../transport/dashboard-api.js";
 import { LookupRequestError, parseLookupRequest, runLookup } from "./lookup.js";
 
 /**
- * Local, disposable editorial sandbox. It is a development tool only: it owns a
- * fresh in-memory Website database, never reads DATABASE_PATH or any other
- * environment, and is never imported by the public application or Worker.
+ * Local, disposable dashboard and editorial sandbox. It is a development tool
+ * only: it owns a fresh in-memory Website database, never reads DATABASE_PATH
+ * or any other environment, and is never imported by the public application or
+ * Worker. The synthetic account switch below exists nowhere else.
  */
 export const SANDBOX_TOKEN_HEADER = "x-editor-token";
 export const SANDBOX_ACCOUNT_HEADER = "x-test-human-subject";
@@ -37,35 +42,40 @@ const SUBJECTS = {
   author: "sandbox-subject-author",
   editor: "sandbox-subject-editor",
   readonly: "sandbox-subject-readonly",
+  admin: "sandbox-subject-admin",
+  owner: "sandbox-subject-owner",
   retired: "sandbox-subject-retired",
 } as const;
 
+/**
+ * Synthetic accounts for the switcher. Roles are real rows in the sandbox
+ * database, so access follows the existing role matrix. `anonymous` maps to no
+ * identity at all and behaves like a signed-out visitor.
+ */
 export const SANDBOX_ACCOUNTS = [
-  { key: "author", label: "Avery Author (can edit)", accountId: "sbx-author" },
-  { key: "editor", label: "Eli Editor (can edit)", accountId: "sbx-editor" },
+  { key: "author", label: "Avery Author (editor)", accountId: "sbx-author" },
+  { key: "editor", label: "Eli Editor (editor)", accountId: "sbx-editor" },
   {
     key: "readonly",
-    label: "Riley Reader (no editorial permission)",
+    label: "Riley Reader (contributor)",
     accountId: "sbx-readonly",
   },
+  {
+    key: "admin",
+    label: "Ada Administrator (administrator)",
+    accountId: "sbx-admin",
+  },
+  { key: "owner", label: "Olive Owner (owner)", accountId: "sbx-owner" },
   {
     key: "retired",
     label: "Rene Retired (disabled account)",
     accountId: "sbx-retired",
   },
+  { key: "anonymous", label: "Signed-out visitor", accountId: null },
 ] as const;
 
-/** Development-only policy: only these two synthetic accounts may edit. */
-const EDITING_ACCOUNT_IDS: ReadonlySet<string> = new Set([
-  "sbx-author",
-  "sbx-editor",
-]);
-const sandboxPolicy = (
-  principal: TrustedPrincipal,
-  _action?: ContentAction | string,
-): boolean =>
-  principal.provider === "test-human" &&
-  EDITING_ACCOUNT_IDS.has(principal.accountId);
+/** The existing editorial capability gates every content action here. */
+const EDITORIAL_CAPABILITY = "content.publish";
 
 export interface EditorSandboxOptions {
   /** Directory holding index.html and editor.css. */
@@ -75,6 +85,11 @@ export interface EditorSandboxOptions {
   /** Exact host:port values accepted in the Host header. */
   readonly allowedHosts: readonly string[];
   readonly token?: string;
+  /**
+   * Loopback address of the local public site preview, used for the "View
+   * public site" link. Anything that is not a loopback http URL is ignored.
+   */
+  readonly publicSiteUrl?: string;
 }
 
 export interface EditorSandbox {
@@ -174,7 +189,42 @@ const STATIC_FILES: Readonly<
     file: "preview.js",
     type: "text/javascript; charset=utf-8",
   },
+  "/dashboard.css": {
+    directory: "static",
+    file: "dashboard.css",
+    type: "text/css; charset=utf-8",
+  },
+  "/app/dashboard.js": {
+    directory: "script",
+    file: "dashboard.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/dashboard-client.js": {
+    directory: "script",
+    file: "dashboard-client.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/dashboard-views.js": {
+    directory: "script",
+    file: "dashboard-views.js",
+    type: "text/javascript; charset=utf-8",
+  },
 };
+
+function loopbackUrl(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" &&
+      (url.hostname === "127.0.0.1" || url.hostname === "localhost") &&
+      !url.username &&
+      !url.password
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function createEditorSandbox(
   options: EditorSandboxOptions,
@@ -184,7 +234,21 @@ export async function createEditorSandbox(
   migrateWebsiteDatabase(database);
   seedAccountsAndDirectory(database);
 
+  // Development-only wiring of the existing role matrix: a synthetic
+  // test-human principal may edit only while its role holds the capability.
+  const sandboxPolicy = (
+    principal: TrustedPrincipal,
+    _action?: ContentAction | string,
+  ): boolean =>
+    principal.provider === "test-human" &&
+    hasCapability(database, principal, EDITORIAL_CAPABILITY);
+
   const service = createContentService(database, { authorize: sandboxPolicy });
+  const dashboard = createDashboardService(database, {
+    recentContent: (principal) =>
+      service.listDrafts(principal, { limit: 5, sort: "modified" }).items,
+  });
+  const publicSiteUrl = loopbackUrl(options.publicSiteUrl);
   const adapter = createTestHumanIdentityAdapter(SUBJECTS);
   const token = options.token ?? randomBytes(32).toString("base64url");
   const allowedHosts = new Set(
@@ -195,6 +259,10 @@ export async function createEditorSandbox(
     resolvePrincipal: (request) => resolvePrincipal(database, request, adapter),
     authorize: (principal) => sandboxPolicy(principal),
     operations: createContentTransportOperations(service),
+  });
+  const dashboardTransport = createDashboardApiTransport({
+    resolvePrincipal: (request) => resolvePrincipal(database, request, adapter),
+    service: dashboard,
   });
 
   await seedContent(database, service);
@@ -208,6 +276,7 @@ export async function createEditorSandbox(
       sandbox: true as const,
       accounts: SANDBOX_ACCOUNTS.map(({ key, label }) => ({ key, label })),
       counties,
+      publicSiteUrl,
     };
   };
 
@@ -276,6 +345,8 @@ export async function createEditorSandbox(
     const isApi =
       url.pathname === SANDBOX_INFO_PATH ||
       url.pathname === SANDBOX_LOOKUP_PATH ||
+      url.pathname === DASHBOARD_API_PATHS.session ||
+      url.pathname === DASHBOARD_API_PATHS.view ||
       Object.values(CONTENT_API_PATHS).includes(
         url.pathname as (typeof CONTENT_API_PATHS)[keyof typeof CONTENT_API_PATHS],
       );
@@ -310,7 +381,11 @@ export async function createEditorSandbox(
     if (url.pathname === SANDBOX_LOOKUP_PATH) {
       return handleLookup(request);
     }
-    const response = await transport.fetch(request);
+    const response = await (url.pathname === DASHBOARD_API_PATHS.session ||
+    url.pathname === DASHBOARD_API_PATHS.view
+      ? dashboardTransport
+      : transport
+    ).fetch(request);
     const headers = new Headers(response.headers);
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
       headers.set(name, value);
@@ -329,14 +404,18 @@ export async function createEditorSandbox(
 function seedAccountsAndDirectory(database: WebsiteDatabase): void {
   database.exec(`
     INSERT INTO accounts (id, kind, role, display_name, email, status)
-    VALUES ('sbx-author','human','contributor','Avery Author','author@example.invalid','active'),
-           ('sbx-editor','human','contributor','Eli Editor','editor@example.invalid','active'),
-           ('sbx-readonly','human','contributor','Riley Reader',NULL,'active'),
-           ('sbx-retired','human','contributor','Rene Retired',NULL,'disabled');
+    VALUES ('sbx-author','human','editor','Avery Author','author@example.invalid','active'),
+           ('sbx-editor','human','editor','Eli Editor','editor@example.invalid','active'),
+           ('sbx-readonly','human','contributor','Riley Reader','reader@example.invalid','active'),
+           ('sbx-admin','human','administrator','Ada Administrator','admin@example.invalid','active'),
+           ('sbx-owner','human','owner','Olive Owner','owner@example.invalid','active'),
+           ('sbx-retired','human','editor','Rene Retired',NULL,'disabled');
     INSERT INTO identities (id, account_id, provider, subject)
     VALUES ('sbx-id-author','sbx-author','test-human','${SUBJECTS.author}'),
            ('sbx-id-editor','sbx-editor','test-human','${SUBJECTS.editor}'),
            ('sbx-id-readonly','sbx-readonly','test-human','${SUBJECTS.readonly}'),
+           ('sbx-id-admin','sbx-admin','test-human','${SUBJECTS.admin}'),
+           ('sbx-id-owner','sbx-owner','test-human','${SUBJECTS.owner}'),
            ('sbx-id-retired','sbx-retired','test-human','${SUBJECTS.retired}');
     INSERT INTO organizations (id, name, organization_type, county_fips)
     VALUES ('sbx-org-1','Fictional Records Office','office','08001'),
@@ -377,6 +456,9 @@ const SAMPLE_BODY = [
   "This is **fictional** sandbox text with *emphasis* and a",
   "[sample link](https://example.invalid/sandbox).",
   "",
+  "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod",
+  "tempor incididunt ut labore et dolore magna aliqua.",
+  "",
   "- First point",
   "- Second point",
   "",
@@ -410,7 +492,7 @@ async function seedContent(
     const created = service.createDraft(author, {
       contentType: isPost ? "post" : "story",
       title: `${isPost ? "Fictional Post" : "Fictional Story"} ${index}`,
-      summary: `Sandbox ${isPost ? "post" : "story"} number ${index}.`,
+      summary: `Sandbox ${isPost ? "post" : "story"} number ${index}. Lorem ipsum dolor sit amet.`,
       body: `${SAMPLE_BODY}\n\nItem number ${index}.`,
       relationships:
         index % 3 === 0
