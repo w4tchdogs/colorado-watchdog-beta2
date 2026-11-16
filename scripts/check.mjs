@@ -90,6 +90,7 @@ const allowed = new Set([
   "website/site/report-demo.js",
   "tests/site-fixtures.mjs",
   "tests/site-pages.test.mjs",
+  "tests/site-counties-search.test.mjs",
   "tests/site-directory.test.mjs",
   "tests/site-safety.test.mjs",
   "tests/report-interface.test.mjs",

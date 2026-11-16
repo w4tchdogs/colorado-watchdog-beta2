@@ -25,36 +25,49 @@ if (toggle && nav) {
   });
 }
 
-// Live county filter on the county directory.
+// Live county search: map highlights, results table, counts and sorting.
 const filter = document.querySelector("[data-county-filter]");
 if (filter) {
-  const items = [...document.querySelectorAll("[data-county]")];
+  const IDLE_STATUS = "Choose a county";
+  const rows = [...document.querySelectorAll("[data-result-row]")];
+  const tbody = document.querySelector("[data-county-rows]");
   const mapRegions = [...document.querySelectorAll("[data-map-county]")];
   const targets = [...document.querySelectorAll("[data-fips]")];
-  const groups = [...document.querySelectorAll("[data-county-group]")];
-  const count = document.querySelector("[data-county-count]");
+  const results = document.querySelector("[data-county-results]");
   const empty = document.querySelector("[data-county-empty]");
+  const note = document.querySelector("[data-county-note]");
   const status = document.querySelector("[data-map-status]");
+  const table = document.querySelector("[data-county-table]");
+  const headers = [...document.querySelectorAll("th[data-sort-key]")];
+  const sortSelect = document.querySelector("[data-sort-select]");
+  const idleNote = note?.dataset.idleNote ?? "";
+  const labels = new Map(
+    rows.map((row) => [
+      row.dataset.fips,
+      `${row.querySelector(".county-name-link")?.textContent ?? ""} · FIPS ${row.dataset.fips}`,
+    ]),
+  );
+  const plural = (count, one, many) => (count === 1 ? one : many);
   let hoveredFips = null;
   let focusedFips = null;
+  let idleText = status?.textContent ?? IDLE_STATUS;
+
   const updateActive = () => {
     const active = focusedFips ?? hoveredFips;
     for (const target of targets) {
       target.classList.toggle("is-active", target.dataset.fips === active);
     }
-    if (status) {
-      if (!active) {
-        status.textContent = "Choose a county";
-      } else {
-        const region = mapRegions.find((item) => item.dataset.fips === active);
-        const countyName =
-          region?.querySelector("title")?.textContent ?? active;
-        status.textContent = focusedFips
-          ? `${countyName}. Press Enter to open its county page.`
-          : `${countyName}. Select to open its county page.`;
-      }
+    if (!status) return;
+    if (!active) {
+      status.textContent = idleText;
+    } else {
+      const label = labels.get(active) ?? active;
+      status.textContent = focusedFips
+        ? `${label}. Press Enter to open its county page.`
+        : `${label}. Select to open its county page.`;
     }
   };
+
   const updateUrl = (query) => {
     const url = new URL(window.location.href);
     if (query) url.searchParams.set("q", query);
@@ -65,47 +78,132 @@ if (filter) {
       `${url.pathname}${url.search}${url.hash}`,
     );
   };
+
   const apply = () => {
     const query = filter.value.trim().slice(0, 40);
     const needle = query.toLowerCase();
-    if (filter.value !== query) filter.value = query;
     let shown = 0;
-    for (const item of items) {
-      const match =
-        needle === "" ||
-        (item.dataset.name ?? "").includes(needle) ||
-        (item.dataset.fips ?? "").includes(needle);
-      item.hidden = !match;
-      item.classList.toggle("is-match", match && needle !== "");
-      if (match) shown += 1;
-    }
-    for (const region of mapRegions) {
-      const mapLabel = (
-        region.querySelector("title")?.textContent ?? ""
-      ).toLowerCase();
+    for (const row of rows) {
       const match =
         needle !== "" &&
-        (mapLabel.includes(needle) ||
-          (region.dataset.fips ?? "").includes(needle));
-      region.classList.toggle("is-match", match);
+        ((row.dataset.name ?? "").includes(needle) ||
+          (row.dataset.fips ?? "").includes(needle));
+      row.hidden = !match;
+      if (match) shown += 1;
     }
-    for (const group of groups) {
-      const visible = group.querySelector("[data-county]:not([hidden])");
-      group.hidden = !visible;
-      const link = document.querySelector(
-        `[data-letter-link="${group.dataset.letter}"]`,
-      );
-      if (link?.parentElement) link.parentElement.hidden = !visible;
+    const matched = new Set(
+      rows.filter((row) => !row.hidden).map((row) => row.dataset.fips),
+    );
+    for (const region of mapRegions) {
+      region.classList.toggle("is-match", matched.has(region.dataset.fips));
     }
-    if (empty) empty.hidden = shown !== 0;
-    if (count) {
-      count.textContent =
-        query === ""
-          ? `Showing all ${items.length} counties.`
-          : `Showing ${shown} of ${items.length} counties for "${query}".`;
-    }
+    for (const row of rows) row.classList.toggle("is-match", !row.hidden);
+    if (results) results.hidden = shown === 0;
+    if (empty) empty.hidden = needle === "" || shown !== 0;
+    const nextNote =
+      needle === ""
+        ? idleNote
+        : `${shown} ${plural(shown, "county matches", "counties match")}`;
+    if (note && note.textContent !== nextNote) note.textContent = nextNote;
+    idleText =
+      needle === ""
+        ? IDLE_STATUS
+        : `${shown} matching ${plural(shown, "county", "counties")}`;
+    updateActive();
     updateUrl(query);
   };
+
+  // Sorting. County sorts alphabetically, count columns numerically, with
+  // unavailable counts last in either direction and ties by name then FIPS.
+  const sortState = () => {
+    const header = headers.find((th) => th.getAttribute("aria-sort") !== "none");
+    return {
+      key: header?.dataset.sortKey ?? "county",
+      direction:
+        header?.getAttribute("aria-sort") === "descending" ? "desc" : "asc",
+    };
+  };
+  const nameThenFips = (left, right) =>
+    (left.dataset.sortName ?? "").localeCompare(
+      right.dataset.sortName ?? "",
+      "en",
+    ) || (left.dataset.fips ?? "").localeCompare(right.dataset.fips ?? "");
+  const applySort = (key, direction) => {
+    const sign = direction === "asc" ? 1 : -1;
+    const value = (row) => {
+      const raw = row.dataset[key];
+      return raw === undefined || raw === "" ? null : Number(raw);
+    };
+    const ordered = [...rows].sort((left, right) => {
+      if (key === "county") return sign * nameThenFips(left, right);
+      const a = value(left);
+      const b = value(right);
+      if (a === null && b !== null) return 1;
+      if (a !== null && b === null) return -1;
+      if (a !== null && b !== null && a !== b) return sign * (a - b);
+      return nameThenFips(left, right);
+    });
+    for (const row of ordered) tbody.appendChild(row);
+    for (const th of headers) {
+      th.setAttribute(
+        "aria-sort",
+        th.dataset.sortKey !== key
+          ? "none"
+          : direction === "asc"
+            ? "ascending"
+            : "descending",
+      );
+    }
+    if (sortSelect) sortSelect.value = `${key}:${direction}`;
+  };
+  // Headings are plain text without JavaScript. Turn them into sort buttons.
+  for (const th of headers) {
+    const key = th.dataset.sortKey;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "county-sort-button";
+    button.dataset.sort = key;
+    button.append(th.textContent.trim());
+    const arrow = document.createElement("span");
+    arrow.className = "county-sort-arrow";
+    arrow.setAttribute("aria-hidden", "true");
+    button.append(arrow);
+    th.textContent = "";
+    th.append(button);
+    th.classList.add("is-sortable");
+    th.setAttribute("aria-sort", key === "county" ? "ascending" : "none");
+    button.addEventListener("click", () => {
+      const current = sortState();
+      const direction =
+        current.key === key
+          ? current.direction === "asc"
+            ? "desc"
+            : "asc"
+          : key === "county"
+            ? "asc"
+            : "desc";
+      applySort(key, direction);
+    });
+  }
+  table?.classList.add("is-enhanced");
+  if (sortSelect) {
+    sortSelect.closest("[data-sort-select-wrap]")?.removeAttribute("hidden");
+    sortSelect.addEventListener("change", () => {
+      const [key, direction] = sortSelect.value.split(":");
+      applySort(key, direction);
+    });
+  }
+  if (tbody) {
+    // The whole row opens the county. Links and controls keep their own action.
+    tbody.addEventListener("click", (event) => {
+      if (event.target.closest("a, button, select, input")) return;
+      const link = event.target
+        .closest("[data-result-row]")
+        ?.querySelector(".county-name-link");
+      if (link) link.click();
+    });
+  }
+
   for (const target of targets) {
     target.addEventListener("pointerenter", () => {
       hoveredFips = target.dataset.fips ?? null;
