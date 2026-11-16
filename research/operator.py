@@ -12,6 +12,7 @@ COVERAGE = ("not_started", "partial", "reviewed", "stale", "blocked")
 VISIT_PROVENANCE = ("observed", "reconstructed", "synthetic")
 VISIT_OUTCOMES = ("success", "not_modified", "blocked", "failed", "not_found")
 SOURCE_CLASSIFICATIONS = ("unknown", "official", "partner", "other")
+PUBLISHER_CLASSIFICATIONS = ("official", "unofficial")
 
 
 def _limit(limit):
@@ -112,7 +113,8 @@ def inspect_sources(db, *, source_id=None, county=None, limit=50):
         clauses.append("EXISTS (SELECT 1 FROM evidence_links e JOIN scrape_batches b ON b.id=e.batch_id "
                        "WHERE e.source_id=s.id AND b.county_fips=?)"); params.append(county)
     where = "WHERE " + " AND ".join(clauses) if clauses else ""
-    sources = _rows(db, f"SELECT s.id,s.original_url,s.page_type,s.official_status,s.availability,s.usefulness,"
+    sources = _rows(db, f"SELECT s.id,s.original_url,s.page_type,s.official_status,s.publisher_classification,"
+                        f"s.availability,s.usefulness,"
                         f"s.recorded_at FROM sources s {where} ORDER BY s.id LIMIT ?", (*params, limit))
     for source in sources:
         source["evidence"] = _rows(db, "SELECT id,source_version_key,observed_title,observed_url,source_date,"
@@ -138,7 +140,7 @@ def classify_source(db, *, source_id, status, actor, basis, evidence_id=None):
         raise ValueError("Finish the current transaction before an operator update")
     try:
         db.execute("BEGIN IMMEDIATE")
-        source = db.execute("SELECT id,official_status FROM sources WHERE id=?", (source_id,)).fetchone()
+        source = db.execute("SELECT id,official_status,publisher_classification FROM sources WHERE id=?", (source_id,)).fetchone()
         if source is None:
             raise ValueError("Unknown source")
         provenance = "reconstructed"
@@ -151,7 +153,12 @@ def classify_source(db, *, source_id, status, actor, basis, evidence_id=None):
                 raise ValueError("Supporting evidence must belong to the selected source")
             provenance = evidence["provenance"]
         previous = source["official_status"]
-        if previous == status:
+        previous_publisher = source["publisher_classification"]
+        next_publisher = ("official" if status == "official" else
+                          "unresolved" if status == "unknown" else previous_publisher)
+        if status == "official" and evidence_id is None:
+            raise ValueError("Official publisher classification requires source-specific evidence")
+        if previous == status and previous_publisher == next_publisher:
             prior_event = db.execute(
                 "SELECT detail_json FROM research_events WHERE kind IN "
                 "('source_classified','source_classification_confirmed') "
@@ -172,20 +179,86 @@ def classify_source(db, *, source_id, status, actor, basis, evidence_id=None):
                             "recorded": False, "run_id": None}
         run = _create_screening_run(db, provenance=provenance, actor=actor,
                                     note="R4-H1 source classification")
-        changed = previous != status
+        changed = previous != status or previous_publisher != next_publisher
         if changed:
-            db.execute("UPDATE sources SET official_status=? WHERE id=?", (status, source_id))
+            db.execute("UPDATE sources SET official_status=?,publisher_classification=? WHERE id=?",
+                       (status, next_publisher, source_id))
         _event(db, run=run, actor=actor,
-               kind="source_classified" if changed else "source_classification_confirmed",
-               entity_type="sources",
-               entity_id=source_id,
+               kind="source_classified" if previous != status else "source_classification_confirmed",
+               entity_type="sources", entity_id=source_id,
                detail={"before": {"official_status": previous},
                        "after": {"official_status": status},
                        "supporting_evidence_id": evidence_id, "basis": basis})
+        if previous_publisher != next_publisher:
+            _event(db, run=run, actor=actor, kind="source_publisher_classified",
+                   entity_type="sources", entity_id=source_id,
+                   detail={"before": {"publisher_classification": previous_publisher,
+                                      "official_status": previous},
+                           "after": {"publisher_classification": next_publisher,
+                                     "official_status": status},
+                           "supporting_evidence_id": evidence_id, "basis": basis})
         db.commit()
         return {"source_id": source_id, "official_status": status,
+                "publisher_classification": next_publisher,
                 "previous_status": previous, "changed": changed,
                 "recorded": True, "run_id": run["id"]}
+    except Exception:
+        db.rollback()
+        raise
+
+
+def classify_publisher(db, *, source_id, classification, actor, basis, evidence_id):
+    """Classify the publisher of one exact source using attached evidence."""
+    if not all(isinstance(value, str) and value.strip() for value in
+               (source_id, actor, basis, evidence_id)):
+        raise ValueError("Source, publisher classification, operator, basis, and evidence are required")
+    if classification not in PUBLISHER_CLASSIFICATIONS:
+        raise ValueError("Invalid publisher classification")
+    if db.in_transaction:
+        raise ValueError("Finish the current transaction before an operator update")
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        source = db.execute("SELECT publisher_classification,official_status FROM sources WHERE id=?", (source_id,)).fetchone()
+        if source is None:
+            raise ValueError("Unknown source")
+        evidence = db.execute("SELECT source_id,run_id FROM evidence_links WHERE id=?", (evidence_id,)).fetchone()
+        if evidence is None or evidence["source_id"] != source_id:
+            raise ValueError("Supporting evidence must belong to the selected source")
+        previous = source["publisher_classification"]
+        previous_legacy = source["official_status"]
+        next_legacy = previous_legacy
+        if classification == "official" and previous_legacy == "unknown":
+            next_legacy = "official"
+        elif classification == "unofficial" and previous_legacy == "official":
+            next_legacy = "unknown"
+        prior_event = db.execute(
+            "SELECT detail_json FROM research_events WHERE kind='source_publisher_classified' "
+            "AND entity_type='sources' AND entity_id=? ORDER BY rowid DESC LIMIT 1", (source_id,)
+        ).fetchone()
+        if previous == classification and prior_event:
+            detail = json.loads(prior_event["detail_json"])
+            if (detail.get("after") == {"publisher_classification": classification,
+                                        "official_status": next_legacy}
+                    and detail.get("supporting_evidence_id") == evidence_id
+                    and detail.get("basis") == basis and detail.get("operator") == actor):
+                db.commit()
+                return {"source_id": source_id, "publisher_classification": classification,
+                        "previous_classification": previous, "changed": False, "recorded": False}
+        run = _create_screening_run(db, provenance="reconstructed", actor=actor,
+                                    note="Publisher classification")
+        changed = previous != classification or previous_legacy != next_legacy
+        if changed:
+            db.execute("UPDATE sources SET publisher_classification=?,official_status=? WHERE id=?",
+                       (classification, next_legacy, source_id))
+        _event(db, run=run, actor=actor,
+               kind="source_publisher_classified", entity_type="sources", entity_id=source_id,
+               detail={"before": {"publisher_classification": previous, "official_status": previous_legacy},
+                       "after": {"publisher_classification": classification, "official_status": next_legacy},
+                       "supporting_evidence_id": evidence_id, "basis": basis})
+        db.commit()
+        return {"source_id": source_id, "publisher_classification": classification,
+                "previous_classification": previous, "changed": changed, "recorded": True,
+                "run_id": run["id"]}
     except Exception:
         db.rollback()
         raise
@@ -251,7 +324,7 @@ def _validate_claim_association(db, *, claim_id, person_id, evidence_id):
         raise ValueError("Claim and person must belong to the same county")
     if claim["person_id"] is not None:
         raise ValueError("Claim is already assigned; R1 does not reassign identities")
-    support = db.execute("SELECT e.id,e.source_id,s.official_status,r.provenance FROM evidence_links e "
+    support = db.execute("SELECT e.id,e.source_id,s.publisher_classification AS official_status,r.provenance FROM evidence_links e "
                          "JOIN sources s ON s.id=e.source_id JOIN research_runs r ON r.id=e.run_id "
                          "JOIN name_variants n ON n.evidence_id=e.id "
                          "WHERE e.id=? AND n.person_id=? AND n.published_name=? "
@@ -425,7 +498,7 @@ def validate_claim_connection(db, *, claim_id, person_id, evidence_id):
                        "FROM role_claims WHERE id=?", (claim_id,)).fetchone()
     person = db.execute("SELECT id,county_fips,display_name FROM research_people WHERE id=?", (person_id,)).fetchone()
     evidence = db.execute("SELECT e.id,e.source_id,e.raw_record_json,e.quotation,e.observed_title,e.batch_id,"
-                          "s.official_status,b.county_fips AS batch_county,r.provenance "
+                          "s.publisher_classification AS official_status,b.county_fips AS batch_county,r.provenance "
                           "FROM evidence_links e JOIN sources s ON s.id=e.source_id "
                           "JOIN research_runs r ON r.id=e.run_id LEFT JOIN scrape_batches b ON b.id=e.batch_id "
                           "WHERE e.id=?", (evidence_id,)).fetchone()
@@ -524,7 +597,7 @@ def _evidence_text(evidence):
 def _claim_evidence(db, *, county_fips, claim_id, published_name, evidence_id,
                     allow_assigned_person_id=None):
     evidence = db.execute("SELECT e.id,e.source_id,e.raw_record_json,e.quotation,e.observed_title,e.run_id,"
-                          "e.batch_id,s.official_status,r.provenance,b.county_fips AS batch_county "
+                          "e.batch_id,s.publisher_classification AS official_status,r.provenance,b.county_fips AS batch_county "
                           "FROM evidence_links e JOIN sources s ON s.id=e.source_id "
                           "JOIN research_runs r ON r.id=e.run_id "
                           "LEFT JOIN scrape_batches b ON b.id=e.batch_id WHERE e.id=?", (evidence_id,)).fetchone()
@@ -631,7 +704,7 @@ def validate_nickname_field_variant(db, *, person_id, published_name, evidence_i
     person = db.execute("SELECT id,county_fips,display_name FROM research_people WHERE id=?", (person_id,)).fetchone()
     if person is None:
         raise ValueError("Unknown research person")
-    evidence = db.execute("SELECT e.id,e.source_id,e.raw_record_json,e.batch_id,s.official_status,"
+    evidence = db.execute("SELECT e.id,e.source_id,e.raw_record_json,e.batch_id,s.publisher_classification AS official_status,"
                           "b.county_fips AS batch_county FROM evidence_links e "
                           "JOIN sources s ON s.id=e.source_id LEFT JOIN scrape_batches b ON b.id=e.batch_id "
                           "WHERE e.id=?", (evidence_id,)).fetchone()
@@ -707,7 +780,7 @@ def add_name_variant(db, *, person_id, published_name, kind, evidence_id, actor,
         if person is None:
             raise ValueError("Unknown research person")
         evidence = db.execute("SELECT e.id,e.source_id,e.quotation,e.raw_record_json,e.observed_title,"
-                              "e.run_id,e.batch_id,s.official_status,r.provenance,b.county_fips AS batch_county "
+                              "e.run_id,e.batch_id,s.publisher_classification AS official_status,r.provenance,b.county_fips AS batch_county "
                               "FROM evidence_links e JOIN sources s ON s.id=e.source_id "
                               "JOIN research_runs r ON r.id=e.run_id "
                               "LEFT JOIN scrape_batches b ON b.id=e.batch_id WHERE e.id=?", (evidence_id,)).fetchone()

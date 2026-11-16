@@ -26,7 +26,7 @@ class IdentityBootstrapTests(unittest.TestCase):
         self.evidence_id = self.claim["evidence_id"]
         self.source_id = self.db.execute("SELECT source_id FROM evidence_links WHERE id=?",
                                          (self.evidence_id,)).fetchone()[0]
-        self.db.execute("UPDATE sources SET official_status='official' WHERE id=?", (self.source_id,))
+        self.db.execute("UPDATE sources SET official_status='official',publisher_classification='official' WHERE id=?", (self.source_id,))
         self.db.commit()
         self.baseline_runs = self.db.execute("SELECT count(*) FROM research_runs").fetchone()[0]
         self.baseline_events = self.db.execute("SELECT count(*) FROM research_events").fetchone()[0]
@@ -88,11 +88,11 @@ class IdentityBootstrapTests(unittest.TestCase):
 
     def test_nonofficial_or_mismatched_evidence_rolls_back_everything(self):
         unsupported = self.quote_evidence("Synthetic Rowan Example, Fixture Coordinator")
-        self.db.execute("UPDATE sources SET official_status='unknown' WHERE id=?", (self.source_id,))
+        self.db.execute("UPDATE sources SET official_status='unknown',publisher_classification='unresolved' WHERE id=?", (self.source_id,))
         self.db.commit()
         with self.assertRaisesRegex(ValueError, "official"):
             self.bootstrap()
-        self.db.execute("UPDATE sources SET official_status='official' WHERE id=?", (self.source_id,))
+        self.db.execute("UPDATE sources SET official_status='official',publisher_classification='official' WHERE id=?", (self.source_id,))
         self.db.commit()
         with self.assertRaisesRegex(ValueError, "exact observation"):
             self.bootstrap(evidence_id=unsupported)
@@ -199,18 +199,18 @@ class IdentityBootstrapTests(unittest.TestCase):
     def test_nonofficial_or_cross_county_variant_evidence_is_rejected(self):
         person = self.bootstrap()["person_id"]
         evidence_id = self.quote_evidence("Synthetic Rowan Example, also known as Rowan R. Example.")
-        self.db.execute("UPDATE sources SET official_status='other' WHERE id=?", (self.source_id,))
+        self.db.execute("UPDATE sources SET official_status='other',publisher_classification='unresolved' WHERE id=?", (self.source_id,))
         self.db.commit()
         with self.assertRaisesRegex(ValueError, "official"):
             add_name_variant(self.db, person_id=person, published_name="Rowan R. Example", kind="alternative",
                              evidence_id=evidence_id, actor="operator", rationale="test")
-        self.db.execute("UPDATE sources SET official_status='official' WHERE id=?", (self.source_id,))
+        self.db.execute("UPDATE sources SET official_status='official',publisher_classification='official' WHERE id=?", (self.source_id,))
         self.db.commit()
         second = ingest_csv(self.db, csv_bytes([observation(fips="08031", full_name="Synthetic Rowan Example")]),
                             file_name="other-county.csv", version_label="synthetic-other-county")
         other_evidence = self.db.execute("SELECT evidence_id FROM role_claims WHERE id<>?", (self.claim["id"],)).fetchone()[0]
         other_source = self.db.execute("SELECT source_id FROM evidence_links WHERE id=?", (other_evidence,)).fetchone()[0]
-        self.db.execute("UPDATE sources SET official_status='official' WHERE id=?", (other_source,))
+        self.db.execute("UPDATE sources SET official_status='official',publisher_classification='official' WHERE id=?", (other_source,))
         self.db.commit()
         with self.assertRaisesRegex(ValueError, "different county"):
             add_name_variant(self.db, person_id=person, published_name="Rowan R. Example", kind="alternative",
@@ -231,7 +231,7 @@ class IdentityBootstrapTests(unittest.TestCase):
             claim_id, evidence_id, source_id = disk.execute(
                 "SELECT c.id,c.evidence_id,e.source_id FROM role_claims c "
                 "JOIN evidence_links e ON e.id=c.evidence_id WHERE e.batch_id=?", (batch_id,)).fetchone()
-            disk.execute("UPDATE sources SET official_status='official' WHERE id=?", (source_id,))
+            disk.execute("UPDATE sources SET official_status='official',publisher_classification='official' WHERE id=?", (source_id,))
             disk.commit()
             disk.close()
             command = [sys.executable, "-B", "-m", "research"]

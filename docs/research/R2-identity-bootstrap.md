@@ -4,7 +4,7 @@ R2 adds a local, transactional workflow for creating a research-person record fr
 
 ## Bootstrap one person from one claim
 
-Choose an existing unassigned claim and provide its county, exact published name, and evidence ID. The source must already be classified `official` in `sources.official_status`. The evidence must be the exact evidence attached to the claim, and its raw observation or quotation must contain the exact published name and a documented title or responsibility.
+Choose an existing unassigned claim and provide its county, exact published name, and evidence ID. The source must already have `sources.publisher_classification='official'`. The evidence must be the exact evidence attached to the claim, and its raw observation or quotation must contain the exact published name and a documented title or responsibility.
 
 ```text
 python -B -m research bootstrap-person DB --county-fips 08107 --claim-id claim_fixture_1 --published-name "Synthetic Rowan Example" --evidence-id evidence_fixture_1 --actor "synthetic-operator" --rationale "The official fixture directory lists this exact name with the coordinator position."

@@ -23,12 +23,13 @@ class SourceTypeTests(unittest.TestCase):
         self.db = connect(self.database)
         migrate(self.db)
         self.db.executemany(
-            "INSERT INTO sources(id,original_url,page_type,official_status,recorded_at) VALUES (?,?,?,?,?)",
-            [("s_page", "https://example.invalid/staff", None, "official", NOW),
-             ("s_pdf", "https://example.invalid/files/Org%20Chart.PDF?v=2", None, "official", NOW),
-             ("s_dotted", "https://example.invalid/v1.2/staff", None, "official", NOW),
-             ("s_unknown", "https://example.invalid/other", None, "unknown", NOW),
-             ("s_set", "https://example.invalid/set", "other_public", "official", NOW)],
+            "INSERT INTO sources(id,original_url,page_type,official_status,publisher_classification,recorded_at) "
+            "VALUES (?,?,?,?,?,?)",
+            [("s_page", "https://example.invalid/staff", None, "official", "official", NOW),
+             ("s_pdf", "https://example.invalid/files/Org%20Chart.PDF?v=2", None, "official", "official", NOW),
+             ("s_dotted", "https://example.invalid/v1.2/staff", None, "official", "official", NOW),
+             ("s_unknown", "https://example.invalid/other", None, "unknown", "unresolved", NOW),
+             ("s_set", "https://example.invalid/set", "other_public", "official", "official", NOW)],
         )
         self.db.commit()
 

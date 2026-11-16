@@ -45,11 +45,11 @@ def _ref(entity_type, local_id):
 def _source_ok(db, evidence_id):
     row = db.execute(
         "SELECT e.id,e.source_id,e.observed_title,e.observed_url,e.recorded_at,s.original_url,"
-        "s.official_status,s.page_type FROM evidence_links e JOIN sources s ON s.id=e.source_id "
+        "s.official_status,s.publisher_classification,s.page_type FROM evidence_links e JOIN sources s ON s.id=e.source_id "
         "WHERE e.id=?",
         (evidence_id,),
     ).fetchone()
-    if row is None or row["official_status"] != "official":
+    if row is None or row["publisher_classification"] != "official":
         return None, "source_not_classified_official"
     source_type = SOURCE_TYPES.get((row["page_type"] or "").strip().lower())
     if source_type is None:
@@ -140,7 +140,7 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200):
             "SELECT u.id,u.county_fips,u.source_label,u.kind,u.parent_id,u.parent_relation,"
             "u.parent_evidence_id,(SELECT n.evidence_id FROM org_names n JOIN evidence_links e ON e.id=n.evidence_id "
             "JOIN sources s ON s.id=e.source_id WHERE n.unit_id=u.id AND n.kind='published' "
-            "AND s.official_status='official' ORDER BY n.evidence_id LIMIT 1) evidence_id "
+            "AND s.publisher_classification='official' ORDER BY n.evidence_id LIMIT 1) evidence_id "
             "FROM org_units u ORDER BY u.county_fips,u.id"
         )
     )

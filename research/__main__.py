@@ -10,7 +10,7 @@ from pathlib import Path
 
 from research import operator
 from research import identity
-from research import identity_triage, source_types
+from research import identity_triage, source_types, publisher, export as profiles_export
 from research import submission, sync
 from research.backup import backup_database, restore_database
 from research.db import connect, migrate, seed_counties, validate_database, validate_migration_history
@@ -33,6 +33,7 @@ def parser_for():
 
     database_command("init", "exclusively create and initialize an empty database")
     database_command("check", "validate an existing database without writing")
+    database_command("migrate", "apply pending checksum-verified research schema migrations")
     database_command("seed-counties", "explicitly seed the canonical public Colorado county registry")
     backup = database_command("backup", "create an authenticated SQLite-consistent encrypted backup")
     backup.add_argument("destination", type=Path, help="New encrypted artifact path outside the checkout")
@@ -231,6 +232,32 @@ def parser_for():
     page_verify = database_command("verify-source-types", "verify a page type plan was applied")
     page_verify.add_argument("--plan", type=Path, required=True)
     page_verify.add_argument("--expect-plan-sha256", required=True)
+
+    publisher_preview = database_command("preview-publisher-classifications", "create a read-only evidence-led source publisher plan")
+    publisher_preview.add_argument("--output", type=Path, required=True,
+                                   help="New private plan path outside the source checkout")
+    publisher_apply = database_command("apply-publisher-classifications", "apply one hash-checked publisher plan")
+    publisher_apply.add_argument("--plan", type=Path, required=True)
+    publisher_apply.add_argument("--expect-plan-sha256", required=True)
+    publisher_apply.add_argument("--actor", default=publisher.ACTOR_DEFAULT)
+    publisher_verify = database_command("verify-publisher-classifications", "verify a publisher classification plan")
+    publisher_verify.add_argument("--plan", type=Path, required=True)
+    publisher_verify.add_argument("--expect-plan-sha256", required=True)
+
+    publisher_classify = database_command("classify-publisher", "classify one publisher using source-specific evidence")
+    publisher_classify.add_argument("--source-id", required=True)
+    publisher_classify.add_argument("--classification", choices=operator.PUBLISHER_CLASSIFICATIONS, required=True)
+    publisher_classify.add_argument("--evidence-id", required=True)
+    publisher_classify.add_argument("--actor", required=True)
+    publisher_classify.add_argument("--basis", required=True)
+
+    profile_export = database_command("profiles-export", "write a private, county-scoped Profiles export")
+    scope = profile_export.add_mutually_exclusive_group(required=True)
+    scope.add_argument("--county", action="append", help="Canonical five-digit county FIPS; repeat to select several")
+    scope.add_argument("--statewide", action="store_true", help="Explicitly select statewide scope")
+    profile_export.add_argument("--output", type=Path, required=True, help="New private output path outside the source checkout")
+    profile_export.add_argument("--limit", type=int, default=profiles_export.MAX_PROFILE_EXPORT)
+    profile_export.add_argument("--after-profile-id", help="Resume after the last profile ID in the previous page")
 
     for name, help_text in (
         ("sync-eligibility", "inspect bounded Website synchronization eligibility"),
@@ -784,6 +811,68 @@ def main(argv=None):
             print(json.dumps(_json_error(args.command, "source_type_preview_failed", str(error)),
                              ensure_ascii=False, sort_keys=True))
             return 2
+    if args.command == "preview-publisher-classifications":
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.output, parser, "Private publisher classification plan")
+        try:
+            db = _read_only(path)
+            try:
+                plan = publisher.build_plan(db)
+            finally:
+                db.close()
+            file_sha256 = publisher.write_plan(plan, args.output,
+                                               repository_root=Path(__file__).resolve().parents[1])
+            print(json.dumps({"mode": args.command, "status": "previewed", "plan_path": str(args.output.resolve()),
+                              "plan_file_sha256": file_sha256, "plan_sha256": plan["plan_sha256"],
+                              **plan["summary"]}, ensure_ascii=False, sort_keys=True))
+            return 0
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "publisher_preview_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command in {"apply-publisher-classifications", "verify-publisher-classifications"}:
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.plan, parser, "Private publisher classification plan")
+        try:
+            if not re.fullmatch(r"[0-9a-fA-F]{64}", args.expect_plan_sha256):
+                raise ValueError("--expect-plan-sha256 must be a 64-character SHA-256 value")
+            plan = publisher.read_plan(args.plan, repository_root=Path(__file__).resolve().parents[1])
+            if plan["plan_sha256"] != args.expect_plan_sha256.lower():
+                raise ValueError("Expected plan SHA-256 does not match the inspected plan")
+            db = _read_only(path) if args.command == "verify-publisher-classifications" else connect(path)
+            try:
+                result = (publisher.verify_plan(db, plan) if args.command == "verify-publisher-classifications"
+                          else publisher.apply_plan(db, plan, expected_sha256=args.expect_plan_sha256.lower(),
+                                                    actor=args.actor))
+            finally:
+                db.close()
+            print(json.dumps({"mode": args.command, "plan_sha256": plan["plan_sha256"], **result},
+                             ensure_ascii=False, sort_keys=True))
+            return 0 if result.get("status") != "mismatch" else 1
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "publisher_operation_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command == "profiles-export":
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.output, parser, "Private Profiles export")
+        try:
+            db = _read_only(path)
+            try:
+                value = profiles_export.build_export(db, counties=args.county, statewide=args.statewide,
+                                                     limit=args.limit, after_profile_id=args.after_profile_id)
+            finally:
+                db.close()
+            size = profiles_export.write_export(value, args.output,
+                                                repository_root=Path(__file__).resolve().parents[1])
+            print(json.dumps({"status": "exported", "output_path": str(args.output.resolve()),
+                              "size_bytes": size, **value["summary"],
+                              "continuation": value["continuation"]}, ensure_ascii=False, sort_keys=True))
+            return 0
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "profiles_export_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
     if args.command in {"apply-source-types", "verify-source-types"}:
         _absolute_external_path(args.database, parser, "Research database")
         _absolute_external_path(args.plan, parser, "Private source page type plan")
@@ -874,6 +963,15 @@ def main(argv=None):
                              ensure_ascii=False, sort_keys=True))
             return 2
     try:
+        if args.command == "migrate":
+            db = connect(path)
+            try:
+                migrate(db)
+                result = validate_migration_history(db)
+            finally:
+                db.close()
+            print(json.dumps({"status": "migrated", **result}, sort_keys=True))
+            return 0
         if args.command == "seed-counties":
             db = connect(path)
             try:
@@ -952,6 +1050,10 @@ def main(argv=None):
                     result = operator.classify_source(db, source_id=args.source_id, status=args.status,
                                                       actor=args.actor, basis=args.basis,
                                                       evidence_id=args.evidence_id)
+                elif args.command == "classify-publisher":
+                    result = operator.classify_publisher(
+                        db, source_id=args.source_id, classification=args.classification,
+                        actor=args.actor, basis=args.basis, evidence_id=args.evidence_id)
                 elif args.command == "record-visit":
                     result = operator.record_visit(db, source_id=args.source_id, run_id=args.run_id,
                                                    provenance=args.provenance, outcome=args.outcome, actor=args.actor,

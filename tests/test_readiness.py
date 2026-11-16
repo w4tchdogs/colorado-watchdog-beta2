@@ -58,7 +58,7 @@ class ReadinessCase(unittest.TestCase):
         return seed_counties(self.db)
 
     def test_backup_snapshot_requires_exact_migration_derived_schema(self):
-        self.assertEqual(backup_module._database_snapshot(self.db)["schema_version"], 3)
+        self.assertEqual(backup_module._database_snapshot(self.db)["schema_version"], 4)
         alterations = {
             "missing county index": "DROP INDEX claims_county_person",
             "missing lineage trigger": "DROP TRIGGER batch_lineage_update",

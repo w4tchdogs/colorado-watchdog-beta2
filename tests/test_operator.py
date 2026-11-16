@@ -30,7 +30,7 @@ class OperatorCase(unittest.TestCase):
         self.claim = self.db.execute("SELECT * FROM role_claims").fetchone()
         self.source_id = self.db.execute("SELECT source_id FROM evidence_links WHERE id=?",
                                          (self.claim["evidence_id"],)).fetchone()[0]
-        self.db.execute("UPDATE sources SET official_status='official' WHERE id=?", (self.source_id,))
+        self.db.execute("UPDATE sources SET official_status='official',publisher_classification='official' WHERE id=?", (self.source_id,))
         self.db.execute("INSERT INTO org_units(id,county_fips,source_label,kind) VALUES ('unit-1','08107','Fixture unit','department')")
         self.run_id = self.db.execute("SELECT id FROM research_runs ORDER BY recorded_at DESC LIMIT 1").fetchone()[0]
         self.db.commit()

@@ -84,7 +84,7 @@ class SourceClassificationCase(unittest.TestCase):
         self.assertEqual(self.counts(), counts)
 
     def test_existing_status_gets_one_audited_confirmation(self):
-        self.db.execute("UPDATE sources SET official_status='official' WHERE id='source_a'")
+        self.db.execute("UPDATE sources SET official_status='official',publisher_classification='official' WHERE id='source_a'")
         self.db.commit()
         options = {"source_id": "source_a", "status": "official", "actor": "fixture",
                    "basis": "Explicit synthetic review of supporting source evidence.",
