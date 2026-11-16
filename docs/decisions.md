@@ -225,3 +225,9 @@ operator procedure is in [the Profiles foundation guide](research/R0-foundation.
 - The original 200 change, 25 citation and 200 changed row caps were first-draft defaults with no measured basis and are removed. A batch is bounded by an 8 MiB request and 32 KiB per change, and the design target is up to 10,000 changes per batch.
 - Website migration 0023 widens the stored batch result limit from 64 KiB to 1,900,000 bytes so a 10,000 change batch fits inside the 2 MB D1 row limit.
 - This is verified locally only. Hosted D1 limits on one atomic batch of that size and on Worker subrequests have not been tested, so hosted use of very large batches needs its own check before it is enabled.
+
+## Cloudflare hosting transition and first-owner target, November 16, 2026
+
+- Move Website hosting to the owner's Cloudflare Workers, Website D1 and private R2. Stage and verify on Cloudflare before any public cutover. Keep the original Sites deployment and DNS in service during staging. This decision supersedes using Cloudflare to obtain access to the Sites-managed Worker or database. Keep the private Profiles database local and move eligible Website records through the accepted sync boundary.
+- Use the existing AUTH-3 Auth0 application and GitHub connection for staging. Append the staging callback and retain the Sites callback. Keep sign-in disabled until the guarded private first-owner bootstrap is verified. Public registration, Turnstile and guest intake stay disabled for this staging phase.
+- The public hostname and cutover timing remain open. Record the disposition of existing Sites R2 objects before retiring the Sites deployment. See [Cloudflare staging evidence](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/173) and [staging deploy blocker](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/174#issuecomment-6932436990).

@@ -1,6 +1,6 @@
 # Website human sign-in (AUTH-3-WEB)
 
-Status: implemented in source and tested locally with synthetic identities. Disabled by default. Not deployed and not verified on the hosted Site. This note describes the Website Worker integration. The provider choice and the isolated pilot evidence are in the [AUTH-3 identity assessment](auth-3-identity-assessment.md), and the account model is in [account management](account-management.md).
+Status: implemented and tested locally with synthetic identities. Both hosts carry the sign-in code, and sign-in remains disabled. Follow [CURRENT](../coordination/CURRENT.md#d-deployment-state-separate-from-source) for deployment and operator evidence.
 
 ## What it does
 
@@ -8,7 +8,7 @@ The Website Worker signs in a human through Auth0 with a GitHub connection, usin
 
 ## Runtime settings
 
-Sign-in is off unless `AUTH0_ENABLED` is exactly `true` and every other setting is valid. An invalid combination behaves as disabled. Set these as Sites runtime settings, never in source. Synthetic values are used in tests.
+Sign-in is off unless `AUTH0_ENABLED` is exactly `true` and every other setting is valid. An invalid combination behaves as disabled. Configure these in the target host's runtime settings. Keep secrets out of source. Synthetic values are used in tests.
 
 | Name | Meaning |
 | --- | --- |
@@ -89,13 +89,13 @@ While sign-in is enabled the shared public header shows LOG IN / SIGN UP to sign
 
 ## Enabling sign-in on Alpha-1
 
-These steps are not done yet. Source is merged and tested locally only. Keep every credential in the Sites runtime secret store, never in source, chat, a PR or a log.
+The active first-owner target is the [Cloudflare staging Worker](../deployment/cloudflare-staging.md). See [CURRENT](../coordination/CURRENT.md#d-deployment-state-separate-from-source) for the latest operator status. The earlier Sites access gap is recorded in the [Sites first-owner blocker](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/168#issuecomment-6925653748).
 
-1. **Auth0 application.** Create a dedicated regular web application for Alpha-1 in the Auth0 tenant. Do not reuse the pilot application. Set the token endpoint authentication method to Post, sign ID tokens with RS256, and enable only the GitHub social connection, with the upstream scope limited to `read:user`. Turn off the default database connection for this application. Set the Allowed Callback URL to `https://colorado-watchdog-alpha1.futureguild2.chatgpt.site/auth/callback`. Leave Allowed Logout URLs empty because the Worker clears its own session and never calls the Auth0 logout endpoint.
-2. **Runtime settings.** On the Alpha-1 Site set `AUTH0_ISSUER` (the tenant issuer with a trailing slash), `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET` (secret), `AUTH0_CANONICAL_ORIGIN` as `https://colorado-watchdog-alpha1.futureguild2.chatgpt.site`, `AUTH0_REDIRECT_URI` as `https://colorado-watchdog-alpha1.futureguild2.chatgpt.site/auth/callback`, and last `AUTH0_ENABLED` as `true`. Leave the pilot’s temporary linking setting out.
-3. **Database.** Before any first-owner write, identify the physical Alpha-1 Website D1 that the deployed Worker’s `DB` binding uses, and reconcile its `schema_migrations` ledger (versions, names and hashes) against the full inventory 0001 to 0021 that the current bundle carries. `bootstrapFirstOwner` refuses any other history. Alpha-1 v10 carries 0001 to 0017, so deploy a build that includes 0018 to 0021 first. Leave Turnstile and hosted guest intake disabled throughout, because the 0021 claim table is schema only until that work is enabled separately.
-4. **First owner.** Complete the Auth0 sign-in once as yourself with sign-in enabled. It ends in the `403` page because nothing is linked, which is expected. The Worker never creates an account, a link or a role. Read your verified Auth0 subject for the GitHub login from the Auth0 dashboard (User Management, Users, the user’s `user_id`, for example `github|12345`). Then link it with `bootstrapFirstOwner` in `src/services/owner-bootstrap.ts`, run by a trusted operator against the Alpha-1 `DB` with `projectId` set to the Alpha-1 project, `bindingName` set to `DB`, `provider` set to `auth0:` plus the exact `AUTH0_ISSUER`, the subject, and an operator reference. Run it first with `dryRun: true`. It checks the migration history, creates one active human owner, the exact identity link and an append-only audit event in one batch, refuses a second owner, and is idempotent for the same input. It is an offline operation and is not a Worker route. Sites database tooling is read-only today, so the hosted write needs a trusted D1 channel that identifies the physical database before it writes, and a verified backup first.
-5. **Verify on the hosted Site.** From the public header, LOG IN / SIGN UP, then GitHub, then the dashboard as the owner. Reload the dashboard. Sign out and confirm `/dashboard` redirects to sign-in. Sign in with a second GitHub account that is not linked and confirm the `403` page with no dashboard. Record the deployed version, the commit and the evidence in GitHub before calling it hosted-verified.
+1. **Auth0.** Reuse the existing AUTH-3 application and GitHub connection. Settings use Post client authentication and RS256. Confirm the exact staging origin plus `/auth/callback` is in Allowed Callback URLs and retain the existing Sites callback. Obtain the owner's exact Auth0 User ID privately from the tenant's Users screen.
+2. **Worker settings.** Use the staging origin without a trailing slash and the exact callback. Set `AUTH0_ISSUER`, the application client ID, and the masked application secret in Cloudflare. Keep `AUTH0_ENABLED=false` while deploying and bootstrapping. Verify dashboard-managed settings and staging bindings after deployment.
+3. **Database.** Verify the actual staging D1 behind `DB`, the recovery evidence and the complete applied migration history against the pinned Worker source. Cloudflare staging's verified baseline carries migrations 0001–0023. Sites v14 carries 0001–0022 and its applied checksum ledger is unavailable through the inspected Sites interfaces.
+4. **First owner.** Use `bootstrapFirstOwner` in `src/services/owner-bootstrap.ts` through a private operator path with the project ID, `DB`, provider key `auth0:` plus the exact issuer, exact verified subject, and attributable operator reference. Run `dryRun: true`, apply its guarded atomic batch, and verify the account, identity, and audit event. Keep subjects and secrets out of GitHub and logs.
+5. **Hosted acceptance.** Set `AUTH0_ENABLED=true` on staging after verifying the records. Test the header sign-in entry, GitHub redirect and callback, owner dashboard access and refresh, sign-out, and denial of an anonymous or unlinked caller. Record the deployment and verification in GitHub. Keep public registration, Turnstile and guest intake disabled for this stage.
 
 ## Local verification
 
@@ -103,7 +103,7 @@ These steps are not done yet. Source is merged and tested locally only. Keep eve
 
 ## Not yet verified
 
-Hosted behavior is unverified. That includes whether the Sites gateway forwards `/auth/*`, the callback query string and the `__Host-` cookies on the canonical origin, outbound HTTPS from the Worker to the tenant, applying migration 0019 to the hosted D1, a hosted sign-in and sign-out, hosted identity revocation, and an unlinked hosted account. The isolated pilot verified the provider and Worker runtime behavior but not this integration.
+Hosted GitHub sign-in remains unverified. The earlier Sites questions include whether its gateway forwards `/auth/*`, the callback query string and the `__Host-` cookies on the canonical origin, outbound HTTPS from the Worker to the tenant, applying migration 0019 to the hosted D1, a hosted sign-in and sign-out, hosted identity revocation, and an unlinked hosted account. The isolated pilot verified the provider and Worker runtime behavior but not this integration.
 
 ## Decisions still open
 

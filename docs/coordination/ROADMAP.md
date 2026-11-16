@@ -98,11 +98,11 @@ Several goals depend on the same hosted groundwork. These come first.
 
 | ID | Work | Unblocks | Status |
 | --- | --- | --- | --- |
-| DEPLOY-1 | Initialize the existing Alpha-1 Website D1 and publish the accepted source | Every hosted goal | Deployed as v8; see CURRENT |
+| DEPLOY-1 | Maintain existing Sites Alpha-1 during the Cloudflare transition | Every hosted goal | Sites v14 deployed. Cloudflare staging public reads and D1 verified. See [CURRENT](CURRENT.md#d-deployment-state-separate-from-source) for both environments |
 | D1-0015 | Apply and verify the Lake and La Plata correction during Alpha-1 initialization | Goal 2 | Hosted registry verified in v5 |
 | AUTH-3 | Verified hosted human identity for sign-in | Goals 3, 4 (staff), 5 | Pilot hosted checks recorded on #125. Website source merged default-off in #133; hosted Website verification open |
 | MCP-2 | Publish read-only MCP and verify authenticated inspection | Goal 1, hosted D1 administration | Endpoint published; authenticated verification open |
-| R2-1 | Provision the R2 binding on the existing Site | BANNERS-IMPORT-1 | Declaration deployed; runtime binding and object verification blocked (Issue #122) |
+| R2-1 | Verify storage at the active deployment target | BANNERS-IMPORT-1 | Cloudflare staging storage round trip verified. App-level banner upload and Sites R2 inventory remain open |
 
 ## Ordered backlog
 
@@ -114,12 +114,12 @@ is lifted.
 
 | Order | ID | Work | Depends on | Goal |
 | --- | --- | --- | --- | --- |
-| 1 | DEPLOY-1 | Initialize existing Alpha-1 D1 with pending migrations and deploy the accepted source | Verified unused application database; owner decision | All |
+| 1 | DEPLOY-1 | Keep Sites Alpha-1 live during Cloudflare staging and cutover | [Hosting decision](../decisions.md#cloudflare-hosting-transition-and-first-owner-target-november-16-2026) | All |
 | 2 | MCP-2 | Hosted read-only MCP publication and authenticated inspection | DEPLOY-1; AUTH-3/AUTH-4 and inspection-only credential for protected calls | 1 |
 | 3 | D1-0015 | Verify the complete hosted county registry after migration 0015 | DEPLOY-1 initialization | 2 |
 | 4 | AUTH-3 | Choose and implement a verified hosted identity method at $0 cost | Owner decision | 3 |
-| 5 | AUTH-4 | Create the first owner account | AUTH-3 | 3 |
-| 6 | R2-1 | Provision R2 on the existing Site | DEPLOY-1 | 2 |
+| 5 | AUTH-4 | Create and verify the first owner on Cloudflare staging | AUTH-3 and a verified private D1 operator path | 3 |
+| 6 | R2-1 | Verify app-level R2 behavior on Cloudflare staging | DEPLOY-1 | 2 |
 
 ### Phase 2. AI administration
 
@@ -158,7 +158,7 @@ is lifted.
 | 22 | VIS-20 | Visual parity check on the deployed Site | Phase 4 | 6 |
 | 23 | LAUNCH-1 | Launch readiness check against all six goals, then the switch from Beta-1 | All | All |
 
-**Can proceed locally:** protected banner API work, SUB-3 and scoped visual-audit follow-ups. The EDIT-2 dashboard foundation is merged and verified locally ([PR #144](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/144)). See CURRENT before assigning work.
+**Can proceed locally:** prepare the Adams pilot, inventory approved banners and continue scoped visual-audit follow-ups. Check CURRENT for the active staging sign-in task and hosted import dependencies.
 
 ## Owner decisions
 
