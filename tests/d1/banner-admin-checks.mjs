@@ -17,7 +17,7 @@ import {
 } from "../../src/services/security.ts";
 
 /** Disposable stand-in for a Workers R2 bucket binding. It never leaves memory. */
-class MemoryR2 {
+export class MemoryR2 {
   objects = new Map();
   async put(key, value, options) {
     if (options.onlyIf.etagDoesNotMatch === "*" && this.objects.has(key))
@@ -59,7 +59,7 @@ class MemoryR2 {
 }
 
 /** Injects storage faults around the real R2 adapter. */
-class FaultStorage {
+export class FaultStorage {
   failNextPut = false;
   corruptNextGet = false;
   afterPut = null;
@@ -98,7 +98,7 @@ class FaultStorage {
 }
 
 /** Revokes an identity at the moment the guarded batch reads its generation. */
-class RevokingDatabase extends AsyncD1Database {
+export class RevokingDatabase extends AsyncD1Database {
   hook = null;
   guardedAttempts = 0;
   guardedFailures = 0;

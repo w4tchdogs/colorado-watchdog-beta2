@@ -153,6 +153,115 @@ export interface BannerReconciliationItem {
   readonly classification: BannerReconciliationClass;
 }
 
+/** Display facts that go public together with an image version. */
+export interface PublicationMetadata {
+  readonly caption: string;
+  /** Must not be blank. */
+  readonly altText: string;
+  readonly displayMode: BannerDisplayMode;
+  readonly focalX: number;
+  readonly focalY: number;
+}
+
+/**
+ * How a publication record came about. `restore_explicit` means the caller
+ * supplied the text because no recorded snapshot existed. It is never mixed up
+ * with recorded history.
+ */
+export type PublicationOrigin =
+  | "publish"
+  | "restore_recorded"
+  | "restore_explicit"
+  | "metadata_edit";
+
+export interface BannerPublicationRecord extends PublicationMetadata {
+  readonly id: string;
+  readonly versionId: string;
+  /** 1, 2, 3 ... per banner, in the order the changes went public. */
+  readonly sequence: number;
+  readonly origin: PublicationOrigin;
+  readonly restoredFromPublicationId: string | null;
+  readonly bannerRowVersion: number;
+  readonly publishedByAccountId: string;
+  readonly publishedAt: string;
+}
+
+export const BANNER_PUBLICATION_LIST_LIMIT = 50;
+
+interface IdempotentRequest {
+  readonly idempotencyKey: string;
+}
+
+export interface PublishRequest extends IdempotentRequest {
+  readonly bannerId: string;
+  readonly versionId: string;
+  readonly expectedRowVersion: number;
+  /** Omit to publish with the banner's current caption, alt text and display settings. */
+  readonly metadata?: PublicationMetadata;
+}
+
+export interface RestoreRequest extends IdempotentRequest {
+  readonly bannerId: string;
+  readonly versionId: string;
+  readonly expectedRowVersion: number;
+  /** Restore the metadata of one recorded publication. Default: the version's latest. */
+  readonly publicationId?: string;
+  /**
+   * Required when the version has no recorded publication. Never combined with
+   * `publicationId`.
+   */
+  readonly metadata?: PublicationMetadata;
+}
+
+export interface WithdrawRequest extends IdempotentRequest {
+  readonly bannerId: string;
+  readonly expectedRowVersion: number;
+}
+
+export interface BannerMetadataChange {
+  readonly caption?: string;
+  readonly altText?: string;
+  readonly displayOrder?: number;
+  readonly homepageOrder?: number | null;
+  readonly isPrimary?: boolean;
+  readonly displayMode?: BannerDisplayMode;
+  readonly focalX?: number;
+  readonly focalY?: number;
+}
+
+export interface UpdateMetadataRequest extends IdempotentRequest {
+  readonly bannerId: string;
+  readonly expectedRowVersion: number;
+  readonly change: BannerMetadataChange;
+}
+
+export interface ReorderCountyRequest extends IdempotentRequest {
+  readonly countyFips: string;
+  /** Every banner of the county exactly once, in the new order. */
+  readonly orderedBannerIds: readonly string[];
+  readonly expectedRowVersions: Readonly<Record<string, number>>;
+}
+
+export interface BannerChangeResult {
+  readonly bannerId: string;
+  readonly status: BannerAssetStatus;
+  readonly selectedVersionId: string | null;
+  readonly rowVersion: number;
+  /** The publication record written by this change, if it recorded one. */
+  readonly publicationId: string | null;
+  readonly replayed: boolean;
+}
+
+export interface ReorderCountyResult {
+  readonly countyFips: string;
+  readonly banners: readonly {
+    readonly bannerId: string;
+    readonly displayOrder: number;
+    readonly rowVersion: number;
+  }[];
+  readonly replayed: boolean;
+}
+
 export interface BannerAdministration {
   listCounties(
     principal: TrustedPrincipal,
@@ -167,6 +276,42 @@ export interface BannerAdministration {
     principal: TrustedPrincipal,
     request: BannerStageRequest,
   ): Promise<BannerStageResult>;
+  /** Newest first, at most `BANNER_PUBLICATION_LIST_LIMIT`. */
+  listPublications(
+    principal: TrustedPrincipal,
+    bannerId: string,
+  ): Promise<readonly BannerPublicationRecord[]>;
+  /**
+   * Rereads the stored object, verifies size and digest, then selects the
+   * version and writes its display metadata and a publication record in one
+   * atomic batch.
+   */
+  publish(
+    principal: TrustedPrincipal,
+    request: PublishRequest,
+  ): Promise<BannerChangeResult>;
+  /** Takes an active banner out of public view. Keeps its selection and history. */
+  withdraw(
+    principal: TrustedPrincipal,
+    request: WithdrawRequest,
+  ): Promise<BannerChangeResult>;
+  /**
+   * Selects a retained verified version again, with the metadata that went with
+   * it. Also reactivates a withdrawn banner. Needs explicit metadata when the
+   * version has no recorded publication.
+   */
+  restore(
+    principal: TrustedPrincipal,
+    request: RestoreRequest,
+  ): Promise<BannerChangeResult>;
+  updateMetadata(
+    principal: TrustedPrincipal,
+    request: UpdateMetadataRequest,
+  ): Promise<BannerChangeResult>;
+  reorderCounty(
+    principal: TrustedPrincipal,
+    request: ReorderCountyRequest,
+  ): Promise<ReorderCountyResult>;
   /** Read-only. Classifies stored objects against recorded digests. Changes nothing. */
   reconcileBanner(
     principal: TrustedPrincipal,

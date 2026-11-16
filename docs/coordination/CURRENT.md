@@ -54,7 +54,7 @@ Beta-1 data, banners and visual assets are **not** migrated into beta-2 automati
 | Component | Status | Evidence |
 | --- | --- | --- |
 | Website application foundation (M0-A–D) | Merged, implemented locally | `src/application.ts`, `src/worker.ts`; [site-foundation.md](../architecture/site-foundation.md) |
-| Website D1 schema (migrations 0001–0017) | Merged, implemented locally (Wrangler local D1) | `website/migrations/`; [d1-readiness.md](../architecture/d1-readiness.md) |
+| Website D1 schema (migrations 0001–0018) | Merged, implemented locally (Wrangler local D1) | `website/migrations/`; [d1-readiness.md](../architecture/d1-readiness.md) |
 | Accounts and security (ACCT-1, AUTH-1, AUTH-2) | Merged, implemented locally; fails closed without a verified Sites identity | PR #70, #81, #88; [account-management.md](../architecture/account-management.md) |
 | Profiles research foundation (R0) | Merged, implemented locally; repository tests use synthetic fixtures only. The live local research database contains real research data: 64 counties, 79 import batches, 20,797 role claims, 2,988 sources, 2,692 organizational units, 6,706 position targets and 3,256 research people. Research migrations 001–003 are applied (003 applied 2026-11-14 under DATA-1; its seven sync tables are empty). Verified by Claude, 2026-11-14 | [R0-foundation.md](../research/R0-foundation.md) |
 | R7/R8 synchronization preparation | Merged, implemented locally; hosted sync still unresolved | PR #71, #73; [R7](../research/R7-profiles-website-integration.md), [R8](../research/R8-profiles-sync-operator.md) |
