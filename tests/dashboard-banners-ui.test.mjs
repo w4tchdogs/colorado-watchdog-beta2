@@ -478,6 +478,129 @@ test("a failed stage retries with the same idempotency key and does not duplicat
   }
 });
 
+test("a lost new-banner stage response retries with the same key and recovers the committed version", async () => {
+  const fixtures = bannerAdminFixtures();
+  let stageCalls = 0;
+  const payloads = [];
+  const d = await mountBanners({
+    hook: (call) => {
+      if (!call.path.endsWith("/stage")) return undefined;
+      stageCalls += 1;
+      const header = call.init.headers["x-banner-stage"];
+      const payload = header
+        ? JSON.parse(Buffer.from(header, "base64url").toString())
+        : null;
+      if (stageCalls === 1) {
+        return (async () => {
+          const response = await d.sandbox.fetch(
+            new Request(`${ORIGIN}${call.path}`, {
+              method: call.init.method,
+              headers: call.init.headers,
+              body: call.init.body,
+            }),
+          );
+          await response.arrayBuffer();
+          payloads.push(payload);
+          throw new TypeError("Failed to fetch");
+        })();
+      }
+      payloads.push(payload);
+      if (stageCalls === 3) {
+        return new Response(JSON.stringify({ error: "storage_failed" }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return undefined;
+    },
+  });
+  try {
+    await waitFor(() => d.$("#banners-heading"), "banners view");
+    await openCounty(d, "08001", "Adams");
+
+    d.type(d.$("#banner-new-id"), "test-banner");
+    d.chooseFile("#banner-new-file", bytesOf(fixtures.pngA), "a.png");
+    d.type(d.$("#banner-new-alt"), "Alt text for test-banner");
+    d.type(d.$("#banner-new-caption"), "Caption for test-banner");
+    d.click("#banner-new-stage");
+
+    await waitFor(() => d.$("#banner-new-retry"), "retained retry affordance");
+    assert.match(d.live(), /The server could not be reached\./);
+
+    const committed = d.sandbox.database
+      .prepare(
+        "SELECT id AS version FROM banner_asset_versions WHERE banner_id = 'test-banner'",
+      )
+      .all();
+    assert.equal(committed.length, 1);
+    const committedVersion = committed[0].version;
+
+    d.click("#banner-new-retry");
+    await waitFor(
+      () => d.$("#banner-staged-image-test-banner"),
+      "staged preview after retry",
+    );
+    assert.match(
+      d.notice(),
+      new RegExp(`Staged version ${committedVersion} for banner test-banner`),
+    );
+
+    assert.equal(payloads.length, 2);
+    assert.deepEqual(payloads[1], payloads[0]);
+    assert.equal(payloads[0].bannerId, "test-banner");
+    assert.ok(payloads[0].idempotencyKey);
+
+    const versions = d.sandbox.database
+      .prepare(
+        "SELECT COUNT(*) AS n FROM banner_asset_versions WHERE banner_id = 'test-banner'",
+      )
+      .get().n;
+    assert.equal(versions, 1);
+    const banners = d.sandbox.database
+      .prepare(
+        "SELECT COUNT(*) AS n FROM banner_assets WHERE id = 'test-banner'",
+      )
+      .get().n;
+    assert.equal(banners, 1);
+
+    d.type(d.$("#banner-new-id"), "test-banner-2");
+    d.chooseFile("#banner-new-file", bytesOf(fixtures.pngB), "b.png");
+    d.type(d.$("#banner-new-alt"), "Alt text for test-banner-2");
+    d.type(d.$("#banner-new-order"), "1");
+    d.click("#banner-new-stage");
+    await waitFor(
+      () => d.$("#banner-new-retry"),
+      "retry affordance after storage failure",
+    );
+    assert.equal(payloads.length, 3);
+
+    d.chooseFile("#banner-new-file", bytesOf(fixtures.pngB), "b.png");
+    d.type(d.$("#banner-new-alt"), "Changed alt for test-banner-2");
+    d.type(d.$("#banner-new-order"), "1");
+    d.click("#banner-new-stage");
+    await waitFor(
+      () => d.$("#banner-staged-image-test-banner-2"),
+      "staged preview for the changed submission",
+    );
+    assert.equal(payloads.length, 4);
+    assert.notEqual(payloads[2].idempotencyKey, payloads[3].idempotencyKey);
+    assert.equal(payloads[3].bannerId, "test-banner-2");
+    assert.equal(
+      payloads[3].target.metadata.altText,
+      "Changed alt for test-banner-2",
+    );
+    assert.ok(!d.$("#banner-new-retry"));
+    const secondVersions = d.sandbox.database
+      .prepare(
+        "SELECT COUNT(*) AS n FROM banner_asset_versions WHERE banner_id = 'test-banner-2'",
+      )
+      .get().n;
+    assert.equal(secondVersions, 1);
+  } finally {
+    d.close();
+  }
+});
+
 test("a missing stored image fails safely and reconcile reports it", async () => {
   const fixtures = bannerAdminFixtures();
   const d = await mountBanners();

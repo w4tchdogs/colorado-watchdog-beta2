@@ -100,6 +100,10 @@ interface State {
   order: readonly string[] | null;
   orderDirty: boolean;
   newBannerId: string;
+  newStage: null | {
+    countyFips: string;
+    run: () => Promise<void>;
+  };
 }
 
 const formValues = (banner: BannerAdminBanner): PublishFormValues => ({
@@ -147,6 +151,7 @@ export function createBannersView(
       order: null,
       orderDirty: false,
       newBannerId: "",
+      newStage: null,
     };
     const previews = new Set<string>();
 
@@ -1262,6 +1267,23 @@ export function createBannersView(
           ),
           primary,
         ),
+        ...(state.newStage?.countyFips === countyFips
+          ? [
+              h(
+                "p",
+                {
+                  class: "dash-error",
+                  role: "alert",
+                  id: `banner-new-retry-note-${countyFips}`,
+                },
+                "The staging request did not complete. Retry sends the same image and details again with the same idempotency key; submitting changed inputs uses a new key.",
+                retryButton(
+                  () => void state.newStage?.run(),
+                  "banner-new-retry",
+                ),
+              ),
+            ]
+          : []),
         h("p", { class: "actions" }, stage),
       );
     };
@@ -1425,9 +1447,9 @@ export function createBannersView(
         return;
       }
       const key = view.newKey();
-      try {
+      const attempt = async () => {
         const bytes = new Uint8Array(await input.file.arrayBuffer());
-        const result = await view.client.stageNew({
+        return view.client.stageNew({
           bannerId: input.bannerId,
           countyFips,
           sourceFilename: input.file.name,
@@ -1445,13 +1467,52 @@ export function createBannersView(
           bytes,
           mediaType,
         });
+      };
+      await runNewStage(countyFips, attempt);
+    };
+
+    const runNewStage = async (
+      countyFips: string,
+      attempt: () => Promise<{
+        bannerId: string;
+        version: { readonly id: string };
+      }>,
+    ) => {
+      try {
+        const result = await attempt();
+        state.newStage = null;
         state.notice = `Staged version ${result.version.id} for banner ${result.bannerId}. Preview it below, then publish.`;
+        announce(`Staged version for banner ${result.bannerId}`);
         state.newBannerId = "";
         await loadCounty(countyFips);
         await showPreview(result.bannerId, result.version.id);
       } catch (error) {
+        retainNewStage(error, countyFips, attempt);
         announceError(describe(error));
       }
+      render();
+    };
+
+    const retainNewStage = (
+      error: unknown,
+      countyFips: string,
+      attempt: () => Promise<{
+        bannerId: string;
+        version: { readonly id: string };
+      }>,
+    ) => {
+      if (!isRetryable(error)) {
+        state.newStage = null;
+        return;
+      }
+      state.newStage = {
+        countyFips,
+        run: async () => {
+          state.newStage = null;
+          render();
+          await runNewStage(countyFips, attempt);
+        },
+      };
     };
 
     const runStaged = async (
