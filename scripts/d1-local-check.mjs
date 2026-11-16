@@ -487,6 +487,7 @@ async function main() {
           fields: {
             url: "https://example.invalid/d1-async",
             title: "Synthetic async source",
+            publisher_classification: "official",
             source_type: "official_page",
           },
         },
