@@ -730,7 +730,7 @@ test("revisions persist across database close and reopen", async () => {
 test("migration 0010 snapshots an already-populated version-9 database", async () => {
   const database = await openWebsiteDatabase();
   const migrations = loadWebsiteMigrations();
-  assert.equal(migrations.length, 19);
+  assert.equal(migrations.length, 20);
   migrateWebsiteDatabase(database, migrations.slice(0, 9));
   assert.equal(
     database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
@@ -774,7 +774,7 @@ test("migration 0010 snapshots an already-populated version-9 database", async (
       .prepare("SELECT version FROM schema_migrations ORDER BY version")
       .all()
       .map((row) => row.version),
-    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
   );
   // The accepted current records are unchanged.
   assert.deepEqual(

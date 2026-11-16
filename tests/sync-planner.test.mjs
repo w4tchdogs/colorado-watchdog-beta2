@@ -31,7 +31,7 @@ function seed(db) {
     "INSERT INTO positions(id,organization_id,title) VALUES ('position-a','org-a','Synthetic Clerk')",
   ).run();
   db.prepare(
-    "INSERT INTO role_sources(id,url,title,source_type) VALUES ('source-a','https://example.invalid/exact','Synthetic source','official_page')",
+    "INSERT INTO role_sources(id,url,title,source_type,publisher_classification) VALUES ('source-a','https://example.invalid/exact','Synthetic source','official_page','official')",
   ).run();
   db.prepare(
     "INSERT INTO person_roles(id,person_id,position_id,source_id,start_date,end_date,source_checked_at) VALUES ('role-a','person-a','position-a','source-a','2020-01-01',NULL,'2026-01-01T00:00:00Z')",
@@ -105,6 +105,7 @@ test("plans same-request dependencies in order and never writes or reserves IDs"
         create("register_source", "role_sources", "source-new", {
           url: "https://example.invalid/new",
           title: "Synthetic source",
+          publisher_classification: "official",
           source_type: "official_page",
         }),
         create("create_person_role", "person_roles", "role-new", {
@@ -202,6 +203,7 @@ test("source reuse is byte-exact and source evidence cannot be silently retained
         create("register_source", "role_sources", "source-ref", {
           url: "https://example.invalid/exact",
           title: "Synthetic source",
+          publisher_classification: "official",
           source_type: "official_page",
         }),
       ]),
@@ -214,6 +216,7 @@ test("source reuse is byte-exact and source evidence cannot be silently retained
         create("register_source", "role_sources", "source-ref", {
           url: "https://example.invalid/exact/",
           title: "Synthetic source",
+          publisher_classification: "official",
           source_type: "official_page",
         }),
       ]),
@@ -225,6 +228,7 @@ test("source reuse is byte-exact and source evidence cannot be silently retained
         create("register_source", "role_sources", "source-ref", {
           url: "https://example.invalid/exact",
           title: "Changed title",
+          publisher_classification: "official",
           source_type: "official_page",
         }),
       ]),
@@ -297,6 +301,7 @@ test("rejects malformed dates, future timestamps, malformed URLs and accepts res
           create("register_source", "role_sources", "s", {
             url,
             title: "Synthetic",
+            publisher_classification: "official",
             source_type: "official_page",
           }),
         ]),
@@ -309,11 +314,37 @@ test("rejects malformed dates, future timestamps, malformed URLs and accepts res
         create("register_source", "role_sources", "s", {
           url: "https://example.invalid/synthetic",
           title: "Synthetic",
+          publisher_classification: "official",
           source_type: "official_page",
         }),
       ]),
     );
     assert.equal(allowed.eligible, true);
+    const allowedUnofficial = planSyncChangeset(
+      db,
+      request([
+        create("register_source", "role_sources", "s-unofficial", {
+          url: "https://example.invalid/unofficial",
+          title: "Synthetic unofficial citation",
+          publisher_classification: "unofficial",
+          source_type: "public_document",
+        }),
+      ]),
+    );
+    assert.equal(allowedUnofficial.eligible, true);
+    const unresolved = planSyncChangeset(
+      db,
+      request([
+        create("register_source", "role_sources", "s-unresolved", {
+          url: "https://example.invalid/unresolved",
+          title: "Synthetic unresolved citation",
+          publisher_classification: "unresolved",
+          source_type: "official_page",
+        }),
+      ]),
+    );
+    assert.equal(unresolved.eligible, false);
+    assert.ok(unresolved.errors.some((x) => x.code === "invalid_enum"));
   });
 });
 
@@ -706,6 +737,7 @@ test("enforces request bounds, strict unknown keys, advisory flags and dry-run n
           create("register_source", "role_sources", `source-${i}`, {
             url: `https://example.invalid/${i}`,
             title: "Synthetic source",
+            publisher_classification: "official",
             source_type: "official_page",
           }),
         ),

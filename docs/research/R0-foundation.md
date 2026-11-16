@@ -35,6 +35,45 @@ The parent directory must exist. Initialization exclusively creates an empty dat
 
 County FIPS is the stable geographic key. The mapper includes the 64 public Colorado FIPS/name pairs; initialization seeds none. Entity IDs are stored text, not inferred from names. Ingestion generates UUIDs for sources/batches/runs and deterministic claim/evidence IDs within a persisted batch. Replays retain IDs; independently initialized databases need not generate identical UUIDs. Renaming a unit preserves its ID.
 
+### Plain-language columns in DB Browser
+
+[Migration 005](../../research/migrations/005_plain_language_profile_columns.sql)
+renames all 89 columns across People, Roles, Sources and supporting records.
+The table names, row values, relationships, CSV headers, and CLI/export keys stay
+the same. Open **Browse Data** and choose `research_people` for **Full name**
+or `role_claims` for **Office or department as published**, **Position as
+published**, and **Job description or duties**. Quote the new column names in
+queries, for example `SELECT "Full name" FROM research_people`.
+
+Use the same checkout for the migration and the updated Profiles commands.
+Close DB Browser and other clients before upgrading the working database. Run
+from the repository root in Windows PowerShell, with fresh private destinations.
+
+```powershell
+$db = 'D:/ChatGPT/Watchdog/profiles/database/research.sqlite'
+$backup = 'D:/ChatGPT/Watchdog/profiles/backups/profiles-before-column-rename.cwbackup'
+$copy = 'D:/ChatGPT/Watchdog/profiles/scratch/profiles-column-rename-rehearsal.sqlite'
+
+python -B -m research backup $db $backup
+if ($LASTEXITCODE -ne 0) { throw 'Backup failed.' }
+python -B -m research restore $backup $copy
+if ($LASTEXITCODE -ne 0) { throw 'Restore failed.' }
+python -B -m research migrate $copy
+if ($LASTEXITCODE -ne 0) { throw 'Migration rehearsal failed.' }
+python -B -m research check $copy
+if ($LASTEXITCODE -ne 0) { throw 'Rehearsal check failed.' }
+
+python -B -m research migrate $db
+if ($LASTEXITCODE -ne 0) { throw 'Working database migration failed.' }
+python -B -m research check $db
+if ($LASTEXITCODE -ne 0) { throw 'Working database check failed.' }
+```
+
+For both checks, expect schema version 5, integrity `ok`, and no foreign-key
+violations. Then reopen the working file in DB Browser. The pre-migration
+encrypted backup can be restored to a fresh path as schema version 4. Use
+the matching checkout if you need to run the original tools on that restore.
+
 ## Mapping and provenance
 
 `research.mapping.parse_csv` implements the report's exact ordered 17-column header as `legacy-17/v1`. It validates UTF-8/BOM, exact header/width, CSV quoting, county/FIPS agreement, published name, Listed in official source/Explicitly former/Unclear legacy status, HTTP(S) URLs without credentials, source-date precision and full checked dates. Blank titles and dates remain unknown. Source wording, grouping basis, names and notes remain unchanged. Grouping basis validates Official county structure, Directory display fallback and Needs editorial review. Source-specific display labels remain verbatim because supported source groupings vary. The legacy status Listed in official source maps explicitly to the internal Listed enum; raw evidence retains the exact legacy value. No migration or rewrite of existing observations is needed.

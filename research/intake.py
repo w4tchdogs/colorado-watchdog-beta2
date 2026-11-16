@@ -38,7 +38,7 @@ def preview_csv(db, payload, *, file_name, version, version_label=None,
     if county_fips is None and rows and len(counties) == 0:
         add_error("county_unavailable", "No valid county identifier is available for lineage checks")
     if county_fips is not None:
-        registered = db.execute("SELECT name FROM counties WHERE fips=?", (county_fips,)).fetchone()
+        registered = db.execute('SELECT "County name" AS name FROM counties WHERE "County code"=?', (county_fips,)).fetchone()
         if registered is None:
             add_error("county_not_registered", "County is missing from the target database registry",
                       field="county_fips")
@@ -80,8 +80,8 @@ def preview_csv(db, payload, *, file_name, version, version_label=None,
             if record_number not in record_numbers:
                 continue
             claim = db.execute(
-                "SELECT 1 FROM role_claims c JOIN evidence_links e ON e.id=c.evidence_id "
-                "WHERE c.id=? AND c.county_fips=? AND e.batch_id=?",
+                'SELECT 1 FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+                'WHERE c."Role claim ID"=? AND c."County code"=? AND e."Import batch ID"=?',
                 (claim_id, county_fips, parent_batch_id),
             ).fetchone()
             if claim is None:
@@ -122,8 +122,8 @@ def preview_csv(db, payload, *, file_name, version, version_label=None,
                 conflicts.append("mapping definition differs")
             for digest in grouped:
                 old = db.execute(
-                    "SELECT c.supersedes_id FROM role_claims c JOIN evidence_links e ON e.id=c.evidence_id "
-                    "WHERE e.batch_id=? AND e.raw_record_sha256=?",
+                    'SELECT c."Earlier claim this replaces" AS supersedes_id FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+                    'WHERE e."Import batch ID"=? AND e."Original record fingerprint"=?',
                     (existing["id"], digest),
                 ).fetchone()
                 target = next((supersedes[o["record_number"]] for o in grouped[digest]

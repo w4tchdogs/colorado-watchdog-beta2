@@ -308,7 +308,7 @@ class CsvIntakeCase(unittest.TestCase):
         self.assertEqual(result["distinct_claims"], 1)
         db = connect(self.database)
         try:
-            evidence = db.execute("SELECT * FROM evidence_links").fetchone()
+            evidence = db.execute('SELECT "Evidence record ID" AS id, "Source ID" AS source_id, "Source version ID" AS source_version_key, "Source title as observed" AS observed_title, "Source URL as observed" AS observed_url, "Source date" AS source_date, "Source date precision" AS source_date_precision, "How the source date was determined" AS source_date_basis, "Reported check date" AS reported_checked_date, "Evidence location" AS locator, "Evidence excerpt" AS quotation, "Import batch ID" AS batch_id, "Original record" AS raw_record_json, "Original record fingerprint" AS raw_record_sha256, "Where the record appeared" AS occurrences_json, "Earlier evidence record this replaces" AS supersedes_id, "Research run ID" AS run_id, "Recorded on" AS recorded_at FROM evidence_links').fetchone()
             raw = json.loads(evidence["raw_record_json"])
             self.assertEqual(raw["cells"][2], row["full_name"])
             occurrence = json.loads(evidence["occurrences_json"])[0]
@@ -319,9 +319,9 @@ class CsvIntakeCase(unittest.TestCase):
             batch = db.execute("SELECT file_sha256,mapping_version,original_file_name,lineage_kind FROM scrape_batches").fetchone()
             self.assertEqual(tuple(batch), (hashlib.sha256(payload).hexdigest(), "legacy-17/v1",
                                              "fixture.csv", "original"))
-            source = db.execute("SELECT original_url FROM sources WHERE id=?", (evidence["source_id"],)).fetchone()
+            source = db.execute('SELECT "Original source URL" AS original_url FROM sources WHERE "Source ID"=?', (evidence["source_id"],)).fetchone()
             self.assertEqual(source[0], row["source_url"])
-            claim = db.execute("SELECT person_id,unit_id,employment_start,employment_end FROM role_claims").fetchone()
+            claim = db.execute('SELECT "Linked profile" AS person_id,"Linked office or unit" AS unit_id,"Employment start date" AS employment_start,"Employment end date" AS employment_end FROM role_claims').fetchone()
             self.assertEqual(tuple(claim), (None, None, None, None))
             self.assertEqual(db.execute("SELECT count(*) FROM source_visits").fetchone()[0], 0)
             self.assertEqual(db.execute("SELECT count(*) FROM research_people").fetchone()[0], 0)
@@ -332,7 +332,7 @@ class CsvIntakeCase(unittest.TestCase):
         self.write_csv(fixture_csv())
         original = self.result(self.call_cli(*self.intake_args(extra=("--select",))))
         db = connect(self.database)
-        claim_id = db.execute("SELECT id FROM role_claims").fetchone()[0]
+        claim_id = db.execute('SELECT "Role claim ID" AS id FROM role_claims').fetchone()[0]
         db.close()
 
         complementary_path = self.root / "complementary.csv"
@@ -363,7 +363,7 @@ class CsvIntakeCase(unittest.TestCase):
         self.assertFalse(alternative_result["selected"])
         db = connect(self.database)
         try:
-            selected = db.execute("SELECT id,supersedes_id FROM selected_role_claims ORDER BY id").fetchall()
+            selected = db.execute('SELECT "Role claim ID" AS id,"Earlier claim this replaces" AS supersedes_id FROM selected_role_claims ORDER BY id').fetchall()
             self.assertEqual(len(selected), 2)
             self.assertEqual({row["supersedes_id"] for row in selected}, {None, claim_id})
             family = db.execute("SELECT selected FROM scrape_batches WHERE id=?", (original["batch_id"],)).fetchone()
@@ -456,7 +456,7 @@ class CsvIntakeCase(unittest.TestCase):
                                                    fixture_row(title="Parent role two")]))
         original = self.result(self.call_cli(*self.intake_args(path=parent_path, label="parent-v1")))
         db = connect(self.database)
-        valid_claims = [row[0] for row in db.execute("SELECT id FROM role_claims ORDER BY id")]
+        valid_claims = [row[0] for row in db.execute('SELECT "Role claim ID" AS id FROM role_claims ORDER BY id')]
         db.close()
 
         duplicate_path = self.root / "duplicate.csv"

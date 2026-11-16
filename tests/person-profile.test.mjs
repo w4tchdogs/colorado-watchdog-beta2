@@ -54,11 +54,11 @@ function seed(database) {
     .run();
   database
     .prepare(
-      `INSERT INTO role_sources(id,url,title,source_type,version)
+      `INSERT INTO role_sources(id,url,title,source_type,publisher_classification,version)
        VALUES
-       ('source-one','https://example.invalid/official','Synthetic Official Listing','official_page',2),
-       ('source-two','https://example.invalid/document','Synthetic Public Document','public_document',3),
-       ('source-three','https://example.invalid/partner','Synthetic Partner Page','other_public',1)`,
+       ('source-one','https://example.invalid/official','Synthetic Official Listing','official_page','official',2),
+       ('source-two','https://example.invalid/document','Synthetic Public Document','public_document','unofficial',3),
+       ('source-three','https://example.invalid/partner','Synthetic Partner Page','other_public','official',1)`,
     )
     .run();
   database
@@ -124,6 +124,7 @@ test("person profiles preserve stored roles, county relationships, citations, an
         title: "Synthetic Official Listing",
         url: "https://example.invalid/official",
         type: "official_page",
+        publisherClassification: "official",
         version: 2,
       },
     });
@@ -161,6 +162,7 @@ test("person profiles preserve stored roles, county relationships, citations, an
       title: "Synthetic Public Document",
       url: "https://example.invalid/document",
       type: "public_document",
+      publisherClassification: "unofficial",
       version: 3,
     });
 
@@ -399,6 +401,7 @@ test("profile HTTP endpoint validates requests and returns public pages", async 
             title: "Synthetic Official Listing",
             url: "https://example.invalid/official",
             type: "official_page",
+            publisherClassification: "official",
             version: 2,
           },
         },

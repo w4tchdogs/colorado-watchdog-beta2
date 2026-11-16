@@ -191,6 +191,7 @@ const allowed = new Set([
   "website/migrations/0017_content_publication.sql",
   "website/migrations/0018_banner_publications.sql",
   "website/migrations/0019_human_sign_in.sql",
+  "website/migrations/0020_role_source_publisher_classification.sql",
   "src/auth/config.ts",
   "src/auth/http.ts",
   "src/auth/identity.ts",
@@ -316,6 +317,7 @@ const allowed = new Set([
   "research/migrations/002_durable_site_submissions.sql",
   "research/migrations/003_site_entity_reconciliation.sql",
   "research/migrations/004_publisher_classification.sql",
+  "research/migrations/005_plain_language_profile_columns.sql",
   "tests/__init__.py",
   "tests/research_fixtures.py",
   "tests/test_research.py",
@@ -442,7 +444,7 @@ for (const file of files) {
   const bytes = staged ? git("show", `:${file}`) : readFileSync(file);
   // Large files have scoped limits: the lockfile, bundled county geometry, the
   // repository copy of the Fable revision 4 assessment, the banner
-  // administration service, and the local research CLI command router.
+  // administration service, and the local research CLI and identity planner.
   const sizeLimit =
     file === "package-lock.json"
       ? 256 * 1024
@@ -450,7 +452,8 @@ for (const file of files) {
         ? 1024 * 1024
         : file === "docs/architecture/fable-assessment-rev4.md" ||
             file === "src/services/banner-admin-d1.ts" ||
-            file === "research/__main__.py"
+            file === "research/__main__.py" ||
+            file === "research/identity.py"
           ? 96 * 1024
           : 64 * 1024;
   if (bytes.length > sizeLimit)

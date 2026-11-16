@@ -43,15 +43,19 @@ def _ref(entity_type, local_id):
     return f"{entity_type.replace('_', '-')}-{digest}"
 
 
-def _source_ok(db, evidence_id):
+def _source_ok(db, evidence_id, *, allowed_publishers=("official",)):
     row = db.execute(
-        "SELECT e.id,e.source_id,e.observed_title,e.observed_url,e.recorded_at,s.original_url,"
-        "s.official_status,s.publisher_classification,s.page_type FROM evidence_links e JOIN sources s ON s.id=e.source_id "
-        "WHERE e.id=?",
+        'SELECT e."Evidence record ID" AS id,e."Source ID" AS source_id,e."Source title as observed" AS observed_title,e."Source URL as observed" AS observed_url,e."Recorded on" AS recorded_at,s."Original source URL" AS original_url,'
+        's."Previous source category" AS official_status,s."Publisher type" AS publisher_classification,s."Document type" AS page_type FROM evidence_links e JOIN sources s ON s."Source ID"=e."Source ID" '
+        'WHERE e."Evidence record ID"=?',
         (evidence_id,),
     ).fetchone()
-    if row is None or row["publisher_classification"] != "official":
+    if row is None:
         return None, "source_not_classified_official"
+    if row["publisher_classification"] not in allowed_publishers:
+        if row["publisher_classification"] == "unresolved":
+            return None, "source_publisher_unresolved"
+        return None, "source_publisher_not_accepted"
     source_type = SOURCE_TYPES.get((row["page_type"] or "").strip().lower())
     if source_type is None:
         return None, "ambiguous_source_classification"
@@ -87,6 +91,7 @@ def _source_ok(db, evidence_id):
         "source_id": row["source_id"],
         "url": row["observed_url"],
         "title": row["observed_title"],
+        "publisher_classification": row["publisher_classification"],
         "source_type": source_type,
         "source_checked_at": checked,
     }, None
@@ -112,15 +117,15 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
             raise ValueError("County scope must be a canonical Colorado FIPS code")
 
     candidate_sql = (
-        "SELECT c.id,c.person_id,c.unit_id,c.target_id,e.source_id,b.selected "
-        "FROM role_claims c JOIN evidence_links e ON e.id=c.evidence_id "
-        "JOIN scrape_batches b ON b.id=e.batch_id "
+        'SELECT c."Role claim ID" AS id,c."Linked profile" AS person_id,c."Linked office or unit" AS unit_id,c."Linked position" AS target_id,e."Source ID" AS source_id,b.selected '
+        'FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+        'JOIN scrape_batches b ON b.id=e."Import batch ID" '
     )
     candidate_params = []
     if county_fips is not None:
-        candidate_sql += "WHERE c.county_fips=? "
+        candidate_sql += 'WHERE c."County code"=? '
         candidate_params.append(county_fips)
-    candidate_rows = list(db.execute(candidate_sql + "ORDER BY c.id", candidate_params))
+    candidate_rows = list(db.execute(candidate_sql + 'ORDER BY c."Role claim ID"', candidate_params))
     selected_candidates = [row for row in candidate_rows if row["selected"]]
     skipped_batch_claims = sum(not row["selected"] for row in candidate_rows)
     candidate_people_all = {row["person_id"] for row in candidate_rows if row["person_id"]}
@@ -135,7 +140,7 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
         pending_ancestors = list(scoped_unit_ids)
         while pending_ancestors:
             unit_id = pending_ancestors.pop()
-            row = db.execute("SELECT parent_id FROM org_units WHERE id=?", (unit_id,)).fetchone()
+            row = db.execute('SELECT "Parent office or unit" AS parent_id FROM org_units WHERE "Office or unit ID"=?', (unit_id,)).fetchone()
             if row and row["parent_id"] and row["parent_id"] not in scoped_unit_ids:
                 scoped_unit_ids.add(row["parent_id"])
                 pending_ancestors.append(row["parent_id"])
@@ -170,21 +175,21 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
     # Only explicitly structured and source-backed units are eligible. Parent
     # refs are emitted before children; unsupported parentage is never guessed.
     unit_sql = (
-            "SELECT u.id,u.county_fips,u.source_label,u.kind,u.parent_id,u.parent_relation,"
-            "u.parent_evidence_id,(SELECT n.evidence_id FROM org_names n JOIN evidence_links e ON e.id=n.evidence_id "
-            "JOIN sources s ON s.id=e.source_id WHERE n.unit_id=u.id AND n.kind='published' "
-            "AND s.publisher_classification='official' ORDER BY n.evidence_id LIMIT 1) evidence_id "
+            'SELECT u."Office or unit ID" AS id,u."County code" AS county_fips,u."Office or unit label as published" AS source_label,u."Organization type" AS kind,u."Parent office or unit" AS parent_id,u."Relationship to parent" AS parent_relation,'
+            'u."Evidence for parent relationship" AS parent_evidence_id,(SELECT n."Evidence for this name" AS evidence_id FROM org_names n JOIN evidence_links e ON e."Evidence record ID"=n."Evidence for this name" '
+            "JOIN sources s ON s.\"Source ID\"=e.\"Source ID\" WHERE n.\"Office or unit ID\"=u.\"Office or unit ID\" AND n.\"Name type\"='published' "
+            "AND s.\"Publisher type\"='official' ORDER BY n.\"Evidence for this name\" LIMIT 1) evidence_id "
             "FROM org_units u "
     )
     unit_params = []
     if scoped_unit_ids is not None:
         if scoped_unit_ids:
             marks = ",".join("?" for _ in scoped_unit_ids)
-            unit_sql += f"WHERE u.id IN ({marks}) "
+            unit_sql += f"WHERE u.\"Office or unit ID\" IN ({marks}) "
             unit_params.extend(sorted(scoped_unit_ids))
         else:
             unit_sql += "WHERE 0 "
-    units = list(db.execute(unit_sql + "ORDER BY u.county_fips,u.id", unit_params))
+    units = list(db.execute(unit_sql + 'ORDER BY u."County code",u."Office or unit ID"', unit_params))
     units_by_id = {u["id"]: u for u in units}
     for unit in units:
         link = _linked(db, site_key, "org_unit", unit["id"])
@@ -354,15 +359,15 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
             continue
 
         affiliation_sql = (
-            "SELECT DISTINCT c.county_fips,c.affiliation,c.evidence_id FROM role_claims c "
-            "JOIN evidence_links e ON e.id=c.evidence_id JOIN scrape_batches b ON b.id=e.batch_id "
-            "WHERE c.unit_id=? AND b.selected=1 AND c.affiliation IS NOT NULL AND trim(c.affiliation)<>'' "
+            'SELECT DISTINCT c."County code" AS county_fips,c."Affiliation" AS affiliation,c."Evidence record ID" AS evidence_id FROM role_claims c '
+            'JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" JOIN scrape_batches b ON b.id=e."Import batch ID" '
+            "WHERE c.\"Linked office or unit\"=? AND b.selected=1 AND c.\"Affiliation\" IS NOT NULL AND trim(c.\"Affiliation\")<>'' "
         )
         affiliation_params = [unit["id"]]
         if county_fips is not None:
-            affiliation_sql += "AND c.county_fips=? "
+            affiliation_sql += 'AND c."County code"=? '
             affiliation_params.append(county_fips)
-        rows = db.execute(affiliation_sql + "ORDER BY c.county_fips,c.evidence_id", affiliation_params)
+        rows = db.execute(affiliation_sql + 'ORDER BY c."County code",c."Evidence record ID"', affiliation_params)
         for row in rows:
             _citation, affiliation_reason = _source_ok(db, row["evidence_id"])
             if affiliation_reason:
@@ -424,14 +429,14 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
     # people, explicit positions, and exact public citations only.
     claims = list(
         db.execute(
-            "SELECT c.id claim_id,c.person_id,c.unit_id,c.target_id,c.published_name,c.published_title,"
-            "c.employment_start,c.employment_end,c.source_listing_status,c.evidence_id,e.source_id,e.batch_id,"
-            "b.selected,p.display_name,p.identity_state,p.identity_evidence_id,u.kind unit_kind,t.documented_title "
-            "FROM role_claims c JOIN evidence_links e ON e.id=c.evidence_id "
-            "JOIN scrape_batches b ON b.id=e.batch_id LEFT JOIN research_people p ON p.id=c.person_id "
-            "LEFT JOIN org_units u ON u.id=c.unit_id LEFT JOIN role_targets t ON t.id=c.target_id "
-            + ("WHERE b.selected=1 AND c.county_fips=? " if county_fips is not None else "WHERE b.selected=1 ")
-            + "ORDER BY c.id",
+            'SELECT c."Role claim ID" claim_id,c."Linked profile" AS person_id,c."Linked office or unit" AS unit_id,c."Linked position" AS target_id,c."Name as published" AS published_name,c."Position as published" AS published_title,'
+            'c."Employment start date" AS employment_start,c."Employment end date" AS employment_end,c."Listing status" AS source_listing_status,c."Evidence record ID" AS evidence_id,e."Source ID" AS source_id,e."Import batch ID" AS batch_id,'
+            'b.selected,p."Full name" AS display_name,p."Identity review status" AS identity_state,p."Evidence for identity" AS identity_evidence_id,u."Organization type" unit_kind,t."Documented position title" AS documented_title '
+            'FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+            'JOIN scrape_batches b ON b.id=e."Import batch ID" LEFT JOIN research_people p ON p."Profile ID"=c."Linked profile" '
+            'LEFT JOIN org_units u ON u."Office or unit ID"=c."Linked office or unit" LEFT JOIN role_targets t ON t."Position ID"=c."Linked position" '
+            + ('WHERE b.selected=1 AND c."County code"=? ' if county_fips is not None else "WHERE b.selected=1 ")
+            + 'ORDER BY c."Role claim ID"',
             (county_fips,) if county_fips is not None else (),
         )
     )
@@ -528,7 +533,12 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
                 }
             )
             continue
-        citation, reason = _source_ok(db, claim["evidence_id"])
+        # Role citations may be published by a verified government or
+        # nongovernment publisher. Identity, organization names, and
+        # affiliations continue to use _source_ok's official-only default.
+        citation, reason = _source_ok(
+            db, claim["evidence_id"], allowed_publishers=("official", "unofficial")
+        )
         if reason:
             excluded.append(
                 {
@@ -671,6 +681,7 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
                     "fields": {
                         "url": citation["url"],
                         "title": citation["title"],
+                        "publisher_classification": citation["publisher_classification"],
                         "source_type": citation["source_type"],
                     },
                 },
@@ -1000,7 +1011,7 @@ def approve_site_update(
     ):
         raise ValueError("Update approval must pin the current mapped Website version")
     if (
-        db.execute("SELECT 1 FROM evidence_links WHERE id=?", (evidence_id,)).fetchone()
+        db.execute('SELECT 1 FROM evidence_links WHERE "Evidence record ID"=?', (evidence_id,)).fetchone()
         is None
     ):
         raise ValueError("Update approval requires retained research evidence")

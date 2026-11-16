@@ -20,13 +20,13 @@ class PublisherClassificationTests(unittest.TestCase):
         self.db.execute("INSERT INTO counties VALUES ('08001','Adams')")
         self.db.execute("INSERT INTO research_runs(id,kind,provenance,actor,started_at,ended_at,recorded_at) "
                         "VALUES('run_synth','mapping','synthetic','fixture',?,?,?)", (NOW, NOW, NOW))
-        self.db.executemany("INSERT INTO sources(id,original_url,official_status,recorded_at) VALUES(?,?,?,?)",
+        self.db.executemany('INSERT INTO sources("Source ID","Original source URL","Previous source category","Recorded on") VALUES(?,?,?,?)',
                             [("source_prior", "https://example.invalid/government", "official", NOW),
                              ("source_unknown", "https://example.invalid/unresolved", "unknown", NOW),
                              ("source_partner", "https://example.invalid/partner", "partner", NOW)])
         for source_id in ("source_prior", "source_unknown", "source_partner"):
-            url = self.db.execute("SELECT original_url FROM sources WHERE id=?", (source_id,)).fetchone()[0]
-            self.db.execute("INSERT INTO evidence_links(id,source_id,observed_title,observed_url,locator,run_id,recorded_at) "
+            url = self.db.execute('SELECT "Original source URL" AS original_url FROM sources WHERE "Source ID"=?', (source_id,)).fetchone()[0]
+            self.db.execute('INSERT INTO evidence_links("Evidence record ID","Source ID","Source title as observed","Source URL as observed","Evidence location","Research run ID","Recorded on") '
                             "VALUES(?,?,?,?,?,'run_synth',?)",
                             ("evidence_" + source_id, source_id, "Synthetic evidence", url, "paragraph 1", NOW))
         detail = {"before": {"official_status": "unknown"}, "after": {"official_status": "official"},
@@ -58,7 +58,7 @@ class PublisherClassificationTests(unittest.TestCase):
 
     def test_stale_plan_aborts_and_unofficial_operator_preserves_partner_status(self):
         plan = build_plan(self.db)
-        self.db.execute("UPDATE sources SET original_url='https://example.invalid/changed' WHERE id='source_unknown'")
+        self.db.execute("UPDATE sources SET \"Original source URL\"='https://example.invalid/changed' WHERE \"Source ID\"='source_unknown'")
         self.db.commit()
         with self.assertRaisesRegex(ValueError, "changed after preview"):
             apply_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
@@ -66,7 +66,7 @@ class PublisherClassificationTests(unittest.TestCase):
                                     actor="synthetic-operator", basis="Publisher explicitly identified in synthetic evidence.",
                                     evidence_id="evidence_source_partner")
         self.assertTrue(result["changed"])
-        row = self.db.execute("SELECT official_status,publisher_classification FROM sources WHERE id='source_partner'").fetchone()
+        row = self.db.execute("SELECT \"Previous source category\" AS official_status,\"Publisher type\" AS publisher_classification FROM sources WHERE \"Source ID\"='source_partner'").fetchone()
         self.assertEqual(tuple(row), ("partner", "unofficial"))
 
 

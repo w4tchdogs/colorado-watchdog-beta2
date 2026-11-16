@@ -58,6 +58,7 @@ function completeChangeset() {
     create("register_source", "role_sources", "source", {
       url: "https://example.invalid/synthetic",
       title: "Synthetic source",
+      publisher_classification: "official",
       source_type: "official_page",
     }),
     create("create_person_role", "person_roles", "role", {

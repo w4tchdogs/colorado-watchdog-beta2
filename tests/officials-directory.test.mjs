@@ -101,6 +101,32 @@ test("browsing needs no search term and counts only stored people", async () => 
   });
 });
 
+test("officials public reads preserve an unofficial role publisher classification", async () => {
+  await withDatabase(true, async (runner, database) => {
+    const role = database
+      .prepare(
+        `SELECT person.display_name, source.id AS source_id
+         FROM person_roles AS role
+         JOIN people AS person ON person.id = role.person_id
+         JOIN role_sources AS source ON source.id = role.source_id
+         ORDER BY role.id LIMIT 1`,
+      )
+      .get();
+    database
+      .prepare(
+        "UPDATE role_sources SET publisher_classification='unofficial', version=version+1 WHERE id=?",
+      )
+      .run(role.source_id);
+
+    const result = await listOfficials(runner, { query: role.display_name });
+    assert.equal(
+      result.items.find((item) => item.person.displayName === role.display_name)
+        ?.role?.source.publisherClassification,
+      "unofficial",
+    );
+  });
+});
+
 test("county, office and type filters run in the query, not on one page", async () => {
   await withDatabase(true, async (runner) => {
     const larimer = await listOfficials(runner, {

@@ -8,7 +8,6 @@ import unittest
 from pathlib import Path
 
 from research.db import MIGRATIONS, connect, migrate
-from research.store import ingest_csv
 from research.submission import (
     COMMIT_PATH,
     IdempotencyConflictError,
@@ -17,7 +16,6 @@ from research.submission import (
     prepare_submission,
     submit_prepared,
 )
-from tests.research_fixtures import csv_bytes, observation
 
 NOW = "2026-11-13T12:00:00+00:00"
 SITE = "synthetic-site"
@@ -94,19 +92,23 @@ class SubmissionMigrationTests(unittest.TestCase):
                 migrate(db, migration_dir)
                 db.execute("INSERT INTO counties VALUES ('08031', 'Denver')")
                 db.commit()
-                ingest_csv(
-                    db,
-                    csv_bytes([observation(fips="08031")]),
-                    file_name="synthetic-before-upgrade.csv",
-                    version_label="fictional-v1",
-                    provenance="synthetic",
-                    selected=True,
-                )
-                before = {
-                    "county": tuple(db.execute("SELECT fips, name FROM counties").fetchone()),
-                    "claim": tuple(db.execute("SELECT id, published_name, source_listing_status FROM role_claims").fetchone()),
-                    "evidence": tuple(db.execute("SELECT id, raw_record_sha256, batch_id FROM evidence_links").fetchone()),
+                now = "2026-11-13T12:00:00+00:00"
+                url = "https://example.invalid/pre-upgrade"
+                db.execute("INSERT INTO research_runs(id,kind,provenance,recorded_at) "
+                           "VALUES ('run','screening','synthetic',?)", (now,))
+                db.execute("INSERT INTO sources(id,original_url,recorded_at) VALUES ('source',?,?)", (url, now))
+                db.execute("INSERT INTO evidence_links(id,source_id,observed_url,locator,run_id,recorded_at) "
+                           "VALUES ('evidence','source',?,'synthetic section','run',?)", (url, now))
+                db.execute("INSERT INTO role_claims(id,county_fips,evidence_id,published_name,source_listing_status) "
+                           "VALUES ('claim','08031','evidence','Synthetic Example','Listed')")
+                db.commit()
+
+                queries = {
+                    "county": "SELECT fips,name FROM counties",
+                    "claim": "SELECT id,published_name,source_listing_status FROM role_claims",
+                    "evidence": "SELECT id,raw_record_sha256,batch_id FROM evidence_links",
                 }
+                before = {key: tuple(db.execute(sql).fetchone()) for key, sql in queries.items()}
 
                 shutil.copyfile(
                     MIGRATIONS / "002_durable_site_submissions.sql",
@@ -114,11 +116,7 @@ class SubmissionMigrationTests(unittest.TestCase):
                 )
                 migrate(db, migration_dir)
 
-                after = {
-                    "county": tuple(db.execute("SELECT fips, name FROM counties").fetchone()),
-                    "claim": tuple(db.execute("SELECT id, published_name, source_listing_status FROM role_claims").fetchone()),
-                    "evidence": tuple(db.execute("SELECT id, raw_record_sha256, batch_id FROM evidence_links").fetchone()),
-                }
+                after = {key: tuple(db.execute(sql).fetchone()) for key, sql in queries.items()}
                 self.assertEqual(after, before)
                 self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 2)
                 self.assertEqual(
