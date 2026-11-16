@@ -71,6 +71,7 @@ async function startAndCallback(db) {
     const url = String(input);
     if (url.endsWith("/oauth/token")) {
       const body = JSON.parse(options?.body ?? "{}");
+      assert.equal(options.redirect,"manual");
       assert.equal(body.code_verifier,db.state.transaction.verifier);
       return new Response(JSON.stringify({id_token:token}),{headers:{"content-type":"application/json"}});
     }
@@ -122,6 +123,23 @@ test("wrong issuer, audience, expiry, nonce, algorithm, and signature fail close
   const [tHead,tClaims,tSig] = valid.split(".");
   await assert.rejects(verifyIdToken(`${tHead}.${tClaims}.${tSig.slice(0,10)}${tSig[10] === "A" ? "B" : "A"}${tSig.slice(11)}`,env,"nonce-1"));
 });
+test("JWKS lookup rejects a redirect without following it", async () => {
+  const freshIssuer = "https://synthetic-jwks-redirect.example/";
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  try {
+    const token = await signedToken({ iss:freshIssuer });
+    globalThis.fetch = async (input, options) => {
+      requests.push({ url:String(input), redirect:options.redirect });
+      return new Response(null, { status:307, headers:{ location:"https://unexpected.example/jwks" } });
+    };
+    await assert.rejects(verifyIdToken(token, { ...env, AUTH0_ISSUER:freshIssuer }, "nonce-1"));
+    assert.deepEqual(requests,[{ url:new URL(".well-known/jwks.json",freshIssuer).href, redirect:"manual" }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("duplicate JWT claim names are rejected", async () => {
   const now = Math.floor(Date.now()/1000);
   const header = Buffer.from(JSON.stringify({alg:"RS256",kid:signingJwk.kid})).toString("base64url");
@@ -435,6 +453,7 @@ test("diagnostics: a successful callback logs each stage in order, allowlisted f
 const FAILURES = [
   { name: "token fetch fails", opts: { tokenFetch: () => { throw new Error("LEAK-error-detail synthetic-secret"); } }, expect: ["token_request:started", "token_request:fetch_failed"] },
   { name: "upstream rejects with 401", opts: { tokenFetch: () => new Response('{"error":"LEAK-body-detail synthetic-secret"}', { status:401, headers:{ "content-type":"application/json" } }) }, expect: ["token_request:started", "token_request:upstream_rejected:401"] },
+  { name: "upstream returns a redirect", opts: { tokenFetch: () => new Response(null, { status:307, headers:{ location:"https://unexpected.example/token" } }) }, expect: ["token_request:started", "token_request:upstream_rejected:307"] },
   { name: "upstream returns 500", opts: { tokenFetch: () => new Response("LEAK-body-detail", { status:500 }) }, expect: ["token_request:started", "token_request:upstream_rejected:500"] },
   { name: "token response is not JSON", opts: { tokenFetch: () => new Response("LEAK-body-detail not json", { status:200 }) }, expect: ["token_request:started", "token_request:response_unparseable:200"] },
   { name: "ID token fails verification", opts: { idToken: "not.a.jwt" }, expect: ["token_request:started", "token_request:response_received:200", "id_token:verification_failed"] },

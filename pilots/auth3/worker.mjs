@@ -1,4 +1,4 @@
-import { createRemoteJWKSet, customFetch, jwtVerify } from "jose";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
 const COOKIE = "__Host-wd-auth3-session";
 const STATE_COOKIE = "__Host-wd-auth3-state";
@@ -102,7 +102,6 @@ function getJwks(iss) {
       cacheMaxAge:5*60_000,
       cooldownDuration:30_000,
       timeoutDuration:5_000,
-      [customFetch]:(input,options)=>fetch(input,{...options,redirect:"error"}),
     }));
   }
   return jwksResolvers.get(iss);
@@ -192,7 +191,7 @@ async function callback(request, env, db) {
   try {
     const iss = issuer(env);
     diag("token_request", "started");
-    const tokenResponse = await fetch(new URL("oauth/token", iss), { method:"POST", redirect:"error", headers:{"content-type":"application/json",accept:"application/json"}, body:JSON.stringify({ grant_type:"authorization_code", client_id:env.AUTH0_CLIENT_ID, client_secret:env.AUTH0_CLIENT_SECRET, code:codes[0], redirect_uri:env.AUTH0_REDIRECT_URI, code_verifier:txn.verifier }) });
+    const tokenResponse = await fetch(new URL("oauth/token", iss), { method:"POST", redirect:"manual", headers:{"content-type":"application/json",accept:"application/json"}, body:JSON.stringify({ grant_type:"authorization_code", client_id:env.AUTH0_CLIENT_ID, client_secret:env.AUTH0_CLIENT_SECRET, code:codes[0], redirect_uri:env.AUTH0_REDIRECT_URI, code_verifier:txn.verifier }) });
     if (!tokenResponse.ok) { step = { stage:"token_request", outcome:"upstream_rejected", status:tokenResponse.status }; throw new Error("token_exchange_failed"); }
     step = { stage:"token_request", outcome:"response_unparseable", status:tokenResponse.status };
     const tokens = await tokenResponse.json();
