@@ -58,21 +58,21 @@ class ReadinessCase(unittest.TestCase):
         return seed_counties(self.db)
 
     def test_backup_snapshot_requires_exact_migration_derived_schema(self):
-        self.assertEqual(backup_module._database_snapshot(self.db)["schema_version"], 4)
+        self.assertEqual(backup_module._database_snapshot(self.db)["schema_version"], 5)
         alterations = {
             "missing county index": "DROP INDEX claims_county_person",
             "missing lineage trigger": "DROP TRIGGER batch_lineage_update",
             "altered same-name index": "DROP INDEX claims_county_person; "
-                "CREATE INDEX claims_county_person ON role_claims(person_id, county_fips)",
+                'CREATE INDEX claims_county_person ON role_claims("Linked profile", "County code")',
             "altered same-name trigger": "DROP TRIGGER batch_lineage_update; "
                 "CREATE TRIGGER batch_lineage_update BEFORE UPDATE ON role_claims "
                 "BEGIN SELECT RAISE(ABORT, 'altered'); END",
             "altered same-name view": "DROP VIEW selected_role_claims; "
-                "CREATE VIEW selected_role_claims AS SELECT c.id FROM role_claims c",
-            "unexpected index": "CREATE INDEX unexpected_managed_index ON role_claims(county_fips)",
+                'CREATE VIEW selected_role_claims AS SELECT c."Role claim ID" FROM role_claims c',
+            "unexpected index": 'CREATE INDEX unexpected_managed_index ON role_claims("County code")',
             "unexpected trigger": "CREATE TRIGGER unexpected_managed_trigger AFTER INSERT ON role_claims "
                 "BEGIN SELECT 1; END",
-            "unexpected view": "CREATE VIEW unexpected_managed_view AS SELECT id FROM role_claims",
+            "unexpected view": 'CREATE VIEW unexpected_managed_view AS SELECT "Role claim ID" FROM role_claims',
         }
         for label, sql in alterations.items():
             with self.subTest(schema_change=label):
@@ -131,12 +131,12 @@ class ReadinessCase(unittest.TestCase):
         self.assertEqual(len(first["inserted"]), 64)
         self.assertEqual(first["already_present"], [])
         self.assertEqual(first["conflicts"], [])
-        self.assertEqual(dict(self.db.execute("SELECT fips,name FROM counties")), COUNTIES)
-        self.assertEqual(self.db.execute("SELECT name FROM counties WHERE fips='08014'").fetchone()[0],
+        self.assertEqual(dict(self.db.execute('SELECT "County code" AS fips,"County name" AS name FROM counties')), COUNTIES)
+        self.assertEqual(self.db.execute("SELECT \"County name\" AS name FROM counties WHERE \"County code\"='08014'").fetchone()[0],
                          "Broomfield")
-        self.assertEqual(self.db.execute("SELECT name FROM counties WHERE fips='08039'").fetchone()[0],
+        self.assertEqual(self.db.execute("SELECT \"County name\" AS name FROM counties WHERE \"County code\"='08039'").fetchone()[0],
                          "Elbert")
-        self.assertEqual(self.db.execute("SELECT name FROM counties WHERE fips='08041'").fetchone()[0],
+        self.assertEqual(self.db.execute("SELECT \"County name\" AS name FROM counties WHERE \"County code\"='08041'").fetchone()[0],
                          "El Paso")
         second = self.seed()
         self.assertEqual(second["status"], "already_present")
@@ -157,9 +157,9 @@ class ReadinessCase(unittest.TestCase):
     def test_wrong_existing_mapping_returns_conflict_without_partial_writes(self):
         self.db.execute("INSERT INTO counties VALUES ('08037','Not Eagle')")
         self.db.commit()
-        before = list(map(tuple, self.db.execute("SELECT fips,name FROM counties ORDER BY fips")))
+        before = list(map(tuple, self.db.execute('SELECT "County code" AS fips,"County name" AS name FROM counties ORDER BY fips')))
         result = self.seed()
-        after = list(map(tuple, self.db.execute("SELECT fips,name FROM counties ORDER BY fips")))
+        after = list(map(tuple, self.db.execute('SELECT "County code" AS fips,"County name" AS name FROM counties ORDER BY fips')))
         self.assertEqual(result["status"], "conflict")
         self.assertEqual(result["inserted"], [])
         self.assertEqual(result["conflicts"][0]["reason"], "name_mismatch")
@@ -167,7 +167,7 @@ class ReadinessCase(unittest.TestCase):
 
     def test_seed_insert_failure_rolls_back_the_entire_registry(self):
         self.db.execute("CREATE TRIGGER fail_registry_insert BEFORE INSERT ON counties "
-                        "WHEN NEW.fips='08041' BEGIN SELECT RAISE(ABORT,'synthetic seed failure'); END")
+                        "WHEN NEW.\"County code\"='08041' BEGIN SELECT RAISE(ABORT,'synthetic seed failure'); END")
         self.db.commit()
         with self.assertRaisesRegex(sqlite3.IntegrityError, "synthetic seed failure"):
             seed_counties(self.db)
@@ -179,7 +179,7 @@ class ReadinessCase(unittest.TestCase):
         report = preview_csv(self.db, payload, file_name="synthetic.csv", version="legacy-17/v1",
                              version_label="r5a-race-v1", provenance="synthetic")
         self.assertTrue(report["eligible"])
-        self.db.execute("UPDATE counties SET name='Synthetic Changed County' WHERE fips='08037'")
+        self.db.execute("UPDATE counties SET \"County name\"='Synthetic Changed County' WHERE \"County code\"='08037'")
         self.db.commit()
         before = {table: self.db.execute(f'SELECT count(*) FROM "{table}"').fetchone()[0]
                   for table in ("scrape_batches", "research_runs", "sources", "evidence_links", "role_claims",
@@ -349,9 +349,9 @@ class ReadinessCase(unittest.TestCase):
         self.assertEqual(after, before)
         self.db.execute("INSERT INTO research_runs(id,kind,provenance,actor,recorded_at) VALUES (?,?,?,?,?)",
                         ("run_classification_fixture", "mapping", "synthetic", "fixture", NOW))
-        self.db.execute("INSERT INTO sources(id,original_url,recorded_at) VALUES (?,?,?)",
+        self.db.execute('INSERT INTO sources("Source ID","Original source URL","Recorded on") VALUES (?,?,?)',
                         ("source_classification_fixture", "https://example.invalid/classification", NOW))
-        self.db.execute("INSERT INTO evidence_links(id,source_id,observed_title,observed_url,locator,run_id,recorded_at) "
+        self.db.execute('INSERT INTO evidence_links("Evidence record ID","Source ID","Source title as observed","Source URL as observed","Evidence location","Research run ID","Recorded on") '
                         "VALUES (?,?,?,?,?,?,?)",
                         ("evidence_classification_fixture", "source_classification_fixture", "Synthetic source",
                          "https://example.invalid/classification", "synthetic fixture", "run_classification_fixture", NOW))
@@ -361,7 +361,7 @@ class ReadinessCase(unittest.TestCase):
             basis="Synthetic exercise; the source status is explicitly assigned for the fixture.",
             evidence_id="evidence_classification_fixture")
         self.assertTrue(classified["changed"])
-        self.assertEqual(self.db.execute("SELECT official_status FROM sources WHERE id=?",
+        self.assertEqual(self.db.execute('SELECT "Previous source category" AS official_status FROM sources WHERE "Source ID"=?',
                                          ("source_classification_fixture",)).fetchone()[0], "partner")
         self.assertEqual(self.db.execute("SELECT count(*) FROM source_visits").fetchone()[0], 0)
         self.assertEqual(self.db.execute("SELECT kind FROM research_events WHERE entity_id=?",
@@ -392,8 +392,8 @@ class ReadinessCase(unittest.TestCase):
                          for table in ("counties", "scrape_batches", "sources", "evidence_links", "role_claims",
                                        "research_runs", "research_events", "research_people")}
         source_row = self.db.execute(
-            "SELECT e.raw_record_json,e.raw_record_sha256,e.source_id,b.id,b.family_id,b.mapping_version "
-            "FROM evidence_links e JOIN scrape_batches b ON b.id=e.batch_id WHERE b.id=?", (batch_id,)
+            'SELECT e."Original record" AS raw_record_json,e."Original record fingerprint" AS raw_record_sha256,e."Source ID" AS source_id,b.id,b.family_id,b.mapping_version '
+            'FROM evidence_links e JOIN scrape_batches b ON b.id=e."Import batch ID" WHERE b.id=?', (batch_id,)
         ).fetchone()
         backup = self.root / "backups" / "synthetic-backup.sqlite"
         backup.parent.mkdir()
@@ -415,8 +415,8 @@ class ReadinessCase(unittest.TestCase):
                             for table in counts_before}
             self.assertEqual(counts_after, counts_before)
             restored_row = reopened.execute(
-                "SELECT e.raw_record_json,e.raw_record_sha256,e.source_id,b.id,b.family_id,b.mapping_version "
-                "FROM evidence_links e JOIN scrape_batches b ON b.id=e.batch_id WHERE b.id=?", (batch_id,)
+                'SELECT e."Original record" AS raw_record_json,e."Original record fingerprint" AS raw_record_sha256,e."Source ID" AS source_id,b.id,b.family_id,b.mapping_version '
+                'FROM evidence_links e JOIN scrape_batches b ON b.id=e."Import batch ID" WHERE b.id=?', (batch_id,)
             ).fetchone()
             self.assertEqual(tuple(restored_row), tuple(source_row))
             self.assertEqual(reopened.execute("SELECT count(*) FROM research_people").fetchone()[0], 0)
@@ -428,7 +428,7 @@ class ReadinessCase(unittest.TestCase):
         self.seed()
         self.db.execute("INSERT INTO research_runs(id,kind,provenance,recorded_at) VALUES (?,?,?,?)",
                         ("run_private_fixture", "mapping", "synthetic", NOW))
-        self.db.execute("INSERT INTO sources(id,original_url,recorded_at) VALUES (?,?,?)",
+        self.db.execute('INSERT INTO sources("Source ID","Original source URL","Recorded on") VALUES (?,?,?)',
                         ("source_private_fixture", "https://example.invalid/private-fixture", NOW))
         self.db.commit()
         artifact = self.root / "encrypted.cwdb"

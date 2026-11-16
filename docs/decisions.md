@@ -203,3 +203,11 @@ rewriting the history above.
   citation URL, title, publisher classification, page type, and verification
   date in Website sync records. A publisher classified `unresolved` is not an
   acceptable role citation.
+
+## Profiles database column names, November 16, 2026
+
+Use the approved plain-language names as actual SQLite column identifiers in
+People, Roles, Sources, and their supporting tables. Preserve the original row
+values and evidence, keep the machine-facing CSV and export keys stable, and
+ship the schema migration and updated Profiles tools together. The local
+operator procedure is in [the Profiles foundation guide](research/R0-foundation.md#plain-language-columns-in-db-browser).

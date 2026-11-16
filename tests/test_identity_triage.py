@@ -34,9 +34,9 @@ class IdentityTriageTests(unittest.TestCase):
                               selected=selected, lineage_kind=kind,
                               parent_batch_id=parent, return_result=False)
         return [dict(row) for row in self.db.execute(
-            "SELECT c.id,c.county_fips,c.published_name,c.evidence_id,c.person_id,e.source_id "
-            "FROM role_claims c JOIN evidence_links e ON e.id=c.evidence_id "
-            "WHERE e.batch_id=? ORDER BY e.locator", (batch_id,))]
+            'SELECT c."Role claim ID" AS id,c."County code" AS county_fips,c."Name as published" AS published_name,c."Evidence record ID" AS evidence_id,c."Linked profile" AS person_id,e."Source ID" AS source_id '
+            'FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+            'WHERE e."Import batch ID"=? ORDER BY e."Evidence location"', (batch_id,))]
 
     def preview(self):
         plan = identity.build_identity_plan(self.db)
@@ -88,7 +88,7 @@ class IdentityTriageTests(unittest.TestCase):
                                url="https://example.gov/treasurer")[0]
         plan = identity.build_identity_plan(self.db)
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        existing_person_id = self.db.execute("SELECT id FROM research_people").fetchone()[0]
+        existing_person_id = self.db.execute('SELECT "Profile ID" AS id FROM research_people').fetchone()[0]
         second = self.add_batch([{"full_name": "Synthetic Morgan Example", "title": "Fixture Clerk"}],
                                 url="https://example.gov/clerk")[0]
         plan, report = self.preview()
