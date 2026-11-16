@@ -32,7 +32,7 @@ function authorized(
     throw new Error("Banner mutation is not authorized");
 }
 
-function validText(value: string, name: string, limit: number): void {
+export function validText(value: string, name: string, limit: number): void {
   if (typeof value !== "string" || value.length > limit || value.includes("\0"))
     throw new BannerValidationError(`Invalid ${name}`);
 }

@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { bannerAdminFixtures } from "../tests/d1/banner-admin-fixtures.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const config = join(root, "wrangler.d1-test.toml");
@@ -1098,6 +1099,21 @@ async function main() {
     }
     console.log(
       "PASS async D1 injected record, batch item, duplicate observation, and audit failures roll back all state",
+    );
+
+    const bannerResponse = await fetch(`${base}/banners/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(bannerAdminFixtures()),
+    });
+    const bannerCheck = await bannerResponse.json();
+    if (!bannerResponse.ok || !bannerCheck.success) {
+      throw new Error(
+        `Local D1 banner administration verification failed: ${JSON.stringify(bannerCheck)}`,
+      );
+    }
+    console.log(
+      `PASS D1 banner administration: ${bannerCheck.checks.length} checks for authority, bounded reads, image inspection, idempotent staging, storage failure and lost-authority reconciliation`,
     );
 
     const write = await fetch(`${base}/write`, { method: "POST" });

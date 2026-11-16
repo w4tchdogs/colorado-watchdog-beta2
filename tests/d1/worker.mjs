@@ -8,6 +8,7 @@ import {
 import { D1ReportIntakeStore } from "../../src/services/report-intake-d1.ts";
 import { commitSyncChangesetD1 } from "../../src/services/sync-commit-d1.ts";
 import { reverseSyncBatchD1 } from "../../src/services/sync-revert-d1.ts";
+import { runBannerAdminChecks } from "./banner-admin-checks.mjs";
 
 const json = (value, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -163,6 +164,13 @@ export default {
         reportId,
         reference: first.receipt.reference,
       });
+    }
+    if (url.pathname === "/banners/verify" && request.method === "POST") {
+      try {
+        return json(await runBannerAdminChecks(env, await request.json()));
+      } catch (error) {
+        return json({ success: false, error: String(error) }, 500);
+      }
     }
     if (url.pathname === "/sync/setup" && request.method === "POST") {
       await env.DB.prepare(`INSERT INTO accounts (id, kind, role, display_name)
