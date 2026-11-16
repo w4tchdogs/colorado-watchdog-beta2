@@ -64,13 +64,14 @@ class IdentityTriageTests(unittest.TestCase):
         plan, report = self.preview()
         summary = report["summary"]
         self.assertEqual(summary["role_claims_unassigned_before"], 7)
-        self.assertEqual(summary["automatically_resolvable"], 2)
+        # Both Jordan claims share an office label, so they merge into one profile.
+        self.assertEqual(summary["automatically_resolvable"], 4)
         self.assertEqual(summary["source_authority_review"], 1)
-        self.assertEqual(summary["genuinely_ambiguous"], 2)
+        self.assertEqual(summary["genuinely_ambiguous"], 0)
         self.assertEqual(summary["version_or_lineage_dependent"], 1)
         self.assertEqual(summary["ineligible"], 1)
         self.assertEqual(summary["starting_unresolved_claims"], 6)
-        self.assertEqual(summary["unresolved_after_supported_actions"], 4)
+        self.assertEqual(summary["unresolved_after_supported_actions"], 2)
         self.assertEqual(sum(report["counts_by_current_reason"].values()), 7)
         self.assertEqual(sum(row["total_unassigned_accounted"]
                              for row in report["counts_by_county"].values()), 7)
@@ -81,7 +82,7 @@ class IdentityTriageTests(unittest.TestCase):
         self.assertEqual(authority_case["evidence"]["source_authority_status"], "unknown")
         self.assertTrue(authority_case["evidence"]["source_url"].endswith("example.org/directory"))
         self.assertEqual(report["summary"]["cross_county_candidate_search"], False)
-        self.assertEqual(plan["summary"]["claims_associated"], 2)
+        self.assertEqual(plan["summary"]["claims_associated"], 4)
 
     def test_existing_person_candidate_is_separate_from_genuine_ambiguity(self):
         first = self.add_batch([{"full_name": "Synthetic Morgan Example", "title": "Fixture Treasurer"}],
@@ -92,11 +93,14 @@ class IdentityTriageTests(unittest.TestCase):
         second = self.add_batch([{"full_name": "Synthetic Morgan Example", "title": "Fixture Clerk"}],
                                 url="https://example.gov/clerk")[0]
         plan, report = self.preview()
-        case = next(row for row in report["cases"] if row["claim_id"] == second["id"])
-        self.assertEqual(case["disposition"], "potential_identity_connection")
-        self.assertEqual(len(case["candidate_people"]), 1)
-        self.assertEqual(case["candidate_people"][0]["person_id"], existing_person_id)
-        self.assertEqual(plan["summary"]["claims_associated"], 0)
+        # The shared office label aligns the new claim with the existing profile.
+        association = plan["counties"][0]["associations"][0]
+        self.assertEqual(association["claim_id"], second["id"])
+        self.assertEqual(association["person_id"], existing_person_id)
+        self.assertEqual(association["method"], "same_name_detail_alignment")
+        self.assertEqual(association["aligned_details"], ["office"])
+        self.assertEqual(plan["summary"]["claims_associated"], 1)
+        self.assertEqual(plan["summary"]["new_research_people"], 0)
 
     def test_unresolved_only_preview_apply_and_exact_replay_write_no_events(self):
         self.add_batch([

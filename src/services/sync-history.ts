@@ -34,6 +34,10 @@ const MUTABLE_FIELDS: Readonly<Record<SyncEntity, readonly string[]>> = {
     "start_date",
     "end_date",
     "source_checked_at",
+    "county_fips",
+    "published_office",
+    "published_title",
+    "job_description",
   ],
 };
 

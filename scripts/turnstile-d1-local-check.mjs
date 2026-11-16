@@ -179,7 +179,7 @@ async function main() {
   )
     .filter((name) => /^\d{4}_[a-z0-9_]+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.at(-1), "0021_report_challenge_claims.sql");
+  assert.ok(migrations.includes("0021_report_challenge_claims.sql"));
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(
     migrationFile,

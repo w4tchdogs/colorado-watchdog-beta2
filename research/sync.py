@@ -38,6 +38,16 @@ SOURCE_TYPES = {
 }
 
 
+_PLACEHOLDER_DUTIES = {"listed in official source"}
+
+
+def _first_text(*values):
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 def _ref(entity_type, local_id):
     digest = hashlib.sha256(f"{entity_type}\0{local_id}".encode()).hexdigest()[:24]
     return f"{entity_type.replace('_', '-')}-{digest}"
@@ -429,7 +439,8 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
     # people, explicit positions, and exact public citations only.
     claims = list(
         db.execute(
-            'SELECT c."Role claim ID" claim_id,c."Linked profile" AS person_id,c."Linked office or unit" AS unit_id,c."Linked position" AS target_id,c."Name as published" AS published_name,c."Position as published" AS published_title,'
+            'SELECT c."Role claim ID" claim_id,c."Linked profile" AS person_id,c."Linked office or unit" AS unit_id,c."Linked position" AS target_id,c."Name as published" AS published_name,c."Position as published" AS published_title,c."County code" AS county_fips,'
+            'c."Office or department as published" AS office_label,c."Division or unit as published" AS division_label,c."Job description or duties" AS responsibility,u."Office or unit label as published" AS unit_label,'
             'c."Employment start date" AS employment_start,c."Employment end date" AS employment_end,c."Listing status" AS source_listing_status,c."Evidence record ID" AS evidence_id,e."Source ID" AS source_id,e."Import batch ID" AS batch_id,'
             'b.selected,p."Full name" AS display_name,p."Identity review status" AS identity_state,p."Evidence for identity" AS identity_evidence_id,u."Organization type" unit_kind,t."Documented position title" AS documented_title '
             'FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
@@ -474,12 +485,7 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
                 }
             )
             continue
-        if (
-            not claim["display_name"]
-            or len(claim["display_name"].encode("utf-8")) > 500
-            or not claim["documented_title"]
-            or len(claim["documented_title"].encode("utf-8")) > 500
-        ):
+        if not claim["display_name"] or len(claim["display_name"].encode("utf-8")) > 500:
             excluded.append(
                 {
                     "entity_type": "role_claim",
@@ -488,51 +494,54 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
                 }
             )
             continue
-        if (
-            not claim["unit_id"]
-            or not claim["target_id"]
-            or not claim["documented_title"]
-        ):
+        # A role needs a documented office, position title or job description.
+        # Documented text stays apart from structured links and is never
+        # converted from one kind into another.
+        office = _first_text(claim["office_label"], claim["division_label"], claim["unit_label"])
+        title = _first_text(claim["published_title"])
+        duties = _first_text(claim["responsibility"])
+        if duties and duties.casefold() in _PLACEHOLDER_DUTIES:
+            duties = None
+        if not (office or title or duties or claim["target_id"]):
             excluded.append(
                 {
                     "entity_type": "role_claim",
                     "entity_id": claim["claim_id"],
-                    "reason": "unsupported_position_or_organization",
+                    "reason": "no_documented_office_position_or_duties",
                 }
             )
             continue
-        unit = units_by_id.get(claim["unit_id"])
-        if unit is None or unit["kind"] not in ORG_TYPES:
+        if any(value and len(value.encode("utf-8")) > limit
+               for value, limit in ((office, 500), (title, 500), (duties, 2000))):
             excluded.append(
                 {
                     "entity_type": "role_claim",
                     "entity_id": claim["claim_id"],
-                    "reason": "unsupported_organization",
+                    "reason": "role_text_too_long",
                 }
             )
             continue
-        if (
-            claim["unit_id"] not in refs
-            and _linked(db, site_key, "org_unit", claim["unit_id"]) is None
-        ):
-            excluded.append(
-                {
-                    "entity_type": "role_claim",
-                    "entity_id": claim["claim_id"],
-                    "reason": "organization_not_selected",
-                }
-            )
-            continue
-        org_link = _linked(db, site_key, "org_unit", claim["unit_id"])
-        if org_link is not None and org_link["link_state"] != "active":
-            excluded.append(
-                {
-                    "entity_type": "role_claim",
-                    "entity_id": claim["claim_id"],
-                    "reason": "organization_mapping_requires_recovery_review",
-                }
-            )
-            continue
+        # A structured position link needs a resolved organization, a position
+        # target and a documented title. Anything less stays documented text.
+        unit = units_by_id.get(claim["unit_id"]) if claim["unit_id"] else None
+        structured = bool(
+            claim["unit_id"] and claim["target_id"] and claim["documented_title"]
+            and len(claim["documented_title"].encode("utf-8")) <= 500
+            and unit is not None and unit["kind"] in ORG_TYPES
+            and (claim["unit_id"] in refs
+                 or _linked(db, site_key, "org_unit", claim["unit_id"]) is not None)
+        )
+        if structured:
+            org_link = _linked(db, site_key, "org_unit", claim["unit_id"])
+            if org_link is not None and org_link["link_state"] != "active":
+                excluded.append(
+                    {
+                        "entity_type": "role_claim",
+                        "entity_id": claim["claim_id"],
+                        "reason": "organization_mapping_requires_recovery_review",
+                    }
+                )
+                continue
         # Role citations may be published by a verified government or
         # nongovernment publisher. Identity, organization names, and
         # affiliations continue to use _source_ok's official-only default.
@@ -619,7 +628,7 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
                     }
                 )
                 continue
-        t_link = _linked(db, site_key, "role_target", target_id)
+        t_link = _linked(db, site_key, "role_target", target_id) if structured else None
         if t_link is not None and t_link["link_state"] != "active":
             excluded.append(
                 {
@@ -629,7 +638,7 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
                 }
             )
             continue
-        if t_link is None and target_id not in queued_targets:
+        if structured and t_link is None and target_id not in queued_targets:
             tref = _ref("role_target", target_id)
             org_ref = refs.get(claim["unit_id"])
             org_link = _linked(db, site_key, "org_unit", claim["unit_id"])
@@ -702,7 +711,13 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
                 )
                 continue
 
-        fields = {"source_checked_at": citation["source_checked_at"]}
+        fields = {"source_checked_at": citation["source_checked_at"],
+                  "county_fips": claim["county_fips"]}
+        if not structured:
+            for name, value in (("published_office", office), ("published_title", title),
+                                ("job_description", duties)):
+                if value:
+                    fields[name] = value
         for name, value in (
             ("start_date", claim["employment_start"]),
             ("end_date", claim["employment_end"]),
@@ -739,7 +754,7 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
 
         p_link, t_link, s_link = (
             _linked(db, site_key, "research_person", person_id),
-            _linked(db, site_key, "role_target", target_id),
+            _linked(db, site_key, "role_target", target_id) if structured else None,
             _linked(db, site_key, "source", source_id),
         )
         if p_link is not None and p_link["link_state"] != "active":
@@ -753,7 +768,7 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
             continue
         for ref_fields in (
             reference("research_person", person_id, p_link, refs.get(person_id)),
-            reference("role_target", target_id, t_link, refs.get(target_id)),
+            *((reference("role_target", target_id, t_link, refs.get(target_id)),) if structured else ()),
             reference("source", source_id, s_link, refs.get(source_id)),
         ):
             fields.update(ref_fields)
@@ -886,11 +901,18 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
         if item.get("entity_type") == "role_claim" and item.get("entity_id"):
             excluded_claims_by_reason[item["reason"]].add(item["entity_id"])
     excluded_claim_ids = set().union(*excluded_claims_by_reason.values()) if excluded_claims_by_reason else set()
+    unstructured_planned = sum(
+        1 for item in item_meta
+        if item["website_entity"] == "person_roles" and item["local_entity_id"]
+        and "position_ref" not in changes[item["item_index"]].get("fields", {})
+        and "position_id" not in changes[item["item_index"]].get("fields", {}))
     already_mapped_claims = sum(
         (_linked(db, site_key, "role_claim", row["id"]) is not None and
          _linked(db, site_key, "role_claim", row["id"])["link_state"] == "active")
         for row in selected_candidates
     )
+    capped_claims = (excluded_claims_by_reason.get("changeset_limit", set())
+                     | excluded_claims_by_reason.get("changeset_citation_limit", set())) - planned_role_claims
     exclusion_counts = Counter(item["reason"] for item in excluded)
     role_exclusions = {reason: len(ids) for reason, ids in sorted(excluded_claims_by_reason.items())}
     return {
@@ -910,6 +932,16 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
             "role_claims_excluded_by_reason": role_exclusions,
             "role_claims_already_mapped": already_mapped_claims,
             "role_claims_planned": len(planned_role_claims),
+            # Eligible means every gate passed. Claims cut only by the operation or
+            # citation cap are still eligible, so truncation is reported apart.
+            "eligible_claims": len(planned_role_claims | capped_claims),
+            "eligible_claims_not_planned_because_of_caps": len(capped_claims),
+            "structured_roles_planned": len(planned_role_claims) - unstructured_planned,
+            "unstructured_roles_planned": unstructured_planned,
+            "distinct_eligible_profiles": len({candidate_person_by_claim.get(claim_id)
+                                               for claim_id in planned_role_claims | capped_claims
+                                               if candidate_person_by_claim.get(claim_id)}),
+            "operations_planned": len(changes),
             "distinct_people_in_scope": len(candidate_people_all),
             "distinct_people_in_selected_batches": len(candidate_people),
             "distinct_people_with_planned_roles": len({candidate_person_by_claim.get(claim_id)

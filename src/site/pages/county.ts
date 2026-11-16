@@ -58,20 +58,28 @@ function organizationRow(
 }
 
 function roleRow(entry: CountyRoleEntry): SafeHtml {
+  const { position, organization, role } = entry;
+  const title = position?.title ?? role.publishedTitle;
   return html`<li class="role-entry">
     <div class="role-head">
       <h3>${personLink(entry.person.id, entry.person.displayName)}</h3>
-      <p class="role-position">${entry.position.title}, ${organizationLink(entry.organization.id, entry.organization.name)}
-        ${organizationTypeBadge(entry.organization.type)}
+      ${
+        title || organization
+          ? html`<p class="role-position">${title ?? ""}${title && organization ? ", " : ""}${organization ? organizationLink(organization.id, organization.name) : ""}
+        ${organization ? organizationTypeBadge(organization.type) : ""}
         ${
-          entry.organization.countyAssociation.direct
-            ? ""
-            : html`<span class="affiliated-flag">Affiliated organization, not a county department</span>`
+          organization && !organization.countyAssociation.direct
+            ? html`<span class="affiliated-flag">Affiliated organization, not a county department</span>`
+            : ""
         }
-      </p>
+      </p>`
+          : ""
+      }
     </div>
-    ${roleDates(entry.role)}
-    ${citation({ ...entry.source, checkedAt: entry.role.sourceCheckedAt })}
+    ${role.publishedOffice ? html`<p class="role-office"><span class="quiet">Office as published:</span> ${role.publishedOffice}</p>` : ""}
+    ${role.jobDescription ? html`<p class="role-duties"><span class="quiet">Duties as published:</span> ${role.jobDescription}</p>` : ""}
+    ${roleDates(role)}
+    ${citation({ ...entry.source, checkedAt: role.sourceCheckedAt })}
   </li>`;
 }
 

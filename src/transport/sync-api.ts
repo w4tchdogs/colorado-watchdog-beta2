@@ -95,7 +95,7 @@ const CHANGE_FIELDS: Readonly<Record<string, ReadonlySet<string>>> = {
     "source_type",
   ]),
   "create_person_role:person_roles": new Set(
-    "start_date end_date source_checked_at person_id person_ref position_id position_ref source_id source_ref".split(
+    "start_date end_date source_checked_at person_id person_ref position_id position_ref source_id source_ref county_fips published_office published_title job_description".split(
       " ",
     ),
   ),

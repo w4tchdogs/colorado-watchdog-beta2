@@ -49,15 +49,18 @@ export function getPersonProfile(
   const rows = database
     .prepare(
       `SELECT pr.id AS role_id, pr.version AS role_version, pr.start_date, pr.end_date,
-              pr.source_checked_at, pos.id AS position_id, pos.title AS position_title,
+              pr.source_checked_at, pr.county_fips AS role_county_fips,
+              rc.name AS role_county_name, pr.published_office, pr.published_title,
+              pr.job_description, pos.id AS position_id, pos.title AS position_title,
               pos.version AS position_version, o.id AS organization_id,
               o.name AS organization_name, o.organization_type,
               o.version AS organization_version, s.id AS source_id, s.title AS source_title,
               s.url AS source_url, s.source_type, s.publisher_classification,
               s.version AS source_version
        FROM person_roles pr
-       JOIN positions pos ON pos.id = pr.position_id
-       JOIN organizations o ON o.id = pos.organization_id
+       LEFT JOIN positions pos ON pos.id = pr.position_id
+       LEFT JOIN organizations o ON o.id = pos.organization_id
+       LEFT JOIN counties rc ON rc.fips = pr.county_fips
        JOIN role_sources s ON s.id = pr.source_id
        WHERE pr.person_id = ? AND (? IS NULL OR pr.id COLLATE BINARY > ? COLLATE BINARY)
        ORDER BY pr.id COLLATE BINARY LIMIT ?`,
@@ -67,7 +70,9 @@ export function getPersonProfile(
   const selected = rows.slice(0, input.limit);
   const countiesByOrganization = getOrganizationCounties(
     database,
-    selected.map((row) => asString(row.organization_id)),
+    selected.flatMap((row) =>
+      row.organization_id === null ? [] : [asString(row.organization_id)],
+    ),
   );
   const items = selected.map(
     (row): PersonProfileRole => ({
@@ -77,20 +82,36 @@ export function getPersonProfile(
         startDate: nullableString(row.start_date),
         endDate: nullableString(row.end_date),
         sourceCheckedAt: asString(row.source_checked_at),
+        county:
+          row.role_county_fips === null
+            ? null
+            : {
+                fips: asString(row.role_county_fips),
+                name: asString(row.role_county_name),
+              },
+        publishedOffice: nullableString(row.published_office),
+        publishedTitle: nullableString(row.published_title),
+        jobDescription: nullableString(row.job_description),
       },
-      position: {
-        id: asString(row.position_id),
-        title: asString(row.position_title),
-        version: asNumber(row.position_version),
-      },
-      organization: {
-        id: asString(row.organization_id),
-        name: asString(row.organization_name),
-        type: row.organization_type as OrganizationType,
-        version: asNumber(row.organization_version),
-        counties:
-          countiesByOrganization.get(asString(row.organization_id)) ?? [],
-      },
+      position:
+        row.position_id === null
+          ? null
+          : {
+              id: asString(row.position_id),
+              title: asString(row.position_title),
+              version: asNumber(row.position_version),
+            },
+      organization:
+        row.organization_id === null
+          ? null
+          : {
+              id: asString(row.organization_id),
+              name: asString(row.organization_name),
+              type: row.organization_type as OrganizationType,
+              version: asNumber(row.organization_version),
+              counties:
+                countiesByOrganization.get(asString(row.organization_id)) ?? [],
+            },
       source: {
         id: asString(row.source_id),
         title: asString(row.source_title),

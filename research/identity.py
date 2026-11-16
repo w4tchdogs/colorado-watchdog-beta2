@@ -83,13 +83,94 @@ def _evidence_text(row):
                       *(str(value) for value in fields.values() if value is not None)])
 
 
+def _norm(value):
+    """Case, spacing and punctuation-insensitive form used only to compare exact documented text."""
+    return " ".join(re.sub(r"[\W_]+", " ", value.casefold()).split()) if isinstance(value, str) else ""
+
+
+def _field(row, key):
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
+
+
+def _office_values(row):
+    return [value for value in (_field(row, "office_label"), _field(row, "division_label"), _field(row, "unit_label"))
+            if isinstance(value, str) and value.strip()]
+
+
+def _detail_values(row):
+    """Documented office, position or job-description text (each kept apart)."""
+    return [value for value in (*_office_values(row), row["published_title"], row["responsibility"])
+            if isinstance(value, str) and value.strip() and value.strip().casefold() not in _NONROLE_RESPONSIBILITIES]
+
+
+def _has_detail(row):
+    return bool(_detail_values(row) or _field(row, "target_id") or _field(row, "unit_id"))
+
+
+def _alignment_keys(row):
+    """Typed, normalized details a same-name, same-county claim can align on."""
+    keys = set()
+    for value in _office_values(row):
+        if _norm(value):
+            keys.add(("office", _norm(value)))
+    if _field(row, "unit_id"):
+        keys.add(("office", "unit:" + row["unit_id"]))
+    if _norm(row["published_title"]):
+        keys.add(("position", _norm(row["published_title"])))
+    if _field(row, "target_id"):
+        keys.add(("position", "target:" + row["target_id"]))
+    duties = row["responsibility"]
+    if (isinstance(duties, str) and _norm(duties)
+            and duties.strip().casefold() not in _NONROLE_RESPONSIBILITIES):
+        keys.add(("duties", _norm(duties)))
+    return keys
+
+
+def _aligned_on(left, right):
+    """Detail kinds on which two claims align, or [] when the names or details differ."""
+    if _norm(left["published_name"]) != _norm(right["published_name"]):
+        return []
+    return sorted({kind for kind, _value in _alignment_keys(left) & _alignment_keys(right)})
+
+
+def _merge_aligned_components(groups):
+    """Merge same-county, same-name components that align on an office, position or job description."""
+    parent = {component_id: component_id for component_id in groups}
+
+    def find(item):
+        while parent[item] != item:
+            parent[item] = parent[parent[item]]
+            item = parent[item]
+        return item
+
+    by_key = defaultdict(set)
+    for component_id, rows in groups.items():
+        for row in rows:
+            if not _is_person_name(row["published_name"]):
+                continue
+            for key in _alignment_keys(row):
+                by_key[(_norm(row["published_name"]), *key)].add(component_id)
+    for component_ids in by_key.values():
+        ordered = sorted(component_ids)
+        for other in ordered[1:]:
+            left, right = find(ordered[0]), find(other)
+            if left != right:
+                parent[max(left, right)] = min(left, right)
+    merged = defaultdict(list)
+    for component_id, rows in groups.items():
+        merged[find(component_id)].extend(rows)
+    return {component_id: sorted(rows, key=lambda row: row["id"]) for component_id, rows in merged.items()}
+
+
 def _direct_name_role(row):
     fields = _raw_fields(row["raw_record_json"])
     values = [str(value) for value in fields.values() if isinstance(value, str)]
     quotation = row["quotation"] or ""
     name_supported = row["published_name"] in values or row["published_name"] in quotation
-    role_values = [value for value in (row["published_title"], row["responsibility"])
-                   if value and value.strip().casefold() not in _NONROLE_RESPONSIBILITIES]
+    role_values = _detail_values(row)
     evidence_text = "\n".join((*values, quotation)).casefold()
     role_supported = any(value.casefold() in evidence_text for value in role_values)
     return bool(name_supported and role_supported)
@@ -309,11 +390,13 @@ def _source_proposals(db):
 def _load_county_claims(db, county_fips):
     rows = db.execute(
         'SELECT c."Role claim ID" AS id,c."County code" AS county_fips,c."Evidence record ID" AS evidence_id,c."Linked profile" AS person_id,c."Name as published" AS published_name,c."Position as published" AS published_title,'
+        'c."Office or department as published" AS office_label,c."Division or unit as published" AS division_label,uu."Office or unit label as published" AS unit_label,'
         'c."Job description or duties" AS responsibility,c."Listing status" AS source_listing_status,c."Earlier claim this replaces" AS supersedes_id,c."Linked office or unit" AS unit_id,c."Linked position" AS target_id,'
         'e."Source ID" AS source_id,e."Original record" AS raw_record_json,e."Evidence excerpt" AS quotation,e."Source title as observed" AS observed_title,e."Import batch ID" AS batch_id,e."Source version ID" AS source_version_key,'
         's."Original source URL" AS original_url,s."Publisher type" AS official_status,b.family_id,b.lineage_kind,b.selected,b.parent_batch_id,'
         "b.county_fips AS batch_county FROM role_claims c "
         'JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" JOIN sources s ON s."Source ID"=e."Source ID" '
+        'LEFT JOIN org_units uu ON uu."Office or unit ID"=c."Linked office or unit" '
         'LEFT JOIN scrape_batches b ON b.id=e."Import batch ID" WHERE c."County code"=? ORDER BY c."Role claim ID"',
         (county_fips,),
     )
@@ -437,34 +520,19 @@ def _county_decisions(db, county_fips, *, planned_sources, allow_planned_sources
     connection_edges = _identity_connection_edges(db, county_fips, rows,
                                                   planned_sources=planned_sources,
                                                   allow_planned_sources=allow_planned_sources)
-    groups = _components(rows, connection_edges)
+    # Same-county, same-name claims merge when an office, position or job
+    # description aligns. A name alone never merges claims.
+    groups = _merge_aligned_components(_components(rows, connection_edges))
     people, existing_variants, people_by_evidence, claim_people = _read_existing(db, county_fips)
-    existing_names = defaultdict(set)
-    for person in people:
-        existing_names[person["display_name"]].add(person["id"])
-    for variant in existing_variants:
-        existing_names[variant["published_name"]].add(variant["person_id"])
-
-    name_components = defaultdict(set)
-    component_names = {}
-    for component_id, component_rows in groups.items():
-        names = {row["published_name"] for row in component_rows if _is_person_name(row["published_name"])}
-        component_names[component_id] = names
-        for name in names:
-            name_components[name].add(component_id)
-    ambiguous_components = {component for name, components in name_components.items() if len(components) > 1
-                            for component in components}
 
     new_people, associations, variants, unresolved, rejected = [], [], [], [], []
     consumed = set()
     component_person = {}
-    component_existing_candidates = {}
+    multi_profile_components = set()
     for component_id in sorted(groups):
         component = groups[component_id]
         plausible = [row for row in component if _is_person_name(row["published_name"])]
         if not plausible:
-            continue
-        if component_id in ambiguous_components:
             continue
         candidate_rows = []
         for row in component:
@@ -480,16 +548,14 @@ def _county_decisions(db, county_fips, *, planned_sources, allow_planned_sources
         linked_people = set().union(*(people_by_evidence.get(evidence_id, set()) for evidence_id in component_evidence))
         linked_people.update(person_id for row in component for person_id in claim_people.get(row["id"], set()))
         if len(linked_people) > 1:
+            multi_profile_components.add(component_id)
             continue
         linked_person = next(iter(linked_people), None)
-        if linked_person is None:
-            conflicts = set().union(*(existing_names.get(name, set()) for name in component_names[component_id]))
-            if conflicts:
-                component_existing_candidates[component_id] = conflicts
-                continue
         component_person[component_id] = linked_person
 
-        candidate_rows.sort(key=lambda row: (0 if row["lineage_kind"] == "corrected" and row["selected"] else 1,
+        # An existing profile's own claims anchor a component that already links to it.
+        candidate_rows.sort(key=lambda row: (0 if linked_person and row["person_id"] == linked_person else 1,
+                                             0 if row["lineage_kind"] == "corrected" and row["selected"] else 1,
                                              row["id"]))
         anchor = candidate_rows[0]
         person_id = linked_person or _stable_id("person", county_fips, component_id)
@@ -498,6 +564,30 @@ def _county_decisions(db, county_fips, *, planned_sources, allow_planned_sources
                                "display_name": anchor["published_name"],
                                "identity_evidence_id": anchor["evidence_id"],
                                "anchor_claim_id": anchor["id"]})
+        # Claims already tied to the anchor by lineage or an official connection
+        # seed the set that same-name detail alignment may extend.
+        tied = {anchor["id"]}
+        for row in candidate_rows:
+            if row["id"] == anchor["id"] or row["person_id"] is not None:
+                continue
+            if (_is_in_correction_lineage(row, anchor, component)
+                    or tuple(sorted((row["id"], anchor["id"]))) in connection_edges):
+                tied.add(row["id"])
+        aligned_claims = {}
+        by_id = {row["id"]: row for row in candidate_rows}
+        grew = True
+        while grew:
+            grew = False
+            for row in candidate_rows:
+                if row["id"] in tied or row["person_id"] is not None:
+                    continue
+                for member_id in sorted(tied):
+                    kinds = _aligned_on(row, by_id[member_id])
+                    if kinds:
+                        aligned_claims[row["id"]] = {"with_claim_id": member_id, "details": kinds}
+                        tied.add(row["id"])
+                        grew = True
+                        break
         for row in component:
             if row["person_id"] is not None:
                 if row["person_id"] != person_id:
@@ -509,11 +599,9 @@ def _county_decisions(db, county_fips, *, planned_sources, allow_planned_sources
             if (not source_official or not _active_batch(row) or not _is_person_name(row["published_name"])
                     or not _direct_name_role(row)):
                 continue
+            alignment = None
             if row["id"] == anchor["id"]:
                 method = "bootstrap"
-                link_evidence_id = row["evidence_id"]
-            elif row["supersedes_id"] and row["lineage_kind"] == "corrected" and row["selected"]:
-                method = "correction_lineage"
                 link_evidence_id = row["evidence_id"]
             elif _is_in_correction_lineage(row, anchor, component):
                 # Every additional member is connected by a selected,
@@ -523,11 +611,17 @@ def _county_decisions(db, county_fips, *, planned_sources, allow_planned_sources
             elif tuple(sorted((row["id"], anchor["id"]))) in connection_edges:
                 method = "official_connection"
                 link_evidence_id = connection_edges[tuple(sorted((row["id"], anchor["id"]))) ]
+            elif row["id"] in aligned_claims:
+                method = "same_name_detail_alignment"
+                link_evidence_id = row["evidence_id"]
+                alignment = aligned_claims[row["id"]]
             else:
                 continue
             associations.append({"claim_id": row["id"], "person_id": person_id,
                                  "evidence_id": link_evidence_id, "anchor_claim_id": anchor["id"],
-                                 "method": method, "county_fips": county_fips})
+                                 "method": method, "county_fips": county_fips,
+                                 **({"aligned_with_claim_id": alignment["with_claim_id"],
+                                     "aligned_details": alignment["details"]} if alignment else {})})
             consumed.add(row["id"])
             variant_id = _stable_id("variant", person_id, row["published_name"], "published", row["evidence_id"])
             existing_variant = db.execute(
@@ -559,13 +653,9 @@ def _county_decisions(db, county_fips, *, planned_sources, allow_planned_sources
         plausible = [row for row in component if _is_person_name(row["published_name"])]
         if not plausible:
             continue
-        component_conflict = component_id in ambiguous_components
-        existing_candidates = component_existing_candidates.get(
-            component_id, set().union(*(existing_names.get(name, set()) for name in component_names[component_id])))
         component_evidence = {item["evidence_id"] for item in component}
-        direct_people = set().union(*(people_by_evidence.get(evidence_id, set()) for evidence_id in component_evidence))
-        direct_people.update(person_id for item in component for person_id in claim_people.get(item["id"], set()))
-        unlinked_existing = existing_candidates - direct_people
+        existing_candidates = set().union(*(people_by_evidence.get(evidence_id, set()) for evidence_id in component_evidence))
+        existing_candidates.update(person_id for item in component for person_id in claim_people.get(item["id"], set()))
         for row in component:
             if row["person_id"] is not None or row["id"] in consumed:
                 continue
@@ -577,13 +667,13 @@ def _county_decisions(db, county_fips, *, planned_sources, allow_planned_sources
                 reason = "alternative_batch_is_not_independent_identity_evidence"
             elif row["lineage_kind"] == "corrected" and not row["selected"]:
                 reason = "corrected_batch_version_is_not_selected"
-            elif component_conflict:
-                reason = "same_name_has_multiple_unlinked_source_observations"
-            elif unlinked_existing:
-                reason = "existing_same_name_profile_requires_direct_identity_link"
+            elif component_id in multi_profile_components:
+                reason = "aligned_claims_link_multiple_profiles"
             elif not (row["official_status"] == "official" or
                       (allow_planned_sources and row["source_id"] in planned_sources)):
                 reason = "source_authority_not_established"
+            elif not _has_detail(row):
+                reason = "no_documented_office_position_or_duties"
             elif not _direct_name_role(row):
                 reason = "evidence_does_not_directly_link_exact_name_and_role"
             elif row["person_id"] is not None and row["person_id"] != component_person.get(component_id):
@@ -605,6 +695,9 @@ def _county_decisions(db, county_fips, *, planned_sources, allow_planned_sources
         if not _is_person_name(row["published_name"]):
             rejected.append({"claim_id": row["id"], "county_fips": county_fips,
                              "evidence_id": row["evidence_id"], "reason": "published_text_not_a_plausible_person_name"})
+        elif not _has_detail(row):
+            rejected.append({"claim_id": row["id"], "county_fips": county_fips,
+                             "evidence_id": row["evidence_id"], "reason": "no_documented_office_position_or_duties"})
         elif not _direct_name_role(row):
             rejected.append({"claim_id": row["id"], "county_fips": county_fips,
                              "evidence_id": row["evidence_id"], "reason": "evidence_does_not_directly_link_exact_name_and_role"})
@@ -630,6 +723,13 @@ def _county_decisions(db, county_fips, *, planned_sources, allow_planned_sources
                                "candidate_person_ids": [], "reason": "identity_link_not_established",
                                "next_evidence": ["an explicit official record connection, a shared unique contact identifier, or documented evidence that distinguishes the source entries"]})
 
+    # Same-name profiles that stay distinct because no detail aligns.
+    final_by_name = defaultdict(set)
+    for person in new_people:
+        final_by_name[_norm(person["display_name"])].add(person["person_id"])
+    for person in people:
+        final_by_name[_norm(person["display_name"])].add(person["id"])
+    same_name_distinct = sum(len(ids) > 1 for ids in final_by_name.values())
     new_people.sort(key=lambda item: item["person_id"])
     associations.sort(key=lambda item: item["claim_id"])
     variants.sort(key=lambda item: (item["person_id"], item["published_name"], item["evidence_id"], item["kind"]))
@@ -639,7 +739,7 @@ def _county_decisions(db, county_fips, *, planned_sources, allow_planned_sources
     return {"county_fips": county_fips, "input_state_sha256": _digest(state),
             "new_people": new_people, "associations": associations, "name_variants": variants,
             "possible_matches": [], "unresolved": unresolved, "rejected": rejected,
-            "input_claims": len(rows)}
+            "input_claims": len(rows), "same_name_profile_groups_left_distinct": same_name_distinct}
 
 
 def build_identity_plan(db):
@@ -656,6 +756,7 @@ def build_identity_plan(db):
     totals = defaultdict(int)
     for county in county_plans:
         totals["role_claims_evaluated"] += county["input_claims"]
+        totals["same_name_profile_groups_left_distinct"] += county["same_name_profile_groups_left_distinct"]
         for key in ("new_people", "associations", "name_variants", "possible_matches", "unresolved", "rejected"):
             totals[key] += len(county[key])
     counts = {row[0]: row[1] for row in db.execute(
@@ -683,12 +784,16 @@ def build_identity_plan(db):
                            "possible_match_candidates": totals["possible_matches"],
                            "unresolved_claims": totals["unresolved"],
                            "rejected_or_ineligible_claims": totals["rejected"],
+                           "same_name_profile_groups_left_distinct": totals["same_name_profile_groups_left_distinct"],
                            "source_classifications_to_official": len(source_classifications),
                            "claims_assigned_after": totals["role_claims_assigned_before"] + totals["associations"],
                            "unit_associations_preserved": db.execute('SELECT count(*) FROM role_claims WHERE "Linked office or unit" IS NOT NULL').fetchone()[0],
                            "position_associations_preserved": db.execute('SELECT count(*) FROM role_claims WHERE "Linked position" IS NOT NULL').fetchone()[0]},
                "rules": {"county_scope": True, "name_or_department_alone_establishes_identity": False,
-                         "automatic_association_basis": ["the exact bootstrap evidence", "an explicit selected corrected-batch supersession chain", "a direct official connection between exact documented roles"],
+                         "profile_requires": ["county", "name", "an office, position or job description"],
+                         "same_county_same_name_merge_requires": "an aligned office, position or job description",
+                         "unknown_organization_type_or_unresolved_hierarchy_excludes_profile": False,
+                         "automatic_association_basis": ["the exact bootstrap evidence", "an explicit selected corrected-batch supersession chain", "a direct official connection between exact documented roles", "same-name claims aligned on an office, position or job description"],
                          "alternative_batches_create_people": False,
                          "nickname_variants": "only literal forms in the same official record's Nicknames field"}}
     return {**payload, "plan_sha256": _digest(payload)}

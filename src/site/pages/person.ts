@@ -19,7 +19,7 @@ import { directoryReturnHref } from "./officials.js";
 const PAGE_SIZE = 25;
 
 export function countyAssociations(
-  counties: PersonProfileRole["organization"]["counties"],
+  counties: NonNullable<PersonProfileRole["organization"]>["counties"],
 ): SafeHtml {
   if (counties.length === 0) {
     return html`<p class="quiet">No county association is recorded for this organization.</p>`;
@@ -37,12 +37,19 @@ export function countyAssociations(
 }
 
 function roleCard(entry: PersonProfileRole): SafeHtml {
+  const { position, organization, role } = entry;
+  const heading =
+    position?.title ?? role.publishedTitle ?? role.publishedOffice ?? "Role";
   return html`<li class="role-entry">
     <div class="role-head">
-      <h3>${entry.position.title}</h3>
-      <p class="role-position">${organizationLink(entry.organization.id, entry.organization.name)} ${organizationTypeBadge(entry.organization.type)}</p>
+      <h3>${heading}</h3>
+      ${organization ? html`<p class="role-position">${organizationLink(organization.id, organization.name)} ${organizationTypeBadge(organization.type)}</p>` : ""}
     </div>
-    ${countyAssociations(entry.organization.counties)}
+    ${role.publishedOffice && (position || role.publishedTitle) ? html`<p class="role-office"><span class="quiet">Office as published:</span> ${role.publishedOffice}</p>` : ""}
+    ${role.publishedTitle && position && role.publishedTitle !== position.title ? html`<p class="role-title"><span class="quiet">Title as published:</span> ${role.publishedTitle}</p>` : ""}
+    ${role.jobDescription ? html`<p class="role-duties"><span class="quiet">Duties as published:</span> ${role.jobDescription}</p>` : ""}
+    ${role.county ? html`<p class="role-county"><span class="quiet">County:</span> ${countyLink(role.county.fips, role.county.name)}</p>` : ""}
+    ${organization ? countyAssociations(organization.counties) : ""}
     ${roleDates(entry.role)}
     ${citation({ ...entry.source, checkedAt: entry.role.sourceCheckedAt })}
   </li>`;

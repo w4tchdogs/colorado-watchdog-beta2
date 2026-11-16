@@ -127,6 +127,8 @@ const SAFE_MESSAGES: Record<SyncErrorCode, string> = {
   source_metadata_conflict: "The source URL exists with incompatible metadata.",
   source_check_required:
     "Changing a role source requires a new source check time.",
+  role_detail_required:
+    "A role needs a position link, an office, a title or a job description.",
   date_order: "The end date must not precede the start date.",
   too_many_citations: "A request may contain at most 25 source citations.",
   too_many_duplicate_flags: "A request may contain at most 20 duplicate flags.",
@@ -362,6 +364,13 @@ export function planSyncChangeset(
       if (
         entity === "organizations" &&
         relation.id === "parent_organization_id" &&
+        !hasId &&
+        !hasRef
+      )
+        continue;
+      if (
+        entity === "person_roles" &&
+        relation.id === "position_id" &&
         !hasId &&
         !hasRef
       )
@@ -686,7 +695,7 @@ function validateCreateFields(
     people: ["display_name"],
     positions: ["title"],
     role_sources: ["url", "title", "source_type", "publisher_classification"],
-    person_roles: ["source_checked_at"],
+    person_roles: ["source_checked_at", "county_fips"],
   };
   for (const field of required[entity])
     if (!Object.hasOwn(f, field)) {
@@ -738,8 +747,41 @@ function validateCreateFields(
     add("invalid_url", i, ref);
     ok = false;
   }
-  if (entity === "person_roles")
+  if (entity === "person_roles") {
     ok = validateRoleDates(f, i, ref, add, now) && ok;
+    if (
+      Object.hasOwn(f, "county_fips") &&
+      !(
+        typeof f.county_fips === "string" &&
+        validCounty(f.county_fips) &&
+        countyExists(db, f.county_fips)
+      )
+    ) {
+      add("unknown_county", i, ref);
+      ok = false;
+    }
+    let hasText = false;
+    for (const [key, max] of [
+      ["published_office", 500],
+      ["published_title", 500],
+      ["job_description", 2000],
+    ] as const) {
+      if (!Object.hasOwn(f, key)) continue;
+      if (validNonempty(f[key], max)) hasText = true;
+      else {
+        add("invalid_field", i, ref);
+        ok = false;
+      }
+    }
+    if (
+      !hasText &&
+      !Object.hasOwn(f, "position_id") &&
+      !Object.hasOwn(f, "position_ref")
+    ) {
+      add("role_detail_required", i, ref);
+      ok = false;
+    }
+  }
   return ok;
 }
 
@@ -1120,6 +1162,10 @@ function supportedCreateFields(entity: SyncEntity): string[] {
       "start_date",
       "end_date",
       "source_checked_at",
+      "county_fips",
+      "published_office",
+      "published_title",
+      "job_description",
     ],
   };
   return base[entity];

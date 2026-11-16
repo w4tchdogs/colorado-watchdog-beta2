@@ -99,6 +99,10 @@ test("person profiles preserve stored roles, county relationships, citations, an
         startDate: "2020-01-02",
         endDate: null,
         sourceCheckedAt: "2026-10-01T00:00:00Z",
+        county: null,
+        publishedOffice: null,
+        publishedTitle: null,
+        jobDescription: null,
       },
       position: {
         id: "position-clerk",
@@ -376,6 +380,10 @@ test("profile HTTP endpoint validates requests and returns public pages", async 
             startDate: "2020-01-02",
             endDate: null,
             sourceCheckedAt: "2026-10-01T00:00:00Z",
+            county: null,
+            publishedOffice: null,
+            publishedTitle: null,
+            jobDescription: null,
           },
           position: {
             id: "position-clerk",

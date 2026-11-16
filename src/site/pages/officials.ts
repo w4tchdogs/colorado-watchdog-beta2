@@ -284,7 +284,19 @@ function countyCell(
   entry: OfficialsDirectoryEntry,
   filterCounty: string | null,
 ): SafeHtml {
-  const counties = entry.role?.organization.counties ?? [];
+  const role = entry.role;
+  const counties = role?.organization
+    ? role.organization.counties
+    : role?.county
+      ? [
+          {
+            fips: role.county.fips,
+            name: role.county.name,
+            direct: true,
+            affiliations: [],
+          },
+        ]
+      : [];
   if (counties.length === 0) {
     return html`<span class="quiet">No county recorded</span>`;
   }
@@ -326,7 +338,8 @@ function profileRow(
       <span class="avatar" aria-hidden="true">${initials(entry.person.displayName)}</span>
       <div class="person-summary">
         <a class="person-name" href="${profile}">${entry.person.displayName}</a>
-        <span class="person-title">${role ? role.position.title : "No documented role"}</span>
+        <span class="person-title">${role ? (role.position?.title ?? role.publishedTitle ?? role.publishedOffice ?? "Duties as published below") : "No documented role"}</span>
+        ${role?.jobDescription ? html`<span class="row-note">Duties as published: ${role.jobDescription}</span>` : ""}
         ${role ? html`<span class="status-chip">Source-cited role</span>` : ""}
         ${role?.endDate ? html`<span class="row-note">Role end recorded: ${formatStoredDate(role.endDate)}</span>` : ""}
         ${others > 0 ? html`<span class="row-note">${plural(others, "other matching role", "other matching roles")} on the profile</span>` : ""}
@@ -334,9 +347,11 @@ function profileRow(
     </td>
     <td data-label="County"><div class="cell-value">${countyCell(entry, state.county)}</div></td>
     <td data-label="County office"><div class="cell-value">${
-      role
+      role?.organization
         ? html`${organizationLink(role.organization.id, role.organization.name)} ${organizationTypeBadge(role.organization.type)}`
-        : html`<span class="quiet">None recorded</span>`
+        : role?.publishedOffice
+          ? html`${role.publishedOffice} <span class="quiet">(as published)</span>`
+          : html`<span class="quiet">None recorded</span>`
     }</div></td>
     <td data-label="Source checked"><div class="cell-value">${sourceCell(entry)}</div></td>
     <td class="cell-open"><a class="open-profile" href="${profile}">Open profile<span class="visually-hidden">: ${entry.person.displayName}</span></a></td>

@@ -53,14 +53,21 @@ export function getCountyOverview(
               COUNT(co.organization_id) AS total_organizations,
               COALESCE(SUM(co.direct), 0) AS direct_organizations,
               COALESCE(SUM(co.affiliated), 0) AS affiliated_organizations,
-              COALESCE(SUM(rc.role_count), 0) AS documented_role_count
+              COALESCE(SUM(rc.role_count), 0) + (SELECT COUNT(*) FROM person_roles unstructured
+                JOIN role_sources unstructured_source ON unstructured_source.id = unstructured.source_id
+                WHERE unstructured.position_id IS NULL AND unstructured.county_fips = ?) AS documented_role_count
        FROM counties c
        LEFT JOIN county_organizations co ON 1 = 1
        LEFT JOIN role_counts rc ON rc.organization_id = co.organization_id
        WHERE c.fips = ?
        GROUP BY c.fips, c.name`,
     )
-    .get(request.countyFips, request.countyFips, request.countyFips);
+    .get(
+      request.countyFips,
+      request.countyFips,
+      request.countyFips,
+      request.countyFips,
+    );
 
   if (!row) return null;
   return {

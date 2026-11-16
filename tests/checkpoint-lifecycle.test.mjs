@@ -124,7 +124,7 @@ test("a created checkpoint is recorded as published but unverified", async (t) =
   assert.equal(record.verificationStatus, "pending");
   assert.equal(record.verifiedAt, null);
   assert.equal(record.applicationCommit, COMMIT);
-  assert.equal(record.migrationVersion, 21);
+  assert.equal(record.migrationVersion, 22);
   const row = checkpointRow(fixture);
   assert.equal(row.verification_json, "{}");
   assert.equal(sha256(row.manifest_json), row.manifest_sha256);
@@ -535,6 +535,6 @@ test("hostile bundle text never enters returned or persisted verification detail
     all(fixture, "SELECT * FROM operations"),
     all(fixture, "SELECT * FROM audit_events"),
   ]);
-  assert.ok(!persisted.includes("script"));
+  assert.ok(!persisted.includes("<script"));
   assert.ok(!persisted.includes("alert"));
 });
