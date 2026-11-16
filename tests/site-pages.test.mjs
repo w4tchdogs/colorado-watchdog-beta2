@@ -33,11 +33,31 @@ test("homepage renders navigation, discovery entry points and honest content", a
         ["About", "/about"],
       ],
     );
-    assert.equal(page.$$(".county-index-grid a").length, 64);
-    assert.ok(page.$('form[action="/officials"] input[name="q"]'));
-    assert.ok(page.$('form[action="/organizations"] input[name="query"]'));
-    assert.ok(page.$('form[action="/counties"] input[name="q"]'));
-    assert.equal(page.$$(".county-card").length, 6);
+    const discovery = page.$(".home-discovery");
+    assert.equal(
+      discovery.querySelector("h2").textContent,
+      "Accountability starts locally.",
+    );
+    assert.equal(discovery.querySelector("form, input, button"), null);
+    assert.deepEqual(
+      [...discovery.querySelectorAll(".discovery-card")].map((card) => [
+        card.tagName,
+        card.querySelector("h3").textContent,
+        card.getAttribute("href"),
+      ]),
+      [
+        ["A", "Explore the counties", "/counties"],
+        ["A", "Find an official", "/officials"],
+        ["A", "Find an organization", "/organizations"],
+        ["A", "Community Voices", "/stories"],
+      ],
+    );
+    assert.equal(page.$(".county-index-grid, .county-cards"), null);
+    assert.ok(
+      page
+        .$$("main h2, main h3")
+        .every((heading) => heading.textContent !== "Start with a county"),
+    );
     assert.match(page.$(".preview-notice").textContent, /fictional/);
     assert.equal(
       page.$("h1").textContent,
@@ -98,7 +118,7 @@ test("homepage on an empty database stays useful and claims nothing", async () =
     const page = await get(preview, "/");
     assert.equal(page.status, 200);
     assert.equal(page.$(".preview-notice"), null);
-    assert.equal(page.$$(".county-index-grid a").length, 64);
+    assert.equal(page.$$(".discovery-card").length, 4);
     assert.equal(page.$$(".article-card").length, 0);
     assert.match(page.main(), /Nothing has been published yet/);
     assert.equal(page.$$(".cv-pathway").length, 3);
@@ -116,11 +136,6 @@ test("homepage on an empty database stays useful and claims nothing", async () =
       assert.match(result.main(), /No stories yet/);
       assert.equal(result.$$(".article-card").length, 0);
     }
-    assert.ok(
-      page
-        .$$(".county-card-counts")
-        .every((n) => /No records in the database yet/.test(n.textContent)),
-    );
     assert.doesNotMatch(page.text, /fictional/i);
   });
 });
@@ -351,9 +366,8 @@ test("county map geometry covers the public registry with canonical accessible l
   });
 });
 
-test("the directory uses the same alphabetical county grid as the homepage", async () => {
+test("the complete alphabetical grid stays in front of changing county results", async () => {
   await withPreview("empty", async (preview) => {
-    const home = await get(preview, "/");
     const directory = await get(preview, "/counties");
     const filtered = await get(preview, "/counties?q=e");
     const entries = (page, selector) =>
@@ -364,18 +378,45 @@ test("the directory uses the same alphabetical county grid as the homepage", asy
           link.querySelector(".cell-name").firstChild.textContent,
           link.querySelector(".cell-code").textContent,
         ]);
-    const expected = entries(home, ".county-index-grid a");
+    const expected = entries(
+      directory,
+      "#county-directory .county-index-grid a",
+    );
     assert.equal(expected.length, 64);
+    const names = expected.map(([, name]) => name);
+    assert.deepEqual(
+      names,
+      [...names].sort((left, right) => left.localeCompare(right, "en")),
+    );
     assert.deepEqual(
       expected.map(([, name]) => name).filter((name) => name.startsWith("E")),
       ["Eagle", "El Paso", "Elbert"],
     );
-    for (const page of [directory, filtered]) {
+    const noMatches = await get(preview, "/counties?q=zzzz");
+    for (const page of [directory, filtered, noMatches]) {
       assert.deepEqual(
         entries(page, "#county-directory .county-index-grid a"),
         expected,
       );
       assert.equal(page.$$("#county-directory [hidden]").length, 0);
+      assert.equal(
+        page.$(".page-header").nextElementSibling.className,
+        "county-browse",
+      );
+      assert.equal(
+        page.$(".county-browse").nextElementSibling.className,
+        "county-map-figure",
+      );
+      assert.ok(
+        page
+          .$("#county-directory")
+          .compareDocumentPosition(page.$("[data-county-empty]")) & 4,
+      );
+      assert.ok(
+        page
+          .$("#county-directory")
+          .compareDocumentPosition(page.$("[data-county-results]")) & 4,
+      );
     }
   });
 });

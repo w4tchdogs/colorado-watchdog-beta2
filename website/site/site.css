@@ -1205,27 +1205,83 @@ img {
 
 /* 6. Pages -------------------------------------------------------------- */
 
-/* Homepage */
-.feature-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
-  gap: var(--space-4);
-  margin-top: var(--space-5);
+/* Homepage discovery */
+.home-discovery > h2 {
+  font-size: 30px;
+  line-height: 1.3;
 }
-.feature-card {
+.discovery-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 25px;
+}
+.discovery-card {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  padding: 26px 21px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid #bbbbbb;
+  text-decoration: none;
+  transition: background-color 160ms, color 160ms, border-color 160ms;
 }
-.feature-card p {
-  color: var(--ink-soft);
-  font-size: 0.9375rem;
+.discovery-card > svg {
+  margin-bottom: 8px;
 }
-.feature-card .search-form {
+.discovery-card > h3 {
+  margin: 8px 0 13px;
+  font-size: 17px;
+  line-height: 1.5;
+}
+.discovery-card > p {
+  color: #555555;
+  font-size: 12px;
+  line-height: 1.9;
+}
+.discovery-card-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-top: auto;
+  padding-top: 10px;
+  font-size: 10px;
+  font-weight: 800;
 }
-.feature-card .search-row {
-  flex-direction: column;
+.discovery-card-action > span {
+  font-size: 17px;
+  line-height: 1;
 }
+.discovery-card > svg,
+.discovery-card-action {
+  color: var(--red);
+}
+.discovery-card:is(:hover, :focus-visible) {
+  background: #111111;
+  color: #ffffff;
+  border-color: #111111;
+}
+.discovery-card:is(:hover, :focus-visible) > :is(svg, p, .discovery-card-action) {
+  color: inherit;
+}
+@media (max-width: 1100px) {
+  .discovery-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 450px) {
+  .discovery-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .discovery-card {
+    transition: none;
+  }
+}
+
+/* County directory tiles */
 .county-index-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1295,48 +1351,11 @@ img {
   font-variant-numeric: tabular-nums;
   color: var(--ink-soft);
 }
-.county-index-caption {
-  margin: var(--space-2) 0 0;
-  font-size: var(--step--1);
-  color: var(--ink-soft);
+[data-county-empty] {
+  margin-top: var(--space-5);
 }
 
-.county-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
-  gap: var(--space-4);
-  padding: 0;
-  list-style: none;
-}
-.county-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-4) var(--space-5);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-top: 3px solid var(--ink);
-  border-radius: var(--radius);
-}
-.county-card:hover {
-  border-color: var(--ink);
-}
-.county-card-link {
-  color: var(--ink);
-  font-size: 1.25rem;
-  font-weight: 800;
-}
-.county-card-link::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-}
-.county-card-counts {
-  font-size: 0.9375rem;
-  color: var(--ink-soft);
-}
-
+/* Homepage principles */
 .principles {
   padding-top: var(--space-6);
   border-top: 3px solid var(--ink);
@@ -1527,12 +1546,13 @@ img {
   transform: rotate(45deg);
 }
 .counties-page .search-form .hint {
+  min-height: 1.55em;
   margin: 0;
   color: #555555;
   font-size: 11px;
 }
 .county-browse {
-  margin: 0 0 15px;
+  margin: var(--space-3) 0 0;
   font-size: 13px;
 }
 .county-browse-all {
@@ -1540,7 +1560,7 @@ img {
   font-weight: 700;
 }
 .county-results {
-  margin: 0 0 var(--space-6);
+  margin: var(--space-5) 0 0;
 }
 .county-mobile-sort {
   display: none;
@@ -1648,6 +1668,9 @@ img {
   margin-block: var(--space-5) var(--space-2);
 }
 @media (max-width: 700px) {
+  .home-discovery > h2 {
+    font-size: 25px;
+  }
   .county-mobile-sort {
     display: flex;
     align-items: center;
@@ -1717,6 +1740,9 @@ img {
     align-items: stretch;
     flex-direction: column;
     gap: 12px;
+  }
+  .counties-page .search-form .hint {
+    min-height: 3.1em;
   }
 }
 @media (prefers-reduced-motion: reduce) {

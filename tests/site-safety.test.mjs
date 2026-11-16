@@ -334,12 +334,15 @@ test("service failures become clear error pages", async () => {
   assert.equal(broken.status, 500);
   assert.match(broken.main(), /Something went wrong/);
   assert.doesNotMatch(broken.text, /secret detail/);
-  // A site with no database at all (as in the current Worker) degrades the same way.
+  // The homepage's navigation can render without the county registry.
   const noDatabase = createPublicSite({
     assets: siteAssets(),
     services: createServices(),
   });
-  assert.equal((await get(noDatabase, "/")).status, 503);
+  const home = await get(noDatabase, "/");
+  assert.equal(home.status, 200);
+  assert.equal(home.$$(".discovery-card").length, 4);
+  assert.equal((await get(noDatabase, "/counties")).status, 503);
   const failedD1 = createPublicSite({
     assets: siteAssets(),
     services: createD1PublicReadServices(

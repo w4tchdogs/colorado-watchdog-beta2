@@ -1,40 +1,42 @@
 import { bannerHero } from "../banner.js";
 import { COMMUNITY_VOICES_HEAD, pathwayCards } from "../community-voices.js";
-import { countyIndexGrid, eyebrow, searchForm } from "../components.js";
-import { countyTitle, plural } from "../format.js";
-import { html, path } from "../html.js";
+import { eyebrow } from "../components.js";
+import { html } from "../html.js";
 import type { Page, SiteContext } from "../types.js";
 import { articleCard } from "./editorial.js";
 
-const FEATURED_COUNT = 6;
-
-/** A deterministic daily rotation through the registry; it ranks nothing. */
-function featuredCounties<T>(counties: readonly T[], now: Date): readonly T[] {
-  if (counties.length === 0) return [];
-  const day = Math.floor(now.getTime() / 86_400_000);
-  const step = Math.max(1, Math.floor(counties.length / FEATURED_COUNT));
-  const picked: T[] = [];
-  for (
-    let index = 0;
-    index < Math.min(FEATURED_COUNT, counties.length);
-    index += 1
-  ) {
-    const county = counties[(day + index * step) % counties.length];
-    if (county !== undefined) picked.push(county);
-  }
-  return picked;
-}
+const discoveryCards = [
+  {
+    href: "/counties",
+    title: "Explore the counties",
+    description:
+      "Start with a county government. Browse its organizations, affiliated bodies and documented roles.",
+    icon: html`<path d="M18 8c0 3.5-6 9-6 9s-6-5.5-6-9a6 6 0 0 1 12 0Z"/><circle cx="12" cy="8" r="2"/><path d="M8 14H5l-3 8h20l-3-8h-3"/>`,
+  },
+  {
+    href: "/officials",
+    title: "Find an official",
+    description:
+      "Search documented officials and employees by name, title or department.",
+    icon: html`<circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2M16 3a4 4 0 0 1 0 8m6 10v-2a4 4 0 0 0-3-4"/>`,
+  },
+  {
+    href: "/organizations",
+    title: "Find an organization",
+    description:
+      "Search county governments, offices, departments, regional bodies and partners.",
+    icon: html`<rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/><path d="M12 8v4m-7 4v-4h14v4"/>`,
+  },
+  {
+    href: "/stories",
+    title: "Community Voices",
+    description:
+      "Read stories about Colorado counties and the experiences of people who live there.",
+    icon: html`<path d="M12 5v16M3 4h5a5 5 0 0 1 4 2 5 5 0 0 1 4-2h5v15h-5a5 5 0 0 0-4 2 5 5 0 0 0-4-2H3z"/>`,
+  },
+] as const;
 
 export async function homePage(context: SiteContext): Promise<Page> {
-  const counties = await context.services.listCounties();
-  const featured = await Promise.all(
-    featuredCounties(counties, context.now).map(async (county) => ({
-      county,
-      overview: await context.services.getCountyOverview({
-        countyFips: county.fips,
-      }),
-    })),
-  );
   const previews = async (type: "story" | "post", limit: number) =>
     context.editorial.previews
       ? context.editorial.previews(type, limit)
@@ -55,77 +57,24 @@ export async function homePage(context: SiteContext): Promise<Page> {
   });
 
   const body = html`
-  <section class="section section-first" aria-labelledby="discover-heading">
+  <section class="section section-first home-discovery" aria-labelledby="discover-heading">
     ${eyebrow("Find the county. Find the record.")}
     <h2 id="discover-heading">Accountability starts locally.</h2>
-    <div class="feature-grid">
-      <div class="card feature-card">
-        <h3>Explore the counties</h3>
-        <p>Start with a county government. Browse its organizations, affiliated bodies and documented roles.</p>
-        ${searchForm({
-          action: "/counties",
-          id: "home-county",
-          label: "County name or FIPS code",
-          name: "q",
-          button: "Find county",
-          maxLength: 40,
-        })}
-      </div>
-      <div class="card feature-card">
-        <h3>Find an official</h3>
-        <p>Search documented officials and employees by name, title or department. Records that share a name stay separate.</p>
-        ${searchForm({
-          action: "/officials",
-          id: "home-people",
-          label: "Name, title, or department",
-          name: "q",
-          button: "Search officials",
-          hint: "Or leave it empty to browse every profile.",
-        })}
-      </div>
-      <div class="card feature-card">
-        <h3>Find an organization</h3>
-        <p>Search county governments, offices, departments, regional bodies and partners.</p>
-        ${searchForm({
-          action: "/organizations",
-          id: "home-organizations",
-          label: "Organization name",
-          name: "query",
-          button: "Search organizations",
-          hint: "Enter at least two characters.",
-          minLength: 2,
-        })}
-      </div>
+    <div class="discovery-grid">
+      ${discoveryCards.map(
+        ({
+          href,
+          title,
+          description,
+          icon,
+        }) => html`<a class="discovery-card" href="${href}">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg>
+          <h3>${title}</h3>
+          <p>${description}</p>
+          <span class="discovery-card-action" aria-hidden="true">Explore <span>↗</span></span>
+        </a>`,
+      )}
     </div>
-  </section>
-
-  <section class="section" aria-labelledby="index-heading">
-    ${eyebrow("64 counties · one statewide record")}
-    <div class="section-heading">
-      <h2 id="index-heading">Explore Colorado's counties</h2>
-      <a class="text-link" href="/counties">Open the county directory</a>
-    </div>
-    <nav class="county-index" aria-label="County index">
-      ${countyIndexGrid(counties)}
-      <p class="county-index-caption">All ${counties.length} counties in alphabetical order with their FIPS codes. This index is not a map.</p>
-    </nav>
-    <h3 class="subhead">Start with a county</h3>
-    <p class="section-intro">A changing selection from the county registry. Counts describe records in this site's database. They do not measure staffing or completeness.</p>
-    <ul class="county-cards">
-      ${featured.map(({ county, overview }) => {
-        const total = overview?.organizationCounts.total ?? 0;
-        const roles = overview?.documentedRoleCount ?? 0;
-        return html`<li class="county-card">
-          <a class="county-card-link" href="${path("counties", county.fips)}">${countyTitle(county.name)}</a>
-          <span class="fips">FIPS ${county.fips}</span>
-          <span class="county-card-counts">${
-            total === 0 && roles === 0
-              ? "No records in the database yet"
-              : `${plural(total, "organization", "organizations")}, ${plural(roles, "documented role", "documented roles")}`
-          }</span>
-        </li>`;
-      })}
-    </ul>
   </section>
 
   <section class="section" aria-labelledby="reporting-heading">
