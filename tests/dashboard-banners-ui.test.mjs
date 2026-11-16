@@ -163,6 +163,11 @@ const publishStaged = async (d, id, countyName) => {
   assert.match(d.text(`#banner-confirm-${id}`), new RegExp(countyName));
   assert.match(d.text(`#banner-confirm-${id}`), new RegExp(id));
   assert.match(d.text(`#banner-confirm-${id}`), /local sandbox/);
+  // Keyboard continuity: focus moves into the confirmation, not to the page.
+  assert.equal(
+    d.$(`#banner-confirm-${id}`).ownerDocument.activeElement?.id,
+    `banner-confirm-no-${id}`,
+  );
   d.click(`#banner-confirm-yes-${id}`);
   return waitFor(() => /Published\./.test(d.notice()), "published notice");
 };

@@ -100,6 +100,8 @@ interface State {
   order: readonly string[] | null;
   orderDirty: boolean;
   newBannerId: string;
+  /** Element id to focus after the next render (keyboard continuity). */
+  focusId: string | null;
   newStage: null | {
     countyFips: string;
     run: () => Promise<void>;
@@ -151,6 +153,7 @@ export function createBannersView(
       order: null,
       orderDirty: false,
       newBannerId: "",
+      focusId: null,
       newStage: null,
     };
     const previews = new Set<string>();
@@ -244,6 +247,19 @@ export function createBannersView(
     // ------------------------------------------------------------- render
 
     const render = () => {
+      // Re-rendering replaces every control, so keyboard focus would fall to
+      // the page. Remember the focused control and put focus back afterwards,
+      // unless a step asked for focus to move somewhere specific.
+      const focused = doc.activeElement as HTMLElement | null;
+      const previousFocus =
+        focused && container.contains(focused)
+          ? {
+              id: focused.id,
+              className: focused.className,
+              text: focused.textContent ?? "",
+              version: focused.getAttribute("data-version"),
+            }
+          : null;
       const children: Node[] = [
         h("h1", { id: "banners-heading" }, "Banners"),
         h(
@@ -272,6 +288,23 @@ export function createBannersView(
           children.push(bannerCard(banner));
       }
       replaceChildren(doc, container, ...children);
+      let target: HTMLElement | null = state.focusId
+        ? doc.getElementById(state.focusId)
+        : null;
+      state.focusId = null;
+      if (!target && previousFocus) {
+        target = previousFocus.id
+          ? doc.getElementById(previousFocus.id)
+          : (Array.from(container.querySelectorAll<HTMLElement>("button")).find(
+              (candidate) =>
+                !candidate.id &&
+                candidate.className === previousFocus.className &&
+                (candidate.textContent ?? "") === previousFocus.text &&
+                candidate.getAttribute("data-version") ===
+                  previousFocus.version,
+            ) ?? null);
+      }
+      if (target && container.contains(target)) target.focus();
     };
 
     const retryButton = (action: () => void, id: string) => {
@@ -523,7 +556,7 @@ export function createBannersView(
       const children: Node[] = [
         h(
           "h3",
-          { id: `banner-${banner.id}-h` },
+          { id: `banner-${banner.id}-h`, tabindex: "-1" },
           banner.caption ? banner.caption : "(no caption)",
         ),
         h(
@@ -793,6 +826,7 @@ export function createBannersView(
       publish.addEventListener("click", () => {
         keep();
         stateFor(banner.id).confirming = { kind: "publish" };
+        state.focusId = `banner-confirm-no-${banner.id}`;
         render();
       });
       return [
@@ -867,6 +901,8 @@ export function createBannersView(
         .querySelector('[data-confirm="yes"]')
         ?.addEventListener("click", () => {
           bannerState.confirming = null;
+          // The confirmation disappears, so park focus on this banner's heading.
+          state.focusId = `banner-${banner.id}-h`;
           if (confirm.kind === "publish") void doPublish(banner);
           else if (confirm.kind === "withdraw") void doWithdraw(banner);
           else if (confirm.kind === "restore" && confirm.versionId)
@@ -876,6 +912,7 @@ export function createBannersView(
         .querySelector('[data-confirm="no"]')
         ?.addEventListener("click", () => {
           bannerState.confirming = null;
+          state.focusId = `banner-${confirm.kind === "withdraw" ? "withdraw" : "publish"}-${banner.id}`;
           render();
         });
       return [panel];
@@ -956,6 +993,7 @@ export function createBannersView(
       );
       withdrawButton.addEventListener("click", () => {
         bannerState.confirming = { kind: "withdraw" };
+        state.focusId = `banner-confirm-no-${banner.id}`;
         render();
       });
       const checkButton = h(
@@ -1141,6 +1179,7 @@ export function createBannersView(
                     versionId: record.versionId,
                     publicationId: record.id,
                   };
+                  state.focusId = `banner-confirm-no-${banner.id}`;
                   render();
                 });
               return item;

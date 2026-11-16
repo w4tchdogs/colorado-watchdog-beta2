@@ -77,7 +77,10 @@ const server = createServer(async (incoming, outgoing) => {
     );
     const response = await sandbox.fetch(request);
     outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-    outgoing.end(method === "HEAD" ? undefined : await response.text());
+    // Raw bytes, never text: private banner previews are binary images.
+    outgoing.end(
+      method === "HEAD" ? undefined : Buffer.from(await response.arrayBuffer()),
+    );
   } catch {
     outgoing.writeHead(500, { "content-type": "application/json" });
     outgoing.end(JSON.stringify({ error: "internal_error" }));
