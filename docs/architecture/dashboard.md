@@ -1,6 +1,6 @@
 # Dashboard foundation (EDIT-2 local slice)
 
-One WordPress-style dashboard for signed-in human accounts. This slice delivers the shared shell and three working views: Overview, My Account and Posts & Stories. It runs only in the disposable local sandbox. Nothing here is deployed, and no hosted Worker route, Auth0 setting, D1, R2 or Profiles data is touched.
+One WordPress-style dashboard for signed-in human accounts. This slice delivers the shared shell and three working views: Overview, My Account and Posts & Stories. The sandbox runs only locally with fictional data. The hosted Alpha-1 entry (Overview and My Account) is described in the hosted section below.
 
 ## Start the preview
 
@@ -106,17 +106,42 @@ The shell asks the server before it mounts a view, so a factory never runs for a
 | Audit | The audit service, gated by `audit.read` | Read-only, paged |
 | System Status | The read-only inspection service behind `d1.inspect` in [mcp-administration.md](mcp-administration.md) | Bounded, read-only inspection: migration inventory, aggregate counts, binding presence. No generic database CRUD, raw SQL, bulk writes or browser-driven migrations |
 
-## Hosted use (not part of this slice)
+## Hosted dashboard (Alpha-1 entry)
 
-A hosted dashboard needs a Worker route that serves the shell without the `sandbox` option, the dashboard transport wired to the AUTH-3-WEB session adapter, an asynchronous D1 form of the dashboard service, a hosted editorial policy, and sign-out through `POST /auth/logout`. Those depend on AUTH-3-WEB enablement, AUTH-4 and AUTH-5 and are separate work.
+Status: merged source, tested locally. Not deployed and not verified on the hosted Site.
+
+The Worker serves the same shell, registry and capability checks on Alpha-1, but only while Website human sign-in is enabled (see [human-sign-in.md](human-sign-in.md)). With sign-in off, missing settings or no `DB`, `/dashboard` and `/internal/dashboard/*` answer `404` and the public header shows no sign-in entry.
+
+| Route | Behavior |
+| --- | --- |
+| `GET /dashboard` | Serves the shell page to a current human session. No session or a stale cookie gets `303` to `/auth/login?return_to=%2Fdashboard`. A presented agent credential never falls back to the cookie flow. An invalid one gets `401` and a valid one `403`. A disabled account or a revoked or expired link gets `403` or the sign-in redirect |
+| `GET /internal/dashboard/session`, `POST /internal/dashboard/views/get` | The existing dashboard transport over `createD1DashboardService` in `src/services/dashboard-d1.ts`. The principal comes from the Website session adapter. Cookie-authenticated posts need an exact `Origin` match. Responses are `no-store` |
+| `/assets/dashboard-app.js`, `/assets/dashboard-app.css` | The hosted browser bundle from `src/editor/hosted-main.ts` and the shared shell styles |
+
+The hosted service uses the same `DASHBOARD_MODULES` registry and `roleHasCapability` matrix as the local service. It adds one gate, `HOSTED_DASHBOARD_MODULES`. A module that is active locally but not in that set is reported as planned. Its navigation, view and data stay closed to every role, and a direct request for it answers `404`.
+
+| Module | Hosted | Why |
+| --- | --- | --- |
+| Overview, My Account | Yes | Read only, any active human account. My Account shows no subject, provider string, identity ID or account ID |
+| Posts & Stories | No | The hosted Worker serves only the publication routes. The draft API and an asynchronous content service are not wired |
+| Banners | No | Needs a verified `BUCKET` attachment, still open in [Issue #122](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/122) |
+| Reports, Accounts, Audit, System Status | No | Still planned |
+
+To add a module to the hosted dashboard, wire its hosted service and transport, verify its dependencies on the hosted Site, add its view factory to `src/editor/hosted-main.ts`, add the ID to `HOSTED_DASHBOARD_MODULES` and add role, signed-out, disabled, revoked and agent tests.
+
+Sign-out is a same-origin form post to `/auth/logout` from the account menu. The page sends `Referrer-Policy: same-origin` so the exact `Origin` check passes.
+
+The hosted bundle is built by `scripts/build-sites-worker.mjs`. It imports no sandbox, fixture, synthetic account or sandbox header. The synthetic account switch and sandbox headers live in `src/editor/dashboard-sandbox.ts`, which only the local sandbox loads. `tests/dashboard-hosted.test.mjs` asserts that the served bundle contains none of them.
+
+A hosted editorial policy, AUTH-5 invitations and publication controls remain separate work.
 
 ## Tests
 
-`tests/dashboard.test.mjs` covers navigation for each role, signed-out, disabled and unknown callers, the self-view field list, the contributor Overview, direct requests to restricted, planned and unknown views, malformed requests, sandbox token, origin and Host guards, role changes between requests, agent principals, hosted and public entry points, the Worker bundle, and browser storage. `tests/dashboard-ui.test.mjs` runs the real shell in jsdom over the real sandbox for the contributor flow, the editor listing, the two-view stale-save conflict and recovery, the unsaved-changes guard, signed-out and disabled states, error and empty states, and keyboard and labelling basics. `tests/dashboard-banners-ui.test.mjs` runs the Banners module in jsdom over the real sandbox with synthetic PNG fixtures: county search, stage, private preview, publish with confirmation, replace, details edit, reorder, withdraw, restore from history, stale-version conflicts with kept edits, idempotent retries, missing stored images with reconcile, the live role matrix, and labelling. The existing editorial tests still cover the workspace itself.
+`tests/dashboard-hosted.test.mjs` drives the bundled Worker with a migrated local D1 and a synthetic provider for the hosted routes, header entry, bundle contents, roles, signed-out, unlinked, disabled, revoked, expired and agent callers, cross-origin posts, sign-out and the Auth0 first-owner link. `tests/dashboard.test.mjs` covers navigation for each role, signed-out, disabled and unknown callers, the self-view field list, the contributor Overview, direct requests to restricted, planned and unknown views, malformed requests, sandbox token, origin and Host guards, role changes between requests, agent principals, hosted and public entry points, the Worker bundle, and browser storage. `tests/dashboard-ui.test.mjs` runs the real shell in jsdom over the real sandbox for the contributor flow, the editor listing, the two-view stale-save conflict and recovery, the unsaved-changes guard, signed-out and disabled states, error and empty states, and keyboard and labelling basics. `tests/dashboard-banners-ui.test.mjs` runs the Banners module in jsdom over the real sandbox with synthetic PNG fixtures: county search, stage, private preview, publish with confirmation, replace, details edit, reorder, withdraw, restore from history, stale-version conflicts with kept edits, idempotent retries, missing stored images with reconcile, the live role matrix, and labelling. The existing editorial tests still cover the workspace itself.
 
 ## Limits
 
-- Local sandbox only. No hosted route, deployment or hosted verification.
+- The sandbox is local only. The hosted dashboard has merged source and local tests, with no deployment or hosted verification (see the hosted section).
 - Beta-1 was reviewed from archived source only (`lib/site-navigation.mjs`, `app/workspace.tsx` and `app/my-profile.tsx`): grouped sidebar sections, role-gated entries and a profile page open to every signed-in account. The running Beta-1 dashboard was not opened, so no screen-level parity is claimed.
 - No Posts & Stories publication controls, no self-service account edits and no administrative counts. The Banners tab can publish, restore and withdraw within the disposable local sandbox, as verified in [PR #156](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/156) and [Issue #146](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/146).
 - The standalone editor shell in `mountEditorApp` remains for the existing editorial tests. The sandbox serves the dashboard.

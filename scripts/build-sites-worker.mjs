@@ -43,6 +43,20 @@ await Promise.all([
   }),
 ]);
 
+// Hosted dashboard (Alpha-1). One reviewed browser bundle from the hosted
+// entry, which never imports the sandbox, and one stylesheet from the shared
+// shell styles. They are served by the Worker as dashboard-app.js and
+// dashboard-app.css.
+await build({
+  entryPoints: [join(root, "src", "editor", "hosted-main.ts")],
+  outfile: join(siteBundle, "dashboard-app.js"),
+  bundle: true,
+  platform: "browser",
+  format: "esm",
+  target: "es2022",
+  logLevel: "info",
+});
+
 const files = (await readdir(assetsDirectory, { withFileTypes: true }))
   .filter(
     (entry) =>
@@ -72,6 +86,14 @@ assetData["report-interface.js"] = (
 assetData["staff-reports.js"] = (
   await readFile(join(siteBundle, "staff-reports.js"))
 ).toString("base64");
+assetData["dashboard-app.js"] = (
+  await readFile(join(siteBundle, "dashboard-app.js"))
+).toString("base64");
+assetData["dashboard-app.css"] = Buffer.concat([
+  await readFile(join(root, "website", "editor", "editor.css")),
+  Buffer.from("\n"),
+  await readFile(join(root, "website", "editor", "dashboard.css")),
+]).toString("base64");
 const hosting = JSON.parse(
   await readFile(join(root, ".openai", "hosting.json"), "utf8"),
 );

@@ -16,6 +16,7 @@ import { createContentPublicationService } from "./services/content-publication.
 import { createD1AccountServices } from "./services/d1-accounts.js";
 import { createD1WebsiteInspectionService } from "./services/d1-inspection.js";
 import { createD1PublicReadServices } from "./services/d1-public-reads.js";
+import { createD1DashboardService } from "./services/dashboard-d1.js";
 import type { ApplicationServices } from "./services/index.js";
 import {
   type ChallengeOutcome,
@@ -37,6 +38,11 @@ import {
   CONTENT_PUBLICATION_API_PATHS,
   createContentApiTransport,
 } from "./transport/content-api.js";
+import {
+  dashboardUnavailable,
+  handleDashboardRequest,
+  isDashboardPath,
+} from "./transport/dashboard-hosted.js";
 
 declare const __WATCHDOG_SITES_PROJECT_ID__: string | null;
 declare const __WATCHDOG_WEBSITE_MIGRATIONS__: readonly {
@@ -276,6 +282,7 @@ const routes = {
       if (isAuthPath(pathname))
         return handleAuthRequest(request, { database: null, signIn });
       if (isBannerAdminPath(pathname)) return bannerAdminUnavailable();
+      if (isDashboardPath(pathname)) return dashboardUnavailable();
       if (publicationRoute) return createContentApiTransport().fetch(request);
       if (new URL(request.url).pathname === "/mcp") {
         return new Response(
@@ -364,6 +371,14 @@ const routes = {
           },
         });
       }
+      if (isDashboardPath(pathname)) {
+        // The dashboard exists only while Website human sign-in is enabled.
+        if (signIn.status !== "enabled") return dashboardUnavailable();
+        return handleDashboardRequest(request, {
+          resolvePrincipal: accounts.resolvePrincipal,
+          service: createD1DashboardService(database, accounts),
+        });
+      }
       if (publicationRoute) {
         const authorize = (
           principal: NonNullable<
@@ -434,6 +449,17 @@ const routes = {
           : {}),
         reportSubmissionsEnabled: reports.enabled,
         ...(reports.challenge ? { reportChallenge: reports.challenge } : {}),
+        // The header offers sign-in or the Dashboard only while Website human
+        // sign-in is enabled, which is also the only time /dashboard exists.
+        ...(signIn.status === "enabled"
+          ? {
+              accountEntry: async (entryRequest: Request) => {
+                if (!hasSessionCookie(entryRequest)) return "signed-out";
+                const principal = await accounts.resolvePrincipal(entryRequest);
+                return principal?.kind === "human" ? "signed-in" : "signed-out";
+              },
+            }
+          : {}),
         reportReviewAccess: async (request) => {
           const principal = await services.resolvePrincipal(request);
           if (!principal) return 401;

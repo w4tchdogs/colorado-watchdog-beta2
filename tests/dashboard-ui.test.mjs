@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createEditorApiClient } from "../dist/editor/api-client.js";
-import { mountDashboard } from "../dist/editor/dashboard.js";
 import { createDashboardClient } from "../dist/editor/dashboard-client.js";
+import {
+  mountSandboxDashboard,
+  sandboxHeaders,
+} from "../dist/editor/dashboard-sandbox.js";
 import {
   accountView,
   createPostsView,
@@ -44,29 +47,35 @@ async function mountShell({
     token: sandbox.token,
     account: () => session.account,
   };
-  const dashboard = mountDashboard(window.document.getElementById("app"), {
-    doc: window.document,
-    client: createDashboardClient(connection),
-    publicSiteUrl: "http://127.0.0.1:8790/",
-    views: {
-      overview: overviewView,
-      account: accountView,
-      posts: createPostsView({
-        client: createEditorApiClient(connection),
-        session,
-        previewDelayMs: 0,
-        searchDelayMs: 0,
-        ...(confirmLeave ? { confirmLeave } : {}),
+  const dashboard = mountSandboxDashboard(
+    window.document.getElementById("app"),
+    {
+      doc: window.document,
+      client: createDashboardClient({
+        fetch: connection.fetch,
+        headers: sandboxHeaders(connection),
       }),
-    },
-    sandbox: {
-      accounts: ACCOUNTS,
-      current: () => session.account,
-      switchTo: (key) => {
-        session.account = key;
+      publicSiteUrl: "http://127.0.0.1:8790/",
+      views: {
+        overview: overviewView,
+        account: accountView,
+        posts: createPostsView({
+          client: createEditorApiClient(connection),
+          session,
+          previewDelayMs: 0,
+          searchDelayMs: 0,
+          ...(confirmLeave ? { confirmLeave } : {}),
+        }),
+      },
+      sandbox: {
+        accounts: ACCOUNTS,
+        current: () => session.account,
+        switchTo: (key) => {
+          session.account = key;
+        },
       },
     },
-  });
+  );
   const $ = (selector) => window.document.querySelector(selector);
   const $$ = (selector) => [...window.document.querySelectorAll(selector)];
   const text = (selector) => $(selector)?.textContent ?? "";

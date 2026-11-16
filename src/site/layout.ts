@@ -1,5 +1,5 @@
 import { html, type SafeHtml, trusted } from "./html.js";
-import type { Breadcrumb, Page } from "./types.js";
+import type { AccountEntry, Breadcrumb, Page } from "./types.js";
 
 const NAVIGATION = [
   { key: "counties", label: "Counties", href: "/counties" },
@@ -9,6 +9,17 @@ const NAVIGATION = [
   { key: "posts", label: "Posts", href: "/posts" },
   { key: "about", label: "About", href: "/about" },
 ] as const;
+
+/** Same-origin sign-in start that returns the visitor to the dashboard. */
+export const DASHBOARD_LOGIN_HREF = "/auth/login?return_to=%2Fdashboard";
+export const DASHBOARD_HREF = "/dashboard";
+
+function accountEntry(entry: AccountEntry | null | undefined): SafeHtml {
+  if (!entry) return html``;
+  if (entry === "signed-in")
+    return html`<div class="header-account"><a class="header-login" href="${DASHBOARD_HREF}">Dashboard</a></div>`;
+  return html`<div class="header-account"><a class="header-login" href="${DASHBOARD_LOGIN_HREF}" aria-describedby="header-login-note">Log in / Sign up</a><p class="header-login-note" id="header-login-note">Sign-in works only for a Website account that is already linked.</p></div>`;
+}
 
 export const TAGLINE = "Accountability Starts with Being Heard";
 
@@ -28,7 +39,11 @@ function breadcrumbs(items: readonly Breadcrumb[] | undefined): SafeHtml {
   </ol></nav>`;
 }
 
-export function renderDocument(page: Page, preview: boolean): string {
+export function renderDocument(
+  page: Page,
+  preview: boolean,
+  entry: AccountEntry | null = null,
+): string {
   const title =
     page.title === "Colorado Watchdog"
       ? page.title
@@ -56,7 +71,7 @@ ${
 }
 <header class="site-header">
   <div class="wrap site-header-inner">
-    <a class="brand" href="/">${logo(56)}<span class="brand-text"><span class="brand-name">Colorado Watchdog</span><span class="brand-tagline">${TAGLINE}</span></span></a>
+    <a class="brand" href="/">${logo(56)}<span class="brand-text"><span class="brand-name">Colorado Watchdog</span><span class="brand-tagline">${TAGLINE}</span></span></a>${accountEntry(entry)}
     <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" hidden>Menu</button>
     <nav id="site-nav" class="site-nav" aria-label="Main">
       <ul>

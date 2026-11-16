@@ -194,6 +194,32 @@ h2 {
   padding: 0.45rem 0;
 }
 
+.dash-signout {
+  margin: 0.4rem 0 0;
+  padding: 0.5rem 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.dash-signout button {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.dash-signout button:hover,
+.dash-signout button:focus-visible {
+  color: #ffffff;
+  background: var(--ink);
+}
+
 .dash-menu-toggle {
   display: none;
 }

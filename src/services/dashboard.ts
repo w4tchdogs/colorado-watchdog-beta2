@@ -52,7 +52,7 @@ export interface DashboardService {
   mayOpen(principal: TrustedPrincipal | null, id: DashboardModuleId): boolean;
 }
 
-const ROLE_LABELS: Readonly<Record<AccountRole, string>> = {
+export const ROLE_LABELS: Readonly<Record<AccountRole, string>> = {
   contributor: "Contributor",
   editor: "Editor",
   administrator: "Administrator",
@@ -209,7 +209,7 @@ export function createDashboardService(
 }
 
 /** A display label only. The provider string and subject are never returned. */
-function providerLabel(provider: string): string {
+export function providerLabel(provider: string): string {
   if (provider === "test-human") return "Sandbox test identity";
   if (provider.startsWith("auth0:")) return "Auth0 sign-in";
   if (provider.startsWith("chatgpt-sites:")) return "ChatGPT Sites sign-in";

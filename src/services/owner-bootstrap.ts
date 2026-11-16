@@ -21,6 +21,12 @@ export interface FirstOwnerBootstrapInput {
   readonly bindingName: string;
   /** Exact opaque subject obtained from a separately verified trusted channel. */
   readonly subject: string;
+  /**
+   * Identity provider namespace for the link. Defaults to the Beta-2 Sites
+   * provider. Website human sign-in uses `auth0:<issuer>` with the exact
+   * `AUTH0_ISSUER`, so link an Auth0 subject by passing that value here.
+   */
+  readonly provider?: string;
   /** Durable operator identity from the trusted administrative environment. */
   readonly operatorReference: string;
   readonly dryRun?: boolean;
@@ -48,8 +54,9 @@ export async function bootstrapFirstOwner(
   input: FirstOwnerBootstrapInput,
 ): Promise<FirstOwnerBootstrapResult> {
   validateInput(input);
+  const provider = input.provider ?? BETA2_SITES_PROVIDER;
   await verifySchema(database);
-  const before = await readState(database, input.subject);
+  const before = await readState(database, provider, input.subject);
   if (isCompleted(before)) return { status: "already_complete" };
   if (before.ownerCount || before.exactLinkCount || before.eventCount) {
     throw new Error("First-owner bootstrap state conflicts; no changes made");
@@ -59,7 +66,6 @@ export async function bootstrapFirstOwner(
   const accountId = `acct_${randomUUID()}`;
   const identityId = `identity_${randomUUID()}`;
   const auditId = `boot_${randomUUID()}`;
-  const provider = BETA2_SITES_PROVIDER;
   const statements: D1BatchStatement[] = [
     database.prepare(
       `INSERT INTO accounts (id, kind, role, status, display_name, email)
@@ -101,7 +107,7 @@ export async function bootstrapFirstOwner(
   ];
   await database.batch(statements);
 
-  const after = await readState(database, input.subject);
+  const after = await readState(database, provider, input.subject);
   if (isCompleted(after)) {
     return after.exactOwnerAccountId === accountId
       ? { status: "created", accountId }
@@ -122,9 +128,33 @@ function validateInput(input: FirstOwnerBootstrapInput): void {
     typeof input.operatorReference !== "string" ||
     !input.operatorReference.trim() ||
     input.operatorReference.length > 128 ||
-    hasControlCharacters(input.operatorReference)
+    hasControlCharacters(input.operatorReference) ||
+    (input.provider !== undefined && !validProvider(input.provider))
   ) {
     throw new TypeError("Invalid first-owner bootstrap target or input");
+  }
+}
+
+/** The Beta-2 Sites provider, or `auth0:` plus a bare HTTPS issuer. */
+function validProvider(provider: unknown): boolean {
+  if (provider === BETA2_SITES_PROVIDER) return true;
+  if (typeof provider !== "string" || !provider.startsWith("auth0:"))
+    return false;
+  const issuer = provider.slice("auth0:".length);
+  try {
+    const url = new URL(issuer);
+    return (
+      url.protocol === "https:" &&
+      url.href === issuer &&
+      url.pathname === "/" &&
+      url.port === "" &&
+      url.username === "" &&
+      url.password === "" &&
+      url.search === "" &&
+      url.hash === ""
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -171,6 +201,7 @@ async function verifySchema(database: AsyncD1Database): Promise<void> {
 
 async function readState(
   database: AsyncD1Database,
+  provider: string,
   subject: string,
 ): Promise<BootstrapState> {
   const row = await database.first<Record<string, unknown>>(
@@ -185,14 +216,7 @@ async function readState(
           AND e.action = 'account.first_owner.bootstrap'
           AND e.site_project_id = ? AND e.provider = ?
         LIMIT 1) AS exact_owner_account_id`,
-    [
-      BETA2_SITES_PROVIDER,
-      subject,
-      BETA2_SITES_PROVIDER,
-      subject,
-      BETA2_PROJECT_ID,
-      BETA2_SITES_PROVIDER,
-    ],
+    [provider, subject, provider, subject, BETA2_PROJECT_ID, provider],
   );
   if (!row) throw new Error("Could not inspect Website D1 bootstrap state");
   return {
