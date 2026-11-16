@@ -1,6 +1,6 @@
 # Banner administration API (BANNER-ADMIN-3)
 
-This is the dashboard author’s contract for `/api/admin/banners/*`. It is merged source only. It is not deployed and not verified on the hosted Site. The hosted Site cannot authenticate a human administrator yet (AUTH-3 and AUTH-4) and the `BUCKET` binding is unverified (R2-1). The transport is `src/transport/banner-admin-api.ts`. It is a thin adapter over the `BannerAdministration` contract in `src/contracts/banner-administration.ts`, implemented by `D1BannerAdministration`. The design is in the dashboard brief of design PR #127 and the service rules are in [banner-admin-service.md](banner-admin-service.md).
+This is the dashboard author’s contract for `/api/admin/banners/*`. The protected routes ship in the deployed Worker. Cloudflare staging has a hosted-verified human owner session and a verified storage-level R2 round trip. The protected application upload, private preview, publication and public readback still need hosted acceptance. The original Sites deployment has human sign-in disabled, and its `BUCKET` attachment and object inventory are unverified. See [CURRENT](../coordination/CURRENT.md#d-deployment-state-separate-from-source). The transport is `src/transport/banner-admin-api.ts`. It is a thin adapter over the `BannerAdministration` contract in `src/contracts/banner-administration.ts`, implemented by `D1BannerAdministration`. The design is in the dashboard brief of design PR #127 and the service rules are in [banner-admin-service.md](banner-admin-service.md).
 
 ## Rules that apply to every route
 
@@ -84,6 +84,6 @@ For a new version of an existing banner use `"target": { "kind": "existing", "ex
 
 The Worker routes `/api/admin/banners` and everything below it before the public site. With no `DB` binding every such request is `503 banner_admin_unavailable`. With `DB` but no `BUCKET`, the request is authenticated and authorized first and then answered `503 banner_admin_unavailable`, so an anonymous caller learns nothing about bindings. Public pages and `/banner-assets/*` are unaffected in both cases.
 
-## What is not covered
+## Hosted acceptance
 
-Dashboard UI, MCP tool registration, migrations, real artwork, hosted uploads and Sites deployment are outside this change. The hosted Sites request body limit and cache behavior are unverified. A human administrator can be exercised only through the local test adapter until AUTH-3 and AUTH-4 land. The Website Worker’s `Origin` rule compares against the request URL’s origin, so it must be rechecked once the hosted public origin is known.
+Use the existing Cloudflare staging owner session for the protected API exercise with a synthetic image. Verify request body handling, private preview cache controls, and the same-origin write rule against the staging origin. The hosted Banners dashboard needs its own wiring and verification. Track the original Sites binding and inventory separately in [Issue #122](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/122).
