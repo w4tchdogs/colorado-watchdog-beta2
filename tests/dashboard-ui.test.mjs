@@ -154,7 +154,7 @@ test("a contributor reaches Overview and My Account and nothing else", async () 
     assert.equal(d.$("#editor-host"), null);
     assert.equal(d.$("#save"), null);
     d.go("#/banners");
-    await waitFor(() => d.$("#state-not-found"), "planned module has no page");
+    await waitFor(() => d.$("#state-denied"), "banners needs banner.manage");
     d.go("#/<script>");
     await waitFor(
       () => /Page not found/.test(d.text("#main")),
@@ -362,12 +362,17 @@ test("signed-out and disabled accounts see no navigation, data or account menu",
 
     d.switchAccount("owner");
     await waitFor(() => d.$$("table.drafts tbody tr").length > 0, "owner list");
-    assert.deepEqual(d.nav(), ["Overview", "My Account", "Posts & Stories"]);
+    assert.deepEqual(d.nav(), [
+      "Overview",
+      "My Account",
+      "Posts & Stories",
+      "Banners",
+    ]);
     d.go("#/overview");
     await waitFor(() => d.$("#overview-planned"), "owner overview");
     assert.match(
       d.text("#overview-planned"),
-      /Reports.*Banners.*Accounts.*Audit.*System Status/s,
+      /Reports.*Accounts.*Audit.*System Status/s,
     );
     assert.equal(d.$$("#overview-planned a").length, 0);
 

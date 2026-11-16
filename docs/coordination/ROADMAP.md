@@ -79,7 +79,7 @@ that show the state of profiles, departments and grievances.
 - **Done when:** editors can draft, revise and publish Posts and Stories on
   the hosted Site, and at least the first three installments of "The
   Idlewild Story" are published.
-- **Today:** the content model, revision history, search, local editorial workspace, publication endpoint and public article rendering are merged. The EDIT-2 capability-based dashboard shell (Overview, My Account, and Posts & Stories) is merged and verified locally with Lorem Ipsum fixtures ([PR #144](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/144)). Hosted editorial sign-in remains open.
+- **Today:** the content model, revision history, search, local editorial workspace, publication endpoint and public article rendering are merged. The EDIT-2 capability-based dashboard shell (Overview, My Account, and Posts & Stories) is merged and verified locally with Lorem Ipsum fixtures ([PR #144](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/144)), and the Banners module (BANNER-ADMIN-4) is merged and verified locally with synthetic images. Hosted editorial sign-in remains open.
 - **Remaining:** hosted EDIT-2 still depends on Website identity and account access (AUTH-5) and EDIT-1. CONTENT-1 remains paused; the existing real drafts and the launch requirement to publish at least three Idlewild Story installments remain on the backlog.
 
 ### Goal 6. Beta-1 look, search and browse

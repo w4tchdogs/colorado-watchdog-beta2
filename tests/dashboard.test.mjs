@@ -45,9 +45,12 @@ test("navigation follows the existing role matrix for every human role", async (
       author: { role: "editor", modules: ["overview", "account", "posts"] },
       admin: {
         role: "administrator",
-        modules: ["overview", "account", "posts"],
+        modules: ["overview", "account", "posts", "banners"],
       },
-      owner: { role: "owner", modules: ["overview", "account", "posts"] },
+      owner: {
+        role: "owner",
+        modules: ["overview", "account", "posts", "banners"],
+      },
     };
     for (const [account, want] of Object.entries(expected)) {
       const response = await session(sandbox, account);
@@ -69,7 +72,6 @@ test("navigation follows the existing role matrix for every human role", async (
     const owner = await (await session(sandbox, "owner")).json();
     assert.deepEqual(ids(owner.planned), [
       "reports",
-      "banners",
       "accounts",
       "audit",
       "status",
@@ -185,15 +187,12 @@ test("direct requests to restricted, planned and unknown views are refused", asy
         200,
       );
     }
-    // Planned modules have no view for anyone, including the owner.
-    for (const id of [
-      "banners",
-      "accounts",
-      "reports",
-      "audit",
-      "status",
-      "nope",
-    ]) {
+    // Banners is now an active module: administrators and owners get it.
+    assert.equal((await view(sandbox, "admin", "banners")).status, 200);
+    assert.equal((await view(sandbox, "owner", "banners")).status, 200);
+    assert.equal((await view(sandbox, "readonly", "banners")).status, 403);
+    // Remaining planned modules have no view for anyone, including the owner.
+    for (const id of ["accounts", "reports", "audit", "status", "nope"]) {
       for (const account of ["readonly", "owner"]) {
         assert.equal((await view(sandbox, account, id)).status, 404, id);
       }
@@ -371,6 +370,7 @@ test("hosted and public entry points expose no dashboard fixture or account swit
     ["POST", LIST],
     ["GET", "/dashboard.css"],
     ["GET", "/app/dashboard.js"],
+    ["GET", "/api/admin/banners/counties"],
   ];
   const preview = await createSitePreview({
     staticDirectory: fileURLToPath(
@@ -431,6 +431,8 @@ test("dashboard browser code keeps nothing in browser storage", () => {
     "dashboard.js",
     "dashboard-client.js",
     "dashboard-views.js",
+    "banner-admin-client.js",
+    "banner-views.js",
     "main.js",
     "app.js",
     "api-client.js",

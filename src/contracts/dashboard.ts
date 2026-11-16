@@ -85,7 +85,7 @@ export const DASHBOARD_MODULES: readonly DashboardModuleDefinition[] = [
     group: "administration",
     description: "Stage, preview, publish and restore banners.",
     access: { kind: "capability", capability: "banner.manage" },
-    state: "planned",
+    state: "active",
   },
   {
     id: "accounts",
@@ -169,10 +169,20 @@ export interface DashboardPostsView {
   readonly view: "posts";
 }
 
+/**
+ * The Banners module keeps its data in its own transport and service. The
+ * dashboard view carries no banner data; the view factory reads the merged
+ * `/api/admin/banners/*` contract itself.
+ */
+export interface DashboardBannersView {
+  readonly view: "banners";
+}
+
 export type DashboardView =
   | DashboardOverviewView
   | DashboardAccountView
-  | DashboardPostsView;
+  | DashboardPostsView
+  | DashboardBannersView;
 
 export const DASHBOARD_API_PATHS = {
   session: "/internal/dashboard/session",
