@@ -54,8 +54,9 @@ Beta-1 data, banners and visual assets are **not** migrated into beta-2 automati
 | Component | Status | Evidence |
 | --- | --- | --- |
 | Website application foundation (M0-A–D) | Merged, implemented locally | `src/application.ts`, `src/worker.ts`; [site-foundation.md](../architecture/site-foundation.md) |
-| Website D1 schema (migrations 0001–0018) | Merged, implemented locally (Wrangler local D1) | `website/migrations/`; [d1-readiness.md](../architecture/d1-readiness.md) |
+| Website D1 schema (migrations 0001–0019) | Merged, implemented locally (Wrangler local D1) | `website/migrations/`; [d1-readiness.md](../architecture/d1-readiness.md) |
 | Accounts and security (ACCT-1, AUTH-1, AUTH-2) | Merged, implemented locally; fails closed without a verified Sites identity | PR #70, #81, #88; [account-management.md](../architecture/account-management.md) |
+| Website human sign-in (AUTH-3-WEB) | PR open. Source adds Auth0 sign-in with server-side sessions in Website D1, disabled by default. Tested locally with synthetic identities, including the bundled Worker on local D1. Not deployed and not hosted-verified | [PR #PRNUM](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/PRNUM) and [human-sign-in.md](../architecture/human-sign-in.md) |
 | Profiles research foundation (R0) | Merged, implemented locally; repository tests use synthetic fixtures only. The live local research database contains real research data: 64 counties, 79 import batches, 20,797 role claims, 2,988 sources, 2,692 organizational units, 6,706 position targets and 3,256 research people. Research migrations 001–003 are applied (003 applied 2026-11-14 under DATA-1; its seven sync tables are empty). Verified by Claude, 2026-11-14 | [R0-foundation.md](../research/R0-foundation.md) |
 | R7/R8 synchronization preparation | Merged, implemented locally; hosted sync still unresolved | PR #71, #73; [R7](../research/R7-profiles-website-integration.md), [R8](../research/R8-profiles-sync-operator.md) |
 | M2 synchronization (planner/commit/reversal) | Merged; PR #66 (M2-G2) title itself notes "completion pending" — treat the async reversal path as implemented-locally, not fully closed out | PR #66; [m2-g0-transaction-guard.md](../architecture/m2-g0-transaction-guard.md) |
@@ -91,7 +92,7 @@ HTTP checks passed for the homepage, county directory, both corrected county pag
 - **MCP connectivity and authorization** — the read-only endpoint is published. AUTH-3/AUTH-4, an inspection-only credential and authenticated connection verification remain open. Write, sync, import and R2 inspection tools are future work.
 - **R2 provisioning** — needed before BANNERS-IMPORT-1 (real banner import) or any R2-backed MCP file storage.
 - **Profiles research eligibility and hosted synchronization** — R7/R8 give the sync design; no real personnel data has been screened for hosted sync, and the Website-side sync route remains internal/unregistered ([d1-readiness.md](../architecture/d1-readiness.md)).
-- **Verified Website administrator identity and recovery** — AUTH-3 provider selection and AUTH-4 owner bootstrap remain open. Exercise hosted backup and isolated restore before relying on D1 for real records.
+- **Verified Website administrator identity and recovery** — AUTH-3-WEB source is in review and disabled by default. Enabling it on the hosted Site needs the Auth0 tenant and operator, the canonical Website origin, the recovery operator and a separate hosted verification. AUTH-4 owner bootstrap remains open. Exercise hosted backup and isolated restore before relying on D1 for real records.
 - The second research campaign (`research-campaign-2026-11-13-campaign2`, Archuleta, Boulder, Eagle, El Paso, Routt and La Plata) is complete on disk and unimported. Its Routt file uses county code `08049` (Grand), and Routt is `08107`. A corrected working copy now exists in the private `profiles\intake\` folder and the original is unchanged. The local importer now accepts the campaign’s “Official county source role” grouping label as its own value (PR #105), and the corrected Routt copy previews as 3 of 3 valid. The other five files were not previewed. Do not import without revalidation. Active county research remains paused by the owner.
 - Twenty-two older encrypted local research backups exist and are unrestorable with current code, because backup and restore require the full migration 003 schema. A new post-003 encrypted backup was restored and verified on 2026-11-14 (DATA-1). A plaintext pre-003 copy is in the private `profiles\backups\` folder.
 
@@ -116,7 +117,7 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | VIS13-SEARCH-1 | Merged | PR #90, `8b39dadc` | — | 2026-11-14 |
 | VIS8-FIPS-1 | Merged | PR #89 | — | 2026-11-14 |
 | AUTH-2 | Merged | PR #88 | — | 2026-11-14 |
-| AUTH-3 | Assessment complete. Implementation blocked | [Identity assessment](../architecture/auth-3-identity-assessment.md) | Owner selects provider. Hosted trust and runtime behavior require verification before enablement. | 2026-11-14 |
+| AUTH-3 | Assessment complete. Isolated pilot verified hosted sign-in, session creation, sign-out and a disabled-flag denial (draft PR #125). AUTH-3-WEB, the Website integration, has a PR open and is not merged, deployed or hosted-verified | [Identity assessment](../architecture/auth-3-identity-assessment.md), [PR #PRNUM](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/PRNUM), [Website sign-in](../architecture/human-sign-in.md) | Owner decisions on the tenant, canonical origin and recovery operator. Hosted Website verification and migration 0019 on hosted D1 before enablement. AUTH-4 owns the first owner and AUTH-5 owns invitations | 2026-11-15 |
 | D1-0015-PREFLIGHT-1 | Complete, with access limitation | — | Hosted D1 admin access | 2026-11-14 |
 | DEPLOY-1 | Alpha-1 v5 deployed; public routes and D1 readiness smoke-tested | Section D; [assessment PR #107](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/107) | Hosted recovery remains open | 2026-11-14 |
 | DEPLOY-1A migration gate and MCP bootstrap | Historical assessment complete; owner initialization decision supersedes its deployment blocker | [Evidence](../architecture/deploy-1a-migration-gate.md) | Authenticated inspection and hosted recovery remain open | 2026-11-14 |
@@ -140,7 +141,7 @@ No task above is owned by more than one AI at once; check this table and the lin
 Use the ordered backlog in [ROADMAP](ROADMAP.md). These need no hosted access
 and can start now: the visual-audit follow-ups and preparing the owner's
 drafts of "The Idlewild Story".
-AUTH-3 implementation awaits the owner's provider selection.
+AUTH-3-WEB awaits merge. Hosted enablement awaits the owner's tenant, origin and recovery decisions plus a separate hosted verification.
 Alpha-1 v5 is deployed. Complete authenticated MCP verification, R2 provisioning
 and hosted D1 recovery work as dependencies allow. Hosted MCP writes and real
 data imports follow the roadmap.
