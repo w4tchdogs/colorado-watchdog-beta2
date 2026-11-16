@@ -692,14 +692,11 @@ test("county to profile browsing keeps Larimer selected and links back", async (
     // Start at the county directory and follow the rendered county link.
     const counties = await get(preview, "/counties");
     assert.equal(counties.status, 200);
-    const larimerRow = counties
-      .$$("[data-county]")
-      .find(
-        (row) =>
-          row.querySelector(".county-name").textContent === "Larimer County",
-      );
-    assert.ok(larimerRow, "Larimer County row");
-    const countyHref = larimerRow.querySelector("a").getAttribute("href");
+    const larimerLink = counties.$(
+      '#county-directory .county-index-grid a[title="Larimer County, FIPS 08069"]',
+    );
+    assert.ok(larimerLink, "Larimer County link");
+    const countyHref = larimerLink.getAttribute("href");
     assert.equal(countyHref, "/counties/08069");
     const county = await get(preview, countyHref);
     assert.equal(county.status, 200);

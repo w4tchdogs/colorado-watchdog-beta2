@@ -112,6 +112,29 @@ export function countyLink(fips: string, name: string): SafeHtml {
   return html`<a href="${path("counties", fips)}">${countyTitle(name)}</a>`;
 }
 
+export function countyIndexGrid(
+  counties: readonly { fips: string; name: string }[],
+  matches?: ReadonlySet<string>,
+): SafeHtml {
+  const alphabetic = [...counties].sort(
+    (left, right) =>
+      left.name.localeCompare(right.name, "en") ||
+      left.fips.localeCompare(right.fips),
+  );
+  return html`<ol class="county-index-grid">
+    ${alphabetic.map(
+      (
+        county,
+      ) => html`<li${matches ? html` data-county data-fips="${county.fips}"${matches.has(county.fips) ? trusted(' class="is-match"') : ""}` : ""}>
+        <a href="${path("counties", county.fips)}" title="${countyTitle(county.name)}, FIPS ${county.fips}">
+          <span class="cell-name">${county.name}<span class="visually-hidden"> County, FIPS ${county.fips}</span></span>
+          <span class="cell-code" aria-hidden="true">${county.fips}</span>
+        </a>
+      </li>`,
+    )}
+  </ol>`;
+}
+
 export function personLink(id: string, displayName: string): SafeHtml {
   return html`<a href="${path("people", id)}">${displayName}</a>`;
 }

@@ -1,8 +1,8 @@
 import { bannerHero } from "../banner.js";
 import { COMMUNITY_VOICES_HEAD, pathwayCards } from "../community-voices.js";
-import { eyebrow, searchForm } from "../components.js";
+import { countyIndexGrid, eyebrow, searchForm } from "../components.js";
 import { countyTitle, plural } from "../format.js";
-import { html, path, type SafeHtml } from "../html.js";
+import { html, path } from "../html.js";
 import type { Page, SiteContext } from "../types.js";
 import { articleCard } from "./editorial.js";
 
@@ -23,23 +23,6 @@ function featuredCounties<T>(counties: readonly T[], now: Date): readonly T[] {
     if (county !== undefined) picked.push(county);
   }
   return picked;
-}
-
-function countyIndex(
-  counties: readonly { fips: string; name: string }[],
-): SafeHtml {
-  return html`<nav class="county-index" aria-label="County index">
-    <ol class="county-index-grid">
-      ${counties.map(
-        (county) =>
-          html`<li><a href="${path("counties", county.fips)}" title="${countyTitle(county.name)}, FIPS ${county.fips}">
-            <span class="cell-name">${county.name}<span class="visually-hidden"> County, FIPS ${county.fips}</span></span>
-            <span class="cell-code" aria-hidden="true">${county.fips}</span>
-          </a></li>`,
-      )}
-    </ol>
-    <p class="county-index-caption">All ${counties.length} counties in alphabetical order with their FIPS codes. This index is not a map.</p>
-  </nav>`;
 }
 
 export async function homePage(context: SiteContext): Promise<Page> {
@@ -122,7 +105,10 @@ export async function homePage(context: SiteContext): Promise<Page> {
       <h2 id="index-heading">Explore Colorado's counties</h2>
       <a class="text-link" href="/counties">Open the county directory</a>
     </div>
-    ${countyIndex(counties)}
+    <nav class="county-index" aria-label="County index">
+      ${countyIndexGrid(counties)}
+      <p class="county-index-caption">All ${counties.length} counties in alphabetical order with their FIPS codes. This index is not a map.</p>
+    </nav>
     <h3 class="subhead">Start with a county</h3>
     <p class="section-intro">A changing selection from the county registry. Counts describe records in this site's database. They do not measure staffing or completeness.</p>
     <ul class="county-cards">
