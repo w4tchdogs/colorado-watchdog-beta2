@@ -321,10 +321,10 @@ it knows nothing about R2, D1, manifests, uploads or source folders. Inventory,
 validation, storage, publication and the Banner Manager belong to the banner
 milestones (Issue #62).
 
-**Frame.** The banner frame is always exactly 3:1 (`aspect-ratio: 3 / 1`) at
-every width. On wide screens the heading overlays the frame; below 64rem the
-heading sits under it, so the panorama is never covered or squeezed. A reserved
-caption sits at the bottom right of the frame.
+**Frame.** The homepage and county heroes overlay copy on the artwork at every
+width. The frame starts at 3:1 and grows to fit wrapped copy and captions. A
+darker scrim keeps the copy readable at narrow widths. The caption sits at the
+bottom right of the artwork and carousel controls sit below it.
 
 **Source images.** Approved sources may be 21:9, 3:1 or anything between. They
 are never stretched or re-cropped on disk:

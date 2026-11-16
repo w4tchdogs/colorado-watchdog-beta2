@@ -790,14 +790,29 @@ test("explicit play and pause are announced once, and nothing else is", () => {
   }
 });
 
-test("the full-width hero removes the 100rem cap and keeps 3:1", () => {
+test("full-width heroes overlay copy and keep the 3:1 baseline at every width", () => {
   const css = readFileSync(`${STATIC_DIRECTORY}site.css`, "utf8");
-  assert.doesNotMatch(css, /100rem/);
-  assert.match(/\.hero-banner \{[^}]*\}/.exec(css)[0], /width: 100%;/);
-  assert.match(
-    /\.banner-frame \{[^}]*\}/.exec(css)[0],
-    /aspect-ratio: 3 \/ 1;/,
+  const shared = css.slice(
+    css.indexOf("\n.hero {"),
+    css.indexOf("@media (min-width: 64rem) {\n  .hero-content"),
   );
+  assert.doesNotMatch(css, /100rem/);
+  assert.match(shared, /\.hero \{\s*display: grid;/);
+  assert.match(shared, /\.hero::before \{[^}]*aspect-ratio: 3 \/ 1;/);
+  assert.match(
+    shared,
+    /\.hero-banner \{[^}]*grid-area: 1 \/ 1 \/ 4;[^}]*width: 100%;/,
+  );
+  assert.match(
+    shared,
+    /\.hero \.banner-frame \{[^}]*grid-row: 1 \/ 3;[^}]*aspect-ratio: auto;/,
+  );
+  assert.match(
+    shared,
+    /\.hero-content \{[^}]*grid-area: 1 \/ 1;[^}]*z-index: 1;[^}]*linear-gradient/,
+  );
+  assert.match(shared, /\.hero \.banner-caption \{[^}]*grid-row: 2;/);
+  assert.match(shared, /\.hero \.banner-controls \{\s*grid-row: 3;/);
   assert.match(/\.hero-content \.wrap \{[^}]*\}/.exec(css)[0], /var\(--wrap\)/);
 });
 
