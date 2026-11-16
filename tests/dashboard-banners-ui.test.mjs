@@ -242,6 +242,12 @@ test("replace, details edit, reorder, withdraw and restore keep a full history",
       "a.png",
     );
     await publishStaged(d, "test-banner", "Adams");
+    const firstPublication = d.sandbox.database
+      .prepare(
+        "SELECT id, version_id, caption FROM banner_publications WHERE banner_id = 'test-banner' ORDER BY sequence LIMIT 1",
+      )
+      .get();
+    assert.ok(firstPublication);
     const firstVersion = d.sandbox.database
       .prepare(
         "SELECT selected_version_id AS id FROM banner_assets WHERE id = 'test-banner'",
@@ -279,6 +285,7 @@ test("replace, details edit, reorder, withdraw and restore keep a full history",
         .get().caption,
       "Edited caption",
     );
+    assert.notEqual(firstPublication.caption, "Edited caption");
 
     await stageInput(
       d,
@@ -323,11 +330,13 @@ test("replace, details edit, reorder, withdraw and restore keep a full history",
     );
 
     await waitFor(() => d.$("#banner-history-test-banner"), "history");
-    const restore = d.$(
-      "#banner-history-test-banner button.banner-restore[data-publication]",
-    );
+    const restore = d
+      .$$("#banner-history-test-banner button.banner-restore[data-publication]")
+      .find(
+        (button) =>
+          button.getAttribute("data-publication") === firstPublication.id,
+      );
     assert.ok(restore);
-    const publicationId = restore.getAttribute("data-publication");
     d.click(restore);
     await waitFor(
       () =>
@@ -347,11 +356,23 @@ test("replace, details edit, reorder, withdraw and restore keep a full history",
     );
     const restored = d.sandbox.database
       .prepare(
-        "SELECT origin FROM banner_publications WHERE banner_id = 'test-banner' ORDER BY sequence DESC LIMIT 1",
+        "SELECT origin, restored_from_publication_id, version_id, caption FROM banner_publications WHERE banner_id = 'test-banner' ORDER BY sequence DESC LIMIT 1",
       )
       .get();
     assert.equal(restored.origin, "restore_recorded");
-    assert.ok(publicationId);
+    assert.equal(restored.restored_from_publication_id, firstPublication.id);
+    assert.equal(restored.version_id, firstPublication.version_id);
+    assert.equal(restored.caption, firstPublication.caption);
+    const restoredBanner = d.sandbox.database
+      .prepare(
+        "SELECT selected_version_id, caption FROM banner_assets WHERE id = 'test-banner'",
+      )
+      .get();
+    assert.equal(
+      restoredBanner.selected_version_id,
+      firstPublication.version_id,
+    );
+    assert.equal(restoredBanner.caption, firstPublication.caption);
   } finally {
     d.close();
   }
