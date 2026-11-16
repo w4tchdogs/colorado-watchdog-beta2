@@ -89,6 +89,15 @@ export async function organizationPage(
         }
       </div>
       <div>
+        <h3 class="subhead">Subunits</h3>
+        ${
+          profile.subunits.length === 0
+            ? html`<p class="quiet">No subunit is recorded.</p>`
+            : html`<ul class="subunit-list">${profile.subunits.map((child) => html`<li>${organizationLink(child.id, child.name)} ${organizationTypeBadge(child.type)} <span class="quiet">(${parentRelationshipLabel(child.relationshipType).toLowerCase()} this organization)</span></li>`)}</ul>
+              ${profile.subunitsTruncated ? html`<p class="quiet">Only the first ${profile.subunits.length} subunits are listed. The county structure view lists every documented subunit.</p>` : ""}`
+        }
+      </div>
+      <div>
         <h3 class="subhead">Counties</h3>
         ${countyAssociations(profile.counties)}
       </div>

@@ -632,6 +632,7 @@ img {
 .position-list,
 .source-list,
 .association-list,
+.subunit-list,
 .record-facts {
   padding: 0;
   list-style: none;
@@ -746,8 +747,12 @@ img {
 .source-list li + li {
   margin-top: var(--space-3);
 }
-.association-list {
+.association-list,
+.subunit-list {
   font-size: 0.9375rem;
+}
+.subunit-list li {
+  margin-bottom: var(--space-1);
 }
 .association-list li {
   margin-bottom: var(--space-1);

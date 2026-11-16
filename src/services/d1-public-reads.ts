@@ -17,12 +17,13 @@ import type {
   OrganizationSearchPage,
   PersonSearchPage,
 } from "../contracts/directory-search.js";
-import type {
-  OrganizationProfilePage,
-  OrganizationProfilePageRequest,
-  OrganizationRoleEntry,
-  OrganizationRolePage,
-  OrganizationRolePageRequest,
+import {
+  MAX_PROFILE_SUBUNITS,
+  type OrganizationProfilePage,
+  type OrganizationProfilePageRequest,
+  type OrganizationRoleEntry,
+  type OrganizationRolePage,
+  type OrganizationRolePageRequest,
 } from "../contracts/organization-profile.js";
 import type {
   PersonProfileCounty,
@@ -418,6 +419,11 @@ export function createD1PublicReadServices(
     );
     const selected = rows.slice(0, limit),
       counties = (await organizationCounties([id])).get(id) ?? [];
+    const subunitRows = await all<Row>(
+      "SELECT id,name,organization_type,parent_relationship FROM organizations WHERE parent_organization_id=? ORDER BY name COLLATE BINARY, id COLLATE BINARY LIMIT ?",
+      id,
+      MAX_PROFILE_SUBUNITS + 1,
+    );
     const parentId = nullable(org.parent_organization_id);
     let parentOrganization = null;
     if (parentId) {
@@ -442,6 +448,15 @@ export function createD1PublicReadServices(
         version: num(org.version),
       },
       parentOrganization,
+      subunits: subunitRows.slice(0, MAX_PROFILE_SUBUNITS).map((r) => ({
+        id: str(r.id),
+        name: str(r.name),
+        type: r.organization_type as OrganizationType,
+        relationshipType: r.parent_relationship as
+          | "reports_to"
+          | "grouped_under",
+      })),
+      subunitsTruncated: subunitRows.length > MAX_PROFILE_SUBUNITS,
       counties,
       items: selected.map((r) => ({
         id: str(r.id),
