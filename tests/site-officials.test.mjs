@@ -687,6 +687,73 @@ test("empty and partially populated databases give honest empty states", async (
   });
 });
 
+test("county to profile browsing keeps Larimer selected and links back", async () => {
+  await withPreview("fictional", async (preview) => {
+    // Start at the county directory and follow the rendered county link.
+    const counties = await get(preview, "/counties");
+    assert.equal(counties.status, 200);
+    const larimerRow = counties
+      .$$("[data-county]")
+      .find(
+        (row) =>
+          row.querySelector(".county-name").textContent === "Larimer County",
+      );
+    assert.ok(larimerRow, "Larimer County row");
+    const countyHref = larimerRow.querySelector("a").getAttribute("href");
+    assert.equal(countyHref, "/counties/08069");
+    const county = await get(preview, countyHref);
+    assert.equal(county.status, 200);
+    assert.match(county.$("h1").textContent, /Larimer County/);
+
+    // The county page's own navigation leads to its officials directory.
+    const officialsLink = county
+      .$$(".county-nav a")
+      .find((a) => a.textContent.trim() === "Officials & employees");
+    assert.ok(officialsLink, "Officials & employees link");
+    const directoryHref = officialsLink.getAttribute("href");
+    assert.equal(directoryHref, "/officials?county=08069");
+    const directory = await get(preview, directoryHref);
+    assert.equal(directory.status, 200);
+    assert.equal(
+      directory.$("#directory-county option[selected]").value,
+      "08069",
+    );
+    assert.match(
+      directory.$(".directory-status").textContent,
+      /County: Larimer County\./,
+    );
+    assert.equal(directory.$$(".directory-table tbody tr").length, 11);
+
+    // Follow a rendered person link into a profile.
+    const personHref = directory
+      .$(".directory-table tbody .person-name")
+      .getAttribute("href");
+    assert.match(personHref, /^\/people\/[^?]+\?from=county%3D08069$/);
+    const profile = await get(preview, personHref);
+    assert.equal(profile.status, 200);
+    assert.ok(profile.$("h1").textContent.trim().length > 0);
+    assert.equal(
+      profile.$(".back-link a").textContent,
+      "Back to directory results",
+    );
+
+    // The rendered back link returns to the Larimer-filtered directory.
+    const backHref = profile.$(".back-link a").getAttribute("href");
+    assert.equal(backHref, "/officials?county=08069");
+    const returned = await get(preview, backHref);
+    assert.equal(returned.status, 200);
+    assert.equal(
+      returned.$("#directory-county option[selected]").value,
+      "08069",
+    );
+    assert.match(
+      returned.$(".directory-status").textContent,
+      /County: Larimer County\./,
+    );
+    assert.deepEqual(rowNames(returned), rowNames(directory));
+  });
+});
+
 test("an organization office without a county is shown, not applied invisibly", async () => {
   await withPreview("fictional", async (preview) => {
     const page = await get(preview, "/officials?office=demo-adams-gov");
