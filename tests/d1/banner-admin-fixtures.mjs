@@ -80,6 +80,13 @@ export function bannerAdminFixtures() {
   const pngD = png(32, 32, 4);
   const pngE = png(40, 20, 5);
   const pngF = png(24, 24, 6);
+  // Separate images for the publication checks, which share the database.
+  const publishPngs = [8, 9, 10, 11, 12, 13].map((seed, i) =>
+    png(48 + i * 8, 20 + i * 2, seed),
+  );
+  const publishJpeg = new Uint8Array(
+    jpeg.encode({ width: 72, height: 24, data: pixels(72, 24, 14) }, 80).data,
+  );
   const jpegA = new Uint8Array(
     jpeg.encode({ width: 64, height: 24, data: pixels(64, 24, 7) }, 80).data,
   );
@@ -144,6 +151,13 @@ export function bannerAdminFixtures() {
     pngE: describe(pngE, 40, 20),
     pngF: describe(pngF, 24, 24),
     jpegA: describe(jpegA, 64, 24),
+    ...Object.fromEntries(
+      publishPngs.map((bytes, i) => [
+        `publishPng${i + 1}`,
+        describe(bytes, 48 + i * 8, 20 + i * 2),
+      ]),
+    ),
+    publishJpeg: describe(publishJpeg, 72, 24),
     truncatedPng: describe(truncatedPng, 0, 0),
     badCrcPng: describe(badCrcPng, 0, 0),
     corruptDataPng: describe(corruptDataPng, 0, 0),

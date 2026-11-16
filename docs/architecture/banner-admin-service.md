@@ -38,3 +38,36 @@ A version row holds image facts only. Caption, alt text, display mode and focal 
 ## Running the checks
 
 `npm run test:d1` runs the banner checks in the isolated Wrangler local D1 with an in-memory R2 stand-in. `npm test` runs the image inspector unit tests.
+
+# BANNER-ADMIN-2: publish, withdraw, restore, metadata and order
+
+Adds `publish`, `withdraw`, `restore`, `updateMetadata`, `reorderCounty` and `listPublications` to the shared contract and the D1 adapter. It adds no route, page or MCP tool, reads no real artwork and touches no hosted Site. It was verified only against the isolated Wrangler local D1 with synthetic images.
+
+## Migration 0018
+
+`website/migrations/0018_banner_publications.sql` is the next Website number. Current `main` ended at 0017, and the open AUTH-3 pilot keeps its own 0018 under `pilots/auth3/`, outside the Website sequence. It adds two append-only tables.
+
+- `banner_publications` records, for every change that put an image version in public view, the version plus the caption, alt text, display mode and focal point that went with it, a per-banner sequence number, the banner row version it produced and the acting account. Triggers allow only inserts, require a verified version of the same banner and require the sequence to advance by one.
+- `banner_admin_operations` is the idempotency ledger. Each row holds the key, a request fingerprint, the stored result and the acting account.
+
+Both tables have generation triggers like every other dependency table. Image versions in `banner_asset_versions` are not changed by this work and stay immutable. Existing banners have no publication record, so nothing is back-filled.
+
+## Rules
+
+- Every call needs `banner.manage`, checked against the live account and identity rows, and every write runs through `guardedBatch`.
+- Each change is one atomic batch: the banner row update guarded by the expected row version, the publication record, the ledger row and the audit event. If any part fails, none of it is written.
+- `publish` and `restore` reread the stored object first and compare its size, digest and recorded version id. A missing, short, corrupt or mislabelled object is refused before anything changes. The batch also asserts that the version is verified and belongs to the banner.
+- `publish` without metadata uses the banner's current text. Alt text must never be blank.
+- A version can be published several times with different text. `restore` brings back the latest recorded publication of the version by default, or the one named by `publicationId`.
+- A version with no recorded publication needs explicit text. The adapter raises `BannerSnapshotRequiredError` without it. Explicit text is stored with origin `restore_explicit`, so it is never mistaken for recorded history. Recorded restores use `restore_recorded` and point at the publication they copied.
+- `restore` also reactivates a withdrawn banner. `withdraw` keeps the selection and history.
+- `updateMetadata` on a banner that has a selected version records a `metadata_edit` publication whenever caption, alt text, display mode or focal point change, so a later restore does not undo the edit. Order, homepage order and primary changes record nothing. Making a banner primary clears the old primary in the same write.
+- `reorderCounty` needs every banner of the county exactly once with its expected row version. It moves rows through temporary orders in one batch, so a moved row's version rises by two.
+- The same key with the same request replays the stored result. The same key with anything different, or from another account, is a conflict.
+
+## What remains
+
+- Routes, the dashboard and MCP tools are later tasks.
+- Applying 0018 to the hosted D1 is a hosted change that was not made. The first-owner bootstrap check now requires 18 migrations, so the hosted database needs 0018 before any bootstrap that uses this source.
+- The decoder, CPU, memory and upload limits on the hosted Site are still unverified.
+
