@@ -8,8 +8,8 @@ import {
 import { D1ReportIntakeStore } from "../../src/services/report-intake-d1.ts";
 import { commitSyncChangesetD1 } from "../../src/services/sync-commit-d1.ts";
 import { reverseSyncBatchD1 } from "../../src/services/sync-revert-d1.ts";
-import { runBannerPublishChecks } from "./banner-publish-checks.mjs";
 import { runBannerAdminChecks } from "./banner-admin-checks.mjs";
+import { runBannerPublishChecks } from "./banner-publish-checks.mjs";
 
 const json = (value, status = 200) =>
   new Response(JSON.stringify(value), {
