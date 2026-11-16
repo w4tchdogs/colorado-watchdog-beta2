@@ -107,6 +107,7 @@ None of the above is an artificial blocker on routine, disjoint PR work; they bl
 | DATA-1 | Partly complete; migration 003 applied to the local research database, with a pre-change copy, a post-change encrypted backup and a verified restore. The Routt code correction is prepared as a separate copy. Grouping label accepted by the importer (PR #105). Remaining: preview the other campaign-2 files and any import | PR #104, PR #105 | Owner decision on campaign-2 handling | 2026-11-14 |
 | COORD-5 | Merged; roadmap adopted, launch goals recorded in decisions, development pause lifted | [PR #102](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/102), `8793352` | — | 2026-11-14 |
 | Profiles Archon retired | Complete | Owner decision, 2026-11-14 | — | 2026-11-14 |
+| VIS8-PARITY-1 | Merged to `main` through PR #139 (county map, type sizes and wording matched to Beta-1). Tested on the local Worker preview only. Not deployed and not hosted-verified | [PR #139](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/139), [Issue #136](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/136) | Coordinator carries the county-page patch to Sites on the Alpha-1 v8 baseline, without migrations 0018 and 0019 | 2026-11-15 |
 | VIS8-RESTORE-1 | Merged | PR #91, `db2903d1` | — | 2026-11-14 |
 | BANNERS-3 | Merged | PR #92, `0c08faf8` | R2 provisioning (for real import) | 2026-11-14 |
 | VIS13-SEARCH-1 | Merged | PR #90, `8b39dadc` | — | 2026-11-14 |
