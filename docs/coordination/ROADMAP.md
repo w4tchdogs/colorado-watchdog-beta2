@@ -45,10 +45,11 @@ that show the state of profiles, departments and grievances.
   people, 2,692 organizational units). Nothing has been imported to hosted
   D1. 152 approved banner originals are in the local `banners\approved\`
   folder. R2 is declared in the deployed manifest; runtime attachment and the object round trip remain open (Issue #122). Public pages show no counts.
-- **Remaining:** research migration 003 and data corrections (DATA-1),
-  eligibility screening and the first hosted sync (SYNC-1), then all
-  counties (SYNC-2), R2 provisioning (R2-1), the banner import
-  (BANNERS-IMPORT-1) and public county counts (STATS-1).
+- **Remaining:** finish the campaign-2 validation and resolve the intake
+  decision in DATA-1. Research migration 003 and the post-003 restore test
+  are complete. Screen and run the first hosted sync (SYNC-1), then sync all
+  counties (SYNC-2), verify R2 (R2-1), import banners (BANNERS-IMPORT-1) and
+  add public county counts (STATS-1).
 
 ### Goal 3. Universal sign-in and sign-up for admins and editors
 

@@ -11,9 +11,8 @@ dated status update follows them rather than rewriting them.
 modular architecture with one relational Website D1 database, R2 files, and a
 shared dashboard/API/MCP service layer**. This is an owner decision, not a
 proposal, and later planning must not demote MCP to an optional add-on. See
-[CURRENT](coordination/CURRENT.md) for its current implementation state —
-a read-only local foundation is merged; hosted publication and any
-write/sync/import tool are not.
+[CURRENT](coordination/CURRENT.md) for its current implementation,
+publication and hosted verification state.
 
 Current technical assessment: [Fable assessment revision 4](architecture/fable-assessment-rev4.md). See the [revision 4 section](#revision-4-technical-assessment-november-12-2026) below. The first two sections are the earlier decision records and remain as written.
 
