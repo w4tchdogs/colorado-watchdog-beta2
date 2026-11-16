@@ -6,7 +6,7 @@ place for present status and active assignments. This roadmap says where the
 project is going. CURRENT says where it is now. Status words use CURRENT's
 vocabulary.
 
-Revision: November 14, 2026. Based on `main` at `e9041f8` (PR #101). The
+Revision: November 16, 2026. Based on `main` at `ff9d888` (PR #147). The
 owner approved these goals and lifted the development pause with this
 roadmap. The goals are recorded as an owner decision in
 [decisions.md](../decisions.md).
@@ -79,8 +79,8 @@ that show the state of profiles, departments and grievances.
 - **Done when:** editors can draft, revise and publish Posts and Stories on
   the hosted Site, and at least the first three installments of "The
   Idlewild Story" are published.
-- **Today:** the content model, revision history, search, local editorial workspace, publication endpoint and public article rendering are merged. Hosted editorial sign-in remains open.
-- **Remaining:** build the local capability-based dashboard foundation first (EDIT-2 local slice). Use fictional Lorem Ipsum for the preview. Hosted EDIT-2 still depends on Website identity and account access. CONTENT-1 is paused; the existing real drafts and the launch content requirement remain on the backlog.
+- **Today:** the content model, revision history, search, local editorial workspace, publication endpoint and public article rendering are merged. The EDIT-2 capability-based dashboard shell (Overview, My Account, and Posts & Stories) is merged and verified locally with Lorem Ipsum fixtures ([PR #144](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/144)). Hosted editorial sign-in remains open.
+- **Remaining:** hosted EDIT-2 still depends on Website identity and account access (AUTH-5) and EDIT-1. CONTENT-1 remains paused; the existing real drafts and the launch requirement to publish at least three Idlewild Story installments remain on the backlog.
 
 ### Goal 6. Beta-1 look, search and browse
 
@@ -145,7 +145,7 @@ is lifted.
 | --- | --- | --- | --- | --- |
 | 15 | SUB-3 | $0 abuse-control provider and hosted guest intake | DEPLOY-1 | 4 |
 | 16 | EDIT-1 | Publication endpoint and public article pages | None (local) | 5 |
-| 17 | EDIT-2 | Capability-based dashboard and editorial workspace | Local foundation can proceed now; hosted editorial use requires AUTH-5 and EDIT-1 | 5 |
+| 17 | EDIT-2 | Capability-based dashboard and editorial workspace | Local foundation merged and verified locally ([PR #144](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/144)); hosted editorial use requires AUTH-5 and EDIT-1 | 5 |
 | 18 | BANNERS-4 | Accessible banner carousel | None (local) | 6 |
 | 19 | BROWSE-1 | Browse all people and organizations without a search term | None (local) | 6 |
 | 20 | VIS-7 to VIS-19 | Visual audit follow-ups | None (local) | 6 |
@@ -158,7 +158,7 @@ is lifted.
 | 22 | VIS-20 | Visual parity check on the deployed Site | Phase 4 | 6 |
 | 23 | LAUNCH-1 | Launch readiness check against all six goals, then the switch from Beta-1 | All | All |
 
-**Can proceed locally:** the EDIT-2 dashboard foundation, protected banner API work, SUB-3 and scoped visual-audit follow-ups. See CURRENT before assigning work.
+**Can proceed locally:** protected banner API work, SUB-3 and scoped visual-audit follow-ups. The EDIT-2 dashboard foundation is merged and verified locally ([PR #144](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/144)). See CURRENT before assigning work.
 
 ## Owner decisions
 
