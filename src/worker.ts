@@ -38,6 +38,65 @@ const ALPHA1_PUBLIC_ORIGIN =
 // authenticated identity context or a verifiable Worker gateway assertion.
 // Never promote request headers into a VerifiedSitesContext here.
 
+// This diagnostic is separate from the public site and API routers.
+// Use a random 256-bit Sites secret for one invocation, then revoke the secret.
+const R2_DIAGNOSTIC_PATH = "/_ops/diagnostics/r2-binding";
+const R2_DIAGNOSTIC_KEY =
+  "__watchdog_diagnostics/r2-binding-check/2026-11-15-v1";
+const R2_DIAGNOSTIC_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
+
+function hasR2DiagnosticCredential(
+  request: Request,
+  environment: RuntimeEnvironment,
+): boolean {
+  const token = environment.R2_DIAGNOSTIC_TOKEN;
+  if (typeof token !== "string" || !R2_DIAGNOSTIC_TOKEN_PATTERN.test(token)) {
+    return false;
+  }
+  const expected = `Bearer ${token}`;
+  const supplied = request.headers.get("authorization") ?? "";
+  if (supplied.length !== expected.length) return false;
+  let difference = 0;
+  for (let index = 0; index < expected.length; index += 1) {
+    difference |= expected.charCodeAt(index) ^ supplied.charCodeAt(index);
+  }
+  return difference === 0;
+}
+
+async function runR2BindingDiagnostic(
+  request: Request,
+  environment: RuntimeEnvironment,
+): Promise<Response> {
+  const headers = {
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+  };
+  if (
+    request.method !== "POST" ||
+    !hasR2DiagnosticCredential(request, environment)
+  ) {
+    // Do not reveal the route, whether a secret is configured, or binding state.
+    return new Response(null, { status: 404, headers });
+  }
+
+  let outcome: "binding_missing" | "head_null" | "head_object" | "head_failed";
+  if (!environment.BUCKET) {
+    outcome = "binding_missing";
+  } else {
+    try {
+      outcome = (await environment.BUCKET.head(R2_DIAGNOSTIC_KEY))
+        ? "head_object"
+        : "head_null";
+    } catch {
+      outcome = "head_failed";
+    }
+  }
+
+  // Keep production logs limited to the four result categories above.
+  console.info(`r2_binding_diagnostic:${outcome}`);
+  return new Response(null, { status: 204, headers });
+}
+
 function unavailableServices() {
   const unavailable = () => {
     throw new StorageUnavailableError();
@@ -151,6 +210,9 @@ const worker = {
     const publicationRoute =
       pathname === CONTENT_PUBLICATION_API_PATHS.publish ||
       pathname === CONTENT_PUBLICATION_API_PATHS.withdraw;
+    if (pathname === R2_DIAGNOSTIC_PATH) {
+      return runR2BindingDiagnostic(request, environment);
+    }
     if (!environment.DB) {
       if (publicationRoute) return createContentApiTransport().fetch(request);
       if (new URL(request.url).pathname === "/mcp") {
