@@ -298,6 +298,7 @@ function matchingPeopleSql(input: ValidatedRequest): {
     ? ""
     : `UNION ALL
        SELECT person.id, person.display_name, NULL, NULL, NULL, NULL, NULL,
+              NULL,
               NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0
        FROM people AS person
        WHERE NOT EXISTS (
@@ -313,7 +314,7 @@ function matchingPeopleSql(input: ValidatedRequest): {
              org.id AS organization_id, org.name AS organization_name,
              org.organization_type, county.name AS county_name,
              source.id AS source_id, source.title AS source_title,
-             source.url AS source_url, source.source_type,
+             source.url AS source_url, source.source_type, source.publisher_classification,
              ROW_NUMBER() OVER (
                PARTITION BY person.id
                ORDER BY role.source_checked_at DESC, role.id COLLATE BINARY
@@ -331,7 +332,7 @@ function matchingPeopleSql(input: ValidatedRequest): {
       SELECT person_id, display_name, role_id, start_date, end_date,
              source_checked_at, position_id, title, organization_id,
              organization_name, organization_type, county_name, source_id,
-             source_title, source_url, source_type, matching_role_count
+             source_title, source_url, source_type, publisher_classification, matching_role_count
       FROM candidate WHERE role_rank = 1
       ${unassigned}
     )`;
@@ -469,6 +470,10 @@ export async function listOfficials(
           title: text(row.source_title),
           url: text(row.source_url),
           type: text(row.source_type),
+          ...(row.publisher_classification === "official" ||
+          row.publisher_classification === "unofficial"
+            ? { publisherClassification: row.publisher_classification }
+            : {}),
         },
       },
     };

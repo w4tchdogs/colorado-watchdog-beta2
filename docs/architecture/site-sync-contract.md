@@ -542,10 +542,20 @@ The reversal is explicit, capability-gated and audited. A reversible-until durat
 
 Every `person_roles` association must retain a public source citation in the Website record. The accepted standard remains:
 
-- one verified official county webpage directly connecting the person's name to the role is sufficient
-- the URL, title, and source type remain public and attributable
+- one verified public citation from an `official` or `unofficial` publisher directly connecting the identified person to the documented role is sufficient
+- `publisher_classification` (`official` or `unofficial`) is stored separately from `source_type`, which preserves page type (`official_page`, `public_document`, or `other_public`)
+- the URL, title, publisher classification, and page type remain attributable; `source_checked_at` preserves the verification date
+- a source with unresolved publisher classification is not an acceptable role citation
 - `source_checked_at` records the time of verification
 - a role without a valid public source is not accepted as a source-backed Website entry
+
+This role-citation rule does not relax official-evidence requirements for
+identity resolution, organization names, or county affiliations. The local R7
+generator applies the broader publisher allowance only to a role claim's own
+citation; its other evidence checks remain official-only. The sync request
+requires `publisher_classification` on `register_source` and persists it in
+`role_sources` separately from `source_type`. The Website does not fetch or
+reverify the source; source verification remains a Profiles research step.
 
 The synchronization contract should therefore require `source_ref` on every role-creating item and should reject any item that tries to create a role without a valid cited source.
 

@@ -76,6 +76,7 @@ export interface CreateRoleSource {
   readonly fields: {
     readonly url: string;
     readonly title: string;
+    readonly publisher_classification: "official" | "unofficial";
     readonly source_type: "official_page" | "public_document" | "other_public";
   };
 }

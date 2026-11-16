@@ -650,6 +650,7 @@ async function main() {
     "0017_content_publication.sql",
     "0018_banner_publications.sql",
     "0019_human_sign_in.sql",
+    "0020_role_source_publisher_classification.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(

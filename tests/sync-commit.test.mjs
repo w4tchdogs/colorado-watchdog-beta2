@@ -86,6 +86,7 @@ function fullBatch() {
     create("register_source", "role_sources", "source", {
       url: "https://example.invalid/synthetic",
       title: "Synthetic source",
+      publisher_classification: "unofficial",
       source_type: "official_page",
     }),
     create("create_person_role", "person_roles", "role", {
@@ -120,6 +121,13 @@ test("commits dependent records with Website IDs and exact replay independent of
     assert.equal(role.person_id, first.items[3].websiteId);
     assert.equal(role.position_id, first.items[2].websiteId);
     assert.equal(role.source_id, first.items[4].websiteId);
+    const source = db
+      .prepare(
+        "SELECT publisher_classification,source_type FROM role_sources WHERE id = ?",
+      )
+      .get(first.items[4].websiteId);
+    assert.equal(source.publisher_classification, "unofficial");
+    assert.equal(source.source_type, "official_page");
 
     const retry = {
       ...fullBatch(),
@@ -363,7 +371,7 @@ test("updates increment exactly once, source URLs reuse, and expected versions b
       "INSERT INTO people(id,display_name) VALUES ('existing-person','Before')",
     ).run();
     db.prepare(
-      "INSERT INTO role_sources(id,url,title,source_type) VALUES ('existing-source','https://example.invalid/reuse','Reusable source','official_page')",
+      "INSERT INTO role_sources(id,url,title,source_type,publisher_classification) VALUES ('existing-source','https://example.invalid/reuse','Reusable source','official_page','official')",
     ).run();
     const principal = await principalFor();
     const request = batch([
@@ -377,6 +385,7 @@ test("updates increment exactly once, source URLs reuse, and expected versions b
       create("register_source", "role_sources", "source", {
         url: "https://example.invalid/reuse",
         title: "Reusable source",
+        publisher_classification: "official",
         source_type: "official_page",
       }),
     ]);
@@ -419,6 +428,7 @@ test("updates increment exactly once, source URLs reuse, and expected versions b
       create("register_source", "role_sources", "source", {
         url: "https://example.invalid/reuse",
         title: "Reusable source",
+        publisher_classification: "official",
         source_type: "official_page",
       }),
     ]);

@@ -43,15 +43,19 @@ def _ref(entity_type, local_id):
     return f"{entity_type.replace('_', '-')}-{digest}"
 
 
-def _source_ok(db, evidence_id):
+def _source_ok(db, evidence_id, *, allowed_publishers=("official",)):
     row = db.execute(
         "SELECT e.id,e.source_id,e.observed_title,e.observed_url,e.recorded_at,s.original_url,"
         "s.official_status,s.publisher_classification,s.page_type FROM evidence_links e JOIN sources s ON s.id=e.source_id "
         "WHERE e.id=?",
         (evidence_id,),
     ).fetchone()
-    if row is None or row["publisher_classification"] != "official":
+    if row is None:
         return None, "source_not_classified_official"
+    if row["publisher_classification"] not in allowed_publishers:
+        if row["publisher_classification"] == "unresolved":
+            return None, "source_publisher_unresolved"
+        return None, "source_publisher_not_accepted"
     source_type = SOURCE_TYPES.get((row["page_type"] or "").strip().lower())
     if source_type is None:
         return None, "ambiguous_source_classification"
@@ -87,6 +91,7 @@ def _source_ok(db, evidence_id):
         "source_id": row["source_id"],
         "url": row["observed_url"],
         "title": row["observed_title"],
+        "publisher_classification": row["publisher_classification"],
         "source_type": source_type,
         "source_checked_at": checked,
     }, None
@@ -528,7 +533,12 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
                 }
             )
             continue
-        citation, reason = _source_ok(db, claim["evidence_id"])
+        # Role citations may be published by a verified government or
+        # nongovernment publisher. Identity, organization names, and
+        # affiliations continue to use _source_ok's official-only default.
+        citation, reason = _source_ok(
+            db, claim["evidence_id"], allowed_publishers=("official", "unofficial")
+        )
         if reason:
             excluded.append(
                 {
@@ -671,6 +681,7 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
                     "fields": {
                         "url": citation["url"],
                         "title": citation["title"],
+                        "publisher_classification": citation["publisher_classification"],
                         "source_type": citation["source_type"],
                     },
                 },

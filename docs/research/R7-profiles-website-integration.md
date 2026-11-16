@@ -7,14 +7,23 @@ unresolved identities, unclassified source types, unsupported organization
 hierarchy, non-current roles and private notes. It uses local permanent research
 IDs as deterministic request references; equal names never associate people.
 
-Website source types are accepted only when `sources.publisher_classification`
-is `official`, `sources.page_type` is explicitly `official_page`,
-`public_document` or `other_public`, and citation URL bytes equal the retained
-source URL. `page_type` describes the page or document; it does not establish
-the publisher. Unofficial and unresolved publishers are omitted for review. Organization
-parentage is emitted only from an existing explicit local parent decision with
-its evidence. Partner organizations have no county department parent; county
-coverage is represented with `organization_county_affiliations`.
+Citation page types are accepted only when `sources.page_type` is explicitly
+`official_page`, `public_document` or `other_public`, and citation URL bytes
+equal the retained source URL. `page_type` describes the page or document; it
+does not establish the publisher. For a person-role citation, publisher
+classification must be explicitly `official` or `unofficial`; `unresolved` is
+excluded. One verified public citation is sufficient when its retained role
+claim directly connects the identified person to the documented role. The
+generated source record preserves its URL, title, publisher classification and
+page type, while the role preserves `source_checked_at` as the verification
+date. Existing evidence-quality, citation metadata, identity and role
+eligibility checks still apply. Official publisher classification remains
+required for identity resolution, organization names and county affiliations.
+
+Organization parentage is emitted only from an existing explicit local parent
+decision with its evidence. Partner organizations have no county department
+parent; county coverage is represented with
+`organization_county_affiliations`.
 
 `prepare_research_submission` stores the exact compact request through the R6
 `research/submission.py` client, then stores item-to-research lineage locally.

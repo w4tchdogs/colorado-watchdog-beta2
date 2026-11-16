@@ -487,7 +487,7 @@ function insertEntity(
     ],
     people: ["display_name"],
     positions: ["organization_id", "title"],
-    role_sources: ["url", "title", "source_type"],
+    role_sources: ["url", "title", "source_type", "publisher_classification"],
     person_roles: [
       "person_id",
       "position_id",
