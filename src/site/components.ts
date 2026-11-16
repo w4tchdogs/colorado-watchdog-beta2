@@ -57,10 +57,13 @@ export interface SearchFormOptions {
   readonly name: string;
   readonly value?: string;
   readonly hint?: string;
+  /** Extra attributes for the hint paragraph, for example a live region. */
+  readonly hintAttributes?: SafeHtml;
   /** Visually hides the label while keeping it as the accessible name. */
   readonly labelHidden?: boolean;
   readonly placeholder?: string;
-  readonly button: string;
+  /** Omit for a search that runs as the visitor types. Enter still submits. */
+  readonly button?: string;
   readonly minLength?: number;
   readonly maxLength?: number;
   /** Extra attributes for progressive enhancement hooks. */
@@ -79,9 +82,9 @@ export function searchForm(options: SearchFormOptions): SafeHtml {
         maxlength="${options.maxLength ?? 100}"
         ${options.hint ? html`aria-describedby="${hintId}"` : ""}
         ${options.inputAttributes ?? ""}>
-      <button class="button" type="submit">${options.button}</button>
+      ${options.button ? html`<button class="button" type="submit">${options.button}</button>` : ""}
     </div>
-    ${options.hint ? html`<p class="hint" id="${hintId}">${options.hint}</p>` : ""}
+    ${options.hint ? html`<p class="hint" id="${hintId}" ${options.hintAttributes ?? ""}>${options.hint}</p>` : ""}
   </form>`;
 }
 
