@@ -163,7 +163,8 @@ export async function resolvePrincipal(
          AND identities.subject = ?
          AND identities.credential_hash IS NULL
          AND identities.revoked_at IS NULL
-         AND accounts.status = 'active'`,
+         AND accounts.status = 'active'
+         AND accounts.kind = 'human'`,
     )
     .get(claim.provider, claim.subject);
   if (!row || !isAccountKind(row.kind) || !isAccountRole(row.role)) {

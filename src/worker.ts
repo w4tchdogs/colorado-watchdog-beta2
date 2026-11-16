@@ -1,4 +1,8 @@
 import { createApplication } from "./application.js";
+import { readHumanSignIn } from "./auth/config.js";
+import { exactSameOrigin, hasSessionCookie } from "./auth/http.js";
+import { createSessionIdentityAdapter } from "./auth/identity.js";
+import { handleAuthRequest, isAuthPath } from "./auth/routes.js";
 import type { ReportIntakeStore } from "./contracts/report-intake.js";
 import type { RuntimeEnvironment } from "./contracts/runtime.js";
 import { StorageUnavailableError } from "./contracts/storage.js";
@@ -12,6 +16,7 @@ import { createD1WebsiteInspectionService } from "./services/d1-inspection.js";
 import { createD1PublicReadServices } from "./services/d1-public-reads.js";
 import type { ApplicationServices } from "./services/index.js";
 import { D1ReportIntakeStore } from "./services/report-intake-d1.js";
+import type { HumanIdentityAdapter } from "./services/security.js";
 import { createSitesIdentityAdapter } from "./services/sites-identity.js";
 import { createD1EditorialSource } from "./site/d1-editorial-source.js";
 import { createPublicSite, createWebsite } from "./site/index.js";
@@ -141,7 +146,40 @@ function reportApi(
   };
 }
 
-const worker = {
+/**
+ * Responses to a request that carries a credential are private. A response
+ * that does not already forbid storage gets `no-store`, so no shared cache
+ * can keep one person's view for another.
+ */
+function withPrivateCaching(request: Request, response: Response): Response {
+  if (
+    request.headers.get("authorization") === null &&
+    !hasSessionCookie(request)
+  )
+    return response;
+  if (/no-store/i.test(response.headers.get("cache-control") ?? ""))
+    return response;
+  const headers = new Headers(response.headers);
+  headers.set("cache-control", "no-store, private");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function originRejected(): Response {
+  return new Response(JSON.stringify({ error: "origin_rejected" }), {
+    status: 403,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8",
+      "x-content-type-options": "nosniff",
+    },
+  });
+}
+
+const routes = {
   async fetch(
     request: Request,
     environment: RuntimeEnvironment,
@@ -151,7 +189,10 @@ const worker = {
     const publicationRoute =
       pathname === CONTENT_PUBLICATION_API_PATHS.publish ||
       pathname === CONTENT_PUBLICATION_API_PATHS.withdraw;
+    const signIn = readHumanSignIn(environment);
     if (!environment.DB) {
+      if (isAuthPath(pathname))
+        return handleAuthRequest(request, { database: null, signIn });
       if (publicationRoute) return createContentApiTransport().fetch(request);
       if (new URL(request.url).pathname === "/mcp") {
         return new Response(
@@ -185,6 +226,18 @@ const worker = {
 
     try {
       const database = new AsyncD1Database(environment.DB);
+      // A cookie-authenticated write from another origin is refused on every
+      // route. A request with an Authorization header is an agent request and
+      // never uses the cookie, so this check does not apply to it.
+      if (
+        signIn.status === "enabled" &&
+        !isAuthPath(pathname) &&
+        !["GET", "HEAD", "OPTIONS"].includes(request.method) &&
+        request.headers.get("authorization") === null &&
+        hasSessionCookie(request) &&
+        !exactSameOrigin(request)
+      )
+        return originRejected();
       const reads = createD1PublicReadServices(database);
       // Object storage is optional. A missing Sites binding leaves the existing
       // branded banner placeholders in place and never prevents page rendering.
@@ -199,7 +252,35 @@ const worker = {
         siteId === BETA2_SITES_PROJECT_ID
           ? createSitesIdentityAdapter({ siteId })
           : undefined;
-      const accounts = createD1AccountServices(database, sitesIdentity);
+      // Website-owned session sign-in resolves nothing unless sign-in is
+      // enabled. The Sites adapter keeps resolving nothing without a verified
+      // host context.
+      const sessionIdentity = createSessionIdentityAdapter({
+        database,
+        signIn,
+      });
+      const humanIdentity: HumanIdentityAdapter = {
+        async resolve(identityRequest) {
+          return (
+            (await sessionIdentity.resolve(identityRequest)) ??
+            (await sitesIdentity?.resolve(identityRequest)) ??
+            null
+          );
+        },
+      };
+      const accounts = createD1AccountServices(database, humanIdentity);
+      if (isAuthPath(pathname)) {
+        return handleAuthRequest(request, {
+          database,
+          signIn,
+          currentAccount: async (authRequest) => {
+            const principal = await accounts.resolvePrincipal(authRequest);
+            if (!principal) return null;
+            const account = await accounts.getOwnAccount(principal);
+            return { displayName: account.displayName, role: account.role };
+          },
+        });
+      }
       if (publicationRoute) {
         const authorize = (
           principal: NonNullable<
@@ -235,7 +316,12 @@ const worker = {
             accounts.hasCapability(principal, "d1.inspect"),
         },
       );
-      const app = createApplication(services as unknown as ApplicationServices);
+      const app = createApplication(
+        services as unknown as ApplicationServices,
+        {
+          humanSignIn: signIn.status === "enabled",
+        },
+      );
       const reports = reportApi(environment, services, database);
       const site = createPublicSite({
         services: reads,
@@ -274,6 +360,18 @@ const worker = {
         },
       });
     }
+  },
+};
+
+const worker = {
+  async fetch(
+    request: Request,
+    environment: RuntimeEnvironment,
+  ): Promise<Response> {
+    return withPrivateCaching(
+      request,
+      await routes.fetch(request, environment),
+    );
   },
 };
 
