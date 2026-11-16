@@ -142,6 +142,8 @@ async function bootstrapLink(db, env, identity) {
   return link && link.identity_id === SEED_IDENTITY.id && link.account_id === SEED_IDENTITY.accountId ? link : null;
 }
 async function resolveSession(request, env, db) {
+  // Disabling sign-in denies access for existing sessions too. Stored rows are left untouched, so re-enabling restores any session that has not expired or been revoked. Logout does not call this function and stays available.
+  if (env.AUTH0_ENABLED !== "true") return null;
   const raw = cookie(request, COOKIE);
   if (!raw || !/^[A-Za-z0-9_-]{40,64}$/.test(raw)) return null;
   const session = await db.prepare(`SELECT s.id, s.issuer, s.subject, s.account_id, s.identity_id, s.idle_expires_at, s.absolute_expires_at FROM auth_sessions s JOIN identities i ON i.id=s.identity_id JOIN accounts a ON a.id=s.account_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.idle_expires_at>? AND s.absolute_expires_at>? AND i.provider=s.provider AND i.subject=s.subject AND i.revoked_at IS NULL AND a.status='active' AND a.kind='human' AND a.role='contributor'`).bind(await hash(raw), new Date().toISOString(), new Date().toISOString()).first();

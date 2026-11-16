@@ -95,10 +95,14 @@ The signed-in test page sends `Referrer-Policy: same-origin` so that the browser
 3. Obtain the subject with Method A or Method B and link the synthetic contributor through `AUTH3_PILOT_BOOTSTRAP_SUBJECT`. Confirm the single changed row, then remove the setting.
 4. Sign in. Expect a redirect to `/auth/test-view` and the signed-in page. Check the cookie flags in browser dev tools: `__Host-` prefix, Secure, HttpOnly, SameSite=Lax, Path=/, no Domain.
 5. With that active session, click Sign out in a real browser. Expect a 303 to `/`, a cleared session cookie, and a 401 from `/auth/test-view`. Confirm the session row has `revoked_at` set.
-6. Sign in again for a fresh session. Set `revoked_at` on the identity row, reload `/auth/test-view` and expect 401. Clear `revoked_at` afterward if more testing follows.
+6. Hosted identity revocation: **blocked.** The test needs `revoked_at` set on the identity row, and no supported private D1 mutation method has been verified. The Sites Database tab and connector are read-only and the pilot adds no maintenance endpoint, so do not edit the row by hand. Local tests cover the behavior (a revoked identity denies its session) with synthetic data only. Hosted verification needs a supported way to run a private write against the pilot D1, for example an owner-only migration or administrative console that Sites has documented. Until then this step stays unverified.
 7. Sign in with a second disposable GitHub account that is not linked. Expect 403 and no new session.
-8. Set `AUTH0_ENABLED=false` again, deploy, and confirm login and callback return 503 and the public home page still returns 200.
-9. Clear leftover rows in `auth_sessions` and `auth_transactions`, and rotate or remove the pilot client secret.
+8. Before turning sign-in off, keep one signed-in browser session. Set `AUTH0_ENABLED=false`, deploy, and confirm login and callback return 503, the public home page returns 200, and `/auth/test-view` returns 401 with that existing session cookie. The test page is denied, so its Sign out button is not reachable. Use a same-origin `POST /auth/logout` from the browser, or sign out before disabling, then confirm the session row has `revoked_at`. Sign-out stays available while disabled.
+9. Session rows and transaction rows cannot be cleared by hand because the Sites Database tab is read-only. Leave them. They expire on their own timestamps and revoked sessions are already unusable. Rotate or remove the pilot client secret.
+
+## Disabling sign-in and stored sessions
+
+Setting `AUTH0_ENABLED` to anything other than `true` only denies access while it is off. `/auth/test-view` returns 401 for every request, including one with an otherwise valid session cookie, and the denied request does not extend the session's idle expiry. Stored sessions are not invalidated or deleted. If the flag is set back to `true`, a session that has not been revoked, has not passed its 30 minute idle or 8 hour absolute limit and still has a linked, active identity works again. Idle time keeps running while disabled, so most sessions will have expired by then. To end a session for good, sign out (`POST /auth/logout` with the exact pilot origin), which works whether sign-in is enabled or disabled. Public browsing is unchanged.
 
 ## Known follow-ups
 

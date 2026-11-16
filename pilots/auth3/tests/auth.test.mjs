@@ -27,7 +27,7 @@ test("valid Auth0 RS256 issuer, audience, expiry, nonce, and opaque subject pass
 });
 
 function fakeDb({ linked = true } = {}) {
-  const state = { transaction:null, consumed:false, session:null, revokedIdentity:false };
+  const state = { transaction:null, consumed:false, session:null, revokedIdentity:false, idleRefreshes:0 };
   return {
     state,
     prepare(sql) {
@@ -38,6 +38,7 @@ function fakeDb({ linked = true } = {}) {
               if (sql.startsWith("INSERT INTO auth_transactions")) state.transaction = { stateHash:values[0], browserHash:values[1], nonce:values[2], verifier:values[3] };
               if (sql.startsWith("INSERT INTO auth_sessions")) state.session = { id:values[0], tokenHash:values[1], provider:values[2], issuer:values[3], subject:values[4], accountId:values[5], identityId:values[6], idle:values[8], absolute:values[9] };
               if (sql.startsWith("UPDATE auth_sessions SET revoked_at") && state.session && values[1] === state.session.tokenHash) state.session.revokedAt = values[0];
+              if (sql.startsWith("UPDATE auth_sessions SET idle_expires_at") && state.session && values[1] === state.session.id) { state.session.idle = values[0]; state.idleRefreshes += 1; }
             },
             async first() {
               if (sql.startsWith("UPDATE auth_transactions")) {
@@ -194,6 +195,34 @@ test("logout with the exact origin revokes the session server side, clears the c
   assert.match(out.headers.get("set-cookie"),/^__Host-wd-auth3-session=; Path=\/; Max-Age=0; Secure; HttpOnly; SameSite=Lax$/);
   assert.ok(db.state.session.revokedAt);
   assert.equal((await viewWith(db,raw)).status,401);
+});
+
+test("disabling sign-in denies an existing session without refreshing its idle expiry, and logout still revokes it", async () => {
+  const db = fakeDb();
+  const { raw } = await signedInSession(db);
+  assert.equal((await viewWith(db,raw)).status,200);
+  assert.equal(db.state.idleRefreshes,1);
+  const idleBefore = db.state.session.idle;
+  const disabled = { ...env, AUTH0_ENABLED:"false", DB:db };
+  const viewDisabled = () => worker.fetch(new Request(`${pilotOrigin}/auth/test-view`,{headers:{cookie:`__Host-wd-auth3-session=${raw}`}}),disabled);
+  const denied = await viewDisabled();
+  assert.equal(denied.status,401);
+  assert.doesNotMatch(await denied.text(),/Signed in/);
+  assert.equal(db.state.idleRefreshes,1);
+  assert.equal(db.state.session.idle,idleBefore);
+  assert.equal(db.state.session.revokedAt,undefined);
+  const out = await worker.fetch(new Request(`${pilotOrigin}/auth/logout`,{method:"POST",headers:{cookie:`__Host-wd-auth3-session=${raw}`,origin:pilotOrigin}}),disabled);
+  assert.equal(out.status,303);
+  assert.ok(db.state.session.revokedAt);
+  assert.equal((await viewWith(db,raw)).status,401);
+});
+
+test("disabling sign-in does not delete the stored session, so re-enabling restores an unrevoked one", async () => {
+  const db = fakeDb();
+  const { raw } = await signedInSession(db);
+  const off = await worker.fetch(new Request(`${pilotOrigin}/auth/test-view`,{headers:{cookie:`__Host-wd-auth3-session=${raw}`}}),{...env,AUTH0_ENABLED:"false",DB:db});
+  assert.equal(off.status,401);
+  assert.equal((await viewWith(db,raw)).status,200);
 });
 
 test("logout denies missing, null, foreign, and lookalike origins and leaves the session active", async () => {
