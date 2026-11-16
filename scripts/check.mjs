@@ -311,6 +311,7 @@ const allowed = new Set([
   "src/services/report-intake.ts",
   "src/services/report-intake-memory.ts",
   "tests/report-intake.test.mjs",
+  "tests/restore-rehearsal.test.mjs",
   "tests/mcp-website.test.mjs",
   "tests/mcp-profiles.test.mjs",
   "tests/mcp-profiles-fixture.py",
