@@ -869,8 +869,7 @@ img {
 }
 
 /* 5. Banner hero -------------------------------------------------------- */
-/* The frame is always exactly 3:1. Source images of any panoramic ratio are
-   shown inside it with object-fit, so nothing is stretched or re-cropped. */
+/* Standalone frames use 3:1. Page heroes can grow to fit their overlay. */
 .banner-frame {
   position: relative;
   aspect-ratio: 3 / 1;
@@ -1107,16 +1106,49 @@ img {
   --fy: 100%;
 }
 .hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto max-content max-content;
+  isolation: isolate;
   background: var(--ink);
   color: #ffffff;
 }
+.hero::before {
+  /* Keep the 3:1 panorama as the minimum height for the artwork. */
+  content: "";
+  grid-area: 1 / 1 / 3;
+  width: 100%;
+  aspect-ratio: 3 / 1;
+}
 .hero-banner {
-  /* Full width of the page inside the scrollbar. The heading and text keep
-     the content width through .hero-content .wrap. */
+  display: grid;
+  grid-area: 1 / 1 / 4;
+  grid-template-rows: subgrid;
   width: 100%;
 }
+.hero .banner-frame {
+  display: grid;
+  grid-row: 1 / 3;
+  grid-template-rows: subgrid;
+  aspect-ratio: auto;
+}
+.hero .banner-caption {
+  /* Keep captions below the copy and above the carousel controls. */
+  position: relative;
+  grid-row: 2;
+  justify-self: end;
+  z-index: 2;
+}
+.hero .banner-controls {
+  grid-row: 3;
+}
 .hero-content {
+  grid-area: 1 / 1;
+  z-index: 1;
+  display: flex;
+  align-items: center;
   padding-block: var(--space-5) var(--space-6);
+  background: linear-gradient(90deg, rgb(0 0 0 / 0.86), rgb(0 0 0 / 0.68));
 }
 .hero h1 {
   max-width: 20ch;
@@ -1164,22 +1196,7 @@ img {
   min-height: 3.25rem;
 }
 @media (min-width: 64rem) {
-  /* Heading overlays the artwork; the frame and the text share one cell. */
-  .hero {
-    display: grid;
-  }
-  .hero-banner,
   .hero-content {
-    grid-area: 1 / 1;
-  }
-  .hero-banner {
-    width: 100%;
-    align-self: start;
-  }
-  .hero-content {
-    z-index: 1;
-    display: flex;
-    align-items: center;
     padding-block: var(--space-5);
     background: linear-gradient(
       90deg,
@@ -1191,14 +1208,7 @@ img {
   .hero-content .wrap {
     width: min(100% - 5rem, var(--wrap));
   }
-  .hero-banner:has(.banner-controls:not([hidden])) {
-    display: grid;
-    grid-row: 1 / 3;
-    grid-template-rows: subgrid;
-  }
-  /* Keep the caption readable above the text scrim. */
-  .banner-caption {
-    z-index: 2;
+  .hero .banner-caption {
     max-width: 44%;
   }
 }
