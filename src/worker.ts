@@ -9,7 +9,9 @@ import { StorageUnavailableError } from "./contracts/storage.js";
 import { AsyncD1Database } from "./database/d1.js";
 import { handleWebsiteMcpRequest } from "./mcp/website.js";
 import { createReportApiModule, type ReportApiOptions } from "./report-api.js";
+import { D1BannerAdministration } from "./services/banner-admin-d1.js";
 import { D1BannerPublicService } from "./services/banner-public.js";
+import { R2BannerObjectStorage } from "./services/banner-storage.js";
 import { createContentPublicationService } from "./services/content-publication.js";
 import { createD1AccountServices } from "./services/d1-accounts.js";
 import { createD1WebsiteInspectionService } from "./services/d1-inspection.js";
@@ -22,6 +24,11 @@ import { createD1EditorialSource } from "./site/d1-editorial-source.js";
 import { createPublicSite, createWebsite } from "./site/index.js";
 import type { PublicSiteServices } from "./site/types.js";
 import { bundledSiteAssets } from "./site/worker-assets.js";
+import {
+  bannerAdminUnavailable,
+  createBannerAdminApiTransport,
+  isBannerAdminPath,
+} from "./transport/banner-admin-api.js";
 import {
   CONTENT_PUBLICATION_API_PATHS,
   createContentApiTransport,
@@ -193,6 +200,7 @@ const routes = {
     if (!environment.DB) {
       if (isAuthPath(pathname))
         return handleAuthRequest(request, { database: null, signIn });
+      if (isBannerAdminPath(pathname)) return bannerAdminUnavailable();
       if (publicationRoute) return createContentApiTransport().fetch(request);
       if (new URL(request.url).pathname === "/mcp") {
         return new Response(
@@ -291,6 +299,23 @@ const routes = {
           resolvePrincipal: accounts.resolvePrincipal,
           authorize,
           operations: createContentPublicationService(database, authorize),
+        }).fetch(request);
+      }
+      if (isBannerAdminPath(pathname)) {
+        // Administration needs both bindings. Without the bucket the transport
+        // still authenticates and authorizes, then reports unavailable.
+        return createBannerAdminApiTransport({
+          resolvePrincipal: accounts.resolvePrincipal,
+          authorize: (principal) =>
+            accounts.hasCapability(principal, "banner.manage"),
+          ...(environment.BUCKET
+            ? {
+                administration: new D1BannerAdministration(
+                  database,
+                  new R2BannerObjectStorage(environment.BUCKET),
+                ),
+              }
+            : {}),
         }).fetch(request);
       }
       const services = {

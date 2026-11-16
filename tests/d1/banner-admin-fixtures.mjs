@@ -87,6 +87,13 @@ export function bannerAdminFixtures() {
   const publishJpeg = new Uint8Array(
     jpeg.encode({ width: 72, height: 24, data: pixels(72, 24, 14) }, 80).data,
   );
+  // Separate images for the API transport checks, which share the database.
+  const apiPngs = [30, 31, 32, 33, 35].map((seed, i) =>
+    png(56 + i * 8, 22 + i * 2, seed),
+  );
+  const apiJpeg = new Uint8Array(
+    jpeg.encode({ width: 80, height: 26, data: pixels(80, 26, 34) }, 80).data,
+  );
   const jpegA = new Uint8Array(
     jpeg.encode({ width: 64, height: 24, data: pixels(64, 24, 7) }, 80).data,
   );
@@ -158,6 +165,13 @@ export function bannerAdminFixtures() {
       ]),
     ),
     publishJpeg: describe(publishJpeg, 72, 24),
+    ...Object.fromEntries(
+      apiPngs.map((bytes, i) => [
+        `apiPng${i + 1}`,
+        describe(bytes, 56 + i * 8, 22 + i * 2),
+      ]),
+    ),
+    apiJpeg: describe(apiJpeg, 80, 26),
     truncatedPng: describe(truncatedPng, 0, 0),
     badCrcPng: describe(badCrcPng, 0, 0),
     corruptDataPng: describe(corruptDataPng, 0, 0),

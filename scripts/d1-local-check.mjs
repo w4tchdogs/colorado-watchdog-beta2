@@ -1122,6 +1122,10 @@ async function main() {
       `PASS D1 banner publication: ${bannerCheck.publishChecks.length} checks for publish, replace, restore with recorded text, withdraw, metadata, order, stale writes, corrupt objects, lost authority and history immutability`,
     );
 
+    console.log(
+      `PASS D1 banner administration API: ${bannerCheck.apiChecks.length} checks for denial, origin, stage, private preview, publish, replace, restore, stale and idempotent writes, corrupt and missing objects, storage failure and revocation after the permission check`,
+    );
+
     const write = await fetch(`${base}/write`, { method: "POST" });
     const inserted = await write.json();
     const read = await fetch(`${base}/read`);

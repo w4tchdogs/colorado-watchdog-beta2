@@ -65,6 +65,10 @@ const allowed = new Set([
   "tests/site-banner.test.mjs",
   "tests/banner-image-inspector.test.mjs",
   "tests/d1/banner-admin-checks.mjs",
+  "tests/d1/banner-api-checks.mjs",
+  "tests/banner-admin-api.test.mjs",
+  "src/transport/banner-admin-api.ts",
+  "docs/architecture/banner-admin-api.md",
   "tests/d1/banner-publish-checks.mjs",
   "tests/d1/banner-admin-fixtures.mjs",
   "docs/architecture/banner-admin-service.md",
@@ -408,14 +412,16 @@ for (const file of files) {
   if (!["100644", "100755"].includes(mode))
     errors.push(`Non-regular file: ${file}`);
   const bytes = staged ? git("show", `:${file}`) : readFileSync(file);
-  // Large files have scoped limits: the lockfile, bundled county geometry and
-  // the repository copy of the Fable revision 4 assessment.
+  // Large files have scoped limits: the lockfile, bundled county geometry, the
+  // repository copy of the Fable revision 4 assessment and the banner
+  // administration service, which holds every guarded write in one class.
   const sizeLimit =
     file === "package-lock.json"
       ? 256 * 1024
       : file === "src/site/colorado-county-map.json"
         ? 1024 * 1024
-        : file === "docs/architecture/fable-assessment-rev4.md"
+        : file === "docs/architecture/fable-assessment-rev4.md" ||
+            file === "src/services/banner-admin-d1.ts"
           ? 96 * 1024
           : 64 * 1024;
   if (bytes.length > sizeLimit)
