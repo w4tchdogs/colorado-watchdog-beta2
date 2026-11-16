@@ -68,6 +68,7 @@ export interface CountyRoleEntry {
     readonly title: string;
     readonly url: string;
     readonly type: "official_page" | "public_document" | "other_public";
+    readonly publisherClassification?: "official" | "unofficial";
     readonly version: number;
   };
 }

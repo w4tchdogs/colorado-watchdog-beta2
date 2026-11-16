@@ -191,3 +191,15 @@ rewriting the history above.
 - Keep Profiles exports private in the owner's Watchdog workspace. Scope to one or more canonical county FIPS codes or an explicit statewide selection before applying the profile limit. One distinct person is one profile record regardless of role count; retain the county and role links for every exported role. Deduplicate a person across selected counties by profile ID.
 - Limit each export to 10,000 distinct profile records. Use deterministic profile-ID ordering, visibly mark truncation, and continue after the last profile ID. Include official and unofficial citations, preserve unresolved publishers as a separate state, and exclude private research notes, raw captures and unrelated personal data.
 - Keep the local Profiles export separate from Website M2 changesets and hosted write controls. This decision does not authorize a hosted migration, sync submission, or public publication.
+
+## Website role citations, November 16, 2026
+
+- One verified public citation from a publisher classified `official` or
+  `unofficial` may support a person-role record when it directly connects the
+  identified person to the documented role. An unofficial role citation does
+  not satisfy or replace official evidence required for identity resolution,
+  organization names, or county affiliations.
+- Keep publisher classification separate from page type. Preserve the role
+  citation URL, title, publisher classification, page type, and verification
+  date in Website sync records. A publisher classified `unresolved` is not an
+  acceptable role citation.

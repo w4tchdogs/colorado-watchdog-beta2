@@ -191,6 +191,7 @@ const allowed = new Set([
   "website/migrations/0017_content_publication.sql",
   "website/migrations/0018_banner_publications.sql",
   "website/migrations/0019_human_sign_in.sql",
+  "website/migrations/0020_role_source_publisher_classification.sql",
   "src/auth/config.ts",
   "src/auth/http.ts",
   "src/auth/identity.ts",

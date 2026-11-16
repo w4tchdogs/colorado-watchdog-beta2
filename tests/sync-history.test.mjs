@@ -57,6 +57,7 @@ const batch = {
     create("register_source", "role_sources", "source", {
       url: "https://example.invalid/synthetic",
       title: "Synthetic source",
+      publisher_classification: "official",
       source_type: "official_page",
     }),
     create("create_person_role", "person_roles", "role", {
@@ -252,7 +253,7 @@ test("a later dependent role blocks the whole reversal without partial deletion"
 test("updates restore prior fields with a new version and reused sources remain", async () => {
   await fixture(async (f) => {
     f.db.exec(`INSERT INTO people (id,display_name) VALUES ('existing-person','Before');
-      INSERT INTO role_sources (id,url,title,source_type) VALUES ('existing-source','https://example.invalid/reuse','Reusable source','official_page');`);
+      INSERT INTO role_sources (id,url,title,source_type,publisher_classification) VALUES ('existing-source','https://example.invalid/reuse','Reusable source','official_page','official');`);
     const owner = await f.principal();
     const request = {
       ...batch,
@@ -267,6 +268,7 @@ test("updates restore prior fields with a new version and reused sources remain"
         create("register_source", "role_sources", "source", {
           url: "https://example.invalid/reuse",
           title: "Reusable source",
+          publisher_classification: "official",
           source_type: "official_page",
         }),
       ],

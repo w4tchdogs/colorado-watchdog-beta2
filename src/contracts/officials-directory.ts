@@ -52,6 +52,7 @@ export interface OfficialsDirectoryRole {
     readonly title: string;
     readonly url: string;
     readonly type: string;
+    readonly publisherClassification?: "official" | "unofficial";
   };
 }
 

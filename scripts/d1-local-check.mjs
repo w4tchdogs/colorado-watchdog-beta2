@@ -39,6 +39,7 @@ const migrations = [
   "0017_content_publication.sql",
   "0018_banner_publications.sql",
   "0019_human_sign_in.sql",
+  "0020_role_source_publisher_classification.sql",
 ];
 
 function runWrangler(args) {
@@ -262,7 +263,7 @@ async function main() {
     "--persist-to",
     freshPersist,
     "--command",
-    `SELECT CASE WHEN (SELECT COUNT(*) FROM schema_migrations) = 19 AND ${historyChecks} AND (SELECT COUNT(*) FROM counties) = 64 AND (SELECT name FROM counties WHERE fips='08065') = 'Lake' AND (SELECT name FROM counties WHERE fips='08067') = 'La Plata' AND (SELECT COUNT(*) FROM content_revisions) = 0 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('content_items','content_item_counties','content_item_people','content_item_organizations','content_revisions')) = 5 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('banner_assets','banner_asset_versions','banner_stage_operations','banner_publications','banner_admin_operations')) = 5 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('reports','report_receipts','report_idempotency','report_evidence','report_status_history','report_audit')) = 6 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='content_revisions_editor') = 1 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('content_revisions_no_update','content_revisions_no_delete','content_revisions_match_current')) = 3 AND (SELECT generation FROM website_dependency_generation WHERE id = 1) = 3 THEN 'PASS fresh migration history, checksums, schema, and corrected county registry' ELSE 'FAIL fresh migration verification' END AS result;`,
+    `SELECT CASE WHEN (SELECT COUNT(*) FROM schema_migrations) = 20 AND ${historyChecks} AND (SELECT COUNT(*) FROM counties) = 64 AND (SELECT name FROM counties WHERE fips='08065') = 'Lake' AND (SELECT name FROM counties WHERE fips='08067') = 'La Plata' AND (SELECT COUNT(*) FROM content_revisions) = 0 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('content_items','content_item_counties','content_item_people','content_item_organizations','content_revisions')) = 5 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('banner_assets','banner_asset_versions','banner_stage_operations','banner_publications','banner_admin_operations')) = 5 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('reports','report_receipts','report_idempotency','report_evidence','report_status_history','report_audit')) = 6 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='content_revisions_editor') = 1 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('content_revisions_no_update','content_revisions_no_delete','content_revisions_match_current')) = 3 AND (SELECT generation FROM website_dependency_generation WHERE id = 1) = 3 THEN 'PASS fresh migration history, checksums, schema, and corrected county registry' ELSE 'FAIL fresh migration verification' END AS result;`,
   ]);
   if (!freshOutput.includes("PASS fresh migration history")) {
     throw new Error(`Fresh local D1 verification failed:\n${freshOutput}`);
@@ -1136,7 +1137,7 @@ async function main() {
       );
     }
     console.log(
-      `PASS local Wrangler D1: migrations 0001–0019; ${detail.checks.length} API checks; state persisted across requests`,
+      `PASS local Wrangler D1: migrations 0001–0020; ${detail.checks.length} API checks; state persisted across requests`,
     );
   } finally {
     if (process.platform === "win32" && worker.pid) {

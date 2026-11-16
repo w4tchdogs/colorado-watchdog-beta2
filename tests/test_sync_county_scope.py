@@ -111,6 +111,89 @@ class CountyScopedR7Tests(unittest.TestCase):
             with self.subTest(county=value), self.assertRaises(ValueError):
                 build_changeset(self.db, SITE, county_fips=value)
 
+    def _official_role_support(self, claim):
+        """Separate official identity/organization evidence from role evidence."""
+        payload = csv_bytes([observation(
+            "08001", full_name="Synthetic Person citation", title="Synthetic Role citation",
+            source_url="https://example.invalid/08001/official-support",
+        )])
+        batch = ingest_csv(self.db, payload, file_name="official-support.csv",
+                           version_label="official-support", provenance="synthetic", selected=False)
+        evidence_id = self.db.execute(
+            "SELECT id FROM evidence_links WHERE batch_id=?", (batch,)
+        ).fetchone()[0]
+        source_id = self.db.execute(
+            "SELECT source_id FROM evidence_links WHERE id=?", (evidence_id,)
+        ).fetchone()[0]
+        self.db.execute(
+            "UPDATE sources SET official_status='official',publisher_classification='official',"
+            "page_type='official_page' WHERE id=?", (source_id,)
+        )
+        self.db.execute("UPDATE org_names SET evidence_id=? WHERE unit_id=?",
+                        (evidence_id, claim["unit_id"]))
+        self.db.execute("UPDATE role_targets SET evidence_id=? WHERE id=?",
+                        (evidence_id, claim["target_id"]))
+        self.db.execute("UPDATE research_people SET identity_evidence_id=? WHERE id=?",
+                        (evidence_id, claim["person_id"]))
+        self.db.commit()
+        return evidence_id
+
+    def test_official_role_citation_is_accepted_and_preserved(self):
+        claim = self.add_claim("08001", "official-role")
+        result = build_changeset(self.db, SITE, county_fips="08001")
+        citation = next(change for change in result["request"]["changes"]
+                        if change["op"] == "register_source")
+        role = next(change for change in result["request"]["changes"]
+                    if change["op"] == "create_person_role")
+
+        self.assertEqual(citation["fields"]["publisher_classification"], "official")
+        self.assertEqual(citation["fields"]["source_type"], "official_page")
+        self.assertEqual(citation["fields"]["url"],
+                         "https://example.invalid/08001/official-role")
+        self.assertEqual(citation["fields"]["title"], "Synthetic source official-role")
+        self.assertIn("source_checked_at", role["fields"])
+        self.assertEqual(result["eligibility_summary"]["role_claims_planned"], 1)
+
+    def test_verified_unofficial_role_citation_is_accepted_without_relaxing_identity(self):
+        claim = self.add_claim("08001", "unofficial-role")
+        self._official_role_support(claim)
+        self.db.execute("UPDATE sources SET publisher_classification='unofficial' "
+                        "WHERE id=?", (claim["source_id"],))
+        self.db.commit()
+
+        result = build_changeset(self.db, SITE, county_fips="08001")
+        citation = next(change for change in result["request"]["changes"]
+                        if change["op"] == "register_source")
+        self.assertEqual(citation["fields"]["publisher_classification"], "unofficial")
+        self.assertEqual(citation["fields"]["source_type"], "official_page")
+        self.assertEqual(result["eligibility_summary"]["role_claims_planned"], 1)
+
+    def test_unresolved_publisher_is_rejected_for_role_citation(self):
+        claim = self.add_claim("08001", "unresolved-role")
+        self._official_role_support(claim)
+        self.db.execute("UPDATE sources SET publisher_classification='unresolved' "
+                        "WHERE id=?", (claim["source_id"],))
+        self.db.commit()
+
+        result = build_changeset(self.db, SITE, county_fips="08001")
+        reasons = [row["reason"] for row in result["excluded"]
+                   if row["entity_type"] == "role_claim"]
+        self.assertIn("source_publisher_unresolved", reasons)
+        self.assertEqual(result["eligibility_summary"]["role_claims_planned"], 0)
+
+    def test_unclear_role_listing_is_rejected_as_insufficient_role_evidence(self):
+        claim = self.add_claim("08001", "insufficient-role")
+        self._official_role_support(claim)
+        self.db.execute("UPDATE role_claims SET source_listing_status='Unclear' WHERE id=?",
+                        (claim["claim_id"],))
+        self.db.commit()
+
+        result = build_changeset(self.db, SITE, county_fips="08001")
+        reasons = [row["reason"] for row in result["excluded"]
+                   if row["entity_type"] == "role_claim"]
+        self.assertIn("not_currently_listed", reasons)
+        self.assertEqual(result["eligibility_summary"]["role_claims_planned"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -170,7 +170,7 @@ export function createD1PublicReadServices(
       o.id organization_id,o.name organization_name,o.organization_type,o.version organization_version,o.county_fips=? direct,
       COALESCE((SELECT GROUP_CONCAT(relationship_type, ',') FROM (SELECT relationship_type FROM organization_county_affiliations a
         WHERE a.organization_id=o.id AND a.county_fips=? ORDER BY relationship_type)), '') affiliation_types,
-      s.id source_id,s.title source_title,s.url source_url,s.source_type,s.version source_version
+      s.id source_id,s.title source_title,s.url source_url,s.source_type,s.publisher_classification,s.version source_version
       FROM person_roles pr JOIN people p ON p.id=pr.person_id JOIN positions pos ON pos.id=pr.position_id
       JOIN organizations o ON o.id=pos.organization_id JOIN role_sources s ON s.id=pr.source_id
       WHERE (o.county_fips=? OR EXISTS (SELECT 1 FROM organization_county_affiliations a WHERE a.organization_id=o.id AND a.county_fips=?))
@@ -220,6 +220,10 @@ export function createD1PublicReadServices(
           title: str(r.source_title),
           url: str(r.source_url),
           type: r.source_type as CountyRoleEntry["source"]["type"],
+          ...(r.publisher_classification === "official" ||
+          r.publisher_classification === "unofficial"
+            ? { publisherClassification: r.publisher_classification }
+            : {}),
           version: num(r.source_version),
         },
       }),
@@ -341,7 +345,7 @@ export function createD1PublicReadServices(
     const rows = await all<Row>(
       `SELECT pr.id role_id,pr.version role_version,pr.start_date,pr.end_date,pr.source_checked_at,
       pos.id position_id,pos.title position_title,pos.version position_version,o.id organization_id,o.name organization_name,o.organization_type,o.version organization_version,
-      s.id source_id,s.title source_title,s.url source_url,s.source_type,s.version source_version FROM person_roles pr
+      s.id source_id,s.title source_title,s.url source_url,s.source_type,s.publisher_classification,s.version source_version FROM person_roles pr
       JOIN positions pos ON pos.id=pr.position_id JOIN organizations o ON o.id=pos.organization_id JOIN role_sources s ON s.id=pr.source_id
       WHERE pr.person_id=? AND (? IS NULL OR pr.id COLLATE BINARY>?) ORDER BY pr.id COLLATE BINARY LIMIT ?`,
       personId,
@@ -379,6 +383,10 @@ export function createD1PublicReadServices(
           title: str(r.source_title),
           url: str(r.source_url),
           type: r.source_type as PersonProfileRole["source"]["type"],
+          ...(r.publisher_classification === "official" ||
+          r.publisher_classification === "unofficial"
+            ? { publisherClassification: r.publisher_classification }
+            : {}),
           version: num(r.source_version),
         },
       }),
@@ -482,7 +490,7 @@ export function createD1PublicReadServices(
       return null;
     const rows = await all<Row>(
       `SELECT pr.id role_id,pr.version role_version,pr.start_date,pr.end_date,pr.source_checked_at,p.id person_id,p.display_name,p.version person_version,
-      pos.id position_id,pos.title position_title,pos.version position_version,s.id source_id,s.title source_title,s.url source_url,s.source_type,s.version source_version
+      pos.id position_id,pos.title position_title,pos.version position_version,s.id source_id,s.title source_title,s.url source_url,s.source_type,s.publisher_classification,s.version source_version
       FROM person_roles pr JOIN people p ON p.id=pr.person_id JOIN positions pos ON pos.id=pr.position_id JOIN role_sources s ON s.id=pr.source_id
       WHERE pos.organization_id=? AND (? IS NULL OR pr.id COLLATE BINARY>?) ORDER BY pr.id COLLATE BINARY LIMIT ?`,
       id,
@@ -514,6 +522,10 @@ export function createD1PublicReadServices(
           title: str(r.source_title),
           url: str(r.source_url),
           type: r.source_type as OrganizationRoleEntry["source"]["type"],
+          ...(r.publisher_classification === "official" ||
+          r.publisher_classification === "unofficial"
+            ? { publisherClassification: r.publisher_classification }
+            : {}),
           version: num(r.source_version),
         },
       }),

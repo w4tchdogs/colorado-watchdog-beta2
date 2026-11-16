@@ -53,7 +53,8 @@ export function getPersonProfile(
               pos.version AS position_version, o.id AS organization_id,
               o.name AS organization_name, o.organization_type,
               o.version AS organization_version, s.id AS source_id, s.title AS source_title,
-              s.url AS source_url, s.source_type, s.version AS source_version
+              s.url AS source_url, s.source_type, s.publisher_classification,
+              s.version AS source_version
        FROM person_roles pr
        JOIN positions pos ON pos.id = pr.position_id
        JOIN organizations o ON o.id = pos.organization_id
@@ -95,6 +96,10 @@ export function getPersonProfile(
         title: asString(row.source_title),
         url: asString(row.source_url),
         type: row.source_type as PersonProfileRole["source"]["type"],
+        ...(row.publisher_classification === "official" ||
+        row.publisher_classification === "unofficial"
+          ? { publisherClassification: row.publisher_classification }
+          : {}),
         version: asNumber(row.source_version),
       },
     }),

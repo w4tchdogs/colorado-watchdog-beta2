@@ -51,6 +51,7 @@ const ENUMS: Record<string, readonly string[]> = {
   parent_relationship: ["reports_to", "grouped_under"],
   relationship_type: ["serves", "partner_for", "shared_service"],
   source_type: ["official_page", "public_document", "other_public"],
+  publisher_classification: ["official", "unofficial"],
 };
 const REF_KEYS: Record<
   string,
@@ -230,7 +231,12 @@ export async function planSyncChangesetD1(
   const futureRefs = new Map<string, { entity: SyncEntity; index: number }>();
   const plannedUrls = new Map<
     string,
-    { title: unknown; source_type: unknown; clientRef: string }
+    {
+      title: unknown;
+      source_type: unknown;
+      publisher_classification: unknown;
+      clientRef: string;
+    }
   >();
   const plannedAffiliations = new Set<string>();
   const targets = new Set<string>();
@@ -438,13 +444,14 @@ export async function planSyncChangesetD1(
     let action: PlannedSyncItem["action"] = "would_create";
     if (entity === "role_sources" && valid) {
       const existing = await database.first<Record<string, unknown>>(
-        "SELECT id, title, source_type FROM role_sources WHERE url = ?",
+        "SELECT id, title, source_type, publisher_classification FROM role_sources WHERE url = ?",
         [fields.url as string],
       );
       if (
         existing &&
         (existing.title !== fields.title ||
-          existing.source_type !== fields.source_type)
+          existing.source_type !== fields.source_type ||
+          existing.publisher_classification !== fields.publisher_classification)
       ) {
         add("source_metadata_conflict", i, clientRef);
         valid = false;
@@ -453,7 +460,8 @@ export async function planSyncChangesetD1(
       if (
         planned &&
         (planned.title !== fields.title ||
-          planned.source_type !== fields.source_type)
+          planned.source_type !== fields.source_type ||
+          planned.publisher_classification !== fields.publisher_classification)
       ) {
         add("source_metadata_conflict", i, clientRef);
         valid = false;
@@ -464,6 +472,7 @@ export async function planSyncChangesetD1(
         plannedUrls.set(fields.url as string, {
           title: fields.title,
           source_type: fields.source_type,
+          publisher_classification: fields.publisher_classification,
           clientRef,
         });
     }
@@ -688,7 +697,7 @@ async function validateCreateFields(
     organization_county_affiliations: ["county_fips", "relationship_type"],
     people: ["display_name"],
     positions: ["title"],
-    role_sources: ["url", "title", "source_type"],
+    role_sources: ["url", "title", "source_type", "publisher_classification"],
     person_roles: ["source_checked_at"],
   };
   for (const field of required[entity])
@@ -1122,7 +1131,7 @@ function supportedCreateFields(entity: SyncEntity): string[] {
     ],
     people: ["display_name"],
     positions: ["organization_id", "organization_ref", "title"],
-    role_sources: ["url", "title", "source_type"],
+    role_sources: ["url", "title", "source_type", "publisher_classification"],
     person_roles: [
       "person_id",
       "person_ref",
