@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
@@ -92,6 +92,22 @@ async function waitFor(url) {
   throw new Error("The local Sites Worker did not start");
 }
 
+/** Ends the Wrangler process tree. SIGTERM alone leaves workerd running on Windows. */
+async function killWorker(child) {
+  if (child.exitCode !== null) return;
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  if (process.platform === "win32" && child.pid) {
+    try {
+      execFileSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+        stdio: "ignore",
+      });
+    } catch {}
+  } else {
+    child.kill("SIGTERM");
+  }
+  await Promise.race([exited, delay(10_000)]);
+}
+
 /** Synthetic Siteverify. The token prefix selects the provider behavior. */
 function startVerifier(hostname) {
   const requests = [];
@@ -163,7 +179,7 @@ async function main() {
   )
     .filter((name) => /^\d{4}_[a-z0-9_]+\.sql$/.test(name))
     .sort();
-  assert.equal(migrations.at(-1), "0018_report_challenge_claims.sql");
+  assert.equal(migrations.at(-1), "0021_report_challenge_claims.sql");
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(
     migrationFile,
@@ -218,15 +234,15 @@ async function main() {
     await waitFor(`${base}/`);
   };
   const stopWorker = async () => {
-    if (worker.exitCode === null) {
-      worker.kill("SIGTERM");
-      await new Promise((resolve) => worker.once("exit", resolve));
-    }
+    await killWorker(worker);
   };
   const post = (key, token) =>
     fetch(`${base}/api/v1/reports`, {
       method: "POST",
       headers: {
+        // A fresh connection each time: the synchronous wrangler D1 calls
+        // between requests can leave a reused local socket reset.
+        connection: "close",
         origin: base,
         "content-type": "application/json",
         ...(token ? { "x-turnstile-token": token } : {}),
@@ -401,10 +417,7 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    if (worker && worker.exitCode === null) {
-      worker.kill("SIGTERM");
-      await new Promise((resolve) => worker.once("exit", resolve));
-    }
+    if (worker) await killWorker(worker);
     verifier?.server.close();
     cleanup();
   });

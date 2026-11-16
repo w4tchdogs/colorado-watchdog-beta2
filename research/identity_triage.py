@@ -105,14 +105,14 @@ def _clip(value, limit=1000):
 
 def _contexts_by_county(db, county_fips):
     rows = db.execute(
-        "SELECT c.id,c.county_fips,c.person_id,c.published_name,c.published_title,c.responsibility,"
-        "c.source_listing_status,c.unit_id,c.target_id,c.supersedes_id,c.affiliation,c.department_label,"
-        "c.employment_start,c.employment_end,e.id AS evidence_id,e.source_id,e.source_version_key,"
-        "e.observed_title,e.observed_url,e.quotation,e.locator,e.raw_record_json,e.raw_record_sha256,"
-        "s.original_url,s.official_status,s.page_type,b.id AS batch_id,b.lineage_kind,b.selected,"
+        'SELECT c."Role claim ID" AS id,c."County code" AS county_fips,c."Linked profile" AS person_id,c."Name as published" AS published_name,c."Position as published" AS published_title,c."Job description or duties" AS responsibility,'
+        'c."Listing status" AS source_listing_status,c."Linked office or unit" AS unit_id,c."Linked position" AS target_id,c."Earlier claim this replaces" AS supersedes_id,c."Affiliation" AS affiliation,c."Office or department as published" AS department_label,'
+        'c."Employment start date" AS employment_start,c."Employment end date" AS employment_end,e."Evidence record ID" AS evidence_id,e."Source ID" AS source_id,e."Source version ID" AS source_version_key,'
+        'e."Source title as observed" AS observed_title,e."Source URL as observed" AS observed_url,e."Evidence excerpt" AS quotation,e."Evidence location" AS locator,e."Original record" AS raw_record_json,e."Original record fingerprint" AS raw_record_sha256,'
+        's."Original source URL" AS original_url,s."Previous source category" AS official_status,s."Document type" AS page_type,b.id AS batch_id,b.lineage_kind,b.selected,'
         "b.family_id,b.parent_batch_id,b.version_label FROM role_claims c "
-        "JOIN evidence_links e ON e.id=c.evidence_id JOIN sources s ON s.id=e.source_id "
-        "LEFT JOIN scrape_batches b ON b.id=e.batch_id WHERE c.county_fips=? ORDER BY c.id",
+        'JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" JOIN sources s ON s."Source ID"=e."Source ID" '
+        'LEFT JOIN scrape_batches b ON b.id=e."Import batch ID" WHERE c."County code"=? ORDER BY c."Role claim ID"',
         (county_fips,),
     )
     return {row["id"]: dict(row) for row in rows}
@@ -154,10 +154,10 @@ def _candidate_people_by_county(db, county_fips, person_ids):
         return {}
     people = {}
     for row in db.execute(
-            "SELECT p.id,p.display_name,p.identity_state,p.identity_evidence_id,"
-            "count(c.id) AS assigned_claim_count FROM research_people p "
-            "LEFT JOIN role_claims c ON c.person_id=p.id WHERE p.county_fips=? "
-            "GROUP BY p.id ORDER BY p.id", (county_fips,)):
+            'SELECT p."Profile ID" AS id,p."Full name" AS display_name,p."Identity review status" AS identity_state,p."Evidence for identity" AS identity_evidence_id,'
+            'count(c."Role claim ID") AS assigned_claim_count FROM research_people p '
+            'LEFT JOIN role_claims c ON c."Linked profile"=p."Profile ID" WHERE p."County code"=? '
+            'GROUP BY p."Profile ID" ORDER BY p."Profile ID"', (county_fips,)):
         if row["id"] in person_ids:
             people[row["id"]] = {"person_id": row["id"], "display_name": row["display_name"],
                                   "identity_state": row["identity_state"],
@@ -332,7 +332,7 @@ def build_identity_triage_report(db, identity_plan):
         "counts_by_current_reason": _count_by_reason(cases),
         "source_authority_queue": source_authority_queue,
         "supported_source_classifications": [
-            {**item, "source_url": db.execute("SELECT original_url FROM sources WHERE id=?",
+            {**item, "source_url": db.execute('SELECT "Original source URL" AS original_url FROM sources WHERE "Source ID"=?',
                                                (item["source_id"],)).fetchone()[0]}
             for item in identity_plan["source_classifications"]
         ],

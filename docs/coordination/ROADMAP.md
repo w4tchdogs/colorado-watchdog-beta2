@@ -6,7 +6,7 @@ place for present status and active assignments. This roadmap says where the
 project is going. CURRENT says where it is now. Status words use CURRENT's
 vocabulary.
 
-Revision: November 14, 2026. Based on `main` at `e9041f8` (PR #101). The
+Revision: November 16, 2026. Based on `main` at `ff9d888` (PR #150). The
 owner approved these goals and lifted the development pause with this
 roadmap. The goals are recorded as an owner decision in
 [decisions.md](../decisions.md).
@@ -27,7 +27,7 @@ update and edit each of them.
   through audited, capability-limited tools. Each domain has a written
   operator guide that any AI can follow.
 - **Today:** a read-only Website inspection MCP and a local Profiles
-  readiness MCP are merged (PR #95). Alpha-1 v5 publishes the read-only
+  readiness MCP are merged (PR #95). Alpha-1 publishes the read-only
   Website endpoint. Authenticated inspection and write tools remain open.
 - **Remaining:** authenticated hosted MCP verification (MCP-2), write tools for each domain
   (MCP-3), and AI operator guides (MCP-4).
@@ -44,21 +44,19 @@ that show the state of profiles, departments and grievances.
 - **Today:** the local research database covers 64 counties (3,256 research
   people, 2,692 organizational units). Nothing has been imported to hosted
   D1. 152 approved banner originals are in the local `banners\approved\`
-  folder. R2 is not provisioned. Public pages show no counts.
-- **Remaining:** research migration 003 and data corrections (DATA-1),
-  eligibility screening and the first hosted sync (SYNC-1), then all
-  counties (SYNC-2), R2 provisioning (R2-1), the banner import
-  (BANNERS-IMPORT-1) and public county counts (STATS-1).
+  folder. R2 is declared in the deployed manifest; runtime attachment and the object round trip remain open (Issue #122). Public pages show no counts.
+- **Remaining:** finish the campaign-2 validation and resolve the intake
+  decision in DATA-1. Research migration 003 and the post-003 restore test
+  are complete. Screen and run the first hosted sync (SYNC-1), then sync all
+  counties (SYNC-2), verify R2 (R2-1), import banners (BANNERS-IMPORT-1) and
+  add public county counts (STATS-1).
 
 ### Goal 3. Universal sign-in and sign-up for admins and editors
 
 - **Done when:** owners, administrators and editors can sign up or be
   invited, sign in on the hosted Site and reach the pages and tools their
   role allows.
-- **Today:** the account model, roles and capability checks are merged. All
-  human sign-in on the hosted Site fails closed because Sites exposes no
-  verified identity to the Worker (AUTH-2). The first owner account has never
-  been created.
+- **Today:** the account model and default-off AUTH-3-WEB source are merged. The separate Auth0/GitHub pilot verified linked browser sign-in, sign-out and disabled-session denial. Alpha-1 sign-in has not been deployed or verified. First-owner and invitation work remain separate.
 - **Remaining:** a verified hosted identity method (AUTH-3), owner bootstrap
   (AUTH-4), and invitation or sign-up for editors and administrators
   (AUTH-5).
@@ -81,14 +79,8 @@ that show the state of profiles, departments and grievances.
 - **Done when:** editors can draft, revise and publish Posts and Stories on
   the hosted Site, and at least the first three installments of "The
   Idlewild Story" are published.
-- **Today:** the content model, revision history, search and a local
-  editorial workspace are merged. There is no hosted editorial sign-in, no
-  publication endpoint and no public rendering of published content.
-- **Remaining:** a publication endpoint and public article pages (EDIT-1),
-  the hosted editorial workspace (EDIT-2, after AUTH-3), and the series
-  itself (CONTENT-1). The owner has about 15 installments already drafted
-  in another AI account. They were never part of Beta-1. The owner supplies
-  them and approves every installment before publication.
+- **Today:** the content model, revision history, search, local editorial workspace, publication endpoint and public article rendering are merged. The EDIT-2 capability-based dashboard shell (Overview, My Account, and Posts & Stories) is merged and verified locally with Lorem Ipsum fixtures ([PR #144](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/144)). Hosted editorial sign-in remains open.
+- **Remaining:** hosted EDIT-2 still depends on Website identity and account access (AUTH-5) and EDIT-1. CONTENT-1 remains paused; the existing real drafts and the launch requirement to publish at least three Idlewild Story installments remain on the backlog.
 
 ### Goal 6. Beta-1 look, search and browse
 
@@ -97,11 +89,8 @@ that show the state of profiles, departments and grievances.
   desktop, tablet and mobile sizes.
 - **Today:** the county map, directory, editorial search and several visual
   fixes are merged. The visual audit's follow-ups VIS-7 to VIS-19 remain.
-  Browsing all people or organizations without a search term is not
-  implemented.
-- **Remaining:** the VIS follow-ups, browse-all (BROWSE-1), the banner
-  carousel (BANNERS-4), and a final visual parity check on the deployed
-  Site (VIS-20).
+  Browse-all is merged in BROWSE-1; hosted populated behavior is still open.
+- **Remaining:** the remaining VIS follow-ups, hosted verification of the merged browse-all and banner carousel work, and the final deployed visual parity check (VIS-20).
 
 ## Shared foundations
 
@@ -109,11 +98,11 @@ Several goals depend on the same hosted groundwork. These come first.
 
 | ID | Work | Unblocks | Status |
 | --- | --- | --- | --- |
-| DEPLOY-1 | Initialize the existing Alpha-1 Website D1 and publish the accepted source | Every hosted goal | Deployed as v5; see CURRENT |
+| DEPLOY-1 | Initialize the existing Alpha-1 Website D1 and publish the accepted source | Every hosted goal | Deployed as v8; see CURRENT |
 | D1-0015 | Apply and verify the Lake and La Plata correction during Alpha-1 initialization | Goal 2 | Hosted registry verified in v5 |
-| AUTH-3 | Verified hosted human identity for sign-in | Goals 3, 4 (staff), 5 | Blocked (Sites identity) |
+| AUTH-3 | Verified hosted human identity for sign-in | Goals 3, 4 (staff), 5 | Pilot hosted checks recorded on #125. Website source merged default-off in #133; hosted Website verification open |
 | MCP-2 | Publish read-only MCP and verify authenticated inspection | Goal 1, hosted D1 administration | Endpoint published; authenticated verification open |
-| R2-1 | Provision the R2 binding on the existing Site | BANNERS-IMPORT-1 | Planned |
+| R2-1 | Provision the R2 binding on the existing Site | BANNERS-IMPORT-1 | Declaration deployed; runtime binding and object verification blocked (Issue #122) |
 
 ## Ordered backlog
 
@@ -156,7 +145,7 @@ is lifted.
 | --- | --- | --- | --- | --- |
 | 15 | SUB-3 | $0 abuse-control provider and hosted guest intake | DEPLOY-1 | 4 |
 | 16 | EDIT-1 | Publication endpoint and public article pages | None (local) | 5 |
-| 17 | EDIT-2 | Hosted editorial workspace | AUTH-5, EDIT-1 | 5 |
+| 17 | EDIT-2 | Capability-based dashboard and editorial workspace | Local foundation merged and verified locally ([PR #144](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/144)); hosted editorial use requires AUTH-5 and EDIT-1 | 5 |
 | 18 | BANNERS-4 | Accessible banner carousel | None (local) | 6 |
 | 19 | BROWSE-1 | Browse all people and organizations without a search term | None (local) | 6 |
 | 20 | VIS-7 to VIS-19 | Visual audit follow-ups | None (local) | 6 |
@@ -165,13 +154,11 @@ is lifted.
 
 | Order | ID | Work | Depends on | Goal |
 | --- | --- | --- | --- | --- |
-| 21 | CONTENT-1 | Bring in the owner's drafts of "The Idlewild Story", then publish at least three installments | EDIT-2 (preparing the drafts can start now) | 5 |
+| 21 | CONTENT-1 | Bring in the owner's drafts of "The Idlewild Story", then publish at least three installments | Paused by owner; hosted EDIT-2 before publication | 5 |
 | 22 | VIS-20 | Visual parity check on the deployed Site | Phase 4 | 6 |
 | 23 | LAUNCH-1 | Launch readiness check against all six goals, then the switch from Beta-1 | All | All |
 
-**Can start now, with no hosted dependency:** DATA-1, EDIT-1, BANNERS-4,
-BROWSE-1, the VIS follow-ups, the DEPLOY-1 assessment, the AUTH-3
-assessment and preparing the Idlewild Story drafts.
+**Can proceed locally:** protected banner API work, SUB-3 and scoped visual-audit follow-ups. The EDIT-2 dashboard foundation is merged and verified locally ([PR #144](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/144)). See CURRENT before assigning work.
 
 ## Owner decisions
 
@@ -185,10 +172,7 @@ Settled on November 14, 2026:
 
 Still open:
 
-1. **Sign-in method (AUTH-3).** Sites does not provide a verified identity.
-   The likely route is a free sign-in provider, such as Sign in with Google.
-   AUTH-3 starts by assessing which free provider works on Sites, and the
-   owner then chooses. This is the largest open risk to Goals 3, 4 and 5.
+1. **Hosted Website sign-in.** Decide the Auth0 tenant and operator, canonical Website origin, and trusted recovery operator. Auth0/GitHub is the implemented default-off Website integration; its hosted verification is separate from the isolated pilot.
 
 ## Maintenance
 

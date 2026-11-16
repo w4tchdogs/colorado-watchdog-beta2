@@ -88,7 +88,12 @@ const CHANGE_FIELDS: Readonly<Record<string, ReadonlySet<string>>> = {
   "create_position:positions": new Set(
     "title organization_id organization_ref".split(" "),
   ),
-  "register_source:role_sources": new Set(["url", "title", "source_type"]),
+  "register_source:role_sources": new Set([
+    "url",
+    "title",
+    "publisher_classification",
+    "source_type",
+  ]),
   "create_person_role:person_roles": new Set(
     "start_date end_date source_checked_at person_id person_ref position_id position_ref source_id source_ref".split(
       " ",

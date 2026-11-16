@@ -11,9 +11,8 @@ dated status update follows them rather than rewriting them.
 modular architecture with one relational Website D1 database, R2 files, and a
 shared dashboard/API/MCP service layer**. This is an owner decision, not a
 proposal, and later planning must not demote MCP to an optional add-on. See
-[CURRENT](coordination/CURRENT.md) for its current implementation state —
-a read-only local foundation is merged; hosted publication and any
-write/sync/import tool are not.
+[CURRENT](coordination/CURRENT.md) for its current implementation,
+publication and hosted verification state.
 
 Current technical assessment: [Fable assessment revision 4](architecture/fable-assessment-rev4.md). See the [revision 4 section](#revision-4-technical-assessment-november-12-2026) below. The first two sections are the earlier decision records and remain as written.
 
@@ -177,3 +176,38 @@ rewriting the history above.
   AUTH-3/AUTH-4 retain provider and first-owner ownership. Establish a
   supported hosted backup and isolated restore before relying on hosted
   D1 for real records.
+
+## Dashboard priority and content pause, November 15, 2026
+
+- Prioritize one WordPress-style Website dashboard for signed-in human account holders, editors, administrators and the owner. Show tabs and actions according to existing server-verified capabilities. The prepared first slice is Overview, My Account and a working Posts & Stories workflow. Use the archived Beta-1 dashboard as a layout and workflow reference.
+- Hold CONTENT-1 and use generic Lorem Ipsum in local editorial fixtures. Keep the real Idlewild drafts private and the existing launch goal on the backlog.
+- The dashboard is the manual operator surface while hosted D1/R2 access and verification are open. The existing Website D1/R2 and shared dashboard/API/MCP backbone still applies. The supplied generic CMS prompt and framework, browser-storage and generic database follow-ups are reference material only. The owner will say when the prepared Fable assignment is initiated.
+
+## Profiles publisher classification and private export, November 15, 2026
+
+- Classify a source publisher as `official` only when the material is published by a government body or issued by it through a verified publishing channel. Classify it as `unofficial` when available evidence establishes a nongovernment publisher. A URL suffix, file extension, or hostname by itself does not establish publisher identity.
+- Keep publisher classification separate from `page_type`, which describes the page or document. Preserve legacy `official_status` values, including `partner` and `other`; never bulk-convert them without source-specific evidence. A linked source with an unestablished publisher remains `unresolved`. A profile with no linked source has a true `null` classification in the export.
+- Preserve all sources and their individual classifications, citation URLs, evidence, attachments, audit history, batch selection, identity links, and organizational relationships during source correction. Do not replace or delete prior classification evidence.
+- Keep Profiles exports private in the owner's Watchdog workspace. Scope to one or more canonical county FIPS codes or an explicit statewide selection before applying the profile limit. One distinct person is one profile record regardless of role count; retain the county and role links for every exported role. Deduplicate a person across selected counties by profile ID.
+- Limit each export to 10,000 distinct profile records. Use deterministic profile-ID ordering, visibly mark truncation, and continue after the last profile ID. Include official and unofficial citations, preserve unresolved publishers as a separate state, and exclude private research notes, raw captures and unrelated personal data.
+- Keep the local Profiles export separate from Website M2 changesets and hosted write controls. This decision does not authorize a hosted migration, sync submission, or public publication.
+
+## Website role citations, November 16, 2026
+
+- One verified public citation from a publisher classified `official` or
+  `unofficial` may support a person-role record when it directly connects the
+  identified person to the documented role. An unofficial role citation does
+  not satisfy or replace official evidence required for identity resolution,
+  organization names, or county affiliations.
+- Keep publisher classification separate from page type. Preserve the role
+  citation URL, title, publisher classification, page type, and verification
+  date in Website sync records. A publisher classified `unresolved` is not an
+  acceptable role citation.
+
+## Profiles database column names, November 16, 2026
+
+Use the approved plain-language names as actual SQLite column identifiers in
+People, Roles, Sources, and their supporting tables. Preserve the original row
+values and evidence, keep the machine-facing CSV and export keys stable, and
+ship the schema migration and updated Profiles tools together. The local
+operator procedure is in [the Profiles foundation guide](research/R0-foundation.md#plain-language-columns-in-db-browser).

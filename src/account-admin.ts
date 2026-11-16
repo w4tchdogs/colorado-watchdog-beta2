@@ -3,7 +3,11 @@ import type { ApplicationServices } from "./services/index.js";
 import { AuthorizationError } from "./services/security.js";
 
 /** Independently mountable account administration surface; no UI framework. */
-export function createAccountAdminModule(services: ApplicationServices) {
+export function createAccountAdminModule(
+  services: ApplicationServices,
+  options: { readonly humanSignIn?: boolean } = {},
+) {
+  const humanSignIn = options.humanSignIn === true;
   return {
     async fetch(request: Request): Promise<Response> {
       const url = new URL(request.url);
@@ -20,14 +24,18 @@ export function createAccountAdminModule(services: ApplicationServices) {
         if (!principal)
           return adminAccessPage(
             401,
-            "Sign in with ChatGPT to continue.",
+            humanSignIn
+              ? "Sign in to continue."
+              : "Human sign-in is not available yet.",
             true,
+            humanSignIn,
           );
         if (!(await services.hasCapability(principal, "account.read")))
           return adminAccessPage(
             403,
             "This Website account is not authorized to manage accounts.",
             false,
+            humanSignIn,
           );
         return new Response(ADMIN_HTML, {
           headers: {
@@ -297,10 +305,13 @@ function adminAccessPage(
   status: 401 | 403,
   message: string,
   canSignIn: boolean,
+  humanSignIn: boolean,
 ): Response {
-  const action = canSignIn
-    ? '<a href="/signin-with-chatgpt?return_to=%2Fadmin%2Faccounts" target="_top">Sign in with ChatGPT</a>'
-    : '<a href="/signout-with-chatgpt?return_to=%2F" target="_top">Sign out</a>';
+  const action = !humanSignIn
+    ? ""
+    : canSignIn
+      ? '<a href="/auth/login?return_to=%2Fadmin%2Faccounts">Sign in</a>'
+      : '<form method="post" action="/auth/logout"><button type="submit">Sign out</button></form>';
   return new Response(
     `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Account access · Colorado Watchdog</title><main><h1>Account management</h1><p>${message}</p>${canSignIn ? "<p>If you have signed in but do not have a Website account yet, ask an owner to provision one.</p>" : ""}<p>${action}</p></main></html>`,
     {
@@ -309,7 +320,9 @@ function adminAccessPage(
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
         "content-security-policy":
-          "default-src 'none'; style-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+          "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        // Same-origin referrers keep the exact Origin on the sign-out POST.
+        "referrer-policy": "same-origin",
         "x-content-type-options": "nosniff",
       },
     },

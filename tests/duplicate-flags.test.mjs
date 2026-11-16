@@ -38,6 +38,7 @@ const source = (clientRef, url = `https://example.invalid/${clientRef}`) => ({
   fields: {
     url,
     title: `Synthetic ${clientRef}`,
+    publisher_classification: "official",
     source_type: "official_page",
   },
 });

@@ -1,8 +1,42 @@
 import { emptyState, pageHeader, searchForm } from "../components.js";
 import { renderCountyMap } from "../county-map.js";
 import { countyTitle } from "../format.js";
-import { html, path, trusted } from "../html.js";
+import { html, path, type SafeHtml, trusted } from "../html.js";
 import type { Page, SiteContext } from "../types.js";
+
+/** Aggregate counts for one county. `null` or missing means not available. */
+export interface CountyCounts {
+  readonly profiles?: number | null;
+  readonly reports?: number | null;
+  readonly grievances?: number | null;
+}
+
+/** A registry entry, optionally carrying aggregate counts for the table. */
+export interface CountyDirectoryEntry {
+  readonly fips: string;
+  readonly name: string;
+  readonly counts?: CountyCounts;
+}
+
+export type CountySortKey = "county" | "profiles" | "reports" | "grievances";
+export type CountySortDirection = "asc" | "desc";
+
+export interface CountySort {
+  readonly key: CountySortKey;
+  readonly direction: CountySortDirection;
+}
+
+const SORT_COLUMNS: readonly { key: CountySortKey; label: string }[] = [
+  { key: "county", label: "County" },
+  { key: "profiles", label: "Listed Profiles" },
+  { key: "reports", label: "Reports" },
+  { key: "grievances", label: "Grievances" },
+];
+
+export const DEFAULT_COUNTY_SORT: CountySort = {
+  key: "county",
+  direction: "asc",
+};
 
 export function matchesCounty(
   county: { fips: string; name: string },
@@ -17,73 +51,165 @@ export function matchesCounty(
   );
 }
 
+const sortName = (name: string) =>
+  countyTitle(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
+const nameThenFips = (
+  left: { fips: string; name: string },
+  right: { fips: string; name: string },
+) =>
+  sortName(left.name).localeCompare(sortName(right.name), "en") ||
+  left.fips.localeCompare(right.fips);
+
+function countValue(
+  county: CountyDirectoryEntry,
+  key: Exclude<CountySortKey, "county">,
+): number | null {
+  const value = county.counts?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Sorts counties for the results table. County sorts alphabetically. Count
+ * columns sort numerically with unavailable counts after known values in
+ * either direction. Ties fall back to county name, then FIPS, ascending.
+ */
+export function sortCounties<T extends CountyDirectoryEntry>(
+  counties: readonly T[],
+  sort: CountySort,
+): T[] {
+  const sign = sort.direction === "asc" ? 1 : -1;
+  return [...counties].sort((left, right) => {
+    if (sort.key === "county") return sign * nameThenFips(left, right);
+    const a = countValue(left, sort.key);
+    const b = countValue(right, sort.key);
+    if (a === null && b !== null) return 1;
+    if (a !== null && b === null) return -1;
+    if (a !== null && b !== null && a !== b) return sign * (a - b);
+    return nameThenFips(left, right);
+  });
+}
+
+/** The map status line for a search. */
+export function matchingStatus(count: number): string {
+  return `${count} matching ${count === 1 ? "county" : "counties"}`;
+}
+
+/** The text beside the search field for a search. */
+export function matchNote(count: number): string {
+  return `${count} ${count === 1 ? "county matches" : "counties match"}`;
+}
+
+export const IDLE_STATUS = "Choose a county";
+export const IDLE_NOTE =
+  "Type a county name or FIPS code to see matching counties.";
+
+function countCell(value: number | null, label: string): SafeHtml {
+  return value === null
+    ? html`<td data-label="${label}"><span aria-hidden="true">–</span><span class="visually-hidden">Unavailable</span></td>`
+    : html`<td data-label="${label}">${value}</td>`;
+}
+
 export async function countiesPage(
   context: SiteContext,
   query: string,
 ): Promise<Page> {
-  const all = await context.services.listCounties();
+  const all: readonly CountyDirectoryEntry[] =
+    await context.services.listCounties();
   const trimmed = query.trim().slice(0, 40);
   const shown = new Set(
     all.filter((county) => matchesCounty(county, trimmed)).map((c) => c.fips),
   );
-  const counties = { length: shown.size };
+  const active = trimmed !== "";
+  const matchCount = active ? shown.size : 0;
   const hiddenUnless = (visible: boolean) => (visible ? "" : trusted("hidden"));
-  const groups = new Map<string, typeof all>();
-  const alphabetic = [...all].sort((left, right) => {
-    const sortName = (name: string) =>
-      countyTitle(name)
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "");
-    return (
-      sortName(left.name).localeCompare(sortName(right.name), "en") ||
-      left.fips.localeCompare(right.fips)
-    );
-  });
+  const alphabetic = sortCounties(all, DEFAULT_COUNTY_SORT);
+  const groups = new Map<string, CountyDirectoryEntry[]>();
   for (const county of alphabetic) {
     const letter = county.name.charAt(0).toUpperCase();
     groups.set(letter, [...(groups.get(letter) ?? []), county]);
   }
   const letters = [...groups.keys()];
-  const groupShown = (letter: string) =>
-    (groups.get(letter) ?? []).some((county) => shown.has(county.fips));
-
-  const body = html`
+  const rows = alphabetic;
+  const showResults = active && matchCount > 0;
+  const body = html`<div class="counties-page">
   ${pageHeader(
-    "Explore Colorado's counties",
-    `All ${all.length} counties from the public county registry, each with its five-digit FIPS code.`,
+    "Explore Colorado’s counties",
+    "Choose a county on the map or search the directory below. County totals reflect incident locations and can overlap; they do not add up to the statewide total.",
     undefined,
-    `${all.length} counties \u00b7 one statewide record`,
+    `${all.length} counties · one statewide record`,
   )}
-  ${renderCountyMap(all, shown)}
+  ${renderCountyMap(all, active ? shown : new Set(), undefined, active ? matchingStatus(matchCount) : IDLE_STATUS)}
   ${searchForm({
     action: "/counties",
     id: "county-search",
-    label: "Filter counties",
+    label: "Search counties",
+    labelHidden: true,
+    placeholder: "Search counties",
     name: "q",
     value: trimmed,
-    button: "Filter",
-    hint: "Type a county name or FIPS code, for example Larimer or 08069.",
+    hint: active ? matchNote(matchCount) : IDLE_NOTE,
+    hintAttributes: html`data-county-note data-idle-note="${IDLE_NOTE}" role="status" aria-live="polite" aria-atomic="true"`,
     maxLength: 40,
     inputAttributes: trusted("data-county-filter"),
   })}
-  <p class="result-count" data-county-count role="status" aria-live="polite">${
-    trimmed === ""
-      ? `Showing all ${all.length} counties.`
-      : `Showing ${counties.length} of ${all.length} counties for "${trimmed}".`
-  }</p>
-  <div data-county-empty ${counties.length === 0 ? "" : trusted("hidden")}>
+  <p class="county-browse"><a class="county-browse-all" href="#county-directory">Browse all ${all.length} counties</a></p>
+  <div data-county-empty ${active && matchCount === 0 ? "" : trusted("hidden")}>
     ${emptyState(
       "No county matches that search",
       "Check the spelling, or try the five-digit FIPS code. Colorado county FIPS codes start with 08.",
-      html`<a class="button button-quiet" href="/counties">Show all counties</a>`,
+      html`<a class="button button-quiet" href="/counties">Clear the search</a>`,
     )}
   </div>
+  <section id="county-results" class="county-results" data-county-results aria-label="Matching counties" ${hiddenUnless(showResults)}>
+    <div class="county-mobile-sort" data-sort-select-wrap hidden>
+      <label for="county-sort">Sort counties</label>
+      <select id="county-sort" data-sort-select>
+        ${SORT_COLUMNS.flatMap(({ key, label }) =>
+          (["asc", "desc"] as const).map(
+            (direction) =>
+              html`<option value="${key}:${direction}" ${key === "county" && direction === "asc" ? trusted("selected") : ""}>${label} · ${direction === "asc" ? "ascending" : "descending"}</option>`,
+          ),
+        )}
+      </select>
+    </div>
+    <table class="county-table" data-county-table>
+      <thead>
+        <tr>
+          ${SORT_COLUMNS.map(
+            ({ key, label }) =>
+              html`<th scope="col" data-sort-key="${key}">${label}</th>`,
+          )}
+          <th scope="col"><span class="visually-hidden">Open county</span></th>
+        </tr>
+      </thead>
+      <tbody data-county-rows>
+        ${rows.map((county) => {
+          const title = countyTitle(county.name);
+          const counts = [
+            ["profiles", "Listed Profiles"],
+            ["reports", "Reports"],
+            ["grievances", "Grievances"],
+          ] as const;
+          return html`<tr data-result-row data-fips="${county.fips}" data-name="${county.name.toLowerCase()} county" data-sort-name="${sortName(county.name)}"
+            ${counts.map(([key]) => trusted(`data-${key}="${countValue(county, key) ?? ""}" `))}
+            ${hiddenUnless(active && shown.has(county.fips))}>
+            <td data-label="County"><a class="county-name-link" href="${path("counties", county.fips)}">${title}</a><span class="county-fips">FIPS ${county.fips}</span></td>
+            ${counts.map(([key, label]) => countCell(countValue(county, key), label))}
+            <td class="county-row-end"><span class="county-row-arrow" aria-hidden="true"></span></td>
+          </tr>`;
+        })}
+      </tbody>
+    </table>
+  </section>
   <section id="county-directory" aria-labelledby="county-directory-title">
   <h2 id="county-directory-title">Search and browse all counties</h2>
   ${
     letters.length > 1
       ? html`<nav class="letter-nav" aria-label="Jump to letter" data-letter-nav><ul>
-          ${letters.map((letter) => html`<li ${hiddenUnless(groupShown(letter))}><a href="#letter-${letter}" data-letter-link="${letter}">${letter}</a></li>`)}
+          ${letters.map((letter) => html`<li><a href="#letter-${letter}" data-letter-link="${letter}">${letter}</a></li>`)}
         </ul></nav>`
       : ""
   }
@@ -91,13 +217,13 @@ export async function countiesPage(
     ${letters.map(
       (
         letter,
-      ) => html`<section class="county-group" data-county-group data-letter="${letter}" aria-labelledby="letter-${letter}" ${hiddenUnless(groupShown(letter))}>
+      ) => html`<section class="county-group" data-county-group data-letter="${letter}" aria-labelledby="letter-${letter}">
         <h2 id="letter-${letter}" tabindex="-1">${letter}</h2>
         <ul class="county-list">
           ${(groups.get(letter) ?? []).map(
             (
               county,
-            ) => html`<li data-county data-name="${county.name.toLowerCase()} county" data-fips="${county.fips}" ${hiddenUnless(shown.has(county.fips))}>
+            ) => html`<li data-county data-name="${county.name.toLowerCase()} county" data-fips="${county.fips}">
               <a href="${path("counties", county.fips)}">
                 <span class="county-name">${countyTitle(county.name)}</span>
                 <span class="fips">FIPS ${county.fips}</span>
@@ -109,7 +235,7 @@ export async function countiesPage(
     )}
   </div>`;
 
-  const completeBody = html`${body}</section>`;
+  const completeBody = html`${body}</section></div>`;
 
   return {
     title: "Colorado counties",

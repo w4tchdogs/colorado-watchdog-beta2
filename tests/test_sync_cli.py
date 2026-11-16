@@ -78,6 +78,27 @@ class SyncCliTests(unittest.TestCase):
         self.assertNotIn("private_note", encoded)
         self.assertNotIn("raw_research", encoded)
 
+    def test_county_eligibility_passes_fips_before_cap_and_reports_claim_gates_separately(self):
+        plan = generated()
+        plan.update({"county_fips": "08001", "planned_operations_by_entity": {"people": 1},
+                     "exclusion_counts_by_reason": {"identity_unresolved": 1},
+                     "eligibility_summary": {"role_claims_in_scope": 8,
+                         "role_claims_skipped_by_batch_selection": 3, "role_claims_evaluated": 5,
+                         "role_claims_excluded": 1, "role_claims_planned": 1,
+                         "distinct_people_in_scope": 4,
+                         "distinct_people_in_selected_batches": 2,
+                         "distinct_people_with_planned_roles": 1}})
+        with patch.object(cli.sync, "build_changeset", return_value=plan) as build:
+            result, _ = self.run_command("sync-eligibility", site_key=SITE,
+                                         max_changes=17, county_fips="08001")
+        build.assert_called_once()
+        self.assertEqual(build.call_args.args[1], SITE)
+        self.assertEqual(build.call_args.kwargs, {"max_changes": 17, "county_fips": "08001"})
+        self.assertEqual(result["scope"], {"county_fips": "08001", "applied_before_changeset_cap": True})
+        self.assertEqual(result["eligibility"]["role_claims_skipped_by_batch_selection"], 3)
+        self.assertEqual(result["planned_operations"], 1)
+        self.assertFalse(result["truncated"])
+
     def test_prepare_requires_fingerprint_and_is_idempotent(self):
         plan = generated()
         with patch.object(cli.sync, "build_changeset", return_value=plan):

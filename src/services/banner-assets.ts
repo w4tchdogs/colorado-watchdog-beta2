@@ -10,8 +10,27 @@ import { insertAuditEvent, runAuditedMutation } from "./audit.js";
 import { type ImmutableObjectStorage, sha256Hex } from "./banner-storage.js";
 import { hasCapability, type TrustedPrincipal } from "./security.js";
 
+/** Stable machine-readable reasons a banner change was refused as a conflict. */
+export type BannerConflictCode =
+  | "conflict"
+  | "stale_version"
+  | "idempotency_conflict"
+  | "banner_not_found"
+  | "banner_exists"
+  | "version_not_publishable"
+  | "object_verification_failed"
+  | "duplicate_image"
+  | "order_conflict"
+  | "publication_mismatch"
+  | "invalid_state"
+  | "needs_reconciliation"
+  | "snapshot_required";
+
 export class BannerConflictError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly code: BannerConflictCode = "conflict",
+  ) {
     super(message);
     this.name = "BannerConflictError";
   }
@@ -32,7 +51,7 @@ function authorized(
     throw new Error("Banner mutation is not authorized");
 }
 
-function validText(value: string, name: string, limit: number): void {
+export function validText(value: string, name: string, limit: number): void {
   if (typeof value !== "string" || value.length > limit || value.includes("\0"))
     throw new BannerValidationError(`Invalid ${name}`);
 }

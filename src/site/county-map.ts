@@ -78,6 +78,7 @@ export function renderCountyMap(
   counties: readonly { fips: string; name: string }[],
   matches: ReadonlySet<string>,
   map: CountyMapGeometry = COUNTY_MAP,
+  status = "Choose a county",
 ): SafeHtml {
   if (!validateCountyMap(counties, map)) {
     return html`<p class="county-map-fallback" role="note">
@@ -89,6 +90,7 @@ export function renderCountyMap(
   return html`<figure class="county-map-figure">
     <a class="county-map-skip" href="#county-directory">Skip the map and browse all 64 counties</a>
     <div class="county-map-frame">
+      <p class="county-map-status" data-map-status>${status}</p>
       <svg class="county-map" viewBox="${map.viewBox}" role="group"
         aria-labelledby="county-map-title" aria-describedby="county-map-description">
         <title id="county-map-title">Interactive map of Colorado counties</title>
@@ -105,10 +107,9 @@ export function renderCountyMap(
           </a>`;
         })}
       </svg>
+      <figcaption class="county-map-caption">
+        Boundaries: Colorado Department of Transportation. Simplified for navigation. Use the searchable directory for small counties and keyboard navigation.
+      </figcaption>
     </div>
-    <figcaption class="county-map-caption">
-      <span data-map-status aria-live="polite">Select a county, or search the directory below.</span>
-      <span>Map boundaries are illustrative and for navigation only; they are not legal or surveying boundaries. Source: Colorado Department of Transportation.</span>
-    </figcaption>
   </figure>`;
 }

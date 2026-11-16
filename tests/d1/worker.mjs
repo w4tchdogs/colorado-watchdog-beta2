@@ -8,6 +8,9 @@ import {
 import { D1ReportIntakeStore } from "../../src/services/report-intake-d1.ts";
 import { commitSyncChangesetD1 } from "../../src/services/sync-commit-d1.ts";
 import { reverseSyncBatchD1 } from "../../src/services/sync-revert-d1.ts";
+import { runBannerAdminChecks } from "./banner-admin-checks.mjs";
+import { runBannerApiChecks } from "./banner-api-checks.mjs";
+import { runBannerPublishChecks } from "./banner-publish-checks.mjs";
 
 const json = (value, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -163,6 +166,22 @@ export default {
         reportId,
         reference: first.receipt.reference,
       });
+    }
+    if (url.pathname === "/banners/verify" && request.method === "POST") {
+      try {
+        const fixtures = await request.json();
+        const admin = await runBannerAdminChecks(env, fixtures);
+        const publish = await runBannerPublishChecks(env, fixtures);
+        const api = await runBannerApiChecks(env, fixtures);
+        return json({
+          success: true,
+          checks: admin.checks,
+          publishChecks: publish.checks,
+          apiChecks: api.checks,
+        });
+      } catch (error) {
+        return json({ success: false, error: String(error) }, 500);
+      }
     }
     if (url.pathname === "/sync/setup" && request.method === "POST") {
       await env.DB.prepare(`INSERT INTO accounts (id, kind, role, display_name)
@@ -727,12 +746,12 @@ export default {
     ).all();
     check(
       "ordered custom migration history and checksums",
-      history.results?.length === 18 &&
+      history.results?.length === 21 &&
         history.results.every(
           (row, index) =>
             row.version === index + 1 &&
             row.name ===
-              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake", "owner_bootstrap_audit", "correct_lake_la_plata_county_names", "banner_homepage_curation", "content_publication", "report_challenge_claims"][index]}.sql` &&
+              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake", "owner_bootstrap_audit", "correct_lake_la_plata_county_names", "banner_homepage_curation", "content_publication", "banner_publications", "human_sign_in", "role_source_publisher_classification", "report_challenge_claims"][index]}.sql` &&
             /^[0-9a-f]{64}$/.test(row.sha256),
         ),
     );
@@ -1055,7 +1074,7 @@ export default {
           'transaction_guard', 'transaction_guard_assertions', 'guard_probe_writes',
           'website_write_assertions', 'reports', 'report_receipts', 'report_idempotency',
           'report_evidence', 'report_status_history', 'report_audit',
-          'owner_bootstrap_audit', 'report_challenge_claims')`).all();
+          'owner_bootstrap_audit', 'auth_login_transactions', 'auth_sessions', 'report_challenge_claims')`).all();
     const triggerCoverage = new Map();
     for (const trigger of generationTriggers.results ?? []) {
       const operations = triggerCoverage.get(trigger.tbl_name) ?? new Set();
@@ -1074,10 +1093,10 @@ export default {
       },
     );
     check(
-      "generation triggers cover all 26 dependency tables",
-      generationTriggers.results?.length === 78 &&
-        dependencyTables.results?.length === 26 &&
-        triggerCoverage.size === 26 &&
+      "generation triggers cover all 28 dependency tables",
+      generationTriggers.results?.length === 84 &&
+        dependencyTables.results?.length === 28 &&
+        triggerCoverage.size === 28 &&
         completeCoverage,
     );
     await env.DB.prepare(`INSERT INTO accounts (id, kind, role, display_name)

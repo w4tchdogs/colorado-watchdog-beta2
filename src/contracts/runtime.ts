@@ -1,7 +1,8 @@
+import type { HumanSignInEnvironment } from "../auth/config.js";
 import type { D1Binding } from "../database/d1.js";
 import type { R2BucketLike } from "../services/banner-storage.js";
 
-export interface RuntimeEnvironment {
+export interface RuntimeEnvironment extends HumanSignInEnvironment {
   readonly APP_ENV?: string;
   /** Test-only switch; ignored outside the disposable local test Worker. */
   readonly REPORTS_TEST_ABUSE_CONTROL?: string;

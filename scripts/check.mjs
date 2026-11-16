@@ -53,6 +53,8 @@ const allowed = new Set([
   "src/site/components.ts",
   "src/site/index.ts",
   "src/site/banner.ts",
+  "src/services/banner-admin-d1.ts",
+  "src/services/banner-image-inspector.ts",
   "src/site/county-nav.ts",
   "src/site/pages/officials.ts",
   "src/contracts/officials-directory.ts",
@@ -61,6 +63,15 @@ const allowed = new Set([
   "tests/officials-directory.test.mjs",
   "src/site-dev/banner-fixtures.ts",
   "tests/site-banner.test.mjs",
+  "tests/banner-image-inspector.test.mjs",
+  "tests/d1/banner-admin-checks.mjs",
+  "tests/d1/banner-api-checks.mjs",
+  "tests/banner-admin-api.test.mjs",
+  "src/transport/banner-admin-api.ts",
+  "docs/architecture/banner-admin-api.md",
+  "tests/d1/banner-publish-checks.mjs",
+  "tests/d1/banner-admin-fixtures.mjs",
+  "docs/architecture/banner-admin-service.md",
   "website/site/BRAND-ASSETS.md",
   "src/site/pages/home.ts",
   "src/site/pages/counties.ts",
@@ -92,6 +103,7 @@ const allowed = new Set([
   "website/site/report-demo.js",
   "tests/site-fixtures.mjs",
   "tests/site-pages.test.mjs",
+  "tests/site-counties-search.test.mjs",
   "tests/site-directory.test.mjs",
   "tests/site-safety.test.mjs",
   "tests/report-interface.test.mjs",
@@ -114,6 +126,7 @@ const allowed = new Set([
   "src/worker.ts",
   "src/contracts/runtime.ts",
   "src/contracts/banner-assets.ts",
+  "src/contracts/banner-administration.ts",
   "src/contracts/directory.ts",
   "src/contracts/organization-profile.ts",
   "src/contracts/person-profile.ts",
@@ -176,7 +189,21 @@ const allowed = new Set([
   "website/migrations/0015_correct_lake_la_plata_county_names.sql",
   "website/migrations/0016_banner_homepage_curation.sql",
   "website/migrations/0017_content_publication.sql",
-  "website/migrations/0018_report_challenge_claims.sql",
+  "website/migrations/0018_banner_publications.sql",
+  "website/migrations/0019_human_sign_in.sql",
+  "website/migrations/0020_role_source_publisher_classification.sql",
+  "website/migrations/0021_report_challenge_claims.sql",
+  "src/auth/config.ts",
+  "src/auth/http.ts",
+  "src/auth/identity.ts",
+  "src/auth/oidc.ts",
+  "src/auth/routes.ts",
+  "src/auth/store.ts",
+  "tests/auth-fixtures.mjs",
+  "tests/auth-oidc.test.mjs",
+  "tests/auth-signin.test.mjs",
+  "tests/d1/human-sign-in-checks.mjs",
+  "docs/architecture/human-sign-in.md",
   "src/services/report-challenge.ts",
   "src/site/turnstile-widget.ts",
   "tests/report-challenge.test.mjs",
@@ -212,6 +239,7 @@ const allowed = new Set([
   "tests/banner-public.test.mjs",
   "website/migrations/0016_banner_homepage_curation.sql",
   "website/migrations/0017_content_publication.sql",
+  "website/migrations/0018_banner_publications.sql",
   "website/editor/index.html",
   "website/editor/editor.css",
   "src/editor/api-client.ts",
@@ -219,6 +247,16 @@ const allowed = new Set([
   "src/editor/diff.ts",
   "src/editor/dom.ts",
   "src/editor/main.ts",
+  "src/editor/dashboard.ts",
+  "src/editor/dashboard-client.ts",
+  "src/editor/dashboard-views.ts",
+  "src/contracts/dashboard.ts",
+  "src/services/dashboard.ts",
+  "src/transport/dashboard-api.ts",
+  "website/editor/dashboard.css",
+  "tests/dashboard.test.mjs",
+  "tests/dashboard-ui.test.mjs",
+  "docs/architecture/dashboard.md",
   "src/editor/markdown.ts",
   "src/editor/preview.ts",
   "src/editor-dev/sandbox.ts",
@@ -271,10 +309,16 @@ const allowed = new Set([
   "research/operator.py",
   "research/identity.py",
   "research/identity_triage.py",
+  "research/source_types.py",
+  "research/publisher.py",
+  "research/export.py",
+  "research/batch_selection.py",
   "research/structure.py",
   "research/migrations/001_foundation.sql",
   "research/migrations/002_durable_site_submissions.sql",
   "research/migrations/003_site_entity_reconciliation.sql",
+  "research/migrations/004_publisher_classification.sql",
+  "research/migrations/005_plain_language_profile_columns.sql",
   "tests/__init__.py",
   "tests/research_fixtures.py",
   "tests/test_research.py",
@@ -291,7 +335,15 @@ const allowed = new Set([
   "tests/test_identity_bootstrap.py",
   "tests/test_identity_foundation.py",
   "tests/test_identity_triage.py",
+  "tests/test_source_types.py",
+  "tests/test_publisher_classification.py",
+  "tests/test_profiles_export.py",
+  "tests/test_batch_selection.py",
+  "tests/test_batch_selection_cli.py",
+  "tests/test_sync_county_scope.py",
   "docs/research/identity-backlog-triage.md",
+  "docs/research/source-page-types.md",
+  "docs/research/publisher-classification-and-private-export.md",
   "docs/research/R0-foundation.md",
   "docs/research/legacy-csv-compatibility.md",
   "docs/research/csv-intake.md",
@@ -391,14 +443,18 @@ for (const file of files) {
   if (!["100644", "100755"].includes(mode))
     errors.push(`Non-regular file: ${file}`);
   const bytes = staged ? git("show", `:${file}`) : readFileSync(file);
-  // Large files have scoped limits: the lockfile, bundled county geometry and
-  // the repository copy of the Fable revision 4 assessment.
+  // Large files have scoped limits: the lockfile, bundled county geometry, the
+  // repository copy of the Fable revision 4 assessment, the banner
+  // administration service, and the local research CLI and identity planner.
   const sizeLimit =
     file === "package-lock.json"
       ? 256 * 1024
       : file === "src/site/colorado-county-map.json"
         ? 1024 * 1024
-        : file === "docs/architecture/fable-assessment-rev4.md"
+        : file === "docs/architecture/fable-assessment-rev4.md" ||
+            file === "src/services/banner-admin-d1.ts" ||
+            file === "research/__main__.py" ||
+            file === "research/identity.py"
           ? 96 * 1024
           : 64 * 1024;
   if (bytes.length > sizeLimit)

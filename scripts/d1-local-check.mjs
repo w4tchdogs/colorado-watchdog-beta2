@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { bannerAdminFixtures } from "../tests/d1/banner-admin-fixtures.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const config = join(root, "wrangler.d1-test.toml");
@@ -36,7 +37,10 @@ const migrations = [
   "0015_correct_lake_la_plata_county_names.sql",
   "0016_banner_homepage_curation.sql",
   "0017_content_publication.sql",
-  "0018_report_challenge_claims.sql",
+  "0018_banner_publications.sql",
+  "0019_human_sign_in.sql",
+  "0020_role_source_publisher_classification.sql",
+  "0021_report_challenge_claims.sql",
 ];
 
 function runWrangler(args) {
@@ -260,7 +264,7 @@ async function main() {
     "--persist-to",
     freshPersist,
     "--command",
-    `SELECT CASE WHEN (SELECT COUNT(*) FROM schema_migrations) = 18 AND ${historyChecks} AND (SELECT COUNT(*) FROM counties) = 64 AND (SELECT name FROM counties WHERE fips='08065') = 'Lake' AND (SELECT name FROM counties WHERE fips='08067') = 'La Plata' AND (SELECT COUNT(*) FROM content_revisions) = 0 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('content_items','content_item_counties','content_item_people','content_item_organizations','content_revisions')) = 5 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('banner_assets','banner_asset_versions','banner_stage_operations')) = 3 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('reports','report_receipts','report_idempotency','report_evidence','report_status_history','report_audit')) = 6 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='content_revisions_editor') = 1 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('content_revisions_no_update','content_revisions_no_delete','content_revisions_match_current')) = 3 AND (SELECT generation FROM website_dependency_generation WHERE id = 1) = 3 THEN 'PASS fresh migration history, checksums, schema, and corrected county registry' ELSE 'FAIL fresh migration verification' END AS result;`,
+    `SELECT CASE WHEN (SELECT COUNT(*) FROM schema_migrations) = 21 AND ${historyChecks} AND (SELECT COUNT(*) FROM counties) = 64 AND (SELECT name FROM counties WHERE fips='08065') = 'Lake' AND (SELECT name FROM counties WHERE fips='08067') = 'La Plata' AND (SELECT COUNT(*) FROM content_revisions) = 0 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('content_items','content_item_counties','content_item_people','content_item_organizations','content_revisions')) = 5 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('banner_assets','banner_asset_versions','banner_stage_operations','banner_publications','banner_admin_operations')) = 5 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('reports','report_receipts','report_idempotency','report_evidence','report_status_history','report_audit')) = 6 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='content_revisions_editor') = 1 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('content_revisions_no_update','content_revisions_no_delete','content_revisions_match_current')) = 3 AND (SELECT generation FROM website_dependency_generation WHERE id = 1) = 3 THEN 'PASS fresh migration history, checksums, schema, and corrected county registry' ELSE 'FAIL fresh migration verification' END AS result;`,
   ]);
   if (!freshOutput.includes("PASS fresh migration history")) {
     throw new Error(`Fresh local D1 verification failed:\n${freshOutput}`);
@@ -484,6 +488,7 @@ async function main() {
           fields: {
             url: "https://example.invalid/d1-async",
             title: "Synthetic async source",
+            publisher_classification: "official",
             source_type: "official_page",
           },
         },
@@ -1101,6 +1106,29 @@ async function main() {
       "PASS async D1 injected record, batch item, duplicate observation, and audit failures roll back all state",
     );
 
+    const bannerResponse = await fetch(`${base}/banners/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(bannerAdminFixtures()),
+    });
+    const bannerCheck = await bannerResponse.json();
+    if (!bannerResponse.ok || !bannerCheck.success) {
+      throw new Error(
+        `Local D1 banner administration verification failed: ${JSON.stringify(bannerCheck)}`,
+      );
+    }
+    console.log(
+      `PASS D1 banner administration: ${bannerCheck.checks.length} checks for authority, bounded reads, image inspection, idempotent staging, storage failure and lost-authority reconciliation`,
+    );
+
+    console.log(
+      `PASS D1 banner publication: ${bannerCheck.publishChecks.length} checks for publish, replace, restore with recorded text, withdraw, metadata, order, stale writes, corrupt objects, lost authority and history immutability`,
+    );
+
+    console.log(
+      `PASS D1 banner administration API: ${bannerCheck.apiChecks.length} checks for denial, origin, stage, private preview, publish, replace, restore, stale and idempotent writes, corrupt and missing objects, storage failure and revocation after the permission check`,
+    );
+
     const write = await fetch(`${base}/write`, { method: "POST" });
     const inserted = await write.json();
     const read = await fetch(`${base}/read`);
@@ -1111,7 +1139,7 @@ async function main() {
       );
     }
     console.log(
-      `PASS local Wrangler D1: migrations 0001–0018; ${detail.checks.length} API checks; state persisted across requests`,
+      `PASS local Wrangler D1: migrations 0001–0021; ${detail.checks.length} API checks; state persisted across requests`,
     );
   } finally {
     if (process.platform === "win32" && worker.pid) {

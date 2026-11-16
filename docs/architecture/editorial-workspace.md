@@ -2,6 +2,8 @@
 
 A local, visual workspace for creating, editing, previewing, organizing and restoring fictional Posts and Stories. It drives the real M3-B content service through the real internal editorial transport. It is a development sandbox. It publishes nothing, adds no public page and grants no production access.
 
+Since the EDIT-2 local slice the workspace runs inside the dashboard shell as the Posts & Stories tab. The shell, the roles and the access rules are described in [dashboard.md](dashboard.md). The workspace addresses below are now under `#/posts`.
+
 ## Launch on Windows
 
 Requirements: Node.js 22 and a modern browser (Edge, Chrome or Firefox).
@@ -22,7 +24,7 @@ To use another port, set `EDITOR_PORT` first: in PowerShell `$env:EDITOR_PORT = 
 - **Editor:** title, summary and Markdown body with a live preview. The status line shows `Unsaved changes`, `Saving...` or `All changes saved`, plus the current version. Archived articles show a banner and are read-only until restored to a draft.
 - **Relationships (M3-E):** three search pickers find counties, people and organizations by displayed name, so no ID has to be memorized or typed. Each result shows its identity before it is chosen, and selections are always stable IDs, never names. See [Relationship discovery](#relationship-discovery-m3-e).
 - **Revision history:** each saved version with change type, time, editing account and a `Current` marker. `View` opens a read-only historical revision with preview, an optional comparison with the current draft and a confirmed `Restore this revision`, which creates a new version.
-- **Acting as:** the top-right selector switches the synthetic sandbox account. Avery Author and Eli Editor may edit. Riley Reader has no editorial permission and Rene Retired is a disabled account, so both show how denials look. Switching accounts is a sandbox convenience only.
+- **Acting as:** the selector in the yellow sandbox strip switches the synthetic sandbox account. Avery Author and Eli Editor hold the editor role and may edit, as may Ada Administrator and Olive Owner. Riley Reader is a contributor with no editorial permission and Rene Retired is a disabled account, so both show how denials look. Switching accounts is a sandbox convenience only.
 
 ## Safe Markdown preview
 
@@ -39,7 +41,7 @@ Every mutation sends the expected version. On a stale version the UI never overw
 - The M3-E lookup (`POST /sandbox/lookup`) is read-only, bounded and sandbox-only. It needs the same token, same-origin checks and an authorized sandbox account as the editorial API.
 - A random per-launch token is embedded in the served page and required on every API call. Calls must be same-origin: `Origin` must match when present, `Sec-Fetch-Site` must be `same-origin` when present, and POSTs need one of them.
 - A strict Content Security Policy (`default-src 'none'`, scripts, styles and connections from self only, no images, no framing), `nosniff` and `no-store`.
-- Authorization is the unchanged M3-B design: the host supplies a trusted principal, a development-only allow policy names the two editing accounts, and the service keeps its own default-deny policy. Responses are never treated as permission by the UI.
+- Authorization is the unchanged M3-B design: the host supplies a trusted principal and the service keeps its own default-deny policy. The sandbox policy allows a synthetic test principal only while its role holds the existing `content.publish` capability. Responses are never treated as permission by the UI.
 - The editorial API is not registered in `src/application.ts` or `src/worker.ts`. The sandbox code lives in `src/editor-dev` and `scripts/editor-dev.mjs`.
 
 ## Tests

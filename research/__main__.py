@@ -10,7 +10,8 @@ from pathlib import Path
 
 from research import operator
 from research import identity
-from research import identity_triage
+from research import identity_triage, source_types, publisher, export as profiles_export
+from research import batch_selection
 from research import submission, sync
 from research.backup import backup_database, restore_database
 from research.db import connect, migrate, seed_counties, validate_database, validate_migration_history
@@ -33,6 +34,7 @@ def parser_for():
 
     database_command("init", "exclusively create and initialize an empty database")
     database_command("check", "validate an existing database without writing")
+    database_command("migrate", "apply pending checksum-verified research schema migrations")
     database_command("seed-counties", "explicitly seed the canonical public Colorado county registry")
     backup = database_command("backup", "create an authenticated SQLite-consistent encrypted backup")
     backup.add_argument("destination", type=Path, help="New encrypted artifact path outside the checkout")
@@ -221,6 +223,67 @@ def parser_for():
     triage_verify.add_argument("--report", type=Path, required=True)
     triage_verify.add_argument("--expect-report-sha256", required=True)
 
+    page_preview = database_command("preview-source-types", "create a read-only plan that sets sources.page_type")
+    page_preview.add_argument("--output", type=Path, required=True,
+                              help="New private plan path outside the checkout")
+    page_apply = database_command("apply-source-types", "apply one hash-checked page type plan")
+    page_apply.add_argument("--plan", type=Path, required=True)
+    page_apply.add_argument("--expect-plan-sha256", required=True)
+    page_apply.add_argument("--actor", default=source_types.ACTOR_DEFAULT)
+    page_verify = database_command("verify-source-types", "verify a page type plan was applied")
+    page_verify.add_argument("--plan", type=Path, required=True)
+    page_verify.add_argument("--expect-plan-sha256", required=True)
+
+    publisher_preview = database_command("preview-publisher-classifications", "create a read-only evidence-led source publisher plan")
+    publisher_preview.add_argument("--output", type=Path, required=True,
+                                   help="New private plan path outside the source checkout")
+    publisher_apply = database_command("apply-publisher-classifications", "apply one hash-checked publisher plan")
+    publisher_apply.add_argument("--plan", type=Path, required=True)
+    publisher_apply.add_argument("--expect-plan-sha256", required=True)
+    publisher_apply.add_argument("--actor", default=publisher.ACTOR_DEFAULT)
+    publisher_verify = database_command("verify-publisher-classifications", "verify a publisher classification plan")
+    publisher_verify.add_argument("--plan", type=Path, required=True)
+    publisher_verify.add_argument("--expect-plan-sha256", required=True)
+
+    publisher_classify = database_command("classify-publisher", "classify one publisher using source-specific evidence")
+    publisher_classify.add_argument("--source-id", required=True)
+    publisher_classify.add_argument("--classification", choices=operator.PUBLISHER_CLASSIFICATIONS, required=True)
+    publisher_classify.add_argument("--evidence-id", required=True)
+    publisher_classify.add_argument("--actor", required=True)
+    publisher_classify.add_argument("--basis", required=True)
+
+    selection_preview = database_command("preview-batch-selection", "write a private hash-checked batch selection plan")
+    selection_target = selection_preview.add_mutually_exclusive_group(required=True)
+    selection_target.add_argument("--batch-id", help="Select this existing family member")
+    selection_target.add_argument("--clear-family-id", help="Plan to leave this batch family with no selection")
+    selection_preview.add_argument("--actor", required=True)
+    selection_preview.add_argument("--reason", required=True)
+    selection_preview.add_argument("--output", type=Path, required=True,
+                                   help="New private plan path outside the source checkout")
+
+    selection_apply = database_command("apply-batch-selection", "apply one exact reviewed batch selection plan")
+    selection_apply.add_argument("--plan", type=Path, required=True)
+    selection_apply.add_argument("--expect-plan-sha256", required=True)
+
+    reversal_preview = database_command("preview-batch-selection-reversal", "write a private plan to reverse the latest family selection")
+    reversal_preview.add_argument("--event-id", required=True)
+    reversal_preview.add_argument("--actor", required=True)
+    reversal_preview.add_argument("--reason", required=True)
+    reversal_preview.add_argument("--output", type=Path, required=True,
+                                  help="New private plan path outside the source checkout")
+
+    reversal_apply = database_command("apply-batch-selection-reversal", "apply one exact reviewed selection reversal")
+    reversal_apply.add_argument("--plan", type=Path, required=True)
+    reversal_apply.add_argument("--expect-plan-sha256", required=True)
+
+    profile_export = database_command("profiles-export", "write a private, county-scoped Profiles export")
+    scope = profile_export.add_mutually_exclusive_group(required=True)
+    scope.add_argument("--county", action="append", help="Canonical five-digit county FIPS; repeat to select several")
+    scope.add_argument("--statewide", action="store_true", help="Explicitly select statewide scope")
+    profile_export.add_argument("--output", type=Path, required=True, help="New private output path outside the source checkout")
+    profile_export.add_argument("--limit", type=int, default=profiles_export.MAX_PROFILE_EXPORT)
+    profile_export.add_argument("--after-profile-id", help="Resume after the last profile ID in the previous page")
+
     for name, help_text in (
         ("sync-eligibility", "inspect bounded Website synchronization eligibility"),
         ("sync-preview", "preview a deterministic Website changeset without writing"),
@@ -228,6 +291,7 @@ def parser_for():
         command = database_command(name, help_text)
         command.add_argument("--site-key", required=True)
         command.add_argument("--max-changes", type=int, default=200)
+        command.add_argument("--county-fips", help="Optional canonical Colorado county FIPS, scoped before the 200-operation cap")
 
     database_command(
         "mcp-readiness-summary",
@@ -269,8 +333,11 @@ def _absolute_external_path(candidate, parser, label):
     return _external_path(candidate, parser, label)
 
 
-def _sync_preview(db, site_key, max_changes):
-    generated = sync.build_changeset(db, site_key, max_changes=max_changes)
+def _sync_preview(db, site_key, max_changes, county_fips=None):
+    kwargs = {"max_changes": max_changes}
+    if county_fips is not None:
+        kwargs["county_fips"] = county_fips
+    generated = sync.build_changeset(db, site_key, **kwargs)
     fingerprint = hashlib.sha256(
         json.dumps(generated["request"], ensure_ascii=False, sort_keys=True,
                    separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -352,7 +419,8 @@ def _sync_command(args, path):
     db = _read_only(path) if read_only else connect(path)
     try:
         if args.command in {"sync-eligibility", "sync-preview"}:
-            generated, fingerprint = _sync_preview(db, args.site_key, args.max_changes)
+            generated, fingerprint = _sync_preview(
+                db, args.site_key, args.max_changes, getattr(args, "county_fips", None))
             result = {
                 "mode": args.command,
                 "status": "previewed",
@@ -365,6 +433,12 @@ def _sync_command(args, path):
                     "updates": "require_approved_evidence_and_current_website_version",
                 },
                 "truncated": generated["truncated"],
+                "scope": {"county_fips": generated.get("county_fips"),
+                          "applied_before_changeset_cap": generated.get("county_fips") is not None},
+                "eligibility": generated.get("eligibility_summary", {}),
+                "planned_operations": generated["eligible_count"],
+                "planned_operations_by_entity": generated.get("planned_operations_by_entity", {}),
+                "exclusion_counts_by_reason": generated.get("exclusion_counts_by_reason", {}),
                 "excluded": generated["excluded"][:200],
             }
             if args.command == "sync-preview":
@@ -612,10 +686,68 @@ def main(argv=None):
         _absolute_external_path(args.plan, parser, "Private identity plan")
     if args.command.startswith("sync-"):
         _absolute_external_path(args.database, parser, "Research database")
+    if args.command in {"preview-batch-selection", "apply-batch-selection",
+                        "preview-batch-selection-reversal", "apply-batch-selection-reversal"}:
+        _absolute_external_path(args.database, parser, "Research database")
+        if hasattr(args, "output"):
+            _absolute_external_path(args.output, parser, "Private batch selection plan")
+        if hasattr(args, "plan"):
+            _absolute_external_path(args.plan, parser, "Private batch selection plan")
     if args.command == "mcp-readiness-summary":
         _absolute_external_path(args.database, parser, "Research database")
     if args.command == "quarantine-invalid":
         _external_path(args.root, parser, "Quarantine roots")
+    if args.command in {"preview-batch-selection", "preview-batch-selection-reversal"}:
+        try:
+            db = _read_only(path)
+            try:
+                if args.command == "preview-batch-selection":
+                    plan = batch_selection.build_selection_plan(
+                        db, batch_id=args.batch_id, family_id=args.clear_family_id,
+                        actor=args.actor, rationale=args.reason)
+                else:
+                    plan = batch_selection.build_reversal_plan(
+                        db, event_id=args.event_id, actor=args.actor, rationale=args.reason)
+            finally:
+                db.close()
+            file_sha256 = batch_selection.write_plan(
+                plan, args.output, repository_root=Path(__file__).resolve().parents[1])
+            print(json.dumps({"mode": args.command, "status": "previewed",
+                              "plan_path": str(args.output.resolve()),
+                              "plan_file_sha256": file_sha256,
+                              "plan_sha256": plan["plan_sha256"], "action": plan["action"],
+                              "family_id": plan["family_id"], "county_fips": plan["county_fips"],
+                              "before_batch_id": plan["before_batch_id"],
+                              "after_batch_id": plan["after_batch_id"],
+                              "replaced_batch_id": plan["before_batch_id"],
+                              "reverses_event_id": plan["reverses_event_id"]},
+                             ensure_ascii=False, sort_keys=True))
+            return 0
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "batch_selection_preview_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command in {"apply-batch-selection", "apply-batch-selection-reversal"}:
+        try:
+            if not re.fullmatch(r"[0-9a-fA-F]{64}", args.expect_plan_sha256):
+                raise ValueError("--expect-plan-sha256 must be a 64-character SHA-256 value")
+            plan = batch_selection.read_plan(
+                args.plan, repository_root=Path(__file__).resolve().parents[1])
+            if plan["plan_sha256"] != args.expect_plan_sha256.lower():
+                raise ValueError("Expected plan SHA-256 does not match the inspected plan")
+            db = connect(path)
+            try:
+                result = batch_selection.apply_plan(
+                    db, plan, expected_sha256=args.expect_plan_sha256.lower())
+            finally:
+                db.close()
+            print(json.dumps({"mode": args.command, "plan_sha256": plan["plan_sha256"], **result},
+                             ensure_ascii=False, sort_keys=True))
+            return 0
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "batch_selection_apply_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
     if args.command == "init":
         try:
             with path.open("xb"):
@@ -753,6 +885,118 @@ def main(argv=None):
             print(json.dumps(_json_error(args.command, "identity_triage_preview_failed", str(error)),
                              ensure_ascii=False, sort_keys=True))
             return 2
+    if args.command == "preview-source-types":
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.output, parser, "Private source page type plan")
+        try:
+            db = _read_only(path)
+            try:
+                plan = source_types.build_page_type_plan(db)
+            finally:
+                db.close()
+            file_sha256 = source_types.write_page_type_plan(
+                plan, args.output, repository_root=Path(__file__).resolve().parents[1])
+            print(json.dumps({"mode": args.command, "status": "previewed",
+                              "plan_path": str(args.output.resolve()), "plan_file_sha256": file_sha256,
+                              "plan_sha256": plan["plan_sha256"], "rule_version": plan["rule_version"],
+                              **plan["summary"]}, ensure_ascii=False, sort_keys=True))
+            return 0
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "source_type_preview_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command == "preview-publisher-classifications":
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.output, parser, "Private publisher classification plan")
+        try:
+            db = _read_only(path)
+            try:
+                plan = publisher.build_plan(db)
+            finally:
+                db.close()
+            file_sha256 = publisher.write_plan(plan, args.output,
+                                               repository_root=Path(__file__).resolve().parents[1])
+            print(json.dumps({"mode": args.command, "status": "previewed", "plan_path": str(args.output.resolve()),
+                              "plan_file_sha256": file_sha256, "plan_sha256": plan["plan_sha256"],
+                              **plan["summary"]}, ensure_ascii=False, sort_keys=True))
+            return 0
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "publisher_preview_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command in {"apply-publisher-classifications", "verify-publisher-classifications"}:
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.plan, parser, "Private publisher classification plan")
+        try:
+            if not re.fullmatch(r"[0-9a-fA-F]{64}", args.expect_plan_sha256):
+                raise ValueError("--expect-plan-sha256 must be a 64-character SHA-256 value")
+            plan = publisher.read_plan(args.plan, repository_root=Path(__file__).resolve().parents[1])
+            if plan["plan_sha256"] != args.expect_plan_sha256.lower():
+                raise ValueError("Expected plan SHA-256 does not match the inspected plan")
+            db = _read_only(path) if args.command == "verify-publisher-classifications" else connect(path)
+            try:
+                result = (publisher.verify_plan(db, plan) if args.command == "verify-publisher-classifications"
+                          else publisher.apply_plan(db, plan, expected_sha256=args.expect_plan_sha256.lower(),
+                                                    actor=args.actor))
+            finally:
+                db.close()
+            print(json.dumps({"mode": args.command, "plan_sha256": plan["plan_sha256"], **result},
+                             ensure_ascii=False, sort_keys=True))
+            return 0 if result.get("status") != "mismatch" else 1
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "publisher_operation_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command == "profiles-export":
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.output, parser, "Private Profiles export")
+        try:
+            db = _read_only(path)
+            try:
+                value = profiles_export.build_export(db, counties=args.county, statewide=args.statewide,
+                                                     limit=args.limit, after_profile_id=args.after_profile_id)
+            finally:
+                db.close()
+            size = profiles_export.write_export(value, args.output,
+                                                repository_root=Path(__file__).resolve().parents[1])
+            print(json.dumps({"status": "exported", "output_path": str(args.output.resolve()),
+                              "size_bytes": size, **value["summary"],
+                              "continuation": value["continuation"]}, ensure_ascii=False, sort_keys=True))
+            return 0
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "profiles_export_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command in {"apply-source-types", "verify-source-types"}:
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.plan, parser, "Private source page type plan")
+        try:
+            if not re.fullmatch(r"[0-9a-fA-F]{64}", args.expect_plan_sha256):
+                raise ValueError("--expect-plan-sha256 must be a 64-character SHA-256 value")
+            plan = source_types.read_page_type_plan(
+                args.plan, repository_root=Path(__file__).resolve().parents[1])
+            if plan["plan_sha256"] != args.expect_plan_sha256.lower():
+                raise ValueError("Expected plan SHA-256 does not match the inspected plan")
+            if args.command == "verify-source-types":
+                db = _read_only(path)
+                try:
+                    result = source_types.verify_page_type_plan(db, plan)
+                finally:
+                    db.close()
+            else:
+                db = connect(path)
+                try:
+                    result = source_types.apply_page_type_plan(
+                        db, plan, expected_sha256=plan["plan_sha256"], actor=args.actor)
+                finally:
+                    db.close()
+            print(json.dumps({"mode": args.command, "plan_sha256": plan["plan_sha256"], **result},
+                             ensure_ascii=False, sort_keys=True))
+            return 0 if result.get("status") != "mismatch" else 1
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "source_type_operation_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
     if args.command in {"apply-identity-triage", "verify-identity-triage"}:
         _absolute_external_path(args.database, parser, "Research database")
         _absolute_external_path(args.report, parser, "Private identity triage report")
@@ -813,6 +1057,15 @@ def main(argv=None):
                              ensure_ascii=False, sort_keys=True))
             return 2
     try:
+        if args.command == "migrate":
+            db = connect(path)
+            try:
+                migrate(db)
+                result = validate_migration_history(db)
+            finally:
+                db.close()
+            print(json.dumps({"status": "migrated", **result}, sort_keys=True))
+            return 0
         if args.command == "seed-counties":
             db = connect(path)
             try:
@@ -891,6 +1144,10 @@ def main(argv=None):
                     result = operator.classify_source(db, source_id=args.source_id, status=args.status,
                                                       actor=args.actor, basis=args.basis,
                                                       evidence_id=args.evidence_id)
+                elif args.command == "classify-publisher":
+                    result = operator.classify_publisher(
+                        db, source_id=args.source_id, classification=args.classification,
+                        actor=args.actor, basis=args.basis, evidence_id=args.evidence_id)
                 elif args.command == "record-visit":
                     result = operator.record_visit(db, source_id=args.source_id, run_id=args.run_id,
                                                    provenance=args.provenance, outcome=args.outcome, actor=args.actor,

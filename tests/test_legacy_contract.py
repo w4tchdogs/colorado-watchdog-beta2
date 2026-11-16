@@ -18,9 +18,9 @@ class LegacyContractTests(unittest.TestCase):
             raw = observation()
             ingest_csv(db, csv_bytes([raw]), file_name="synthetic.csv",
                        version_label="synthetic-v1")
-            evidence = db.execute("SELECT raw_record_json FROM evidence_links").fetchone()[0]
+            evidence = db.execute('SELECT "Original record" AS raw_record_json FROM evidence_links').fetchone()[0]
             self.assertEqual(json.loads(evidence)["cells"][11], "Listed in official source")
-            self.assertEqual(db.execute("SELECT source_listing_status FROM role_claims").fetchone()[0],
+            self.assertEqual(db.execute('SELECT "Listing status" AS source_listing_status FROM role_claims').fetchone()[0],
                              "Listed")
             self.assertEqual(db.execute("SELECT count(*) FROM research_people").fetchone()[0], 0)
 

@@ -158,7 +158,7 @@ errors, timeouts, non-200 or malformed replies, provider throttling, secret
 errors and storage errors throw, so the API answers 503 `service_unavailable`.
 
 **Atomic claim.** After Siteverify succeeds, the adapter inserts the SHA-256
-digest of the token into `report_challenge_claims` (migration 0018) with
+digest of the token into `report_challenge_claims` (migration 0021) with
 `ON CONFLICT DO NOTHING` and proceeds only if one row changed. Because the
 digest is the primary key, concurrent Workers cannot both win, even when
 Siteverify answers affirmatively to both. Claims are kept for the five minute
