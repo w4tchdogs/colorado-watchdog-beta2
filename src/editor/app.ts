@@ -34,9 +34,25 @@ export interface EditorAppOptions {
   readonly searchDelayMs?: number;
   /** Used only when leaving an article that has unsaved changes. */
   readonly confirmLeave?: (message: string) => boolean;
+  /**
+   * Set when a dashboard shell hosts the workspace. The shell then owns the
+   * page chrome and the account switch, and this app renders only its views
+   * under the given hash prefix.
+   */
+  readonly host?: EditorHost;
+}
+
+export interface EditorHost {
+  /** Hash path of the list view without the leading "#", for example "/posts". */
+  readonly routePrefix: string;
+  /** Name of the list view used in "Back to ..." links. */
+  readonly homeLabel: string;
+  readonly announce?: (text: string) => void;
 }
 
 export interface EditorApp {
+  /** False when the user declines to discard unsaved changes. */
+  canLeave(): boolean;
   destroy(): void;
 }
 
@@ -75,6 +91,9 @@ export function mountEditorApp(
   const win = doc.defaultView;
   const client = options.client;
   const session = options.session;
+  const host = options.host ?? null;
+  const prefix = host?.routePrefix ?? "";
+  const homeLabel = host?.homeLabel ?? "dashboard";
   const pageSize = options.pageSize ?? 10;
   const previewDelay = options.previewDelayMs ?? 120;
   const searchDelay = options.searchDelayMs ?? 150;
@@ -106,7 +125,9 @@ export function mountEditorApp(
     id: "sandbox-account",
     "aria-label": "Acting as sandbox account",
   });
-  const main = h("main", { id: "main", tabindex: "-1" });
+  const main = host
+    ? h("div", { id: "editor-host", class: "editor-host", tabindex: "-1" })
+    : h("main", { id: "main", tabindex: "-1" });
   const shell = h(
     "div",
     { class: "shell" },
@@ -141,9 +162,14 @@ export function mountEditorApp(
     live,
   );
   clear(root);
-  root.appendChild(shell);
+  if (host) root.append(main, live);
+  else root.appendChild(shell);
 
   const announce = (text: string) => {
+    if (host?.announce) {
+      host.announce(text);
+      return;
+    }
     live.textContent = "";
     live.textContent = text;
   };
@@ -189,8 +215,13 @@ export function mountEditorApp(
     h("time", { datetime: iso, title: iso }, formatTime(iso));
 
   // ------------------------------------------------------------ routing
-  function parseHash(hash: string): Route {
+  const inHost = (hash: string) => {
     const value = hash.replace(/^#/, "");
+    return value === prefix || value.startsWith(`${prefix}/`);
+  };
+  function parseHash(hash: string): Route {
+    let value = hash.replace(/^#/, "");
+    if (host) value = inHost(hash) ? value.slice(prefix.length) : "";
     const item = /^\/item\/([A-Za-z0-9._:-]{1,128})$/.exec(value);
     if (item) return { name: "item", id: item[1] as string };
     const created = /^\/new\/(post|story)$/.exec(value);
@@ -199,10 +230,13 @@ export function mountEditorApp(
   }
   const routeHash = (target: Route) =>
     target.name === "item"
-      ? `#/item/${target.id}`
+      ? `#${prefix}/item/${target.id}`
       : target.name === "new"
-        ? `#/new/${target.type}`
-        : "#/";
+        ? `#${prefix}/new/${target.type}`
+        : host
+          ? `#${prefix}`
+          : "#/";
+  const sameRoute = (a: Route, b: Route) => routeHash(a) === routeHash(b);
 
   function go(target: Route, replace = false): void {
     if (leaveGuard && !leaveGuard()) {
@@ -236,6 +270,12 @@ export function mountEditorApp(
       return;
     }
     if (!win) return;
+    if (host) {
+      // The shell handles every hash outside this workspace, and restoring
+      // the hash after a declined leave must not rebuild the open view.
+      if (!inHost(win.location.hash)) return;
+      if (sameRoute(parseHash(win.location.hash), route)) return;
+    }
     const target = parseHash(win.location.hash);
     if (leaveGuard && !leaveGuard()) {
       suppressHash = true;
@@ -479,7 +519,10 @@ export function mountEditorApp(
       for (const item of items) {
         const open = h(
           "a",
-          { href: `#/item/${item.id}`, class: "open-link" },
+          {
+            href: routeHash({ name: "item", id: item.id }),
+            class: "open-link",
+          },
           `Open ${item.title}`,
         );
         open.addEventListener("click", (event) => {
@@ -652,7 +695,11 @@ export function mountEditorApp(
         if (token !== renderToken) return;
         const retry = h("button", { type: "button" }, "Try again");
         retry.addEventListener("click", () => show(target, true));
-        const back = h("a", { href: "#/" }, "Back to dashboard");
+        const back = h(
+          "a",
+          { href: routeHash({ name: "dashboard" }) },
+          `Back to ${homeLabel}`,
+        );
         back.addEventListener("click", (event) => {
           event.preventDefault();
           go({ name: "dashboard" });
@@ -853,7 +900,11 @@ export function mountEditorApp(
       "aria-labelledby": `${idPrefix}-rev-h`,
     });
 
-    const backLink = h("a", { href: "#/" }, "Back to dashboard");
+    const backLink = h(
+      "a",
+      { href: routeHash({ name: "dashboard" }) },
+      `Back to ${homeLabel}`,
+    );
     backLink.addEventListener("click", (event) => {
       event.preventDefault();
       go({ name: "dashboard" });
@@ -1754,6 +1805,7 @@ export function mountEditorApp(
   })();
 
   return {
+    canLeave: () => !leaveGuard || leaveGuard(),
     destroy() {
       destroyed = true;
       cleanupView?.();

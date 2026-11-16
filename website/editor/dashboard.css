@@ -1,0 +1,452 @@
+/* Colorado Watchdog dashboard shell.
+   Loaded after editor.css. Carries the public site identity: red masthead,
+   near-black navigation, off-white page, heavy display headings and bordered
+   white cards. */
+
+:root {
+  --red: #cb0000;
+  --red-dark: #a90000;
+  --ink: #171717;
+  --muted: #595959;
+  --line: #d4d4cf;
+  --paper: #ffffff;
+  --wash: #f5f5f3;
+  --accent: #171717;
+  --accent-ink: #ffffff;
+  --font-display:
+    "Arial Black", "Archivo Black", "Helvetica Neue", Arial, sans-serif;
+  font-family: Inter, "Segoe UI", Arial, Helvetica, sans-serif;
+}
+
+a {
+  color: var(--red-dark);
+}
+
+h1,
+h2 {
+  font-family: var(--font-display);
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+/* The hidden attribute must win over component display rules. */
+[hidden] {
+  display: none !important;
+}
+
+.row input[type="checkbox"] {
+  flex: none;
+}
+
+.dash {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Sandbox strip ---------------------------------------------------------- */
+.dash-sandbox {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 1rem;
+  background: #fff4cc;
+  border-bottom: 1px solid #e0b84a;
+}
+
+.dash-sandbox .sandbox-flag {
+  border: 0;
+  padding: 0;
+  background: none;
+}
+
+.dash-sandbox .account-switch {
+  margin-left: 0;
+  font-size: 0.9rem;
+}
+
+.dash-sandbox select {
+  min-height: 2.25rem;
+  max-width: 100%;
+}
+
+/* Masthead --------------------------------------------------------------- */
+.dash-topbar {
+  position: relative;
+  display: flex;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  background: var(--red);
+  color: #ffffff;
+}
+
+.dash-brand {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.dash-brand-name {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 1.15rem;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+
+.dash-brand-sub {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.dash-crumb {
+  margin: 0;
+  display: flex;
+  gap: 0.5rem;
+  font-weight: 700;
+  min-width: 0;
+}
+
+.dash-crumb-root {
+  font-weight: 400;
+}
+
+.dash-crumb-page::before {
+  content: "/";
+  margin-right: 0.5rem;
+  font-weight: 400;
+}
+
+.dash-account {
+  margin-left: auto;
+  position: relative;
+}
+
+.dash-signed-out {
+  margin: 0;
+  font-weight: 600;
+}
+
+.dash-topbar button {
+  border-color: #ffffff;
+  background: transparent;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.dash-topbar button[aria-expanded="true"] {
+  background: #ffffff;
+  color: var(--red-dark);
+}
+
+.dash-account-button::after {
+  content: "";
+  display: inline-block;
+  margin-left: 0.5rem;
+  border: 0.3rem solid transparent;
+  border-top-color: currentColor;
+  border-bottom: 0;
+  vertical-align: middle;
+}
+
+.dash-account-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  z-index: 20;
+  min-width: 14rem;
+  padding: 0.75rem 1rem;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--ink);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 18%);
+}
+
+.dash-account-menu p {
+  margin: 0;
+}
+
+.dash-account-name {
+  font-weight: 700;
+}
+
+.dash-account-role {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.dash-account-menu ul {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0.5rem 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.dash-account-menu a {
+  display: block;
+  padding: 0.45rem 0;
+}
+
+.dash-menu-toggle {
+  display: none;
+}
+
+/* Sidebar and page ------------------------------------------------------- */
+.dash-body {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.dash-sidebar {
+  flex: 0 0 13.5rem;
+  background: var(--ink);
+  color: #ffffff;
+}
+
+.dash-sidebar-inner {
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+  padding: 0.75rem 0;
+}
+
+.dash-nav-heading {
+  margin: 0.75rem 1rem 0.25rem;
+  color: #c9c9c4;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dash-sidebar ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dash-sidebar a {
+  display: block;
+  padding: 0.6rem 1rem;
+  border-left: 4px solid transparent;
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.dash-sidebar a:hover {
+  background: #2b2b2b;
+}
+
+.dash-sidebar a[aria-current="page"] {
+  border-left-color: var(--red);
+  background: #333333;
+  font-weight: 700;
+}
+
+.dash-sidebar-foot {
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #3a3a3a;
+}
+
+.dash-sidebar-foot:empty {
+  display: none;
+}
+
+.dash-body > main {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  padding: 1.5rem;
+}
+
+.dash-view,
+.dash-state {
+  max-width: 76rem;
+}
+
+.editor-host:focus {
+  outline: none;
+}
+
+.dash-view h1,
+.dash-state h1 {
+  font-size: 1.75rem;
+  margin: 0 0 0.5rem;
+}
+
+.dash-lede {
+  margin: 0 0 1.25rem;
+  color: var(--muted);
+}
+
+.dash-card,
+.dash-state {
+  margin: 0 0 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--ink);
+  border-radius: 2px;
+}
+
+.dash-state {
+  border-top-color: var(--red);
+}
+
+.dash-card h2 {
+  font-size: 1.15rem;
+}
+
+.dash-facts {
+  margin: 0 0 0.75rem;
+}
+
+.dash-facts > div {
+  display: grid;
+  grid-template-columns: 9rem 1fr;
+  gap: 0.75rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.dash-facts dt {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.dash-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.dash-module-list,
+.dash-recent {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+}
+
+.dash-module-list li,
+.dash-recent li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.dash-module-note {
+  display: block;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+a.dash-action {
+  display: inline-block;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  background: var(--ink);
+  color: #ffffff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.dash-card p.actions {
+  margin: 0 0 0.75rem;
+}
+
+@media (min-width: 60rem) {
+  .dash-view[data-view="overview"],
+  .dash-view[data-view="account"] {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 1rem;
+    align-items: start;
+  }
+
+  .dash-view[data-view="overview"] > h1,
+  .dash-view[data-view="overview"] > p,
+  .dash-view[data-view="account"] > h1,
+  .dash-view[data-view="account"] > p {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Narrow screens --------------------------------------------------------- */
+@media (max-width: 50rem) {
+  .dash-menu-toggle {
+    display: inline-block;
+  }
+
+  .dash-topbar {
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+  }
+
+  .dash-brand-name {
+    max-width: 7rem;
+    font-size: 0.95rem;
+  }
+
+  .dash-brand-sub {
+    display: none;
+  }
+
+  .dash-topbar button {
+    padding: 0.45rem 0.6rem;
+  }
+
+  .dash-crumb {
+    order: 5;
+    flex-basis: 100%;
+    font-size: 0.9rem;
+  }
+
+  .dash-body {
+    flex-direction: column;
+  }
+
+  .dash-sidebar {
+    display: none;
+    flex: none;
+  }
+
+  .dash.is-nav-open .dash-sidebar {
+    display: block;
+  }
+
+  .dash-sidebar-inner {
+    position: static;
+    max-height: none;
+  }
+
+  .dash-body > main {
+    padding: 1rem 0.75rem;
+  }
+
+  .dash-facts > div {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .dash-account-button {
+    max-width: 11rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .results {
+    overflow-x: auto;
+  }
+}
