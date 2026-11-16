@@ -210,7 +210,7 @@ rewriting the history above.
 - Within the same county, claims with the same name are merged when their office, position, or job description align. County plus name alone is not enough; name or nickname similarity without an aligned role descriptor does not establish a merge.
 - An unknown organization type or unresolved hierarchy is not, by itself, a reason to exclude an otherwise qualifying Profile.
 - Keep each supported role, its office/position/job-description text, county association, source citation and evidence history. Do not turn a responsibility into a job title.
-- This decision supersedes conflicting earlier identity evidence defaults and R7 eligibility assumptions. The existing identity planner and R7 generator have not yet implemented it; their current previews must be labeled as pre-decision code behavior until updated. The official/unofficial role-citation requirements recorded above remain separate.
+- This decision supersedes conflicting earlier identity evidence defaults and R7 eligibility assumptions. The identity planner, R7 generator and local Website reads implement it as of SYNC-1. The official and unofficial role-citation requirements recorded above remain separate.
 
 ## Profiles database column names, November 16, 2026
 

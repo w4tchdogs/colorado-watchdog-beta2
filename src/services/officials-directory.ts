@@ -258,12 +258,12 @@ function matchingPeopleSql(input: ValidatedRequest): {
 
   if (input.countyFips !== null) {
     roleFilters.push(
-      `(org.county_fips = ? OR EXISTS (
+      `(role.county_fips = ? OR org.county_fips = ? OR EXISTS (
           SELECT 1 FROM organization_county_affiliations AS affiliation
           WHERE affiliation.organization_id = org.id
             AND affiliation.county_fips = ?))`,
     );
-    roleParameters.push(input.countyFips, input.countyFips);
+    roleParameters.push(input.countyFips, input.countyFips, input.countyFips);
   }
   if (input.organizationId !== null) {
     officeCte = `office(id, depth) AS (
@@ -285,9 +285,19 @@ function matchingPeopleSql(input: ValidatedRequest): {
     roleFilters.push(
       `(person.display_name LIKE ? ESCAPE '\\'
         OR position.title LIKE ? ESCAPE '\\'
-        OR org.name LIKE ? ESCAPE '\\')`,
+        OR org.name LIKE ? ESCAPE '\\'
+        OR role.published_title LIKE ? ESCAPE '\\'
+        OR role.published_office LIKE ? ESCAPE '\\'
+        OR role.job_description LIKE ? ESCAPE '\\')`,
     );
-    roleParameters.push(input.pattern, input.pattern, input.pattern);
+    roleParameters.push(
+      input.pattern,
+      input.pattern,
+      input.pattern,
+      input.pattern,
+      input.pattern,
+      input.pattern,
+    );
   }
 
   const scoped =
@@ -299,7 +309,7 @@ function matchingPeopleSql(input: ValidatedRequest): {
     : `UNION ALL
        SELECT person.id, person.display_name, NULL, NULL, NULL, NULL, NULL,
               NULL,
-              NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0
+              NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0
        FROM people AS person
        WHERE NOT EXISTS (
                SELECT 1 FROM person_roles AS role WHERE role.person_id = person.id)
@@ -309,7 +319,9 @@ function matchingPeopleSql(input: ValidatedRequest): {
     candidate AS (
       SELECT person.id AS person_id, person.display_name,
              role.id AS role_id, role.start_date, role.end_date,
-             role.source_checked_at,
+             role.source_checked_at, role.published_office, role.published_title,
+             role.job_description, role.county_fips AS role_county_fips,
+             role_county.name AS role_county_name,
              position.id AS position_id, position.title,
              org.id AS organization_id, org.name AS organization_name,
              org.organization_type, county.name AS county_name,
@@ -322,15 +334,18 @@ function matchingPeopleSql(input: ValidatedRequest): {
              COUNT(*) OVER (PARTITION BY person.id) AS matching_role_count
       FROM person_roles AS role
       JOIN people AS person ON person.id = role.person_id
-      JOIN positions AS position ON position.id = role.position_id
-      JOIN organizations AS org ON org.id = position.organization_id
+      LEFT JOIN positions AS position ON position.id = role.position_id
+      LEFT JOIN organizations AS org ON org.id = position.organization_id
       JOIN role_sources AS source ON source.id = role.source_id
-      LEFT JOIN counties AS county ON county.fips = org.county_fips
+      LEFT JOIN counties AS county
+        ON county.fips = COALESCE(org.county_fips, role.county_fips)
+      LEFT JOIN counties AS role_county ON role_county.fips = role.county_fips
       ${roleFilters.length ? `WHERE ${roleFilters.join(" AND ")}` : ""}
     ),
     entry AS (
       SELECT person_id, display_name, role_id, start_date, end_date,
-             source_checked_at, position_id, title, organization_id,
+             source_checked_at, published_office, published_title,
+             job_description, role_county_fips, role_county_name, position_id, title, organization_id,
              organization_name, organization_type, county_name, source_id,
              source_title, source_url, source_type, publisher_classification, matching_role_count
       FROM candidate WHERE role_rank = 1
@@ -449,7 +464,9 @@ export async function listOfficials(
     };
     const roleId = optionalText(row.role_id);
     if (roleId === null) return { person, role: null, matchingRoleCount: 0 };
-    const organizationId = text(row.organization_id);
+    const organizationId = optionalText(row.organization_id);
+    const positionId = optionalText(row.position_id);
+    const roleCountyFips = optionalText(row.role_county_fips);
     return {
       person,
       matchingRoleCount: count(row.matching_role_count),
@@ -458,13 +475,29 @@ export async function listOfficials(
         startDate: optionalText(row.start_date),
         endDate: optionalText(row.end_date),
         sourceCheckedAt: text(row.source_checked_at),
-        position: { id: text(row.position_id), title: text(row.title) },
-        organization: {
-          id: organizationId,
-          name: text(row.organization_name),
-          type: text(row.organization_type) as OrganizationType,
-          counties: counties.get(organizationId) ?? [],
-        },
+        county:
+          roleCountyFips === null
+            ? null
+            : {
+                fips: roleCountyFips,
+                name: text(row.role_county_name),
+              },
+        publishedOffice: optionalText(row.published_office),
+        publishedTitle: optionalText(row.published_title),
+        jobDescription: optionalText(row.job_description),
+        position:
+          positionId === null
+            ? null
+            : { id: positionId, title: text(row.title) },
+        organization:
+          organizationId === null
+            ? null
+            : {
+                id: organizationId,
+                name: text(row.organization_name),
+                type: text(row.organization_type) as OrganizationType,
+                counties: counties.get(organizationId) ?? [],
+              },
         source: {
           id: text(row.source_id),
           title: text(row.source_title),

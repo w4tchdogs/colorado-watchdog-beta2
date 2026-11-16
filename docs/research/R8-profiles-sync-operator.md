@@ -28,19 +28,13 @@ behavior is unchanged. County-scoped preview is an eligibility diagnostic;
 
 ## Owner profile rule and implementation status
 
-The owner decision recorded in docs/decisions.md (November 16, 2026) says a
-Profile needs a county, a name, and at least one of office, position, or job
-description. Same-county claims with the same name merge when office, position,
-or job description align. Unknown organization type or hierarchy alone is not
-an exclusion. The current identity planner and R7 builder do not yet implement
-this rule; preview exclusions still describe the old code path and must not be
-reported as final eligibility under the owner rule. A follow-up implementation
-and fresh county preview are required. The live Adams batch remains unselected.
+The owner decision recorded in docs/decisions.md (November 16, 2026) is implemented in the identity planner, the R7 builder and the local Website reads. A Profile needs a county, a name, and at least one of an office, a position or a job description. Same-county claims with the same name merge only when an office, a position or a job description aligns, and the plan records which detail aligned. Same-name claims with no aligned detail stay distinct profiles, and the plan counts those groups. Unknown organization type or unresolved hierarchy never excludes a role. The live Adams batch remains unselected.
 
 Preview diagnostics report candidate claims, claims skipped because their batch
 is unselected, selected-batch claims evaluated, distinct people, claims excluded
-by reason, claims with planned role operations, planned operations by Website
-entity, and truncation separately. The preview lists at most 200 individual
+by reason, eligible claims, distinct eligible profiles, structured and
+unstructured roles planned, planned operations by Website entity, and truncation
+separately. The preview lists at most 200 individual
 exclusions. Both commands remain read-only. R7 excludes unresolved
 identity associations, unsupported organization or position relationships,
 unselected claims, insufficient source classification, private notes, and

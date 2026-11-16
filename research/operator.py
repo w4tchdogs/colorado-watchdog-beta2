@@ -486,8 +486,17 @@ _ROLE_CONNECTION_CUES = (
 _NONROLE_RESPONSIBILITIES = {"listed in official source"}
 
 
+def _optional(row, key):
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
+
+
 def _documented_role_values(claim):
-    return [value for value in (claim["published_title"], claim["responsibility"])
+    """Documented office, position and job-description text (office text only when selected)."""
+    return [value for value in (_optional(claim, "office_label"), _optional(claim, "division_label"),
+                                _optional(claim, "unit_label"), claim["published_title"], claim["responsibility"])
             if isinstance(value, str) and value.strip()
             and value.strip().casefold() not in _NONROLE_RESPONSIBILITIES]
 
@@ -601,7 +610,9 @@ def _claim_evidence(db, *, county_fips, claim_id, published_name, evidence_id,
                           'FROM evidence_links e JOIN sources s ON s."Source ID"=e."Source ID" '
                           'JOIN research_runs r ON r.id=e."Research run ID" '
                           'LEFT JOIN scrape_batches b ON b.id=e."Import batch ID" WHERE e."Evidence record ID"=?', (evidence_id,)).fetchone()
-    claim = db.execute('SELECT "Role claim ID" AS id,"County code" AS county_fips,"Evidence record ID" AS evidence_id,"Linked profile" AS person_id,"Name as published" AS published_name,"Position as published" AS published_title,"Job description or duties" AS responsibility '
+    claim = db.execute('SELECT "Role claim ID" AS id,"County code" AS county_fips,"Evidence record ID" AS evidence_id,"Linked profile" AS person_id,"Name as published" AS published_name,"Position as published" AS published_title,"Job description or duties" AS responsibility,'
+                       '"Office or department as published" AS office_label,"Division or unit as published" AS division_label,'
+                       '(SELECT u."Office or unit label as published" FROM org_units u WHERE u."Office or unit ID"=role_claims."Linked office or unit") AS unit_label '
                        'FROM role_claims WHERE "Role claim ID"=?', (claim_id,)).fetchone()
     if claim is None:
         raise ValueError("Unknown role claim")
@@ -628,7 +639,7 @@ def _claim_evidence(db, *, county_fips, claim_id, published_name, evidence_id,
     folded_cells_and_quote = "\n".join([*cells, quote]).casefold()
     supports_position = any(value.casefold() in folded_cells_and_quote for value in role_values)
     if not supports_name or not supports_position:
-        raise ValueError("Official evidence must contain the claim’s exact published name and a documented position")
+        raise ValueError("Official evidence must contain the claim’s exact published name and a documented office, position or job description")
     return claim, evidence
 
 

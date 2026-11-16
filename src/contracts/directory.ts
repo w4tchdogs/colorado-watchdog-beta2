@@ -50,19 +50,25 @@ export interface CountyRoleEntry {
     readonly startDate: string | null;
     readonly endDate: string | null;
     readonly sourceCheckedAt: string;
+    /** Documented text, kept apart from the structured links below. */
+    readonly publishedOffice: string | null;
+    readonly publishedTitle: string | null;
+    readonly jobDescription: string | null;
   };
+  /** Null when the role rests on documented text alone. */
   readonly position: {
     readonly id: string;
     readonly title: string;
     readonly version: number;
-  };
+  } | null;
+  /** Null when no organization is resolved for the role. */
   readonly organization: {
     readonly id: string;
     readonly name: string;
     readonly type: OrganizationType;
     readonly version: number;
     readonly countyAssociation: CountyOrganization["countyAssociation"];
-  };
+  } | null;
   readonly source: {
     readonly id: string;
     readonly title: string;

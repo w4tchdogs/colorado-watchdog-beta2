@@ -64,6 +64,7 @@ const batch = {
       person_ref: "person",
       position_ref: "position",
       source_ref: "source",
+      county_fips: "08001",
       source_checked_at: "2026-11-12T12:00:00Z",
     }),
   ],

@@ -81,7 +81,8 @@ export function listCountyRoleEntries(
   const rows = database
     .prepare(
       `SELECT pr.id AS role_id, pr.version AS role_version, pr.start_date, pr.end_date,
-            pr.source_checked_at, p.id AS person_id, p.display_name, p.version AS person_version,
+            pr.source_checked_at, pr.published_office, pr.published_title, pr.job_description,
+            p.id AS person_id, p.display_name, p.version AS person_version,
             pos.id AS position_id, pos.title AS position_title, pos.version AS position_version,
             o.id AS organization_id, o.name AS organization_name,
             o.organization_type, o.version AS organization_version,
@@ -95,16 +96,17 @@ export function listCountyRoleEntries(
             s.source_type, s.publisher_classification, s.version AS source_version
      FROM person_roles pr
      JOIN people p ON p.id = pr.person_id
-     JOIN positions pos ON pos.id = pr.position_id
-     JOIN organizations o ON o.id = pos.organization_id
+     LEFT JOIN positions pos ON pos.id = pr.position_id
+     LEFT JOIN organizations o ON o.id = pos.organization_id
      JOIN role_sources s ON s.id = pr.source_id
-     WHERE (o.county_fips = ? OR EXISTS (
+     WHERE (pr.county_fips = ? OR o.county_fips = ? OR EXISTS (
        SELECT 1 FROM organization_county_affiliations a
        WHERE a.organization_id = o.id AND a.county_fips = ?
      )) AND (? IS NULL OR pr.id > ?)
      ORDER BY pr.id COLLATE BINARY LIMIT ?`,
     )
     .all(
+      input.countyFips,
       input.countyFips,
       input.countyFips,
       input.countyFips,
@@ -133,19 +135,28 @@ export function listCountyRoleEntries(
         startDate: nullableString(row.start_date),
         endDate: nullableString(row.end_date),
         sourceCheckedAt: asString(row.source_checked_at),
+        publishedOffice: nullableString(row.published_office),
+        publishedTitle: nullableString(row.published_title),
+        jobDescription: nullableString(row.job_description),
       },
-      position: {
-        id: asString(row.position_id),
-        title: asString(row.position_title),
-        version: asNumber(row.position_version),
-      },
-      organization: {
-        id: asString(row.organization_id),
-        name: asString(row.organization_name),
-        type: row.organization_type as OrganizationType,
-        version: asNumber(row.organization_version),
-        countyAssociation: association,
-      },
+      position:
+        row.position_id === null
+          ? null
+          : {
+              id: asString(row.position_id),
+              title: asString(row.position_title),
+              version: asNumber(row.position_version),
+            },
+      organization:
+        row.organization_id === null
+          ? null
+          : {
+              id: asString(row.organization_id),
+              name: asString(row.organization_name),
+              type: row.organization_type as OrganizationType,
+              version: asNumber(row.organization_version),
+              countyAssociation: association,
+            },
       source: {
         id: asString(row.source_id),
         title: asString(row.source_title),

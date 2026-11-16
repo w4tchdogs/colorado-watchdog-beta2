@@ -84,13 +84,22 @@ export interface CreatePersonRole {
   readonly op: "create_person_role";
   readonly entity: "person_roles";
   readonly clientRef: string;
+  /**
+   * A role needs a person, an explicit county, a citation and at least one
+   * documented detail: a structured position link, an office, a title or a
+   * job description. Documented text stays separate from structured links.
+   */
   readonly fields: Readonly<{
     start_date?: string | null;
     end_date?: string | null;
     source_checked_at: string;
+    county_fips: string;
+    published_office?: string;
+    published_title?: string;
+    job_description?: string;
   }> &
     ExistingIdOrReference<"person_id", "person_ref"> &
-    ExistingIdOrReference<"position_id", "position_ref"> &
+    Partial<ExistingIdOrReference<"position_id", "position_ref">> &
     ExistingIdOrReference<"source_id", "source_ref">;
 }
 interface UpdateRecordBase {
@@ -192,6 +201,7 @@ export type SyncErrorCode =
   | "duplicate_source_url"
   | "source_metadata_conflict"
   | "source_check_required"
+  | "role_detail_required"
   | "date_order"
   | "too_many_citations"
   | "too_many_duplicate_flags"

@@ -495,6 +495,10 @@ function insertEntity(
       "start_date",
       "end_date",
       "source_checked_at",
+      "county_fips",
+      "published_office",
+      "published_title",
+      "job_description",
     ],
   };
   const columns = allowed[entity].filter((column) =>

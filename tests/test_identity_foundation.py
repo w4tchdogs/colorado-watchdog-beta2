@@ -125,7 +125,7 @@ class IdentityFoundationTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT count(DISTINCT "Linked profile") FROM role_claims WHERE "Linked profile" IS NOT NULL').fetchone()[0], 1)
         self.assertEqual(self.db.execute('SELECT count(*) FROM role_claims WHERE "Linked profile" IS NOT NULL').fetchone()[0], 2)
 
-    def test_generic_responsibility_is_not_identity_linked_as_a_role(self):
+    def test_generic_responsibility_never_counts_as_a_duty_for_alignment(self):
         _, claims = self.add_batch([
             {"full_name": "Synthetic Rowan Example", "title": "Fixture Treasurer",
              "responsibility": "Listed in official source"},
@@ -137,32 +137,68 @@ class IdentityFoundationTests(unittest.TestCase):
         self.quote_evidence(claims[0]["source_id"],
                             "Synthetic Rowan Example, Fixture Treasurer, also listed as Listed in official source.")
         plan = identity.build_identity_plan(self.db)
-        self.assertEqual(plan["summary"]["claims_associated"], 0)
-        self.assertEqual(plan["summary"]["new_research_people"], 0)
-        self.assertEqual(plan["summary"]["unresolved_claims"], 2)
+        # The two titles differ and the placeholder responsibility is not a duty.
+        # The shared office label is the only aligned detail, so it is what merges them.
+        self.assertEqual(plan["summary"]["new_research_people"], 1)
+        self.assertEqual(plan["summary"]["claims_associated"], 2)
+        aligned = [item for item in plan["counties"][0]["associations"]
+                   if item["method"] == "same_name_detail_alignment"]
+        self.assertEqual([item["aligned_details"] for item in aligned], [["office"]])
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_people").fetchone()[0], 0)
-        self.assertEqual(self.db.execute('SELECT count(*) FROM role_claims WHERE "Linked profile" IS NOT NULL').fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM research_people").fetchone()[0], 1)
 
-    def test_same_name_different_people_remains_unassigned_without_identity_proof(self):
+    def test_same_name_without_an_aligned_detail_stays_distinct(self):
         _, claims = self.add_batch([
-            {"full_name": "Synthetic Rowan Example", "department": "Fixture Services North"},
-            {"full_name": "Synthetic Rowan Example", "department": "Fixture Services South"},
+            {"full_name": "Synthetic Rowan Example", "department": "Fixture Services North",
+             "title": "Fixture Planner", "responsibility": "Plans the north district"},
+            {"full_name": "Synthetic Rowan Example", "department": "Fixture Services South",
+             "title": "Fixture Inspector", "responsibility": "Inspects the south district"},
         ])
         plan = identity.build_identity_plan(self.db)
         county = plan["counties"][0]
-        self.assertEqual(county["new_people"], [])
-        self.assertEqual(county["associations"], [])
-        self.assertEqual(len(county["unresolved"]), 2)
-        self.assertTrue(all(item["reason"] == "same_name_has_multiple_unlinked_source_observations"
-                            for item in county["unresolved"]), county["unresolved"])
+        self.assertEqual(len(county["new_people"]), 2)
+        self.assertEqual({item["method"] for item in county["associations"]}, {"bootstrap"})
+        self.assertEqual(county["unresolved"], [])
+        self.assertEqual(county["same_name_profile_groups_left_distinct"], 1)
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_people").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM research_people").fetchone()[0], 2)
         self.assertEqual(self.db.execute("SELECT count(*) FROM possible_matches").fetchone()[0], 0)
-        self.assertEqual(self.db.execute('SELECT count(*) FROM role_claims WHERE "Linked profile" IS NULL').fetchone()[0], 2)
-        self.assertEqual({item["claim_id"] for item in county["unresolved"]}, {row["id"] for row in claims})
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_events WHERE kind='identity_unresolved_recorded'").fetchone()[0], 0)
         self.assertEqual(identity.verify_identity_application(self.db, plan)["integrity"], "ok")
+        # A rerun after application is deterministic and changes nothing.
+        again = identity.build_identity_plan(self.db)
+        self.assertEqual(again["summary"]["new_research_people"], 0)
+        self.assertEqual(again["summary"]["claims_associated"], 0)
+
+    def test_each_merge_criterion_merges_same_name_claims(self):
+        base = {"full_name": "Synthetic Rowan Example"}
+        cases = {
+            "office": ({"department": "Fixture Office Alpha", "title": "Fixture Planner A", "responsibility": "Duty one"},
+                       {"department": "Fixture Office Alpha", "title": "Fixture Planner B", "responsibility": "Duty two"}),
+            "position": ({"department": "Fixture Office Beta", "title": "Fixture Planner", "responsibility": "Duty three"},
+                         {"department": "Fixture Office Gamma", "title": "Fixture Planner", "responsibility": "Duty four"}),
+            "duties": ({"department": "Fixture Office Delta", "title": "Fixture Planner C", "responsibility": "Reviews permits"},
+                       {"department": "Fixture Office Epsilon", "title": "Fixture Planner D", "responsibility": "Reviews permits"}),
+        }
+        for kind, (first, second) in cases.items():
+            with self.subTest(kind=kind):
+                self.tearDown()
+                self.setUp()
+                self.add_batch([{**base, **first}, {**base, **second}])
+                plan = identity.build_identity_plan(self.db)
+                county = plan["counties"][0]
+                self.assertEqual(len(county["new_people"]), 1)
+                aligned = [item for item in county["associations"] if item["method"] == "same_name_detail_alignment"]
+                self.assertEqual([item["aligned_details"] for item in aligned], [[kind]])
+
+    def test_same_name_in_different_counties_never_merges(self):
+        base = {"full_name": "Synthetic Rowan Example", "department": "Fixture Office", "title": "Fixture Planner",
+                "responsibility": "Reviews permits"}
+        self.add_batch([base], fips="08107")
+        self.add_batch([base], fips="08031", url="https://fixture.example.gov/other")
+        plan = identity.build_identity_plan(self.db)
+        self.assertEqual(plan["summary"]["new_research_people"], 2)
+        self.assertEqual({county["county_fips"] for county in plan["counties"]}, {"08107", "08031"})
+        self.assertEqual({item["method"] for county in plan["counties"] for item in county["associations"]}, {"bootstrap"})
 
     def test_historical_succession_creates_separate_people_and_never_matches_by_title(self):
         _, claims = self.add_batch([

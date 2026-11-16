@@ -29,19 +29,27 @@ export interface PersonProfileRole {
     readonly startDate: string | null;
     readonly endDate: string | null;
     readonly sourceCheckedAt: string;
+    /** The role's own explicit county, or null for an older role without one. */
+    readonly county: { readonly fips: string; readonly name: string } | null;
+    /** Documented text, kept apart from the structured links below. */
+    readonly publishedOffice: string | null;
+    readonly publishedTitle: string | null;
+    readonly jobDescription: string | null;
   };
+  /** Null when the role rests on documented text alone. */
   readonly position: {
     readonly id: string;
     readonly title: string;
     readonly version: number;
-  };
+  } | null;
+  /** Null when no organization is resolved for the role. */
   readonly organization: {
     readonly id: string;
     readonly name: string;
     readonly type: OrganizationType;
     readonly version: number;
     readonly counties: readonly PersonProfileCounty[];
-  };
+  } | null;
   readonly source: {
     readonly id: string;
     readonly title: string;

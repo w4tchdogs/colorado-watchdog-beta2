@@ -40,13 +40,24 @@ export interface OfficialsDirectoryRole {
   readonly endDate: string | null;
   /** When the cited source was checked. Not an employment date. */
   readonly sourceCheckedAt: string;
-  readonly position: { readonly id: string; readonly title: string };
+  /** The role's own explicit county, when one is recorded. */
+  readonly county: { readonly fips: string; readonly name: string } | null;
+  /** Documented text, kept apart from the structured links below. */
+  readonly publishedOffice: string | null;
+  readonly publishedTitle: string | null;
+  readonly jobDescription: string | null;
+  /** Null when the role rests on documented text alone. */
+  readonly position: {
+    readonly id: string;
+    readonly title: string;
+  } | null;
+  /** Null when no organization is resolved for the role. */
   readonly organization: {
     readonly id: string;
     readonly name: string;
     readonly type: OrganizationType;
     readonly counties: readonly OfficialsCountyAssociation[];
-  };
+  } | null;
   readonly source: {
     readonly id: string;
     readonly title: string;
