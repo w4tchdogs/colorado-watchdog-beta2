@@ -35,6 +35,7 @@ function fakeDb({ linked = true } = {}) {
             async run() {
               if (sql.startsWith("INSERT INTO auth_transactions")) state.transaction = { stateHash:values[0], browserHash:values[1], nonce:values[2], verifier:values[3] };
               if (sql.startsWith("INSERT INTO auth_sessions")) state.session = { id:values[0], tokenHash:values[1], provider:values[2], issuer:values[3], subject:values[4], accountId:values[5], identityId:values[6], idle:values[8], absolute:values[9] };
+              if (sql.startsWith("UPDATE auth_sessions SET revoked_at") && state.session && values[1] === state.session.tokenHash) state.session.revokedAt = values[0];
             },
             async first() {
               if (sql.startsWith("UPDATE auth_transactions")) {
@@ -43,7 +44,7 @@ function fakeDb({ linked = true } = {}) {
                 return { nonce:state.transaction.nonce, verifier:state.transaction.verifier };
               }
               if (sql.includes("FROM identities i JOIN accounts a")) return linked ? { identity_id:"auth3-synthetic-identity", account_id:"auth3-synthetic-contributor", role:"contributor" } : null;
-              if (sql.includes("SELECT s.id")) return state.session && !state.revokedIdentity && values[0] === state.session.tokenHash ? { id:state.session.id } : null;
+              if (sql.includes("SELECT s.id")) return state.session && !state.session.revokedAt && !state.revokedIdentity && values[0] === state.session.tokenHash ? { id:state.session.id } : null;
               return null;
             }
           };
@@ -115,7 +116,9 @@ test("wrong issuer, audience, expiry, nonce, algorithm, and signature fail close
     await assert.rejects(verifyIdToken(token,env,"nonce-1"));
   }
   const valid = await signedToken();
-  await assert.rejects(verifyIdToken(`${valid.slice(0,-1)}${valid.endsWith("A") ? "B" : "A"}`,env,"nonce-1"));
+  // Flip a middle signature character. The final base64url character of a 2048-bit signature carries unused bits, so changing only it can leave the decoded signature identical.
+  const [tHead,tClaims,tSig] = valid.split(".");
+  await assert.rejects(verifyIdToken(`${tHead}.${tClaims}.${tSig.slice(0,10)}${tSig[10] === "A" ? "B" : "A"}${tSig.slice(11)}`,env,"nonce-1"));
 });
 test("duplicate JWT claim names are rejected", async () => {
   const now = Math.floor(Date.now()/1000);
@@ -134,4 +137,53 @@ test("public browsing works while auth is disabled and protected view denies", a
   assert.equal(login.status,503);
   const view = await worker.fetch(new Request("https://colorado-watchdog-auth3-pilot.futureguild2.chatgpt.site/auth/test-view"),{AUTH0_ENABLED:"false",DB:db});
   assert.equal(view.status,401);
+});
+
+const pilotOrigin = env.AUTH0_REDIRECT_URI.replace("/auth/callback","");
+async function signedInSession(db) {
+  const { callback } = await startAndCallback(db);
+  assert.equal(callback.status,302);
+  const sessionCookie = callback.headers.getSetCookie().find(value=>value.startsWith("__Host-wd-auth3-session="));
+  return { callback, raw:sessionCookie.split(";")[0].split("=")[1] };
+}
+const viewWith = (db,raw) => worker.fetch(new Request(`${pilotOrigin}/auth/test-view`,{headers:{cookie:`__Host-wd-auth3-session=${raw}`}}),{...env,DB:db});
+const logoutWith = (db,raw,headers) => worker.fetch(new Request(`${pilotOrigin}/auth/logout`,{method:"POST",headers:{cookie:`__Host-wd-auth3-session=${raw}`,...headers}}),{...env,DB:db});
+
+test("only the test page that posts to logout relaxes the referrer policy, so the browser sends a usable Origin", async () => {
+  const db = fakeDb();
+  const login = await worker.fetch(new Request(`${pilotOrigin}/auth/login`),{...env,DB:db});
+  assert.equal(login.headers.get("referrer-policy"),"no-referrer");
+  const { callback, raw } = await signedInSession(fakeDb());
+  assert.equal(callback.headers.get("referrer-policy"),"no-referrer");
+  const view = await viewWith(db, (await signedInSession(db)).raw);
+  assert.equal(view.status,200);
+  assert.equal(view.headers.get("referrer-policy"),"same-origin");
+  assert.equal(view.headers.get("cache-control"),"no-store");
+  assert.match(await view.text(),/<form method="post" action="\/auth\/logout">/);
+  assert.ok(raw);
+});
+
+test("logout with the exact origin revokes the session server side, clears the cookie, and denies the next request", async () => {
+  const db = fakeDb();
+  const { raw } = await signedInSession(db);
+  assert.equal((await viewWith(db,raw)).status,200);
+  const out = await logoutWith(db,raw,{origin:pilotOrigin});
+  assert.equal(out.status,303);
+  assert.equal(out.headers.get("location"),"/");
+  assert.equal(out.headers.get("referrer-policy"),"no-referrer");
+  assert.match(out.headers.get("set-cookie"),/^__Host-wd-auth3-session=; Path=\/; Max-Age=0; Secure; HttpOnly; SameSite=Lax$/);
+  assert.ok(db.state.session.revokedAt);
+  assert.equal((await viewWith(db,raw)).status,401);
+});
+
+test("logout denies missing, null, foreign, and lookalike origins and leaves the session active", async () => {
+  const db = fakeDb();
+  const { raw } = await signedInSession(db);
+  for (const headers of [{}, {origin:"null"}, {origin:"https://evil.example"}, {origin:`${pilotOrigin}.evil.example`}, {origin:"http://colorado-watchdog-auth3-pilot.futureguild2.chatgpt.site"}]) {
+    const denied = await logoutWith(db,raw,headers);
+    assert.equal(denied.status,403,JSON.stringify(headers));
+    assert.equal(denied.headers.get("set-cookie"),null);
+  }
+  assert.equal(db.state.session.revokedAt,undefined);
+  assert.equal((await viewWith(db,raw)).status,200);
 });

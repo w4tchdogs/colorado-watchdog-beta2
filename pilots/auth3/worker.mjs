@@ -193,7 +193,7 @@ export default { async fetch(request, env) {
     if (url.pathname === "/auth/test-view" && request.method === "GET") {
       const principal = await resolveSession(request,env,env.DB);
       if (!principal) return response("Authentication required.",401);
-      return response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>AUTH-3 test view</title></head><body><main><h1>Signed in</h1><p>Synthetic low-privilege test view. Account access is contributor-only.</p><form method="post" action="/auth/logout"><button type="submit">Sign out</button></form></main></body></html>`,200,{"content-type":"text/html; charset=utf-8"});
+      return response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>AUTH-3 test view</title></head><body><main><h1>Signed in</h1><p>Synthetic low-privilege test view. Account access is contributor-only.</p><form method="post" action="/auth/logout"><button type="submit">Sign out</button></form></main></body></html>`,200,{"content-type":"text/html; charset=utf-8","referrer-policy":"same-origin"});
     }
   }
   return response("Not found",404);
