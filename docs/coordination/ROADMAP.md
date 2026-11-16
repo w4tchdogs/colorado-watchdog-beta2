@@ -6,7 +6,7 @@ place for present status and active assignments. This roadmap says where the
 project is going. CURRENT says where it is now. Status words use CURRENT's
 vocabulary.
 
-Revision: November 16, 2026. Based on `main` at `ff9d888` (PR #150). The
+Revision: November 16, 2026. Based on `main` at `58b8ee3` (PR #175). The
 owner approved these goals and lifted the development pause with this
 roadmap. The goals are recorded as an owner decision in
 [decisions.md](../decisions.md).
@@ -44,7 +44,10 @@ that show the state of profiles, departments and grievances.
 - **Today:** the local research database covers 64 counties (3,256 research
   people, 2,692 organizational units). Nothing has been imported to hosted
   D1. 152 approved banner originals are in the local `banners\approved\`
-  folder. R2 is declared in the deployed manifest; runtime attachment and the object round trip remain open (Issue #122). Public pages show no counts.
+  folder. Cloudflare staging passed the R2 storage round trip. Protected
+  application upload and publication remain open, along with the separate
+  [Sites R2 attachment and object inventory](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/122).
+  Public pages show no counts.
 - **Remaining:** finish the campaign-2 validation and resolve the intake
   decision in DATA-1. Research migration 003 and the post-003 restore test
   are complete. Screen and run the first hosted sync (SYNC-1), then sync all
@@ -67,11 +70,11 @@ that show the state of profiles, departments and grievances.
   private queue. As in Beta-1, a reporter can choose to submit under an
   anonymous name.
 - **Today:** submission, tracking and the staff review workspace are merged
-  (SUB-1 to SUB-2D). Hosted guest intake is disabled until a
-  production-ready abuse-control provider exists. Staff review needs
-  Goal 3's sign-in.
-- **Remaining:** a $0 abuse-control provider for anonymous intake (SUB-3),
-  then hosted verification. Staff review depends on AUTH-3.
+  (SUB-1 to SUB-2D). The Turnstile integration (SUB-3) is merged, and its
+  migration is applied on Cloudflare staging. Hosted guest intake is disabled.
+- **Remaining:** test Turnstile and the guest flow with provider keys, then
+  the owner decides whether to enable intake. Verify staff review with the
+  account access in Goal 3.
 
 ### Goal 5. Blog workspace and the first posts of "The Idlewild Story"
 
@@ -171,7 +174,14 @@ Settled on November 14, 2026:
 
 Still open:
 
-1. **Hosted Website sign-in.** Decide the Auth0 tenant and operator, canonical Website origin, and trusted recovery operator. Auth0/GitHub is the implemented default-off Website integration; its hosted verification is separate from the isolated pilot.
+1. **Public hosting.** Choose the public Cloudflare hostname and cutover
+   timing. Determine the disposition of any existing Sites R2 objects before
+   retiring Sites. The [hosting decision](../decisions.md#cloudflare-hosting-transition-and-first-owner-target-november-16-2026)
+   already selects the existing AUTH-3 application and GitHub connection for
+   staging.
+2. **Original Sites sign-in.** Decide whether the original URL needs owner
+   sign-in during the transition. A separate bootstrap requires a verified
+   private operator path to that deployment's D1.
 
 ## Maintenance
 
