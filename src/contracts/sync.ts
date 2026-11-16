@@ -1,11 +1,19 @@
 import type { CountyAffiliationType, OrganizationType } from "./directory.js";
 
 export const SYNC_CONTRACT_VERSION = "m2-sync/v1" as const;
-export const MAX_SYNC_REQUEST_BYTES = 512 * 1024;
-export const MAX_SYNC_CHANGES = 200;
+export const MAX_SYNC_REQUEST_BYTES = 8 * 1024 * 1024;
 export const MAX_SYNC_ITEM_BYTES = 32 * 1024;
-export const MAX_SYNC_CITATIONS = 25;
 export const MAX_SYNC_DUPLICATE_FLAGS = 20;
+/** Diagnostics and error lists stay short and readable. This is an output bound, not an input cap. */
+export const MAX_SYNC_DIAGNOSTICS = 200;
+/** Largest stored batch result. Matches the sync_batches check from Website migration 0023. */
+export const MAX_SYNC_RESULT_BYTES = 1_900_000;
+/**
+ * There is no cap on the number of changes or citations in a request. The 8 MiB request
+ * size and 32 KiB per-change limits bound them, because no change is smaller than 40 bytes.
+ * Batches of 10,000 changes fit. This derived figure only guards reads of stored items.
+ */
+export const MAX_SYNC_ITEMS_BY_SIZE = Math.floor(MAX_SYNC_REQUEST_BYTES / 40);
 
 export type SyncEntity =
   | "organizations"
@@ -171,7 +179,7 @@ export interface SyncChangeSetRequest {
 export type SyncErrorCode =
   | "invalid_request"
   | "request_too_large"
-  | "too_many_changes"
+  | "no_changes"
   | "item_too_large"
   | "unsupported_operation"
   | "unsupported_entity"
@@ -203,10 +211,8 @@ export type SyncErrorCode =
   | "source_check_required"
   | "role_detail_required"
   | "date_order"
-  | "too_many_citations"
   | "too_many_duplicate_flags"
   | "duplicate_flag_invalid"
-  | "changed_rows_limit"
   | "commit_not_supported"
   | "invalid_idempotency_key"
   | "idempotency_mismatch"

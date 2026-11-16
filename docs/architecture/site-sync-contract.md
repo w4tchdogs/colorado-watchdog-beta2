@@ -54,7 +54,7 @@ An update item is exactly `{"op":"update_record","entity":"organizations","targe
 
 Dates are real calendar dates in `YYYY-MM-DD`; role end dates cannot precede start dates. `source_checked_at` is RFC 3339 UTC, is evidence-check time rather than employment time, and cannot exceed the injected trusted clock by more than five minutes. This skew is a local validator default, not an approved production freshness policy. Source URLs must be absolute HTTP(S), contain a host, contain no userinfo, and fit 2,048 UTF-8 bytes. URLs are syntax-checked only; the planner never fetches them. `example.invalid` is accepted for synthetic fixtures. Source reuse compares the exact supplied URL bytes and requires identical title and source type; conflicting metadata is a safe conflict. No URL normalization is used for identity. Source types follow the M1-A enum.
 
-Limits apply together: 512 KiB total request, 1–200 changes, 32 KiB per change, 25 source citations, 20 duplicate flags, and at most 200 planned changed rows. Field caps are 500 UTF-8 bytes for names/titles/reasons and 128 ASCII bytes for IDs and client refs. The planner performs bounded primary-key/county/uniqueness lookups and organization walks up to 64 ancestors; no write transaction is used. Results contain ordered `would_create`, `would_update`, `would_reuse` or `invalid` items, existing IDs only when already persisted, and bounded sanitized errors. Dry runs do not write rows, versions, audits, operations, sync state, flags or idempotency state, and generate no persistent Website IDs.
+Limits apply together: 8 MiB total request, at least one change, 32 KiB per change and 20 duplicate flags. There is no cap on the number of changes, source citations or planned rows, and batches of 10,000 changes are tested locally. Field caps are 500 UTF-8 bytes for names/titles/reasons and 128 ASCII bytes for IDs and client refs. The planner performs bounded primary-key/county/uniqueness lookups and organization walks up to 64 ancestors; no write transaction is used. Results contain ordered `would_create`, `would_update`, `would_reuse` or `invalid` items, existing IDs only when already persisted, and bounded sanitized errors. Dry runs do not write rows, versions, audits, operations, sync state, flags or idempotency state, and generate no persistent Website IDs.
 
 Duplicate flags are optional advisory input. Only bounded, well-formed person flags with `nonblocking: true` are accepted; their references are checked and summaries may be returned in the plan. M2-B itself does not persist flags; M2-E (below) persists them at commit.
 
@@ -161,15 +161,14 @@ Prohibited fields:
 
 The following are defaults for the first implementation attempt, not production policy decisions:
 
-- max request size: 512 KiB
-- max changes: 200 items
-- max source citations per request: 25
+- max request size: 8 MiB (was 512 KiB)
+- max changes, source citations and changed rows per batch: none. The original 200, 25 and 200 caps were removed on the owner's instruction because they were first-draft defaults with no measured basis
 - max duplicate flags per request: 20
-- max changed rows per batch: 200
 - max audit detail string length: 4096 bytes per item
 - max change payload size per item: 32 KiB
+- max stored batch result: 1,900,000 bytes (Website migration `0023_sync_batch_result_size.sql`, was 64 KiB), which holds 10,000 changes inside D1's 2 MB row limit
 
-These defaults should be enforced by the Website before database writes begin.
+These defaults should be enforced by the Website before database writes begin. Hosted D1 limits on one atomic batch of this size and on Worker subrequests for a very large request have not been tested. Only local SQL.js and local D1 behavior is verified.
 
 ## Change envelope example
 

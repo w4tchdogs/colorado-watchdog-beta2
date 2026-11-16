@@ -48,7 +48,7 @@ test("Profiles MCP stdio serves aggregate readiness over the SDK client without 
     assert.equal(summary.readOnlyPreviewPossible, true);
     assert.equal(summary.eligibleCount, 0);
     assert.equal(summary.excludedCount, 0);
-    assert.equal(summary.changesetLimit.maxChanges, 200);
+    assert.equal(summary.changesetLimit.maxChanges, null);
     assert.equal(JSON.stringify(result).includes(databasePath), false);
     const after = createHash("sha256")
       .update(await readFile(databasePath))

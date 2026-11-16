@@ -115,12 +115,19 @@ def _linked(db, site_key, local_type, local_id):
     ).fetchone()
 
 
-def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fips=None):
+# There is no cap on the number of changes or citations. The request stays within the
+# Website's 8 MiB request limit, so a changeset ends when the next change would not fit.
+MAX_REQUEST_BYTES = 8 * 1024 * 1024
+_ENVELOPE_RESERVE_BYTES = 1024
+
+
+def build_changeset(db, site_key, *, request_id=None, max_changes=None, county_fips=None):
     """Return a stable request plus eligibility/exclusion diagnostics (never private notes)."""
     if not isinstance(site_key, str) or not site_key.strip() or len(site_key) > 128:
         raise ValueError("A bounded Site key is required")
-    if not 1 <= max_changes <= 200:
-        raise ValueError("max_changes must be between 1 and 200")
+    if max_changes is not None and (not isinstance(max_changes, int) or isinstance(max_changes, bool)
+                                    or max_changes < 1):
+        raise ValueError("max_changes must be a positive whole number when given")
     if county_fips is not None:
         from research.mapping import COUNTIES
         if not isinstance(county_fips, str) or county_fips not in COUNTIES:
@@ -155,6 +162,7 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
                 scoped_unit_ids.add(row["parent_id"])
                 pending_ancestors.append(row["parent_id"])
     excluded, changes, item_meta = [], [], []
+    request_bytes = 0
     refs, queued_orgs, queued_people, queued_targets, queued_sources = (
         {},
         set(),
@@ -164,8 +172,13 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
     )
 
     def add(change, local_type=None, local_id=None, evidence_id=None, claim_id=None):
-        if len(changes) >= max_changes:
+        nonlocal request_bytes
+        if max_changes is not None and len(changes) >= max_changes:
             return False
+        change_bytes = len(canonical_json(change).encode("utf-8")) + 1
+        if request_bytes + change_bytes > MAX_REQUEST_BYTES - _ENVELOPE_RESERVE_BYTES:
+            return False
+        request_bytes += change_bytes
         index = len(changes)
         changes.append(change)
         item_meta.append(
@@ -589,19 +602,6 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
             claim["target_id"],
             citation["source_id"],
         )
-        if (
-            _linked(db, site_key, "source", source_id) is None
-            and source_id not in queued_sources
-            and len(queued_sources) >= 25
-        ):
-            excluded.append(
-                {
-                    "entity_type": "role_claim",
-                    "entity_id": claim["claim_id"],
-                    "reason": "changeset_citation_limit",
-                }
-            )
-            continue
         p_link = _linked(db, site_key, "research_person", person_id)
         if p_link is None and person_id not in queued_people:
             pref = _ref("research_person", person_id)
@@ -911,8 +911,7 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
          _linked(db, site_key, "role_claim", row["id"])["link_state"] == "active")
         for row in selected_candidates
     )
-    capped_claims = (excluded_claims_by_reason.get("changeset_limit", set())
-                     | excluded_claims_by_reason.get("changeset_citation_limit", set())) - planned_role_claims
+    capped_claims = excluded_claims_by_reason.get("changeset_limit", set()) - planned_role_claims
     exclusion_counts = Counter(item["reason"] for item in excluded)
     role_exclusions = {reason: len(ids) for reason, ids in sorted(excluded_claims_by_reason.items())}
     return {
@@ -932,10 +931,10 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=200, county_fi
             "role_claims_excluded_by_reason": role_exclusions,
             "role_claims_already_mapped": already_mapped_claims,
             "role_claims_planned": len(planned_role_claims),
-            # Eligible means every gate passed. Claims cut only by the operation or
-            # citation cap are still eligible, so truncation is reported apart.
+            # Eligible means every gate passed. Claims cut only by the request size
+            # limit (or a voluntary --max-changes) are still eligible, so truncation is reported apart.
             "eligible_claims": len(planned_role_claims | capped_claims),
-            "eligible_claims_not_planned_because_of_caps": len(capped_claims),
+            "eligible_claims_not_planned_because_of_request_size": len(capped_claims),
             "structured_roles_planned": len(planned_role_claims) - unstructured_planned,
             "unstructured_roles_planned": unstructured_planned,
             "distinct_eligible_profiles": len({candidate_person_by_claim.get(claim_id)

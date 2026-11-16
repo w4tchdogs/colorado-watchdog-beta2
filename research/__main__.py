@@ -290,8 +290,9 @@ def parser_for():
     ):
         command = database_command(name, help_text)
         command.add_argument("--site-key", required=True)
-        command.add_argument("--max-changes", type=int, default=200)
-        command.add_argument("--county-fips", help="Optional canonical Colorado county FIPS, scoped before the 200-operation cap")
+        command.add_argument("--max-changes", type=int, default=None,
+                             help="Optional voluntary limit. By default a changeset holds as much as fits the 8 MiB request limit")
+        command.add_argument("--county-fips", help="Optional canonical Colorado county FIPS")
 
     database_command(
         "mcp-readiness-summary",
@@ -305,7 +306,7 @@ def parser_for():
                          help="Explicitly select all eligible changes in the reviewed preview")
     prepare.add_argument("--expect-fingerprint", required=True,
                          help="Changeset SHA-256 shown by sync-preview")
-    prepare.add_argument("--max-changes", type=int, default=200)
+    prepare.add_argument("--max-changes", type=int, default=None)
 
     status = database_command("sync-status", "inspect sanitized local submission status")
     status.add_argument("--submission-id", required=True)
@@ -349,7 +350,7 @@ def _profiles_readiness_summary(db):
     """Aggregate the R7/R8 read-only preview without returning request records."""
     history = validate_migration_history(db)
     generated = sync.build_changeset(
-        db, "colorado_watchdog_alpha1", max_changes=200
+        db, "colorado_watchdog_alpha1"
     )
     changes = generated["request"]["changes"]
     eligible_by_entity = {}
@@ -405,7 +406,7 @@ def _profiles_readiness_summary(db):
         "excludedCount": len(generated["excluded"]),
         "excludedCountsByReason": excluded_by_reason,
         "changesetSizeBytes": request_size,
-        "changesetLimit": {"maxChanges": 200, "maxRequestBytes": 524288},
+        "changesetLimit": {"maxChanges": None, "maxRequestBytes": 8388608},
         "previewTruncated": bool(generated["truncated"]),
         "websiteMappingsPresent": int(mapped_count) > 0,
         "websiteMappingCount": int(mapped_count),

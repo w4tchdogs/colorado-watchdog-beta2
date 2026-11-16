@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 COMMIT_PATH = "/internal/sync/changesets/commit"
-MAX_REQUEST_BYTES = 512 * 1024
+MAX_REQUEST_BYTES = 8 * 1024 * 1024
 _KEY = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _REQUEST_ID = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
@@ -202,7 +202,7 @@ def _validate_payload(value):
         or not isinstance(value.get("requestId"), str)
         or not _REQUEST_ID.fullmatch(value["requestId"])
         or not isinstance(value.get("changes"), list)
-        or not 1 <= len(value["changes"]) <= 200
+        or len(value["changes"]) < 1
     ):
         raise SubmissionError("The request must be a valid m2-sync/v1 commit")
     if set(value) - {

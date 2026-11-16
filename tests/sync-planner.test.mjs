@@ -726,7 +726,7 @@ test("enforces request bounds, strict unknown keys, advisory flags and dry-run n
     const oversizedTotal = planSyncChangeset(
       db,
       request(
-        Array.from({ length: 17 }, (_, i) => ({
+        Array.from({ length: 270 }, (_, i) => ({
           ...validOrg(`org-${i}`),
           untrustedPadding: "x".repeat(31_000),
         })),
@@ -748,8 +748,10 @@ test("enforces request bounds, strict unknown keys, advisory flags and dry-run n
         ),
       ),
     );
-    assert.ok(
+    assert.equal(
       tooManySources.errors.some((x) => x.code === "too_many_citations"),
+      false,
+      "there is no citation count cap",
     );
   });
 });

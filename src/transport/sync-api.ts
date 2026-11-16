@@ -1,7 +1,7 @@
 import type { SyncPlan } from "../contracts/sync.js";
 import {
-  MAX_SYNC_CHANGES,
-  MAX_SYNC_CITATIONS,
+  MAX_SYNC_DIAGNOSTICS,
+  MAX_SYNC_ITEMS_BY_SIZE,
   MAX_SYNC_DUPLICATE_FLAGS,
   MAX_SYNC_ITEM_BYTES,
   MAX_SYNC_REQUEST_BYTES,
@@ -329,18 +329,13 @@ function parseRequest(
       !UUID.test(value.requestId) ||
       !Array.isArray(value.changes) ||
       value.changes.length < 1 ||
-      value.changes.length > MAX_SYNC_CHANGES ||
       !value.changes.every(isValidChange)
     )
       return invalidRequest();
-    let citations = 0;
     for (const change of value.changes) {
-      if (change.op === "register_source") citations++;
       if (byteLength(change) > MAX_SYNC_ITEM_BYTES)
         return invalidRequest("item_too_large");
     }
-    if (citations > MAX_SYNC_CITATIONS)
-      return invalidRequest("too_many_citations");
     if (
       value.duplicateFlags !== undefined &&
       (!Array.isArray(value.duplicateFlags) ||
@@ -426,9 +421,9 @@ function sanitizePlan(
     !isRecord(value) ||
     value.contractVersion !== SYNC_CONTRACT_VERSION ||
     !Array.isArray(value.items) ||
-    value.items.length > MAX_SYNC_CHANGES ||
+    value.items.length > MAX_SYNC_ITEMS_BY_SIZE ||
     !Array.isArray(value.errors) ||
-    value.errors.length > MAX_SYNC_CHANGES ||
+    value.errors.length > MAX_SYNC_DIAGNOSTICS ||
     !Array.isArray(value.duplicateFlags) ||
     value.duplicateFlags.length > MAX_SYNC_DUPLICATE_FLAGS
   )
@@ -470,7 +465,7 @@ function sanitizeCommit(
   )
     return null;
   if (value.status === "committed") {
-    if (value.items.length > MAX_SYNC_CHANGES || value.errors.length)
+    if (value.items.length > MAX_SYNC_ITEMS_BY_SIZE || value.errors.length)
       return null;
     return {
       status: value.status,
@@ -493,7 +488,7 @@ function sanitizeCommit(
     value.status !== "rejected" ||
     value.items.length ||
     !value.errors.length ||
-    value.errors.length > MAX_SYNC_CHANGES
+    value.errors.length > MAX_SYNC_DIAGNOSTICS
   )
     return null;
   return {
@@ -511,7 +506,7 @@ function sanitizeLookup(
   if (
     !isRecord(value) ||
     !Array.isArray(value.items) ||
-    value.items.length > MAX_SYNC_CHANGES
+    value.items.length > MAX_SYNC_ITEMS_BY_SIZE
   )
     return null;
   return {

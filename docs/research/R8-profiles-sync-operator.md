@@ -19,8 +19,8 @@ python -m research sync-reconcile D:\private\profiles.sqlite --submission-id <su
 and the deterministic changeset fingerprint. `sync-preview` also returns the
 proposed public-contract request. Both are read-only. Add `--county-fips 08001`
 to either command for one canonical Colorado county. R7 first limits claim
-observations and required organization dependencies to that county, then applies
-the existing maximum 200-operation cap. Parent organizations required by those
+observations and required organization dependencies to that county, then builds the
+changeset until the next change would not fit the 8 MiB request limit, with no cap on the number of operations. Parent organizations required by those
 observations remain in parent-before-child order; shared people, positions,
 sources and organizations are emitted once. Without the flag, statewide
 behavior is unchanged. County-scoped preview is an eligibility diagnostic;
@@ -82,8 +82,8 @@ No command here prepares or sends a Website changeset. Keep all plans and
 identifiers in the private workspace.
 
 Preparation requires `--select all` to make the operator's selection explicit
-and `--expect-fingerprint` to match the current preview. The 200-change R7
-maximum remains in force. The request and idempotency key are persisted through
+and `--expect-fingerprint` to match the current preview. There
+is no cap on the number of changes, only the 8 MiB request limit. The request and idempotency key are persisted through
 the R6 client before any sender could be invoked. Repeating the same command is
 idempotent; a different request under the same idempotency key is rejected.
 There is no CLI sender. If another explicitly injected caller ever attempts

@@ -6,8 +6,6 @@ import type {
   SyncPlanError,
 } from "../contracts/sync.js";
 import {
-  MAX_SYNC_CHANGES,
-  MAX_SYNC_CITATIONS,
   MAX_SYNC_DUPLICATE_FLAGS,
   MAX_SYNC_ITEM_BYTES,
   MAX_SYNC_REQUEST_BYTES,
@@ -86,8 +84,8 @@ const TABLES: readonly SyncEntity[] = [
 ];
 const SAFE_MESSAGES: Record<SyncErrorCode, string> = {
   invalid_request: "The changeset structure is invalid.",
-  request_too_large: "The request exceeds the 512 KiB limit.",
-  too_many_changes: "A changeset must contain from 1 through 200 changes.",
+  request_too_large: "The request exceeds the 8 MiB limit.",
+  no_changes: "A changeset must contain at least one change.",
   item_too_large: "A change exceeds the 32 KiB item limit.",
   unsupported_operation: "The requested operation is not supported.",
   unsupported_entity: "The entity is outside the M1 synchronization scope.",
@@ -130,10 +128,8 @@ const SAFE_MESSAGES: Record<SyncErrorCode, string> = {
   role_detail_required:
     "A role needs a position link, an office, a title or a job description.",
   date_order: "The end date must not precede the start date.",
-  too_many_citations: "A request may contain at most 25 source citations.",
   too_many_duplicate_flags: "A request may contain at most 20 duplicate flags.",
   duplicate_flag_invalid: "A duplicate flag is invalid or blocking.",
-  changed_rows_limit: "The plan exceeds the 200-row limit.",
   commit_not_supported: "Commit intent is not available in the M2-B planner.",
   invalid_idempotency_key: "The idempotency key is invalid.",
   idempotency_mismatch:
@@ -197,11 +193,10 @@ export function planSyncChangeset(
     add("request_too_large");
     return result(requestId, [], errors, []);
   }
-  if (input.changes.length < 1 || input.changes.length > MAX_SYNC_CHANGES) {
-    add("too_many_changes");
+  if (input.changes.length < 1) {
+    add("no_changes");
     return result(requestId, [], errors, []);
   }
-  let citations = 0;
   for (let i = 0; i < input.changes.length; i++) {
     const candidate = input.changes[i];
     if (!record(candidate)) {
@@ -217,9 +212,7 @@ export function planSyncChangeset(
     } catch {
       add("invalid_request", i);
     }
-    if (candidate.op === "register_source") citations++;
   }
-  if (citations > MAX_SYNC_CITATIONS) add("too_many_citations");
   if (errors.length) return result(requestId, [], errors, []);
   if (input.intent !== "dry_run" && input.intent !== "commit")
     add("invalid_field");
