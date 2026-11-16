@@ -67,7 +67,7 @@ These tests cannot establish hosted gateway isolation.
 
 `src/services/owner-bootstrap.ts` exposes an administrative D1 operation and is
 not mounted as a Worker route. It checks the exact Beta-2 project and `DB`
-binding inputs, verifies the full Website migration inventory (0001–0019 at the AUTH-3-WEB merge), including names and hashes, plus the append-only
+binding inputs, verifies the full Website migration inventory (0001–0021 on current `main`), including names and hashes, plus the append-only
 bootstrap audit schema, and supports read-only dry run. The write uses a single
 D1 atomic batch with guarded inserts for one active human owner, the exact
 `chatgpt-sites:<project-id>` subject link, and a distinct
