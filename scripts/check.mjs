@@ -310,6 +310,7 @@ const allowed = new Set([
   "research/source_types.py",
   "research/publisher.py",
   "research/export.py",
+  "research/batch_selection.py",
   "research/structure.py",
   "research/migrations/001_foundation.sql",
   "research/migrations/002_durable_site_submissions.sql",
@@ -334,6 +335,9 @@ const allowed = new Set([
   "tests/test_source_types.py",
   "tests/test_publisher_classification.py",
   "tests/test_profiles_export.py",
+  "tests/test_batch_selection.py",
+  "tests/test_batch_selection_cli.py",
+  "tests/test_sync_county_scope.py",
   "docs/research/identity-backlog-triage.md",
   "docs/research/source-page-types.md",
   "docs/research/publisher-classification-and-private-export.md",
@@ -437,15 +441,16 @@ for (const file of files) {
     errors.push(`Non-regular file: ${file}`);
   const bytes = staged ? git("show", `:${file}`) : readFileSync(file);
   // Large files have scoped limits: the lockfile, bundled county geometry, the
-  // repository copy of the Fable revision 4 assessment and the banner
-  // administration service, which holds every guarded write in one class.
+  // repository copy of the Fable revision 4 assessment, the banner
+  // administration service, and the local research CLI command router.
   const sizeLimit =
     file === "package-lock.json"
       ? 256 * 1024
       : file === "src/site/colorado-county-map.json"
         ? 1024 * 1024
         : file === "docs/architecture/fable-assessment-rev4.md" ||
-            file === "src/services/banner-admin-d1.ts"
+            file === "src/services/banner-admin-d1.ts" ||
+            file === "research/__main__.py"
           ? 96 * 1024
           : 64 * 1024;
   if (bytes.length > sizeLimit)
