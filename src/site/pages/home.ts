@@ -125,6 +125,7 @@ export async function homePage(context: SiteContext): Promise<Page> {
 
   return {
     title: "Colorado Watchdog",
+    isHomePage: true,
     head: COMMUNITY_VOICES_HEAD,
     description:
       "Community Voices. Government Accountability. Public, source-cited records of Colorado county organizations, positions and the people documented in them.",
