@@ -44,7 +44,7 @@ if (filter) {
     }
     if (status) {
       if (!active) {
-        status.textContent = "Select a county, or search the directory below.";
+        status.textContent = "Choose a county";
       } else {
         const region = mapRegions.find((item) => item.dataset.fips === active);
         const countyName =
