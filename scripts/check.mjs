@@ -26,6 +26,7 @@ const allowed = new Set([
   "docs/coordination/visual-audit/VIS-6 Coverage Summary and Follow-up rev2026-11-14 v1.md",
   "docs/coordination/visual-audit/VIS-6 Evidence Index rev2026-11-14 v1.md",
   "docs/coordination/visual-audit/vis-9/VIS-9 County Detail Findings rev2026-11-14 v1.md",
+  "docs/coordination/visual-audit/vis-15/VIS-15 Information Pages Findings rev2026-11-15 v1.md",
   "docs/coordination/visual-audit/vis-11-12/VIS-11 and VIS-12 Person and Organization Findings rev2026-11-15 v1.md",
   "docs/coordination/HANDOFF-TEMPLATE.md",
   "docs/coordination/PROJECT-BOOTSTRAP.md",
