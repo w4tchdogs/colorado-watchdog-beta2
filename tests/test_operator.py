@@ -27,11 +27,11 @@ class OperatorCase(unittest.TestCase):
         self.db.commit()
         self.batch = ingest_csv(self.db, csv_bytes([observation()]), file_name="synthetic.csv",
                                 version_label="fixture-v1", selected=True)
-        self.claim = self.db.execute("SELECT * FROM role_claims").fetchone()
-        self.source_id = self.db.execute("SELECT source_id FROM evidence_links WHERE id=?",
+        self.claim = self.db.execute('SELECT "Role claim ID" AS id, "County code" AS county_fips, "Evidence record ID" AS evidence_id, "Linked profile" AS person_id, "Linked office or unit" AS unit_id, "Linked position" AS target_id, "Name as published" AS published_name, "Position as published" AS published_title, "Job description or duties" AS responsibility, "Listing status" AS source_listing_status, "Original display group" AS legacy_display_group, "Reason for grouping" AS grouping_basis, "Office or department as published" AS department_label, "Division or unit as published" AS division_label, "Program or location as published" AS program_location, "Program or location type" AS program_context_type, "Affiliation" AS affiliation, "Employment start date" AS employment_start, "Employment end date" AS employment_end, "Private review notes" AS private_note, "Earlier claim this replaces" AS supersedes_id FROM role_claims').fetchone()
+        self.source_id = self.db.execute('SELECT "Source ID" AS source_id FROM evidence_links WHERE "Evidence record ID"=?',
                                          (self.claim["evidence_id"],)).fetchone()[0]
-        self.db.execute("UPDATE sources SET official_status='official',publisher_classification='official' WHERE id=?", (self.source_id,))
-        self.db.execute("INSERT INTO org_units(id,county_fips,source_label,kind) VALUES ('unit-1','08107','Fixture unit','department')")
+        self.db.execute("UPDATE sources SET \"Previous source category\"='official',\"Publisher type\"='official' WHERE \"Source ID\"=?", (self.source_id,))
+        self.db.execute("INSERT INTO org_units(\"Office or unit ID\",\"County code\",\"Office or unit label as published\",\"Organization type\") VALUES ('unit-1','08107','Fixture unit','department')")
         self.run_id = self.db.execute("SELECT id FROM research_runs ORDER BY recorded_at DESC LIMIT 1").fetchone()[0]
         self.db.commit()
         self.event_count = self.db.execute("SELECT count(*) FROM research_events").fetchone()[0]
@@ -40,12 +40,12 @@ class OperatorCase(unittest.TestCase):
         self.db.close()
 
     def person(self, person_id="person-1", county="08107", name="Synthetic Rowan Example"):
-        self.db.execute("INSERT INTO research_people(id,county_fips,display_name) VALUES (?,?,?)",
+        self.db.execute('INSERT INTO research_people("Profile ID","County code","Full name") VALUES (?,?,?)',
                         (person_id, county, name))
         self.db.commit()
 
     def supporting_variant(self, person_id="person-1", evidence_id=None):
-        self.db.execute("INSERT INTO name_variants(id,person_id,published_name,kind,evidence_id) VALUES (?,?,?,?,?)",
+        self.db.execute('INSERT INTO name_variants("Name record ID","Profile ID","Name as published","Name type","Evidence for this name") VALUES (?,?,?,?,?)',
                         ("variant-" + person_id, person_id, self.claim["published_name"], "published",
                          evidence_id or self.claim["evidence_id"]))
         self.db.commit()
@@ -53,15 +53,15 @@ class OperatorCase(unittest.TestCase):
     def test_evidence_supported_association_preserves_observation_and_audits_actor(self):
         self.person()
         self.supporting_variant()
-        raw_before = self.db.execute("SELECT raw_record_json FROM evidence_links WHERE id=?",
+        raw_before = self.db.execute('SELECT "Original record" AS raw_record_json FROM evidence_links WHERE "Evidence record ID"=?',
                                      (self.claim["evidence_id"],)).fetchone()[0]
         result = associate_claim(self.db, claim_id=self.claim["id"], person_id="person-1",
                                  evidence_id=self.claim["evidence_id"], rationale="Fixture source supports this published-name link",
                                  actor="synthetic-operator")
-        self.assertEqual(tuple(self.db.execute("SELECT person_id,published_name FROM role_claims WHERE id=?",
+        self.assertEqual(tuple(self.db.execute('SELECT "Linked profile" AS person_id,"Name as published" AS published_name FROM role_claims WHERE "Role claim ID"=?',
                                                (self.claim["id"],)).fetchone()),
                          ("person-1", "Synthetic Rowan Example"))
-        self.assertEqual(self.db.execute("SELECT raw_record_json FROM evidence_links WHERE id=?",
+        self.assertEqual(self.db.execute('SELECT "Original record" AS raw_record_json FROM evidence_links WHERE "Evidence record ID"=?',
                                          (self.claim["evidence_id"],)).fetchone()[0], raw_before)
         run = self.db.execute("SELECT actor,kind FROM research_runs WHERE id=?", (result["run_id"],)).fetchone()
         self.assertEqual(tuple(run), ("synthetic-operator", "screening"))
@@ -81,7 +81,7 @@ class OperatorCase(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "same county"):
             associate_claim(self.db, claim_id=self.claim["id"], person_id="person-other-county",
                             evidence_id=self.claim["evidence_id"], rationale="cross county", actor="operator")
-        self.assertIsNone(self.db.execute("SELECT person_id FROM role_claims WHERE id=?", (self.claim["id"],)).fetchone()[0])
+        self.assertIsNone(self.db.execute('SELECT "Linked profile" AS person_id FROM role_claims WHERE "Role claim ID"=?', (self.claim["id"],)).fetchone()[0])
         self.assertEqual(self.db.execute("SELECT count(*) FROM research_events").fetchone()[0], self.event_count)
         self.assertEqual(self.db.execute("SELECT count(*) FROM research_runs").fetchone()[0], before_runs)
         self.assertEqual(len(inspect_claims(self.db, unassigned=True)), 1)
@@ -176,11 +176,11 @@ class OperatorCase(unittest.TestCase):
                             evidence_id=self.claim["evidence_id"], run_id=self.run_id,
                             actor="operator", rationale="nested fixture")
         self.assertTrue(self.db.in_transaction)
-        self.assertEqual(self.db.execute("SELECT count(*) FROM counties WHERE fips='08001'").fetchone()[0], 1)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM counties WHERE \"County code\"='08001'").fetchone()[0], 1)
         self.assertEqual(self.db.execute("SELECT count(*) FROM source_visits").fetchone()[0], 0)
         self.assertEqual(self.db.execute("SELECT count(*) FROM research_events").fetchone()[0], self.event_count)
         self.db.commit()
-        self.assertEqual(self.db.execute("SELECT count(*) FROM counties WHERE fips='08001'").fetchone()[0], 1)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM counties WHERE \"County code\"='08001'").fetchone()[0], 1)
         visit = record_visit(self.db, source_id=self.source_id, run_id=self.run_id, provenance="observed",
                              outcome="blocked", actor="synthetic-operator")
         self.assertEqual(self.db.execute("SELECT count(*) FROM source_visits WHERE id=?",

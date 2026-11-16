@@ -60,12 +60,12 @@ def _schema_objects(db):
         "WHERE name <> 'sqlite_sequence' ORDER BY type, name, tbl_name"))
 
 
-def _validate_canonical_schema(db):
+def _validate_canonical_schema(db, version):
     """Compare with a fresh schema built from this checkout's packaged migrations."""
     expected_db = sqlite3.connect(":memory:")
     try:
         expected_db.execute("PRAGMA foreign_keys=ON")
-        migrate(expected_db)
+        migrate(expected_db, through_version=version)
         expected = _schema_objects(expected_db)
     finally:
         expected_db.close()
@@ -74,8 +74,11 @@ def _validate_canonical_schema(db):
 
 
 def _database_snapshot(db):
-    history = validate_migration_history(db)
-    _validate_canonical_schema(db)
+    version = db.execute("PRAGMA user_version").fetchone()[0]
+    if version < 3:
+        raise ValueError("Database predates the supported research backup schema")
+    history = validate_migration_history(db, through_version=version)
+    _validate_canonical_schema(db, version)
     tables = [row[0] for row in db.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
     if set(tables) != _DOMAIN_TABLES | {"schema_migrations"}:

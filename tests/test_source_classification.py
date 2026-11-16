@@ -28,12 +28,12 @@ class SourceClassificationCase(unittest.TestCase):
              ("run_synthetic_b", "mapping", "synthetic", "fixture", NOW)],
         )
         self.db.executemany(
-            "INSERT INTO sources(id,original_url,recorded_at) VALUES (?,?,?)",
+            'INSERT INTO sources("Source ID","Original source URL","Recorded on") VALUES (?,?,?)',
             [("source_a", "https://example.invalid/source-a", NOW),
              ("source_b", "https://example.invalid/source-b", NOW)],
         )
         self.db.executemany(
-            "INSERT INTO evidence_links(id,source_id,observed_title,observed_url,locator,run_id,recorded_at) "
+            'INSERT INTO evidence_links("Evidence record ID","Source ID","Source title as observed","Source URL as observed","Evidence location","Research run ID","Recorded on") '
             "VALUES (?,?,?,?,?,?,?)",
             [("evidence_a", "source_a", "Invented listing", "https://example.invalid/source-a",
               "synthetic section", "run_synthetic_a", NOW),
@@ -56,7 +56,7 @@ class SourceClassificationCase(unittest.TestCase):
                                  evidence_id="evidence_a")
         self.assertTrue(result["changed"])
         self.assertEqual(result["previous_status"], "unknown")
-        self.assertEqual(self.db.execute("SELECT official_status FROM sources WHERE id='source_a'").fetchone()[0],
+        self.assertEqual(self.db.execute("SELECT \"Previous source category\" AS official_status FROM sources WHERE \"Source ID\"='source_a'").fetchone()[0],
                          "official")
         run = self.db.execute("SELECT kind,provenance,actor FROM research_runs WHERE id=?",
                               (result["run_id"],)).fetchone()
@@ -84,7 +84,7 @@ class SourceClassificationCase(unittest.TestCase):
         self.assertEqual(self.counts(), counts)
 
     def test_existing_status_gets_one_audited_confirmation(self):
-        self.db.execute("UPDATE sources SET official_status='official',publisher_classification='official' WHERE id='source_a'")
+        self.db.execute("UPDATE sources SET \"Previous source category\"='official',\"Publisher type\"='official' WHERE \"Source ID\"='source_a'")
         self.db.commit()
         options = {"source_id": "source_a", "status": "official", "actor": "fixture",
                    "basis": "Explicit synthetic review of supporting source evidence.",
@@ -114,7 +114,7 @@ class SourceClassificationCase(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     classify_source(self.db, **options)
                 self.assertEqual(self.counts(), before)
-                self.assertEqual(self.db.execute("SELECT official_status FROM sources WHERE id='source_a'")
+                self.assertEqual(self.db.execute("SELECT \"Previous source category\" AS official_status FROM sources WHERE \"Source ID\"='source_a'")
                                  .fetchone()[0], "unknown")
 
     def test_failed_audit_insert_rolls_back_source_and_run(self):
@@ -126,17 +126,17 @@ class SourceClassificationCase(unittest.TestCase):
             classify_source(self.db, source_id="source_a", status="partner", actor="fixture",
                             basis="Synthetic rollback exercise.", evidence_id="evidence_a")
         self.assertEqual(self.counts(), before)
-        self.assertEqual(self.db.execute("SELECT official_status FROM sources WHERE id='source_a'").fetchone()[0],
+        self.assertEqual(self.db.execute("SELECT \"Previous source category\" AS official_status FROM sources WHERE \"Source ID\"='source_a'").fetchone()[0],
                          "unknown")
 
     def test_caller_transaction_is_not_rolled_back(self):
-        self.db.execute("INSERT INTO sources(id,original_url,recorded_at) VALUES (?,?,?)",
+        self.db.execute('INSERT INTO sources("Source ID","Original source URL","Recorded on") VALUES (?,?,?)',
                         ("pending_source", "https://example.invalid/pending", NOW))
         with self.assertRaisesRegex(ValueError, "Finish the current transaction"):
             classify_source(self.db, source_id="source_a", status="official", actor="fixture", basis="synthetic")
         self.assertTrue(self.db.in_transaction)
         self.db.commit()
-        self.assertIsNotNone(self.db.execute("SELECT 1 FROM sources WHERE id='pending_source'").fetchone())
+        self.assertIsNotNone(self.db.execute("SELECT 1 FROM sources WHERE \"Source ID\"='pending_source'").fetchone())
 
     def test_cli_classification_requires_explicit_basis_and_records_audit(self):
         command = [sys.executable, "-B", "-m", "research", "classify-source", str(self.database),

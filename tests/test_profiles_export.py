@@ -19,7 +19,7 @@ class ProfilesExportTests(unittest.TestCase):
         self.db = connect(self.path)
         migrate(self.db)
         self.db.execute("PRAGMA foreign_keys=OFF")
-        self.db.executemany("INSERT INTO counties(fips,name) VALUES(?,?)",
+        self.db.executemany('INSERT INTO counties("County code","County name") VALUES(?,?)',
                             [("08001", "Adams"), ("08003", "Alamosa")])
         self.db.execute("INSERT INTO research_runs(id,kind,provenance,actor,started_at,ended_at,recorded_at) "
                         "VALUES('run_synth','mapping','synthetic','fixture',?,?,?)", (NOW, NOW, NOW))
@@ -27,11 +27,11 @@ class ProfilesExportTests(unittest.TestCase):
                    ("src_unofficial", "unofficial", "https://example.invalid/news/item"),
                    ("src_unresolved", "unresolved", "https://example.invalid/unclear")]
         for source_id, classification, url in sources:
-            self.db.execute("INSERT INTO sources(id,original_url,page_type,official_status,publisher_classification,recorded_at) "
+            self.db.execute('INSERT INTO sources("Source ID","Original source URL","Document type","Previous source category","Publisher type","Recorded on") '
                             "VALUES(?,?,?,'unknown',?,?)",
                             (source_id, url, "public_document" if source_id == "src_gov" else "official_page",
                              classification, NOW))
-        self.db.executemany("INSERT INTO research_people(id,county_fips,display_name,identity_state) VALUES(?,?,?,'provisional')",
+        self.db.executemany("INSERT INTO research_people(\"Profile ID\",\"County code\",\"Full name\",\"Identity review status\") VALUES(?,?,?,'provisional')",
                             [("person_a", "08001", "Synthetic Avery Example"),
                              ("person_source_less", "08001", "Synthetic Casey Example")])
         for index, (source_id, county, person) in enumerate([
@@ -45,11 +45,11 @@ class ProfilesExportTests(unittest.TestCase):
             # deduplicate by person ID and preserve every selected county/role link.
             url = dict((key, value) for key, _, value in sources)[source_id]
             evidence_id = f"ev_claim_{index}"
-            self.db.execute("INSERT INTO evidence_links(id,source_id,observed_title,observed_url,locator,run_id,recorded_at) "
+            self.db.execute('INSERT INTO evidence_links("Evidence record ID","Source ID","Source title as observed","Source URL as observed","Evidence location","Research run ID","Recorded on") '
                             "VALUES(?,?,?,?,?,'run_synth',?)",
                             (evidence_id, source_id, "Synthetic citation", url, "section 1", NOW))
-            self.db.execute("INSERT INTO role_claims(id,county_fips,evidence_id,person_id,published_name,published_title,"
-                            "source_listing_status) VALUES(?,?,?,?,?,?, 'Listed')",
+            self.db.execute('INSERT INTO role_claims("Role claim ID","County code","Evidence record ID","Linked profile","Name as published","Position as published",'
+                            "\"Listing status\") VALUES(?,?,?,?,?,?, 'Listed')",
                             (f"claim_{index}", county, evidence_id, person,
                              "Synthetic Avery Example" if person else "Synthetic Jordan Example", "Synthetic Clerk"))
         self.db.commit()
@@ -87,7 +87,7 @@ class ProfilesExportTests(unittest.TestCase):
         self.assertEqual({r["county_fips"] for r in profile["roles"]}, {"08001", "08003"})
 
     def test_scope_before_limit_hard_cap_and_repeatable_continuation(self):
-        self.db.executemany("INSERT INTO research_people(id,county_fips,display_name,identity_state) "
+        self.db.executemany('INSERT INTO research_people("Profile ID","County code","Full name","Identity review status") '
                             "VALUES(?, '08001', ?, 'provisional')",
                             [(f"person_{i:05d}", f"Synthetic Person {i:05d}") for i in range(10_002)])
         self.db.commit()

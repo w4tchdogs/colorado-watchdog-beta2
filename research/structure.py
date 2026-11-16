@@ -79,13 +79,13 @@ def _row_input(row):
 
 def _load_inputs(db):
     rows = list(db.execute(
-        "SELECT c.id claim_id,c.county_fips,c.evidence_id,e.source_id,e.batch_id,"
-        "b.family_id,b.lineage_kind,b.selected,c.department_label,c.division_label,"
-        "c.legacy_display_group,c.grouping_basis,c.affiliation,c.published_title,"
-        "c.source_listing_status FROM role_claims c "
-        "JOIN evidence_links e ON e.id=c.evidence_id "
-        "LEFT JOIN scrape_batches b ON b.id=e.batch_id "
-        "ORDER BY c.county_fips,c.id"))
+        'SELECT c."Role claim ID" claim_id,c."County code" AS county_fips,c."Evidence record ID" AS evidence_id,e."Source ID" AS source_id,e."Import batch ID" AS batch_id,'
+        'b.family_id,b.lineage_kind,b.selected,c."Office or department as published" AS department_label,c."Division or unit as published" AS division_label,'
+        'c."Original display group" AS legacy_display_group,c."Reason for grouping" AS grouping_basis,c."Affiliation" AS affiliation,c."Position as published" AS published_title,'
+        'c."Listing status" AS source_listing_status FROM role_claims c '
+        'JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+        'LEFT JOIN scrape_batches b ON b.id=e."Import batch ID" '
+        'ORDER BY c."County code",c."Role claim ID"'))
     if not rows:
         raise ValueError("No imported role claims are available for structure planning")
     return rows
@@ -93,7 +93,7 @@ def _load_inputs(db):
 
 def _existing_units(db):
     grouped = defaultdict(list)
-    for row in db.execute("SELECT id,county_fips,source_label,kind FROM org_units ORDER BY id"):
+    for row in db.execute('SELECT "Office or unit ID" AS id,"County code" AS county_fips,"Office or unit label as published" AS source_label,"Organization type" AS kind FROM org_units ORDER BY id'):
         grouped[(row["county_fips"], row["kind"], row["source_label"])].append(row["id"])
     return grouped
 
@@ -210,7 +210,7 @@ def build_structure_plan(db):
     # Existing parent links are immutable decisions for this automated process.
     for unit in units.values():
         current = db.execute(
-            "SELECT parent_id,parent_relation,parent_evidence_id FROM org_units WHERE id=?",
+            'SELECT "Parent office or unit" AS parent_id,"Relationship to parent" AS parent_relation,"Evidence for parent relationship" AS parent_evidence_id FROM org_units WHERE "Office or unit ID"=?',
             (unit["id"],),
         ).fetchone()
         if current is not None and any(current[index] is not None for index in range(3)):
@@ -238,7 +238,7 @@ def build_structure_plan(db):
 
     existing_targets = defaultdict(list)
     for row in db.execute(
-            "SELECT id,unit_id,county_fips,documented_title,evidence_id,occupancy,occupancy_evidence_id "
+            'SELECT "Position ID" AS id,"Office or unit ID" AS unit_id,"County code" AS county_fips,"Documented position title" AS documented_title,"Evidence for position" AS evidence_id,"Position occupancy status" AS occupancy,"Evidence for occupancy status" AS occupancy_evidence_id '
             "FROM role_targets ORDER BY id"):
         existing_targets[(row["unit_id"], row["county_fips"], row["documented_title"])].append(dict(row))
 
@@ -331,7 +331,7 @@ def build_structure_plan(db):
                            "WHERE source_id=? AND unit_id=? AND relation=?",
                            (source_id, unit_id, relation)).fetchone()
         if prior is not None:
-            linked_source = db.execute("SELECT source_id FROM evidence_links WHERE id=?",
+            linked_source = db.execute('SELECT "Source ID" AS source_id FROM evidence_links WHERE "Evidence record ID"=?',
                                        (prior["evidence_id"],)).fetchone()
             if linked_source is None or linked_source["source_id"] != source_id:
                 raise ValueError("Existing source-to-unit link has invalid evidence lineage")
@@ -368,9 +368,9 @@ def build_structure_plan(db):
     new_claim_ids = sorted({claim["claim_id"] for claim in claim_links
                             if claim["claim_id"] not in processed_claim_ids})
     existing_unit_rows = {row["id"]: row for row in db.execute(
-        "SELECT id,parent_id,parent_relation,parent_evidence_id FROM org_units")}
-    existing_name_ids = {row[0] for row in db.execute("SELECT id FROM org_names")}
-    existing_target_ids = {row[0] for row in db.execute("SELECT id FROM role_targets")}
+        'SELECT "Office or unit ID" AS id,"Parent office or unit" AS parent_id,"Relationship to parent" AS parent_relation,"Evidence for parent relationship" AS parent_evidence_id FROM org_units')}
+    existing_name_ids = {row[0] for row in db.execute('SELECT "Office name record ID" AS id FROM org_names')}
+    existing_target_ids = {row[0] for row in db.execute('SELECT "Position ID" AS id FROM role_targets')}
     existing_source_links = {tuple(row) for row in db.execute(
         "SELECT source_id,unit_id,relation FROM source_unit_links")}
     new_units = sorted(unit["id"] for unit in unit_rows
@@ -511,15 +511,15 @@ def _same_decision_plan(left, right):
 
 
 def _check_same_county(db, child, parent):
-    rows = db.execute("SELECT id,county_fips,kind FROM org_units WHERE id IN (?,?)", (child, parent)).fetchall()
+    rows = db.execute('SELECT "Office or unit ID" AS id,"County code" AS county_fips,"Organization type" AS kind FROM org_units WHERE "Office or unit ID" IN (?,?)', (child, parent)).fetchall()
     if len(rows) != 2 or rows[0]["county_fips"] != rows[1]["county_fips"]:
         raise ValueError("Cross-county organizational parent relationship rejected")
     return {row["id"]: row for row in rows}
 
 
 def _verify_unit(db, unit):
-    row = db.execute("SELECT county_fips,source_label,kind,parent_id,parent_relation,parent_evidence_id "
-                     "FROM org_units WHERE id=?", (unit["id"],)).fetchone()
+    row = db.execute('SELECT "County code" AS county_fips,"Office or unit label as published" AS source_label,"Organization type" AS kind,"Parent office or unit" AS parent_id,"Relationship to parent" AS parent_relation,"Evidence for parent relationship" AS parent_evidence_id '
+                     'FROM org_units WHERE "Office or unit ID"=?', (unit["id"],)).fetchone()
     expected = (unit["county_fips"], unit["source_label"], unit["kind"], unit["parent_id"],
                 unit["parent_relation"], unit["parent_evidence_id"])
     if row is None or tuple(row) != expected:
@@ -530,12 +530,12 @@ def _verify_applied(db, plan, run_id):
     for unit in plan["units"]:
         _verify_unit(db, unit)
     for name in plan["names"]:
-        row = db.execute("SELECT unit_id,name,kind,evidence_id FROM org_names WHERE id=?", (name["id"],)).fetchone()
+        row = db.execute('SELECT "Office or unit ID" AS unit_id,"Name" AS name,"Name type" AS kind,"Evidence for this name" AS evidence_id FROM org_names WHERE "Office name record ID"=?', (name["id"],)).fetchone()
         if row is None or tuple(row) != (name["unit_id"], name["name"], name["kind"], name["evidence_id"]):
             raise ValueError("Previously applied published unit name is missing or changed")
     for target in plan["targets"]:
-        row = db.execute("SELECT unit_id,county_fips,documented_title,evidence_id,occupancy,occupancy_evidence_id "
-                         "FROM role_targets WHERE id=?", (target["id"],)).fetchone()
+        row = db.execute('SELECT "Office or unit ID" AS unit_id,"County code" AS county_fips,"Documented position title" AS documented_title,"Evidence for position" AS evidence_id,"Position occupancy status" AS occupancy,"Evidence for occupancy status" AS occupancy_evidence_id '
+                         'FROM role_targets WHERE "Position ID"=?', (target["id"],)).fetchone()
         expected = (target["unit_id"], target["county_fips"], target["documented_title"],
                     target["evidence_id"], target["occupancy"], target["occupancy_evidence_id"])
         if row is None or tuple(row) != expected:
@@ -546,7 +546,7 @@ def _verify_applied(db, plan, run_id):
         if row is None or row["evidence_id"] != link["evidence_id"]:
             raise ValueError("Previously applied source-to-unit link is missing")
     for claim in plan["claim_links"]:
-        row = db.execute("SELECT unit_id,target_id FROM role_claims WHERE id=?", (claim["claim_id"],)).fetchone()
+        row = db.execute('SELECT "Linked office or unit" AS unit_id,"Linked position" AS target_id FROM role_claims WHERE "Role claim ID"=?', (claim["claim_id"],)).fetchone()
         if row is None or tuple(row) != (claim["unit_id"], claim["target_id"]):
             raise ValueError("Previously applied role-claim association is missing or changed")
     return _existing_run(db, run_id, plan["plan_sha256"], _expected_event_count(plan))
@@ -573,7 +573,7 @@ def apply_structure_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
             return already
 
         for name in plan["names"]:
-            row = db.execute("SELECT unit_id,name,kind,evidence_id FROM org_names WHERE id=?", (name["id"],)).fetchone()
+            row = db.execute('SELECT "Office or unit ID" AS unit_id,"Name" AS name,"Name type" AS kind,"Evidence for this name" AS evidence_id FROM org_names WHERE "Office name record ID"=?', (name["id"],)).fetchone()
             if row is not None and tuple(row) != (name["unit_id"], name["name"], name["kind"], name["evidence_id"]):
                 raise ValueError("Conflicting existing organization name record")
 
@@ -595,11 +595,11 @@ def apply_structure_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                     f"org-position-foundation/v1:{digest}"))
 
         for unit in plan["units"]:
-            existing = db.execute("SELECT county_fips,source_label,kind,parent_id,parent_relation,parent_evidence_id "
-                                  "FROM org_units WHERE id=?", (unit["id"],)).fetchone()
+            existing = db.execute('SELECT "County code" AS county_fips,"Office or unit label as published" AS source_label,"Organization type" AS kind,"Parent office or unit" AS parent_id,"Relationship to parent" AS parent_relation,"Evidence for parent relationship" AS parent_evidence_id '
+                                  'FROM org_units WHERE "Office or unit ID"=?', (unit["id"],)).fetchone()
             if existing is None:
                 # Parent edges are applied only after both county-local units exist.
-                db.execute("INSERT INTO org_units(id,county_fips,source_label,kind) VALUES (?,?,?,?)",
+                db.execute('INSERT INTO org_units("Office or unit ID","County code","Office or unit label as published","Organization type") VALUES (?,?,?,?)',
                            (unit["id"], unit["county_fips"], unit["source_label"], unit["kind"]))
             else:
                 core = (existing["county_fips"], existing["source_label"], existing["kind"])
@@ -617,11 +617,11 @@ def apply_structure_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
             if not unit["parent_id"]:
                 continue
             _check_same_county(db, unit["id"], unit["parent_id"])
-            current = db.execute("SELECT parent_id,parent_relation,parent_evidence_id FROM org_units WHERE id=?",
+            current = db.execute('SELECT "Parent office or unit" AS parent_id,"Relationship to parent" AS parent_relation,"Evidence for parent relationship" AS parent_evidence_id FROM org_units WHERE "Office or unit ID"=?',
                                  (unit["id"],)).fetchone()
             expected = (unit["parent_id"], unit["parent_relation"], unit["parent_evidence_id"])
             if tuple(current) == (None, None, None):
-                db.execute("UPDATE org_units SET parent_id=?,parent_relation=?,parent_evidence_id=? WHERE id=?",
+                db.execute('UPDATE org_units SET "Parent office or unit"=?,"Relationship to parent"=?,"Evidence for parent relationship"=? WHERE "Office or unit ID"=?',
                            (*expected, unit["id"]))
             elif tuple(current) != expected:
                 raise ValueError("Conflicting existing parent decision; no structural changes were committed")
@@ -633,7 +633,7 @@ def apply_structure_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                 }, now=now)
 
         for name in plan["names"]:
-            row = db.execute("SELECT unit_id,name,kind,evidence_id FROM org_names WHERE id=?", (name["id"],)).fetchone()
+            row = db.execute('SELECT "Office or unit ID" AS unit_id,"Name" AS name,"Name type" AS kind,"Evidence for this name" AS evidence_id FROM org_names WHERE "Office name record ID"=?', (name["id"],)).fetchone()
             if row is None:
                 db.execute("INSERT INTO org_names VALUES (?,?,?,?,?,?,?)",
                            (name["id"], name["unit_id"], name["name"], name["kind"],
@@ -647,10 +647,10 @@ def apply_structure_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                 }, now=now)
 
         for target in plan["targets"]:
-            row = db.execute("SELECT unit_id,county_fips,documented_title,evidence_id,occupancy,occupancy_evidence_id "
-                             "FROM role_targets WHERE id=?", (target["id"],)).fetchone()
+            row = db.execute('SELECT "Office or unit ID" AS unit_id,"County code" AS county_fips,"Documented position title" AS documented_title,"Evidence for position" AS evidence_id,"Position occupancy status" AS occupancy,"Evidence for occupancy status" AS occupancy_evidence_id '
+                             'FROM role_targets WHERE "Position ID"=?', (target["id"],)).fetchone()
             if row is None:
-                db.execute("INSERT INTO role_targets(id,unit_id,county_fips,documented_title,evidence_id,occupancy) "
+                db.execute('INSERT INTO role_targets("Position ID","Office or unit ID","County code","Documented position title","Evidence for position","Position occupancy status") '
                            "VALUES (?,?,?,?,?,'unknown')",
                            (target["id"], target["unit_id"], target["county_fips"],
                             target["documented_title"], target["evidence_id"]))
@@ -684,14 +684,14 @@ def apply_structure_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                               }, now=now)
 
         for claim in plan["claim_links"]:
-            row = db.execute("SELECT unit_id,target_id FROM role_claims WHERE id=?", (claim["claim_id"],)).fetchone()
+            row = db.execute('SELECT "Linked office or unit" AS unit_id,"Linked position" AS target_id FROM role_claims WHERE "Role claim ID"=?', (claim["claim_id"],)).fetchone()
             if row is None:
                 raise ValueError("A planned role claim no longer exists")
             current_unit, current_target = tuple(row)
             if current_unit not in (None, claim["unit_id"]) or current_target not in (None, claim["target_id"]):
                 raise ValueError("A role claim has a conflicting existing structural association")
             if current_unit is None or current_target is None:
-                db.execute("UPDATE role_claims SET unit_id=?,target_id=? WHERE id=?",
+                db.execute('UPDATE role_claims SET "Linked office or unit"=?,"Linked position"=? WHERE "Role claim ID"=?',
                            (claim["unit_id"], claim["target_id"], claim["claim_id"]))
             if claim["claim_id"] in changed_claims:
                 _insert_event(db, run_id, "role_claim_structure_linked", "role_claims", claim["claim_id"], {

@@ -13,8 +13,8 @@ EXPORT_FORMAT = "colorado-watchdog/profiles-export/v1"
 
 def _citation(db, evidence_id):
     row = db.execute(
-        "SELECT s.id,s.original_url,s.publisher_classification,e.observed_title,e.locator "
-        "FROM evidence_links e JOIN sources s ON s.id=e.source_id WHERE e.id=?", (evidence_id,)
+        'SELECT s."Source ID" AS id,s."Original source URL" AS original_url,s."Publisher type" AS publisher_classification,e."Source title as observed" AS observed_title,e."Evidence location" AS locator '
+        'FROM evidence_links e JOIN sources s ON s."Source ID"=e."Source ID" WHERE e."Evidence record ID"=?', (evidence_id,)
     ).fetchone()
     if row is None:
         return None
@@ -25,10 +25,10 @@ def _citation(db, evidence_id):
 
 def _role(db, row):
     source = _citation(db, row["evidence_id"])
-    org = db.execute("SELECT coalesce((SELECT name FROM org_names WHERE unit_id=u.id AND kind='published' "
-                      "ORDER BY effective_from DESC LIMIT 1),u.source_label) FROM org_units u WHERE u.id=?",
+    org = db.execute("SELECT coalesce((SELECT \"Name\" AS name FROM org_names WHERE \"Office or unit ID\"=u.\"Office or unit ID\" AND \"Organization type\"='published' "
+                      'ORDER BY "Applies from" DESC LIMIT 1),u."Office or unit label as published") FROM org_units u WHERE u."Office or unit ID"=?',
                      (row["unit_id"],)).fetchone() if row["unit_id"] else None
-    target = db.execute("SELECT documented_title FROM role_targets WHERE id=?", (row["target_id"],)).fetchone() \
+    target = db.execute('SELECT "Documented position title" AS documented_title FROM role_targets WHERE "Position ID"=?', (row["target_id"],)).fetchone() \
         if row["target_id"] else None
     return {"claim_id": row["id"], "county_fips": row["county_fips"], "person_id": row["person_id"],
             "published_name": row["published_name"], "title": row["published_title"],
@@ -57,17 +57,17 @@ def build_export(db, *, counties=None, statewide=False, limit=MAX_PROFILE_EXPORT
         role_scope_sql, role_params = "", []
     else:
         marks = ",".join("?" for _ in counties)
-        scope_sql = (f"WHERE (p.county_fips IN ({marks}) OR EXISTS (SELECT 1 FROM role_claims rc "
-                     f"WHERE rc.person_id=p.id AND rc.county_fips IN ({marks})))")
+        scope_sql = (f"WHERE (p.\"County code\" IN ({marks}) OR EXISTS (SELECT 1 FROM role_claims rc "
+                     f"WHERE rc.\"Linked profile\"=p.\"Profile ID\" AND rc.\"County code\" IN ({marks})))")
         scope_params = [*counties, *counties]
-        role_scope_sql = f"WHERE c.county_fips IN ({marks})"
+        role_scope_sql = f"WHERE c.\"County code\" IN ({marks})"
         role_params = list(counties)
-    cursor_sql = (" AND p.id>?" if scope_sql else " WHERE p.id>?") if after_profile_id is not None else ""
+    cursor_sql = (' AND p."Profile ID">?' if scope_sql else ' WHERE p."Profile ID">?') if after_profile_id is not None else ""
     profile_where = scope_sql + cursor_sql
     params = scope_params + ([after_profile_id] if after_profile_id is not None else [])
     profile_rows = db.execute(
-        "SELECT p.id,p.county_fips,p.display_name,p.identity_state,p.identity_evidence_id "
-        "FROM research_people p " + profile_where + " ORDER BY p.id LIMIT ?", [*params, limit + 1]
+        'SELECT p."Profile ID" AS id,p."County code" AS county_fips,p."Full name" AS display_name,p."Identity review status" AS identity_state,p."Evidence for identity" AS identity_evidence_id '
+        "FROM research_people p " + profile_where + ' ORDER BY p."Profile ID" LIMIT ?', [*params, limit + 1]
     ).fetchall()
     has_more = len(profile_rows) > limit
     profile_rows = profile_rows[:limit]
@@ -75,12 +75,12 @@ def build_export(db, *, counties=None, statewide=False, limit=MAX_PROFILE_EXPORT
     selected_ids = [row["id"] for row in profile_rows]
     for person in profile_rows:
         claim_params = [person["id"]]
-        claim_sql = "SELECT id,county_fips,person_id,evidence_id,published_name,published_title,responsibility,source_listing_status,unit_id,target_id " \
-                    "FROM role_claims WHERE person_id=?"
+        claim_sql = 'SELECT "Role claim ID" AS id,"County code" AS county_fips,"Linked profile" AS person_id,"Evidence record ID" AS evidence_id,"Name as published" AS published_name,"Position as published" AS published_title,"Job description or duties" AS responsibility,"Listing status" AS source_listing_status,"Linked office or unit" AS unit_id,"Linked position" AS target_id ' \
+                    'FROM role_claims WHERE "Linked profile"=?'
         if not statewide:
-            claim_sql += f" AND county_fips IN ({','.join('?' for _ in counties)})"
+            claim_sql += f" AND \"County code\" IN ({','.join('?' for _ in counties)})"
             claim_params.extend(counties)
-        claim_sql += " ORDER BY county_fips,id"
+        claim_sql += ' ORDER BY "County code","Role claim ID"'
         roles = [_role(db, row) for row in db.execute(claim_sql, claim_params)]
         citations = []
         if person["identity_evidence_id"] and (statewide or person["county_fips"] in counties):
@@ -100,10 +100,10 @@ def build_export(db, *, counties=None, statewide=False, limit=MAX_PROFILE_EXPORT
         if unique:
             profiles[-1].pop("source_classification")
 
-    role_sql = ("SELECT c.id,c.county_fips,c.person_id,c.evidence_id,c.published_name,c.published_title,"
-                "c.responsibility,c.source_listing_status,c.unit_id,c.target_id FROM role_claims c " + role_scope_sql +
-                (" AND c.person_id IS NULL" if role_scope_sql else " WHERE c.person_id IS NULL") +
-                " ORDER BY c.county_fips,c.id")
+    role_sql = ('SELECT c."Role claim ID" AS id,c."County code" AS county_fips,c."Linked profile" AS person_id,c."Evidence record ID" AS evidence_id,c."Name as published" AS published_name,c."Position as published" AS published_title,'
+                'c."Job description or duties" AS responsibility,c."Listing status" AS source_listing_status,c."Linked office or unit" AS unit_id,c."Linked position" AS target_id FROM role_claims c ' + role_scope_sql +
+                (' AND c."Linked profile" IS NULL' if role_scope_sql else ' WHERE c."Linked profile" IS NULL') +
+                ' ORDER BY c."County code",c."Role claim ID"')
     unassigned_roles = ([_role(db, row) for row in db.execute(role_sql, role_params)]
                         if after_profile_id is None else [])
     all_roles = [role for profile in profiles for role in profile["roles"]] + unassigned_roles
@@ -114,7 +114,7 @@ def build_export(db, *, counties=None, statewide=False, limit=MAX_PROFILE_EXPORT
     if source_ids:
         placeholders = ",".join("?" for _ in source_ids)
         classifications.update(dict(db.execute(
-            f"SELECT publisher_classification,count(*) FROM sources WHERE id IN ({placeholders}) GROUP BY publisher_classification",
+            f"SELECT \"Publisher type\",count(*) FROM sources WHERE \"Source ID\" IN ({placeholders}) GROUP BY \"Publisher type\"",
             sorted(source_ids)).fetchall()))
     diagnostics = {"profiles_without_linked_source": sum(not profile["sources"] for profile in profiles),
                    "unresolved_publishers": classifications.get("unresolved", 0),
@@ -137,7 +137,7 @@ def build_export(db, *, counties=None, statewide=False, limit=MAX_PROFILE_EXPORT
 
 def _profile_count(db, scope_sql, scope_params, after_profile_id):
     # Count after county scope, before applying the current-page limit.
-    cursor_sql = (" AND p.id>?" if scope_sql else " WHERE p.id>?") if after_profile_id is not None else ""
+    cursor_sql = (' AND p."Profile ID">?' if scope_sql else ' WHERE p."Profile ID">?') if after_profile_id is not None else ""
     sql = "SELECT count(*) FROM research_people p " + scope_sql + cursor_sql
     params = [*scope_params, *([after_profile_id] if after_profile_id is not None else [])]
     return db.execute(sql, params).fetchone()[0]
