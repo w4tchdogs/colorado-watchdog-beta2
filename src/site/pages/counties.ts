@@ -47,10 +47,10 @@ export async function countiesPage(
   const groupShown = (letter: string) =>
     (groups.get(letter) ?? []).some((county) => shown.has(county.fips));
 
-  const body = html`
+  const body = html`<div class="counties-page">
   ${pageHeader(
-    "Explore Colorado's counties",
-    `All ${all.length} counties from the public county registry, each with its five-digit FIPS code.`,
+    "Explore Colorado’s counties",
+    "Choose a county on the map or search the directory below. County totals reflect incident locations and can overlap; they do not add up to the statewide total.",
     undefined,
     `${all.length} counties \u00b7 one statewide record`,
   )}
@@ -58,11 +58,13 @@ export async function countiesPage(
   ${searchForm({
     action: "/counties",
     id: "county-search",
-    label: "Filter counties",
+    label: "Search counties",
+    labelHidden: true,
+    placeholder: "Search counties",
     name: "q",
     value: trimmed,
     button: "Filter",
-    hint: "Type a county name or FIPS code, for example Larimer or 08069.",
+    hint: "Type a county name or FIPS code to see matching counties.",
     maxLength: 40,
     inputAttributes: trusted("data-county-filter"),
   })}
@@ -109,7 +111,7 @@ export async function countiesPage(
     )}
   </div>`;
 
-  const completeBody = html`${body}</section>`;
+  const completeBody = html`${body}</section></div>`;
 
   return {
     title: "Colorado counties",

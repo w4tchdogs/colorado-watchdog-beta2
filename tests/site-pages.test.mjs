@@ -158,6 +158,48 @@ test("county directory lists all 64 counties and every county page loads", async
   });
 });
 
+test("county page copy matches the Beta-1 reference and keeps the Alpha-1 controls", async () => {
+  await withPreview("empty", async (preview) => {
+    const page = await get(preview, "/counties");
+    const text = (selector) => page.$(selector).textContent.trim();
+    assert.ok(page.$(".counties-page"));
+    assert.equal(
+      text(".counties-page .eyebrow"),
+      "64 counties · one statewide record",
+    );
+    assert.equal(text(".counties-page h1"), "Explore Colorado’s counties");
+    assert.equal(
+      text(".counties-page .lede"),
+      "Choose a county on the map or search the directory below. County totals reflect incident locations and can overlap; they do not add up to the statewide total.",
+    );
+    assert.equal(text(".county-map-status"), "Choose a county");
+    assert.ok(
+      page
+        .$(".county-map-status")
+        .compareDocumentPosition(page.$(".county-map")) & 4,
+      "map label precedes the map",
+    );
+    const label = page.$('label[for="county-search"]');
+    assert.equal(label.textContent.trim(), "Search counties");
+    assert.ok(label.classList.contains("visually-hidden"));
+    assert.equal(
+      page.$("#county-search").getAttribute("placeholder"),
+      "Search counties",
+    );
+    assert.equal(
+      text("#county-search-hint"),
+      "Type a county name or FIPS code to see matching counties.",
+    );
+    assert.equal(
+      page.$(".county-map-skip").getAttribute("href"),
+      "#county-directory",
+    );
+    assert.match(page.$(".county-map-skip").textContent, /Skip the map/);
+    assert.equal(page.$$("a[data-map-county]").length, 64);
+    assert.doesNotMatch(page.main(), /illustrative|surveying/);
+  });
+});
+
 test("county search works by name and FIPS, with and without JavaScript", async () => {
   await withPreview("empty", async (preview) => {
     const visible = (page) =>
@@ -313,9 +355,18 @@ test("county map geometry covers the public registry with canonical accessible l
         .map((link) => link.getAttribute("data-fips")),
       ["08069"],
     );
-    assert.match(
-      mapDom.window.document.querySelector(".county-map-caption").textContent,
-      /Source: Colorado Department of Transportation/,
+    assert.equal(
+      mapDom.window.document
+        .querySelector(".county-map-caption")
+        .textContent.replace(/\s+/g, " ")
+        .trim(),
+      "Boundaries: Colorado Department of Transportation. Simplified for navigation. Use the searchable directory for small counties and keyboard navigation.",
+    );
+    assert.equal(
+      mapDom.window.document
+        .querySelector(".county-map-status")
+        .textContent.trim(),
+      "Choose a county",
     );
 
     const reversedRegistry = registry.map((county) =>
