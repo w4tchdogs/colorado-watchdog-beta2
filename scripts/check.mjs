@@ -18,6 +18,7 @@ const allowed = new Set([
   "scripts/check.mjs",
   "scripts/d1-local-check.mjs",
   "scripts/cloudflare-staging-config.mjs",
+  "tests/cloudflare-staging-config.test.mjs",
   "scripts/verify-cloudflare-staging-d1.mjs",
   "scripts/banners.mjs",
   "docs/coordination/START.md",

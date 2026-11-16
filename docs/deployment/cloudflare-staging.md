@@ -5,6 +5,12 @@ existing Sites Worker build to a `workers.dev` URL with a production runtime
 and authentication, Turnstile and guest intake disabled. It does not declare
 custom routes or domains, and Wrangler Preview URLs are disabled.
 
+The generated config sets `keep_vars = true`, so operator-managed dashboard
+variables and secrets survive later Wrangler deployments. It leaves
+`AUTH0_ENABLED` unset: the application treats sign-in as disabled unless this
+value is exactly `true`. Keep the live setting `false` until first-owner
+bootstrap is verified, then enable it on the staging Worker.
+
 ## Operator inputs
 
 Set these in the operator environment; do not commit resource identifiers:
