@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { DatabaseSync } from "node:sqlite";
 import worker, { verifyIdToken } from "../worker.mjs";
 
 const issuer = "https://synthetic-tenant.example/";
@@ -187,3 +189,204 @@ test("logout denies missing, null, foreign, and lookalike origins and leaves the
   assert.equal(db.state.session.revokedAt,undefined);
   assert.equal((await viewWith(db,raw)).status,200);
 });
+
+// Bootstrap link tests. Block scope keeps their synthetic helpers separate from the tests above.
+{
+// Real SQLite using the deployed Drizzle migration and synthetic data only. Not D1 itself.
+const migration = readFileSync(new URL("../.openai/drizzle/0001_auth3_pilot.sql", import.meta.url), "utf8");
+const issuer = "https://synthetic-bootstrap-tenant.example/";
+const origin = "https://colorado-watchdog-auth3-pilot.futureguild2.chatgpt.site";
+const SUB = "github|synthetic-bootstrap-1";
+const baseEnv = { AUTH0_ENABLED:"true", AUTH0_ISSUER:issuer, AUTH0_CLIENT_ID:"synthetic-client", AUTH0_CLIENT_SECRET:"synthetic-secret", AUTH0_REDIRECT_URI:`${origin}/auth/callback`, AUTH3_PILOT_BOOTSTRAP_SUBJECT:SUB };
+const b64 = value => Buffer.from(JSON.stringify(value)).toString("base64url");
+const pair = await crypto.subtle.generateKey({ name:"RSASSA-PKCS1-v1_5", modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:"SHA-256" }, true, ["sign","verify"]);
+const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+jwk.kid = crypto.randomUUID(); jwk.alg = "RS256"; jwk.use = "sig";
+async function token(nonce, claims = {}) {
+  const now = Math.floor(Date.now()/1000);
+  const input = `${b64({ alg:"RS256", kid:jwk.kid })}.${b64({ iss:issuer, aud:"synthetic-client", sub:SUB, nonce, exp:now+600, iat:now, ...claims })}`;
+  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", pair.privateKey, new TextEncoder().encode(input));
+  return `${input}.${Buffer.from(sig).toString("base64url")}`;
+}
+
+// D1-shaped adapter over node:sqlite. `before(sql)` lets a test inject a competing write or a failure.
+function makeDb(before = () => {}) {
+  const sqlite = new DatabaseSync(":memory:");
+  sqlite.exec(migration);
+  const db = {
+    sqlite,
+    prepare(sql) {
+      return { bind: (...values) => ({
+        async run() { before(sql, sqlite); sqlite.prepare(sql).run(...values); },
+        async first() { before(sql, sqlite); return sqlite.prepare(sql).get(...values) ?? null; },
+      }) };
+    },
+  };
+  return db;
+}
+const plain = rows => rows.map(row => ({ ...row }));
+const identityRow = db => plain(db.sqlite.prepare("SELECT id,account_id,provider,subject,revoked_at FROM identities").all());
+const sessionCount = db => db.sqlite.prepare("SELECT COUNT(*) n FROM auth_sessions").get().n;
+const SEEDED = { id:"auth3-synthetic-identity", account_id:"auth3-synthetic-contributor", provider:"auth0:https://tenant-placeholder.invalid/", subject:"synthetic-unlinked-sentinel", revoked_at:null };
+
+async function signIn(db, env, { claims, tokenOverride } = {}) {
+  const start = await worker.fetch(new Request(`${origin}/auth/login`), { ...env, DB:db });
+  assert.equal(start.status, 302);
+  const state = new URL(start.headers.get("location")).searchParams.get("state");
+  const browser = start.headers.get("set-cookie").split(";")[0].split("=")[1];
+  const txn = db.sqlite.prepare("SELECT nonce FROM auth_transactions ORDER BY rowid DESC LIMIT 1").get();
+  const idToken = tokenOverride ?? await token(txn.nonce, claims);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async input => {
+    const url = String(input);
+    if (url.endsWith("/oauth/token")) return new Response(JSON.stringify({ id_token:idToken }), { headers:{ "content-type":"application/json" } });
+    if (url.endsWith("/.well-known/jwks.json")) return new Response(JSON.stringify({ keys:[jwk] }), { headers:{ "content-type":"application/json" } });
+    throw new Error(`Unexpected outbound request ${url}`);
+  };
+  const request = () => new Request(`${origin}/auth/callback?code=synthetic-code&state=${state}`, { headers:{ cookie:`__Host-wd-auth3-state=${browser}` } });
+  try { return { callback:await worker.fetch(request(), { ...env, DB:db }), replay:() => worker.fetch(request(), { ...env, DB:db }) }; }
+  finally { globalThis.fetch = realFetch; }
+}
+const linked = { id:"auth3-synthetic-identity", account_id:"auth3-synthetic-contributor", provider:`auth0:${issuer}`, subject:SUB, revoked_at:null };
+const mustNotLink = (db, result, status) => {
+  assert.equal(result.callback.status, status);
+  assert.equal(sessionCount(db), 0);
+  assert.equal(result.callback.headers.getSetCookie().some(c => c.startsWith("__Host-wd-auth3-session=") && !c.includes("Max-Age=0")), false);
+};
+
+test("matching setting links only the seeded row, preserves the trailing slash, and issues a session", async () => {
+  const db = makeDb();
+  const { callback } = await signIn(db, baseEnv);
+  assert.equal(callback.status, 302);
+  assert.equal(callback.headers.get("location"), "/auth/test-view");
+  assert.deepEqual(identityRow(db), [linked]);
+  assert.match(identityRow(db)[0].provider, /\/$/);
+  assert.equal(sessionCount(db), 1);
+  assert.deepEqual(plain(db.sqlite.prepare("SELECT id,kind,role,status,display_name FROM accounts").all()), [{ id:"auth3-synthetic-contributor", kind:"human", role:"contributor", status:"active", display_name:"Synthetic AUTH-3 Pilot Account" }]);
+});
+
+test("after linking, ordinary sign-in works with the setting removed", async () => {
+  const db = makeDb();
+  assert.equal((await signIn(db, baseEnv)).callback.status, 302);
+  const without = { ...baseEnv }; delete without.AUTH3_PILOT_BOOTSTRAP_SUBJECT;
+  assert.equal((await signIn(db, without)).callback.status, 302);
+  assert.equal(sessionCount(db), 2);
+  assert.deepEqual(identityRow(db), [linked]);
+});
+
+test("absent, empty, or mismatched setting links nothing and issues no session", async () => {
+  for (const setting of [undefined, "", "github|someone-else", ` ${SUB}`, SUB.toUpperCase()]) {
+    const db = makeDb();
+    const env = { ...baseEnv }; if (setting === undefined) delete env.AUTH3_PILOT_BOOTSTRAP_SUBJECT; else env.AUTH3_PILOT_BOOTSTRAP_SUBJECT = setting;
+    const result = await signIn(db, env);
+    mustNotLink(db, result, 403);
+    assert.equal(await result.callback.text(), "This identity is not linked to the pilot test account.");
+    assert.deepEqual(identityRow(db), [SEEDED]);
+  }
+});
+
+test("AUTH0_ENABLED=false blocks the callback before any link attempt", async () => {
+  const db = makeDb();
+  const { callback } = await signIn(db, baseEnv);
+  assert.equal(callback.status, 302);
+  const off = makeDb();
+  const result = await worker.fetch(new Request(`${origin}/auth/callback?code=x&state=y`), { ...baseEnv, AUTH0_ENABLED:"false", DB:off });
+  assert.equal(result.status, 503);
+  assert.deepEqual(identityRow(off), [SEEDED]);
+});
+
+test("invalid tokens and replayed callbacks never link and never create a session", async () => {
+  for (const claims of [{ iss:"https://attacker.example/" }, { aud:"other-client" }, { exp:1 }, { nonce:"wrong" }, { sub:"" }]) {
+    const db = makeDb();
+    mustNotLink(db, await signIn(db, baseEnv, { claims }), 400);
+    assert.deepEqual(identityRow(db), [SEEDED]);
+  }
+  const db = makeDb();
+  mustNotLink(db, await signIn(db, baseEnv, { tokenOverride:"not.a.jwt" }), 400);
+  assert.deepEqual(identityRow(db), [SEEDED]);
+  const good = makeDb();
+  const first = await signIn(good, baseEnv);
+  assert.equal(first.callback.status, 302);
+  const replay = await first.replay();
+  assert.equal(replay.status, 400);
+  assert.equal(sessionCount(good), 1);
+  assert.deepEqual(identityRow(good), [linked]);
+});
+
+test("revoked seeded identity is not linked", async () => {
+  const db = makeDb();
+  db.sqlite.exec("UPDATE identities SET revoked_at='2026-01-01T00:00:00.000Z'");
+  mustNotLink(db, await signIn(db, baseEnv), 403);
+  assert.deepEqual(identityRow(db), [{ ...SEEDED, revoked_at:"2026-01-01T00:00:00.000Z" }]);
+});
+
+test("disabled contributor is not linked", async () => {
+  const db = makeDb();
+  db.sqlite.exec("UPDATE accounts SET status='disabled'");
+  mustNotLink(db, await signIn(db, baseEnv), 403);
+  assert.deepEqual(identityRow(db), [SEEDED]);
+});
+
+test("an already-linked row is never overwritten, even with a matching setting", async () => {
+  const db = makeDb();
+  db.sqlite.exec(`UPDATE identities SET provider='auth0:${issuer}', subject='github|established-other'`);
+  mustNotLink(db, await signIn(db, baseEnv), 403);
+  assert.deepEqual(identityRow(db), [{ ...linked, subject:"github|established-other" }]);
+});
+
+test("a row that differs from the seed in any guarded column is not updated", async () => {
+  for (const column of ["provider", "subject"]) {
+    const db = makeDb();
+    db.sqlite.exec(`UPDATE identities SET ${column}='changed'`);
+    const before = identityRow(db);
+    mustNotLink(db, await signIn(db, baseEnv), 403);
+    assert.deepEqual(identityRow(db), before);
+  }
+});
+
+test("a concurrent callback that already set the same link does not block this one and the row is unchanged", async () => {
+  let done = false;
+  const db = makeDb((sql, sqlite) => {
+    if (!done && sql.startsWith("UPDATE identities")) { done = true; sqlite.exec(`UPDATE identities SET provider='auth0:${issuer}', subject='${SUB}'`); }
+  });
+  const { callback } = await signIn(db, baseEnv);
+  assert.equal(callback.status, 302);
+  assert.equal(sessionCount(db), 1);
+  assert.deepEqual(identityRow(db), [linked]);
+});
+
+test("a concurrent callback that linked a different subject wins and this callback gets no session", async () => {
+  let done = false;
+  const db = makeDb((sql, sqlite) => {
+    if (!done && sql.startsWith("UPDATE identities")) { done = true; sqlite.exec(`UPDATE identities SET provider='auth0:${issuer}', subject='github|winner'`); }
+  });
+  mustNotLink(db, await signIn(db, baseEnv), 403);
+  assert.deepEqual(identityRow(db), [{ ...linked, subject:"github|winner" }]);
+});
+
+test("a zero-row update with no active link issues no session", async () => {
+  let done = false;
+  const db = makeDb((sql, sqlite) => {
+    if (!done && sql.startsWith("UPDATE identities")) { done = true; sqlite.exec("UPDATE identities SET revoked_at='2026-01-01T00:00:00.000Z'"); }
+  });
+  mustNotLink(db, await signIn(db, baseEnv), 403);
+  assert.deepEqual(identityRow(db), [{ ...SEEDED, revoked_at:"2026-01-01T00:00:00.000Z" }]);
+});
+
+test("a D1 failure during the update issues no session and returns the generic failure", async () => {
+  const db = makeDb(sql => { if (sql.startsWith("UPDATE identities")) throw new Error("synthetic D1 failure"); });
+  const result = await signIn(db, baseEnv);
+  mustNotLink(db, result, 400);
+  assert.equal(await result.callback.text(), "Sign-in could not be completed.");
+  assert.deepEqual(identityRow(db), [SEEDED]);
+});
+
+test("the setting value never appears in responses", async () => {
+  for (const setting of [SUB, "github|other"]) {
+    const db = makeDb();
+    const { callback } = await signIn(db, { ...baseEnv, AUTH3_PILOT_BOOTSTRAP_SUBJECT:setting });
+    assert.equal((await callback.text()).includes(SUB), false);
+    assert.equal(JSON.stringify([...callback.headers]).includes(SUB), false);
+  }
+});
+}

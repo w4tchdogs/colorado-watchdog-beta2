@@ -133,6 +133,15 @@ function validConfig(env) {
 async function activeLink(db, iss, sub) {
   return db.prepare(`SELECT i.id identity_id, i.account_id, a.role FROM identities i JOIN accounts a ON a.id=i.account_id WHERE i.provider=? AND i.subject=? AND i.revoked_at IS NULL AND a.status='active' AND a.kind='human' AND a.role='contributor'`).bind(`auth0:${iss}`, sub).first();
 }
+const SEED_IDENTITY = { id:"auth3-synthetic-identity", accountId:"auth3-synthetic-contributor", provider:"auth0:https://tenant-placeholder.invalid/", subject:"synthetic-unlinked-sentinel" };
+// Pilot-only one-time link. Runs only after the callback has verified the transaction and ID token. The guards live in the UPDATE itself so a concurrent callback cannot overwrite an established link.
+async function bootstrapLink(db, env, identity) {
+  const configured = env.AUTH3_PILOT_BOOTSTRAP_SUBJECT;
+  if (env.AUTH0_ENABLED !== "true" || typeof configured !== "string" || configured === "" || configured !== identity.sub) return null;
+  await db.prepare(`UPDATE identities SET provider=?, subject=? WHERE id=? AND account_id=? AND provider=? AND subject=? AND revoked_at IS NULL AND EXISTS (SELECT 1 FROM accounts a WHERE a.id=identities.account_id AND a.status='active' AND a.kind='human' AND a.role='contributor')`).bind(`auth0:${identity.iss}`, identity.sub, SEED_IDENTITY.id, SEED_IDENTITY.accountId, SEED_IDENTITY.provider, SEED_IDENTITY.subject).run();
+  const link = await activeLink(db, identity.iss, identity.sub);
+  return link && link.identity_id === SEED_IDENTITY.id && link.account_id === SEED_IDENTITY.accountId ? link : null;
+}
 async function resolveSession(request, env, db) {
   const raw = cookie(request, COOKIE);
   if (!raw || !/^[A-Za-z0-9_-]{40,64}$/.test(raw)) return null;
@@ -167,7 +176,7 @@ async function callback(request, env, db) {
     if (!tokenResponse.ok) throw new Error("token_exchange_failed");
     const tokens = await tokenResponse.json();
     const identity = await verifyIdToken(tokens.id_token, env, txn.nonce);
-    const link = await activeLink(db, identity.iss, identity.sub);
+    const link = (await activeLink(db, identity.iss, identity.sub)) ?? (await bootstrapLink(db, env, identity));
     if (!link) return response("This identity is not linked to the pilot test account.", 403, { "set-cookie":clearCookie(STATE_COOKIE) });
     const raw = randomToken();
     await db.prepare("INSERT INTO auth_sessions(id,token_hash,provider,issuer,subject,account_id,identity_id,issued_at,idle_expires_at,absolute_expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), await hash(raw), `auth0:${identity.iss}`, identity.iss, identity.sub, link.account_id, link.identity_id, new Date().toISOString(), new Date(Date.now()+30*60_000).toISOString(), new Date(Date.now()+8*60*60_000).toISOString()).run();

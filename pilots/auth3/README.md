@@ -4,7 +4,7 @@ This is a disposable Worker project for testing Auth0 OIDC on Sites. It is inten
 
 Expected pilot origin: `https://colorado-watchdog-auth3-pilot.futureguild2.chatgpt.site`
 
-Runtime settings (set in Sites, never in source): `AUTH0_ENABLED`, `AUTH0_ISSUER`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_REDIRECT_URI`. The redirect URI is the exact origin above plus `/auth/callback`. The fixed provider issuer must be the default Auth0 tenant issuer ending in `/`.
+Runtime settings (set in Sites, never in source): `AUTH0_ENABLED`, `AUTH0_ISSUER`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_REDIRECT_URI`. The redirect URI is the exact origin above plus `/auth/callback`. One optional temporary setting, `AUTH3_PILOT_BOOTSTRAP_SUBJECT`, is described under "Linking the synthetic contributor". The fixed provider issuer must be the default Auth0 tenant issuer ending in `/`.
 
 Session lifetime: 30 minutes idle, 8 hours absolute. Transaction lifetime: 5 minutes. No refresh tokens are requested or retained.
 
@@ -25,12 +25,28 @@ If the Auth0 Dashboard offers a test or "Try" option for the configured GitHub c
 1. Confirm the identity row still holds the sentinel subject. Set `AUTH0_ENABLED=true` on the isolated pilot only and deploy a new saved version.
 2. Sign in once with the disposable GitHub test account. Expect the 403 page "This identity is not linked to the pilot test account." and no session. Confirm the `auth_sessions` table is empty. The Worker deliberately does not show the subject.
 3. In Auth0 User Management, open the user that the attempt created and copy the exact User ID.
-4. Link only the synthetic contributor, as described below.
+4. Link only the synthetic contributor with the runtime setting, as described below.
 5. Sign in again. Expect a redirect to `/auth/test-view` and the signed-in page.
 
 ### Linking the synthetic contributor
 
-Update only the existing `auth3-synthetic-identity` row. Set `provider` to `auth0:` followed by the exact issuer including its trailing slash (for example `auth0:https://<tenant-domain>/`) and set `subject` to the exact User ID. A provider value that differs by even a trailing slash produces a 403. Read the row back and confirm exactly one row changed. The supported method for editing a single row in the pilot D1 is unverified until it has been demonstrated. Do not assume the Sites D1 editor exists. A migration is not a good fallback because it would place the subject in source.
+The Sites Database tab and connector are read-only, so the row cannot be edited by hand. The pilot Worker links the row itself, once, using the optional runtime setting `AUTH3_PILOT_BOOTSTRAP_SUBJECT`.
+
+How it works. Sign-in first looks up a linked identity as usual. Only if that misses, and only inside the OAuth callback after the transaction, state, nonce, issuer, audience, signature and expiry checks have all passed, the Worker compares the verified ID token `sub` to the setting. The setting must be nonempty and match exactly, and `AUTH0_ENABLED` must be `true`. On a match it runs one guarded `UPDATE` on `auth3-synthetic-identity`. The update applies only while that row still holds the account `auth3-synthetic-contributor`, the placeholder provider `auth0:https://tenant-placeholder.invalid/` and the subject `synthetic-unlinked-sentinel`, is not revoked, and its account is an active human contributor. It sets only `provider` (to `auth0:` plus the verified issuer, trailing slash included) and `subject` (to the verified `sub`). Because the guards are inside the statement, a concurrent callback cannot overwrite an established link. Before any session is issued the normal lookup runs again and must resolve to that synthetic contributor. If the update fails or the link cannot be confirmed, no session is issued. A missing or mismatched setting leaves the existing 403 page "This identity is not linked to the pilot test account." The setting value is never logged or returned. It adds no endpoint, migration, account or role change.
+
+### Owner sequence for the hosted session
+
+This is the plan for a later hosted session. None of it has been done. Only the local results listed in the PR are verified.
+
+1. Confirm the Sites version was built from the PR head that contains this change. Auth0, GitHub OAuth settings and the runtime settings below stay as configured, with `AUTH0_ENABLED=false`.
+2. Get the exact Auth0 `sub` for the disposable GitHub account (the connection tester or the Auth0 User ID). It is the User ID, never an email address or GitHub username.
+3. In the isolated pilot's Sites settings only, add `AUTH3_PILOT_BOOTSTRAP_SUBJECT` with that exact value. Enter it privately. Never paste it into source, a PR, an issue or chat logs. Set `AUTH0_ENABLED=true` and deploy a new saved version.
+4. Sign in once with the disposable GitHub account. Expect a redirect to `/auth/test-view` and the signed-in page.
+5. Verify the corrected version and the single changed row with read-only Database access. `identities` should hold exactly one row, `auth3-synthetic-identity`, still on account `auth3-synthetic-contributor`, with `provider` equal to `auth0:` plus the issuer (trailing slash included), `subject` equal to the exact Auth0 `sub`, and `revoked_at` empty. `accounts` should be unchanged with one active contributor, and `auth_sessions` should hold one session. If the row is still the placeholder, the deployed version does not contain this change or the setting does not match exactly.
+6. Remove `AUTH3_PILOT_BOOTSTRAP_SUBJECT` from the Sites settings and deploy. Sign out with the button and sign in again. A second successful sign-in with the setting removed shows the link is stored in the database and the setting is no longer needed.
+7. Continue the hosted checklist below. After testing, set `AUTH0_ENABLED=false`, deploy, and confirm `/auth/login` and `/auth/callback` return 503 while the home page returns 200. Confirm `AUTH3_PILOT_BOOTSTRAP_SUBJECT` is gone and rotate or remove the pilot client secret.
+
+Local verification only: the guarded SQL runs against real SQLite (`node:sqlite`) using the deployed Drizzle migration and synthetic data in `tests/bootstrap.test.mjs`. That is not D1 itself. Hosted D1 behavior is unverified until the session above.
 
 ## Sign out
 
@@ -40,7 +56,7 @@ The signed-in test page sends `Referrer-Policy: same-origin` so that the browser
 
 1. Confirm the Sites version matches the PR head you intend to test.
 2. Complete the Auth0 requirements above, then set the Sites runtime settings with `AUTH0_ENABLED=false`.
-3. Obtain the subject with Method A or Method B and link the synthetic contributor. Confirm the single changed row.
+3. Obtain the subject with Method A or Method B and link the synthetic contributor through `AUTH3_PILOT_BOOTSTRAP_SUBJECT`. Confirm the single changed row, then remove the setting.
 4. Sign in. Expect a redirect to `/auth/test-view` and the signed-in page. Check the cookie flags in browser dev tools: `__Host-` prefix, Secure, HttpOnly, SameSite=Lax, Path=/, no Domain.
 5. With that active session, click Sign out in a real browser. Expect a 303 to `/`, a cleared session cookie, and a 401 from `/auth/test-view`. Confirm the session row has `revoked_at` set.
 6. Sign in again for a fresh session. Set `revoked_at` on the identity row, reload `/auth/test-view` and expect 401. Clear `revoked_at` afterward if more testing follows.
@@ -50,4 +66,4 @@ The signed-in test page sends `Referrer-Policy: same-origin` so that the browser
 
 ## Known follow-ups
 
-Unauthenticated `GET /auth/login` writes a transaction row each time and nothing purges expired transactions or sessions. The unit tests use a fake DB, so the SQL is not exercised in CI. The migration exists in two copies (`migrations/0018_auth3_pilot.sql` and `.openai/drizzle/0001_auth3_pilot.sql`, and only the second is built and deployed). Non-POST requests to `/auth/logout` without an `Origin` return 403 instead of 405. The token-endpoint request has no timeout.
+Unauthenticated `GET /auth/login` writes a transaction row each time and nothing purges expired transactions or sessions. The original unit tests use a fake DB. The bootstrap link tests run the guarded SQL against real SQLite instead. The migration exists in two copies (`migrations/0018_auth3_pilot.sql` and `.openai/drizzle/0001_auth3_pilot.sql`, and only the second is built and deployed). Non-POST requests to `/auth/logout` without an `Origin` return 403 instead of 405. The token-endpoint request has no timeout.
