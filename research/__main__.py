@@ -10,7 +10,7 @@ from pathlib import Path
 
 from research import operator
 from research import identity
-from research import identity_triage
+from research import identity_triage, source_types
 from research import submission, sync
 from research.backup import backup_database, restore_database
 from research.db import connect, migrate, seed_counties, validate_database, validate_migration_history
@@ -220,6 +220,17 @@ def parser_for():
     triage_verify = database_command("verify-identity-triage", "verify a triage application or no-change result")
     triage_verify.add_argument("--report", type=Path, required=True)
     triage_verify.add_argument("--expect-report-sha256", required=True)
+
+    page_preview = database_command("preview-source-types", "create a read-only plan that sets sources.page_type")
+    page_preview.add_argument("--output", type=Path, required=True,
+                              help="New private plan path outside the checkout")
+    page_apply = database_command("apply-source-types", "apply one hash-checked page type plan")
+    page_apply.add_argument("--plan", type=Path, required=True)
+    page_apply.add_argument("--expect-plan-sha256", required=True)
+    page_apply.add_argument("--actor", default=source_types.ACTOR_DEFAULT)
+    page_verify = database_command("verify-source-types", "verify a page type plan was applied")
+    page_verify.add_argument("--plan", type=Path, required=True)
+    page_verify.add_argument("--expect-plan-sha256", required=True)
 
     for name, help_text in (
         ("sync-eligibility", "inspect bounded Website synchronization eligibility"),
@@ -751,6 +762,56 @@ def main(argv=None):
             return 0
         except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
             print(json.dumps(_json_error(args.command, "identity_triage_preview_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command == "preview-source-types":
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.output, parser, "Private source page type plan")
+        try:
+            db = _read_only(path)
+            try:
+                plan = source_types.build_page_type_plan(db)
+            finally:
+                db.close()
+            file_sha256 = source_types.write_page_type_plan(
+                plan, args.output, repository_root=Path(__file__).resolve().parents[1])
+            print(json.dumps({"mode": args.command, "status": "previewed",
+                              "plan_path": str(args.output.resolve()), "plan_file_sha256": file_sha256,
+                              "plan_sha256": plan["plan_sha256"], "rule_version": plan["rule_version"],
+                              **plan["summary"]}, ensure_ascii=False, sort_keys=True))
+            return 0
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "source_type_preview_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command in {"apply-source-types", "verify-source-types"}:
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.plan, parser, "Private source page type plan")
+        try:
+            if not re.fullmatch(r"[0-9a-fA-F]{64}", args.expect_plan_sha256):
+                raise ValueError("--expect-plan-sha256 must be a 64-character SHA-256 value")
+            plan = source_types.read_page_type_plan(
+                args.plan, repository_root=Path(__file__).resolve().parents[1])
+            if plan["plan_sha256"] != args.expect_plan_sha256.lower():
+                raise ValueError("Expected plan SHA-256 does not match the inspected plan")
+            if args.command == "verify-source-types":
+                db = _read_only(path)
+                try:
+                    result = source_types.verify_page_type_plan(db, plan)
+                finally:
+                    db.close()
+            else:
+                db = connect(path)
+                try:
+                    result = source_types.apply_page_type_plan(
+                        db, plan, expected_sha256=plan["plan_sha256"], actor=args.actor)
+                finally:
+                    db.close()
+            print(json.dumps({"mode": args.command, "plan_sha256": plan["plan_sha256"], **result},
+                             ensure_ascii=False, sort_keys=True))
+            return 0 if result.get("status") != "mismatch" else 1
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "source_type_operation_failed", str(error)),
                              ensure_ascii=False, sort_keys=True))
             return 2
     if args.command in {"apply-identity-triage", "verify-identity-triage"}:
