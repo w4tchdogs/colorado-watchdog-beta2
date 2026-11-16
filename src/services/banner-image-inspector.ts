@@ -1,3 +1,4 @@
+import jpeg from "jpeg-js";
 import { sha256Hex } from "./banner-storage.js";
 
 /**
@@ -8,9 +9,10 @@ import { sha256Hex } from "./banner-storage.js";
  * The order is deliberate. Byte length, media signature and declared pixel
  * dimensions are checked against hard limits before any decompression starts.
  * Dimensions and the SHA-256 are always derived from the supplied bytes and
- * never taken from a caller. A PNG is then decoded completely and bounded by
- * its declared size. A JPEG is inspected structurally only, which cannot count
- * as a full decode, so the result says so and callers must not mark it verified.
+ * never taken from a caller. PNG and JPEG are then decoded completely. The PNG
+ * decoder is in this file. The JPEG decoder is the pure JavaScript jpeg-js
+ * package, run with typed arrays only (no Buffer), strict decoding and explicit
+ * resolution and memory caps.
  */
 export const BANNER_IMAGE_LIMITS = Object.freeze({
   maxBytes: 25 * 1024 * 1024,
@@ -80,9 +82,8 @@ export async function inspectBannerImage(
       "Image dimensions exceed the pixel limits",
     );
   // Limits are satisfied, so decoding may begin.
-  if (isPng) {
-    await decodePng(bytes, facts as PngFacts, limits);
-  }
+  if (isPng) await decodePng(bytes, facts as PngFacts, limits);
+  else decodeJpeg(bytes, facts, limits);
   const sha256 = await sha256Hex(bytes);
   return {
     mediaType: isPng ? "image/png" : "image/jpeg",
@@ -90,13 +91,7 @@ export async function inspectBannerImage(
     height: facts.height,
     byteSize: bytes.byteLength,
     sha256,
-    decode: isPng ? "full" : "not_performed",
-    ...(isPng
-      ? {}
-      : {
-          decodeNote:
-            "JPEG was checked structurally only. No bounded Worker-compatible JPEG decoder is available yet.",
-        }),
+    decode: "full",
   };
 }
 
@@ -367,4 +362,29 @@ async function decodePng(
   }
   if (total !== expected || rows !== facts.height || filled !== -1)
     fail("PNG data is shorter than its header declares");
+}
+
+/** Complete JPEG decode with strict parsing and explicit resolution and memory caps. */
+function decodeJpeg(
+  bytes: Uint8Array,
+  facts: Facts,
+  limits: typeof BANNER_IMAGE_LIMITS,
+): void {
+  try {
+    const image = jpeg.decode(bytes, {
+      useTArray: true,
+      formatAsRGBA: false,
+      tolerantDecoding: false,
+      maxResolutionInMP: limits.maxPixels / 1_000_000,
+      maxMemoryUsageInMB: Math.floor(limits.maxDecodedBytes / (1024 * 1024)),
+    });
+    if (
+      image.width !== facts.width ||
+      image.height !== facts.height ||
+      image.data.byteLength !== facts.width * facts.height * 3
+    )
+      throw new Error("Decoded size does not match the frame header");
+  } catch {
+    throw new BannerImageError("decode_failed", "JPEG data failed to decode");
+  }
 }

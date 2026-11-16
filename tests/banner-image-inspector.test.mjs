@@ -28,19 +28,24 @@ test("a PNG is fully decoded and its facts come from the bytes", async () => {
   }
 });
 
-test("a JPEG is inspected structurally and never claims a full decode", async () => {
+test("a JPEG is fully decoded and its facts come from the bytes", async () => {
   const result = await inspectBannerImage(bytes("jpegA"));
   assert.equal(result.mediaType, "image/jpeg");
   assert.equal(result.width, 64);
   assert.equal(result.height, 24);
-  assert.equal(result.decode, "not_performed");
-  assert.match(result.decodeNote, /No bounded Worker-compatible JPEG decoder/);
+  assert.equal(result.decode, "full");
+  assert.equal(result.sha256, fixtures.jpegA.sha256);
 });
 
 test("limits are enforced before any decoding", async () => {
   // This fixture has no image data, so any attempt to decode it would report
   // decode_failed. Seeing dimensions_exceeded proves the limit ran first.
   await refuses("oversizedClaimPng", "dimensions_exceeded");
+  await refuses("oversizedClaimJpeg", "dimensions_exceeded");
+  await refuses("jpegA", "dimensions_exceeded", {
+    ...BANNER_IMAGE_LIMITS,
+    maxPixels: 100,
+  });
   await refuses("pngA", "dimensions_exceeded", {
     ...BANNER_IMAGE_LIMITS,
     maxPixels: 100,
@@ -69,6 +74,7 @@ test("malformed and hostile images are refused", async () => {
   await refuses("interlacedPng", "unsupported_type");
   await refuses("gif", "unsupported_type");
   await refuses("truncatedJpeg", "malformed");
+  await refuses("corruptJpeg", "decode_failed");
 });
 
 test("a JPEG that is not baseline or progressive Huffman is refused", async () => {

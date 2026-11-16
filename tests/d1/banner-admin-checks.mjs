@@ -650,6 +650,8 @@ export async function runBannerAdminChecks(env, fixtures) {
     ["gif", "unsupported_type"],
     ["oversizedClaimPng", "dimensions_exceeded"],
     ["truncatedJpeg", "malformed"],
+    ["corruptJpeg", "decode_failed"],
+    ["oversizedClaimJpeg", "dimensions_exceeded"],
   ]) {
     await rejects(
       `${name} is refused with ${code}`,
@@ -681,32 +683,24 @@ export async function runBannerAdminChecks(env, fixtures) {
     (await counts()) === stable2,
   );
 
-  // ---- JPEG: stored and checked structurally, never marked verified
+  // ---- JPEG: fully decoded by the server before it can be verified
   const J = await service.stage(
     admin,
     stageNew("ba-alamosa-jpeg", "08003", files.jpegA, "key-jpeg"),
   );
   check(
-    "a JPEG is stored but not verified, because no bounded decoder exists yet",
-    !J.verified &&
-      J.decode === "not_performed" &&
-      J.version.state === "staged" &&
-      J.note !== undefined,
+    "a decoded JPEG becomes verified with server-derived facts",
+    J.verified &&
+      J.decode === "full" &&
+      J.version.state === "verified" &&
+      J.version.mediaType === "image/jpeg" &&
+      J.version.width === files.jpegA.width &&
+      J.version.height === files.jpegA.height,
   );
-  let selectJpeg = false;
-  try {
-    await env.DB.prepare(
-      "UPDATE banner_assets SET selected_version_id = ?, status = 'active', version = version + 1 WHERE id = 'ba-alamosa-jpeg'",
-    )
-      .bind(J.version.id)
-      .run();
-    selectJpeg = true;
-  } catch {}
-  check("the database refuses to select a staged JPEG", !selectJpeg);
   const county03 = (await service.listCounties(admin, { query: "08003" }))
     .counties[0];
   check(
-    "a staged JPEG is not public",
+    "a staged JPEG draft is not public",
     county03.bannerCount === 1 && county03.publicBannerCount === 0,
   );
   const jpegReplay = await service.stage(
@@ -714,8 +708,8 @@ export async function runBannerAdminChecks(env, fixtures) {
     stageNew("ba-alamosa-jpeg", "08003", files.jpegA, "key-jpeg"),
   );
   check(
-    "a staged JPEG replays without changing state",
-    jpegReplay.replayed && jpegReplay.version.state === "staged",
+    "a JPEG replay returns the stored result",
+    jpegReplay.replayed && jpegReplay.version.state === "verified",
   );
 
   // ---- Storage failure, then retry with the same key

@@ -123,6 +123,18 @@ export function bannerAdminFixtures() {
     Buffer.from("GIF89a\x01\x00\x01\x00\x00\x00\x00;", "latin1"),
   );
   const truncatedJpeg = jpegA.slice(0, jpegA.length - 2);
+  // Valid markers and end marker, but a large block of entropy data removed.
+  const scan = jpegA.findIndex((v, i) => v === 0xff && jpegA[i + 1] === 0xda);
+  const corruptJpeg = new Uint8Array([
+    ...jpegA.slice(0, scan + 40),
+    ...jpegA.slice(scan + 40 + Math.floor((jpegA.length - scan) / 2)),
+  ]);
+  // Frame header claiming 40000 x 40000. Limits must refuse it before decoding.
+  const oversizedClaimJpeg = jpegA.slice();
+  const sof = oversizedClaimJpeg.findIndex(
+    (v, i) => v === 0xff && oversizedClaimJpeg[i + 1] === 0xc0,
+  );
+  oversizedClaimJpeg.set([0x9c, 0x40, 0x9c, 0x40], sof + 5);
 
   return {
     pngA: describe(pngA, 64, 24),
@@ -141,5 +153,7 @@ export function bannerAdminFixtures() {
     oversizedClaimPng: describe(oversizedClaimPng, 0, 0),
     gif: describe(gif, 0, 0),
     truncatedJpeg: describe(truncatedJpeg, 0, 0),
+    corruptJpeg: describe(corruptJpeg, 0, 0),
+    oversizedClaimJpeg: describe(oversizedClaimJpeg, 0, 0),
   };
 }
