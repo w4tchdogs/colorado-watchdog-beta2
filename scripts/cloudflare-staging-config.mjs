@@ -67,8 +67,9 @@ await writeFile(
     `compatibility_date = "2026-11-13"\n` +
     `workers_dev = true\n` +
     `preview_urls = false\n` +
+    `keep_vars = true\n` +
     `account_id = "${accountId}"\n\n` +
-    `[vars]\nAPP_ENV = "production"\nAUTH0_ENABLED = "false"\nREPORTS_TURNSTILE = "disabled"\n\n` +
+    `[vars]\nAPP_ENV = "production"\nREPORTS_TURNSTILE = "disabled"\n\n` +
     `[[d1_databases]]\nbinding = "DB"\ndatabase_name = "colorado-watchdog-alpha1-staging"\ndatabase_id = "${d1Id}"\nmigrations_dir = "cloudflare-staging-migrations"\n\n` +
     `[[r2_buckets]]\nbinding = "BUCKET"\nbucket_name = "${bucketName}"\n`,
   "utf8",
