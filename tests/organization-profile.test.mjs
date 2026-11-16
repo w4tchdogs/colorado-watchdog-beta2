@@ -93,6 +93,21 @@ test("organization profiles preserve county associations, hierarchy, and paginat
       version: 3,
     });
     assert.equal(profile.parentOrganization, null);
+    assert.deepEqual(profile.subunits, [
+      {
+        id: "county-division",
+        name: "Synthetic County Division",
+        type: "department",
+        relationshipType: "grouped_under",
+      },
+      {
+        id: "regional-agency",
+        name: "Synthetic Regional Agency",
+        type: "regional",
+        relationshipType: "reports_to",
+      },
+    ]);
+    assert.equal(profile.subunitsTruncated, false);
     assert.deepEqual(profile.counties, [
       {
         fips: "08001",
