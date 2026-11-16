@@ -128,3 +128,71 @@ including the disabled Worker gate and off-loopback rejection by the test provid
    duplicate redemption even when both upstream responses are affirmative,
    provider or D1 failure and the kill switch. Keep hosted intake disabled
    pending implementation and acceptance evidence.
+
+## Implementation (local, default off)
+
+The Turnstile Managed adapter is implemented and tested locally. Hosted
+intake stays disabled. No provider account, credential, live submission or
+deployment is part of this change.
+
+**Switch and configuration.** The Worker installs the adapter only when
+`REPORTS_TURNSTILE` is exactly `enabled` and Website D1 is bound. It also needs
+`REPORTS_TURNSTILE_SITEKEY` (public), `REPORTS_TURNSTILE_SECRET` (Worker only)
+and `REPORTS_TURNSTILE_ORIGIN`, which must be one exact `https` origin with no
+path, query or credentials. Anything missing or malformed leaves intake closed
+and the page shows the existing unavailable notice. Requests from any other
+origin are denied. Only the disposable test environment (`APP_ENV=test`) may
+use a loopback `http` origin or `REPORTS_TEST_TURNSTILE_VERIFY_URL`, and that
+override must also be loopback `http`.
+
+**Server verification.** [`report-challenge.ts`](../../src/services/report-challenge.ts)
+reads the token from the `x-turnstile-token` header, rejects tokens that are
+empty, longer than 2,048 characters or not printable ASCII, and posts only the
+secret and token to Siteverify. It sends no IP address or custom data. The
+request has a four second abort timeout, refuses redirects and reads at most
+8 KiB. It requires `success`, the exact hostname, the action `submit-report`
+and a `challenge_ts` no older than five minutes and no more than 60 seconds in
+the future. Invalid, expired, duplicate, hostname and action failures return
+the existing 429 `rate_limited` response with `Retry-After: 1`. Network
+errors, timeouts, non-200 or malformed replies, provider throttling, secret
+errors and storage errors throw, so the API answers 503 `service_unavailable`.
+
+**Atomic claim.** After Siteverify succeeds, the adapter inserts the SHA-256
+digest of the token into `report_challenge_claims` (migration 0021) with
+`ON CONFLICT DO NOTHING` and proceeds only if one row changed. Because the
+digest is the primary key, concurrent Workers cannot both win, even when
+Siteverify answers affirmatively to both. Claims are kept for the five minute
+lifetime plus two clock tolerances and expired rows are pruned in batches of 25
+after each successful claim. A pruning failure never blocks a submission.
+The challenge is spent once claimed, so a retry after any later failure needs
+a fresh token. The report idempotency key is unchanged, so a retry replays the
+first report without a second recovery key.
+
+**Logging.** The only record is one JSON line per decision with a fixed
+outcome name such as `accepted`, `replayed`, `expired` or `provider_unavailable`.
+Tokens, digests, secrets, IP addresses, provider replies and report content are
+never logged and never appear in error text.
+
+**Form.** The submission page carries the public sitekey and its CSP adds
+`https://challenges.cloudflare.com` to `script-src` and `frame-src` for
+`/submit-report` only. Tracking and every other page are unchanged. The
+disclosure about browser-signal processing is part of the form. The widget
+script is requested only after the visitor submits a valid draft. Status goes
+to the existing polite `role="status"` region. The draft, including the
+idempotency key, stays in memory through every challenge failure, expiry,
+refusal and retry. With the switch off the page has no sitekey, no widget code
+path and no CSP change.
+
+**Local evidence.** `tests/report-challenge.test.mjs` and
+`tests/report-interface.test.mjs` cover the guard, API, Worker wiring and form
+with synthetic provider replies. `npm run test:turnstile:d1` runs the built
+Worker in Wrangler's local runtime against a disposable local D1 and a
+synthetic Siteverify server. It covers a valid submission, six concurrent uses
+of one token with affirmative provider replies (one winner), expiry, denial,
+hostname mismatch, provider outage, storage failure and recovery, idempotent
+replay with a fresh token, and the disabled state.
+
+**Not yet verified, by design.** Real token issuance, hostname registration,
+secret injection, CSP behavior and egress on the Sites runtime, keyboard and
+screen reader use of the live widget, Cloudflare's eventual-consistency
+behavior and hosted D1 capacity all remain hosted acceptance checks.

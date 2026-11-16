@@ -17,6 +17,10 @@ import { createD1AccountServices } from "./services/d1-accounts.js";
 import { createD1WebsiteInspectionService } from "./services/d1-inspection.js";
 import { createD1PublicReadServices } from "./services/d1-public-reads.js";
 import type { ApplicationServices } from "./services/index.js";
+import {
+  type ChallengeOutcome,
+  createTurnstileAbuseControl,
+} from "./services/report-challenge.js";
 import { D1ReportIntakeStore } from "./services/report-intake-d1.js";
 import type { HumanIdentityAdapter } from "./services/security.js";
 import { createSitesIdentityAdapter } from "./services/sites-identity.js";
@@ -106,23 +110,91 @@ function isLoopbackHostname(hostname: string): boolean {
   );
 }
 
+function turnstileAbuseControl(
+  environment: RuntimeEnvironment,
+  database: AsyncD1Database | undefined,
+) {
+  if (environment.REPORTS_TURNSTILE !== "enabled" || !database)
+    return undefined;
+  const sitekey = environment.REPORTS_TURNSTILE_SITEKEY;
+  const secret = environment.REPORTS_TURNSTILE_SECRET;
+  if (!sitekey || !/^[0-9A-Za-z_-]{1,100}$/.test(sitekey) || !secret)
+    return undefined;
+  let origin: URL;
+  try {
+    origin = new URL(environment.REPORTS_TURNSTILE_ORIGIN ?? "");
+  } catch {
+    return undefined;
+  }
+  const testing = environment.APP_ENV === "test";
+  const exact =
+    origin.pathname === "/" &&
+    !origin.search &&
+    !origin.hash &&
+    !origin.username;
+  if (
+    !exact ||
+    !(
+      origin.protocol === "https:" ||
+      (testing &&
+        origin.protocol === "http:" &&
+        isLoopbackHostname(origin.hostname))
+    )
+  )
+    return undefined;
+  let verifyUrl: string | undefined;
+  if (testing && environment.REPORTS_TEST_TURNSTILE_VERIFY_URL) {
+    try {
+      const target = new URL(environment.REPORTS_TEST_TURNSTILE_VERIFY_URL);
+      if (target.protocol !== "http:" || !isLoopbackHostname(target.hostname))
+        return undefined;
+      verifyUrl = target.toString();
+    } catch {
+      return undefined;
+    }
+  }
+  const control = createTurnstileAbuseControl({
+    database,
+    secret,
+    hostname: origin.hostname,
+    ...(verifyUrl ? { verifyUrl } : {}),
+    // Counts only a fixed outcome name. No token, address or report data.
+    record: (outcome: ChallengeOutcome) =>
+      console.info(JSON.stringify({ event: "report_challenge", outcome })),
+  });
+  return {
+    sitekey,
+    origin: origin.origin,
+    // The challenge belongs to one exact origin. Any other host is closed.
+    abuseControl: {
+      check: async (request: Request) =>
+        new URL(request.url).origin === origin.origin
+          ? control.check(request)
+          : { allowed: false },
+    },
+  };
+}
+
 function reportApi(
   environment: RuntimeEnvironment,
   services: ReportApiOptions["services"],
   database?: AsyncD1Database,
 ) {
+  const turnstile = turnstileAbuseControl(environment, database);
   const testAbuseEnabled =
     environment.APP_ENV === "test" &&
     environment.REPORTS_TEST_ABUSE_CONTROL === "enabled";
-  const abuseControl = testAbuseEnabled
-    ? {
-        async check(request: Request) {
-          return isLoopbackHostname(new URL(request.url).hostname)
-            ? { allowed: true }
-            : { allowed: false };
-        },
-      }
-    : undefined;
+  const abuseControl =
+    turnstile?.abuseControl ??
+    (testAbuseEnabled
+      ? {
+          async check(request: Request) {
+            return isLoopbackHostname(new URL(request.url).hostname)
+              ? { allowed: true }
+              : { allowed: false };
+          },
+        }
+      : undefined);
   const unavailable = unavailableReportStore();
   const makeStore = (request: Request): ReportIntakeStore =>
     database
@@ -140,6 +212,9 @@ function reportApi(
       : unavailable;
   return {
     enabled: Boolean(abuseControl),
+    challenge: turnstile
+      ? { sitekey: turnstile.sitekey, origin: turnstile.origin }
+      : undefined,
     handler: createReportApiModule({
       services,
       store: unavailable,
@@ -358,6 +433,7 @@ const routes = {
           ? { banners: bannerService, bannerDelivery: bannerService }
           : {}),
         reportSubmissionsEnabled: reports.enabled,
+        ...(reports.challenge ? { reportChallenge: reports.challenge } : {}),
         reportReviewAccess: async (request) => {
           const principal = await services.resolvePrincipal(request);
           if (!principal) return 401;

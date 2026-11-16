@@ -7,6 +7,9 @@ export async function reportPage(
 ): Promise<Page> {
   const counties = await context.services.listCounties();
   const available = context.reportSubmissionsEnabled === true;
+  // The widget is needed only to submit, never to track.
+  const sitekey =
+    available && !tracking ? context.reportChallenge?.sitekey : undefined;
   return {
     title: tracking ? "Track a Report" : "Submit a Report",
     description:
@@ -21,6 +24,7 @@ export async function reportPage(
     body: html`<div id="report-interface-root"
       data-report-counties="${JSON.stringify(counties)}"
       data-report-mode="${tracking ? "track" : "submit"}"
-      data-report-enabled="${available ? "true" : "false"}"></div>`,
+      data-report-enabled="${available ? "true" : "false"}"
+      ${sitekey ? html`data-report-challenge-sitekey="${sitekey}"` : ""}></div>`,
   };
 }

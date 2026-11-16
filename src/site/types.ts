@@ -66,6 +66,12 @@ export interface PublicSiteOptions {
   readonly bannerOrigins?: readonly string[];
   /** Whether a configured local fictional-report test adapter is available. */
   readonly reportSubmissionsEnabled?: boolean;
+  /**
+   * Public Turnstile settings for guest intake. Present only when the
+   * default-off challenge switch is on and fully configured. The widget script
+   * is allowed and loaded on the submission page alone.
+   */
+  readonly reportChallenge?: { readonly sitekey: string };
   /** Server-side ACCT-1 check for the private staff review page. */
   readonly reportReviewAccess?: (request: Request) => Promise<401 | 403 | null>;
 }
@@ -77,6 +83,7 @@ export interface SiteContext {
   readonly now: Date;
   readonly banners: BannerSource;
   readonly reportSubmissionsEnabled: boolean;
+  readonly reportChallenge?: { readonly sitekey: string };
 }
 
 export interface Breadcrumb {
