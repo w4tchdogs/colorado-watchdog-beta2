@@ -149,7 +149,7 @@ test("county directory lists all 64 counties and every county page loads", async
       assert.match(county.main(), /No records for .+ yet/);
       assert.match(county.main(), /not the county's government/);
     }
-    assert.ok(page.$$(".letter-nav a").length > 10);
+    assert.ok(page.$("#county-directory > .county-index-grid"));
   });
 });
 
@@ -351,45 +351,32 @@ test("county map geometry covers the public registry with canonical accessible l
   });
 });
 
-test("county groups and filtered results are alphabetized by displayed name", async () => {
+test("the directory uses the same alphabetical county grid as the homepage", async () => {
   await withPreview("empty", async (preview) => {
-    const page = await get(preview, "/counties");
-    for (const group of page.$$("[data-county-group]")) {
-      const names = [...group.querySelectorAll(".county-name")].map(
-        (item) => item.textContent,
-      );
-      assert.deepEqual(
-        names,
-        [...names].sort((left, right) =>
-          left
-            .toLowerCase()
-            .replace(/[^a-z0-9]/g, "")
-            .localeCompare(right.toLowerCase().replace(/[^a-z0-9]/g, ""), "en"),
-        ),
-      );
-    }
-    assert.deepEqual(
-      [...page.$('[data-letter="E"]').querySelectorAll(".county-name")].map(
-        (item) => item.textContent,
-      ),
-      ["Eagle County", "Elbert County", "El Paso County"],
-    );
+    const home = await get(preview, "/");
+    const directory = await get(preview, "/counties");
     const filtered = await get(preview, "/counties?q=e");
-    for (const group of filtered.$$("[data-county-group]")) {
-      const names = [...group.querySelectorAll("[data-county]")]
-        .filter((item) => !item.hidden)
-        .map((item) => item.querySelector(".county-name").textContent);
+    const entries = (page, selector) =>
+      page
+        .$$(selector)
+        .map((link) => [
+          link.getAttribute("href"),
+          link.querySelector(".cell-name").firstChild.textContent,
+          link.querySelector(".cell-code").textContent,
+        ]);
+    const expected = entries(home, ".county-index-grid a");
+    assert.equal(expected.length, 64);
+    assert.deepEqual(
+      expected.map(([, name]) => name).filter((name) => name.startsWith("E")),
+      ["Eagle", "El Paso", "Elbert"],
+    );
+    for (const page of [directory, filtered]) {
       assert.deepEqual(
-        names,
-        [...names].sort((left, right) =>
-          left
-            .toLowerCase()
-            .replace(/[^a-z0-9]/g, "")
-            .localeCompare(right.toLowerCase().replace(/[^a-z0-9]/g, ""), "en"),
-        ),
+        entries(page, "#county-directory .county-index-grid a"),
+        expected,
       );
+      assert.equal(page.$$("#county-directory [hidden]").length, 0);
     }
-    assert.equal(page.$$('[data-county] a[href^="/counties/"]').length, 64);
   });
 });
 

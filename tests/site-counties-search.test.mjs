@@ -75,6 +75,10 @@ async function load(counties, search = "", { script = true } = {}) {
       [...document.querySelectorAll("[data-map-county].is-match")]
         .map((link) => link.dataset.fips)
         .sort(),
+    gridMatches: () =>
+      [...document.querySelectorAll("#county-directory [data-county].is-match")]
+        .map((tile) => tile.dataset.fips)
+        .sort(),
     visibleFips: () =>
       [...document.querySelectorAll("[data-result-row]")]
         .filter((row) => !row.hidden)
@@ -107,6 +111,7 @@ function assertIdle(view) {
   assert.equal(view.results().hidden, true);
   assert.equal(view.empty().hidden, true);
   assert.deepEqual(view.matched(), []);
+  assert.deepEqual(view.gridMatches(), []);
   assert.deepEqual(view.rows(), []);
 }
 
@@ -132,6 +137,7 @@ test("searching as finds Douglas, El Paso, Las Animas and Washington", async () 
       assert.deepEqual(view.rows(), AS_COUNTIES);
       assert.deepEqual(view.visibleFips(), AS_FIPS);
       assert.deepEqual(view.matched(), AS_FIPS);
+      assert.deepEqual(view.gridMatches(), AS_FIPS);
       assert.equal(view.$("[data-county-filter]").value, "as");
     }
     const live = await load(counties);
@@ -140,6 +146,11 @@ test("searching as finds Douglas, El Paso, Las Animas and Washington", async () 
     assert.equal(live.note(), "4 counties match");
     assert.deepEqual(live.rows(), AS_COUNTIES);
     assert.deepEqual(live.matched(), AS_FIPS);
+    assert.deepEqual(live.gridMatches(), AS_FIPS);
+    assert.equal(
+      live.$$("#county-directory [data-county]:not([hidden])").length,
+      64,
+    );
     assert.equal(live.window.location.search, "?q=as");
   });
 });
@@ -153,10 +164,12 @@ test("a full FIPS code matches exactly one county with singular labels", async (
       assert.equal(view.note(), "1 county matches");
       assert.deepEqual(view.rows(), ["Lake County"]);
       assert.deepEqual(view.matched(), ["08065"]);
+      assert.deepEqual(view.gridMatches(), ["08065"]);
     }
     const live = await load(counties);
     live.type("08067");
     assert.deepEqual(live.rows(), ["La Plata County"]);
+    assert.deepEqual(live.gridMatches(), ["08067"]);
     assert.equal(live.status(), "1 matching county");
   });
 });
@@ -172,6 +185,7 @@ test("zero matches show explicit zero counts and an empty state, not a table", a
       assert.equal(view.empty().hidden, false);
       assert.match(view.empty().textContent, /No county matches that search/);
       assert.deepEqual(view.matched(), []);
+      assert.deepEqual(view.gridMatches(), []);
     }
   });
 });
@@ -231,6 +245,7 @@ test("typing, a direct link and native Enter give the same links and count", asy
       status: view.status(),
       note: view.note(),
       matched: view.matched(),
+      gridMatches: view.gridMatches(),
     });
     for (const query of [
       "as",
@@ -259,6 +274,7 @@ test("typing, a direct link and native Enter give the same links and count", asy
         `query ${JSON.stringify(query)}`,
       );
       assert.deepEqual(submitted.matched(), submitted.visibleFips());
+      assert.deepEqual(submitted.gridMatches(), submitted.visibleFips());
     }
   });
 });
@@ -321,6 +337,9 @@ test("map hover and focus show the county, then restore the count", async () => 
     const live = await load(registryWithCounts(preview));
     live.type("as");
     const region = live.$$("[data-map-county].is-match")[0];
+    const tile = live.$(
+      `#county-directory [data-fips="${region.dataset.fips}"]`,
+    );
     region.dispatchEvent(new live.window.Event("pointerenter"));
     assert.match(live.status(), /County · FIPS \d{5}\. Select to open/);
     assert.equal(
@@ -329,8 +348,14 @@ test("map hover and focus show the county, then restore the count", async () => 
         .classList.contains("is-active"),
       true,
     );
+    assert.equal(tile.classList.contains("is-active"), true);
     region.dispatchEvent(new live.window.Event("pointerleave"));
     assert.equal(live.status(), "4 matching counties");
+    assert.equal(tile.classList.contains("is-active"), false);
+    tile.querySelector("a").focus();
+    assert.equal(region.classList.contains("is-active"), true);
+    tile.querySelector("a").blur();
+    assert.equal(region.classList.contains("is-active"), false);
     region.dispatchEvent(
       new live.window.FocusEvent("focusin", { bubbles: true }),
     );
@@ -489,6 +514,11 @@ test("browse all and the skip link stay available during searches, at zero match
     );
     assert.equal(noMap.empty().hidden, false);
     assert.equal(noMap.$$("#county-directory [data-county]").length, 63);
+    noMap.type("08003");
+    assert.deepEqual(noMap.gridMatches(), ["08003"]);
+    assert.deepEqual(noMap.visibleFips(), ["08003"]);
+    noMap.type("");
+    assert.deepEqual(noMap.gridMatches(), []);
   });
 });
 

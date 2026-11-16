@@ -25,13 +25,15 @@ if (toggle && nav) {
   });
 }
 
-// Live county search: map highlights, results table, counts and sorting.
+// Live county search: map and grid highlights, results table, counts and sorting.
 const filter = document.querySelector("[data-county-filter]");
 if (filter) {
   const IDLE_STATUS = "Choose a county";
   const rows = [...document.querySelectorAll("[data-result-row]")];
   const tbody = document.querySelector("[data-county-rows]");
-  const mapRegions = [...document.querySelectorAll("[data-map-county]")];
+  const searchHighlights = document.querySelectorAll(
+    "[data-map-county], #county-directory [data-county]",
+  );
   const targets = [...document.querySelectorAll("[data-fips]")];
   const results = document.querySelector("[data-county-results]");
   const empty = document.querySelector("[data-county-empty]");
@@ -94,8 +96,8 @@ if (filter) {
     const matched = new Set(
       rows.filter((row) => !row.hidden).map((row) => row.dataset.fips),
     );
-    for (const region of mapRegions) {
-      region.classList.toggle("is-match", matched.has(region.dataset.fips));
+    for (const target of searchHighlights) {
+      target.classList.toggle("is-match", matched.has(target.dataset.fips));
     }
     for (const row of rows) row.classList.toggle("is-match", !row.hidden);
     if (results) results.hidden = shown === 0;
@@ -116,7 +118,9 @@ if (filter) {
   // Sorting. County sorts alphabetically, count columns numerically, with
   // unavailable counts last in either direction and ties by name then FIPS.
   const sortState = () => {
-    const header = headers.find((th) => th.getAttribute("aria-sort") !== "none");
+    const header = headers.find(
+      (th) => th.getAttribute("aria-sort") !== "none",
+    );
     return {
       key: header?.dataset.sortKey ?? "county",
       direction:
