@@ -20,9 +20,40 @@ export interface ReportTrackingProjection {
   }>;
 }
 
+export interface ReportSubmitContext {
+  /** Single-use challenge token. Present only when the host runs a challenge. */
+  readonly challengeToken?: string;
+}
+
+/**
+ * Host-provided human check. The interface owns the draft and the status
+ * messages. The host owns loading and running the widget.
+ */
+export interface ReportChallenge {
+  /** Shown before the widget is ever loaded. */
+  readonly disclosure: string;
+  /**
+   * Loads the widget on first use, renders it into `container` and resolves
+   * with a fresh single-use token. Rejects on load failure, widget error or
+   * timeout. `announce` receives short status text for the live region.
+   */
+  acquire(
+    container: HTMLElement,
+    announce: (message: string) => void,
+  ): Promise<string>;
+  /** Discards the spent or expired token so the next acquire runs a new check. */
+  reset(): void;
+}
+
+/** Thrown by an adapter when the server refused the challenge token. */
+export class ReportChallengeRejectedError extends Error {}
+
 /** Host integration boundary. The host binds the authenticated actor server-side. */
 export interface ReportUiAdapter {
-  submit(input: ReportSubmission): Promise<ReportUiReceipt>;
+  submit(
+    input: ReportSubmission,
+    context?: ReportSubmitContext,
+  ): Promise<ReportUiReceipt>;
   track(
     reference: string,
     recoveryKey: string,
@@ -49,6 +80,8 @@ export interface ReportInterfaceOptions {
    */
   readonly submissionsEnabled?: boolean;
   readonly trackingHref?: string;
+  /** Optional human check. Without it the form behaves exactly as before. */
+  readonly challenge?: ReportChallenge;
   readonly createIdempotencyKey?: () => string;
 }
 
@@ -591,6 +624,13 @@ export function mountReportInterface(
       signedInRequired,
     );
 
+    const challengeNotice = node(document, "p", "report-field-hint");
+    const challengeBox = node(document, "div", "report-challenge");
+    challengeBox.hidden = true;
+    if (options.challenge) {
+      challengeNotice.textContent = options.challenge.disclosure;
+      challengeBox.setAttribute("aria-label", "Human verification");
+    }
     const submitButton = node(document, "button", "report-button");
     submitButton.type = "submit";
     submitButton.textContent = "Submit privately for review";
@@ -604,6 +644,7 @@ export function mountReportInterface(
       descriptionField,
       evidenceField,
       reporterField,
+      ...(options.challenge ? [challengeNotice, challengeBox] : []),
       formStatus,
       submitButton,
       noUploads,
@@ -873,9 +914,36 @@ export function mountReportInterface(
 
       submitting = true;
       submitButton.disabled = true;
+      let challengeToken: string | undefined;
+      if (options.challenge) {
+        submitButton.textContent = "Verifying…";
+        formStatus.textContent =
+          "Checking that this submission comes from a person. A short check may appear below.";
+        challengeBox.hidden = false;
+        try {
+          challengeToken = await options.challenge.acquire(
+            challengeBox,
+            (message) => {
+              formStatus.textContent = message;
+            },
+          );
+        } catch {
+          options.challenge.reset();
+          formStatus.textContent =
+            "We couldn't complete the human check. Your entries remain here; select Submit to try again.";
+          submitting = false;
+          submitButton.disabled = false;
+          submitButton.textContent = "Submit privately for review";
+          return;
+        }
+        formStatus.textContent = "Check complete. Submitting privately…";
+      }
       submitButton.textContent = "Submitting privately…";
       try {
-        const receipt = await options.adapter.submit(submission);
+        const receipt = await options.adapter.submit(
+          submission,
+          challengeToken ? { challengeToken } : undefined,
+        );
         pendingIdempotencyKey = null;
         setText(receiptReference, receipt.reference);
         issuedRecoveryKey = receipt.recoveryKey ?? null;
@@ -895,9 +963,13 @@ export function mountReportInterface(
         form.hidden = true;
         receiptPanel.hidden = false;
         receiptHeading.focus();
-      } catch {
+      } catch (error) {
+        // A challenge token is single-use, so every failed attempt needs a new one.
+        options.challenge?.reset();
         formStatus.textContent =
-          "We couldn't submit this report. Your entries remain here; try again when the service is available.";
+          error instanceof ReportChallengeRejectedError
+            ? "The human check expired or was not accepted. Your entries remain here; select Submit to run the check again."
+            : "We couldn't submit this report. Your entries remain here; try again when the service is available.";
       } finally {
         submitting = false;
         submitButton.disabled = false;

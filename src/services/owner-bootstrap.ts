@@ -135,7 +135,7 @@ async function verifySchema(database: AsyncD1Database): Promise<void> {
     sha256: unknown;
   }>(
     "SELECT version, name, sha256 FROM schema_migrations ORDER BY version",
-    22,
+    24,
   );
   const expected = loadWebsiteMigrations();
   if (

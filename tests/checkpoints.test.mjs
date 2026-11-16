@@ -136,6 +136,7 @@ test("checkpoint of a synthetic database and files restores and matches", async 
       ["person_roles", 1],
       ["positions", 1],
       ["report_audit", 0],
+      ["report_challenge_claims", 0],
       ["report_evidence", 0],
       ["report_idempotency", 0],
       ["report_receipts", 0],
@@ -176,7 +177,7 @@ test("checkpoint of a synthetic database and files restores and matches", async 
       .sort((a, b) => (a.key < b.key ? -1 : 1)),
   );
   assert.deepEqual(manifest.totals, {
-    tables: 41,
+    tables: 42,
     rows: 102,
     files: 4,
     file_bytes: 52,

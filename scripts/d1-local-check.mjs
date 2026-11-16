@@ -40,6 +40,7 @@ const migrations = [
   "0018_banner_publications.sql",
   "0019_human_sign_in.sql",
   "0020_role_source_publisher_classification.sql",
+  "0021_report_challenge_claims.sql",
   "0022_unstructured_person_roles.sql",
 ];
 

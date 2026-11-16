@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { JSDOM } from "jsdom";
-import { mountReportInterface } from "../dist/site/report-interface.js";
+import {
+  mountReportInterface,
+  ReportChallengeRejectedError,
+} from "../dist/site/report-interface.js";
+import { createTurnstileChallenge } from "../dist/site/turnstile-widget.js";
 import { createFictionalReportAdapter } from "../dist/site-dev/report-demo.js";
 
 const migration = readFileSync(
@@ -498,4 +502,314 @@ test("includes responsive rules, visible keyboard focus, and no upload control",
   );
   assert.equal(document.querySelector('input[type="file"]'), null);
   assert.equal(document.querySelectorAll('a[href^="#"]').length >= 2, true);
+});
+
+function fakeChallenge(behavior = {}) {
+  const state = { acquires: 0, resets: 0, containers: [], messages: [] };
+  const challenge = {
+    disclosure: "Synthetic disclosure about the human check.",
+    async acquire(container, announce) {
+      state.acquires += 1;
+      state.containers.push(container);
+      announce("Synthetic widget loading.");
+      state.messages.push(
+        container.ownerDocument.querySelector("form .report-status")
+          .textContent,
+      );
+      if (behavior.fail) throw new Error("widget failed");
+      return `synthetic-token-${state.acquires}`;
+    },
+    reset() {
+      state.resets += 1;
+    },
+  };
+  return { challenge, state };
+}
+
+test("challenge: the disclosure is shown before any widget work and nothing runs until a valid submit", async () => {
+  const { challenge, state } = fakeChallenge();
+  const { document } = createHarness({ challenge });
+  assert.match(
+    document.body.textContent,
+    /Synthetic disclosure about the human check\./,
+  );
+  assert.equal(document.querySelector(".report-challenge").hidden, true);
+  assert.equal(state.acquires, 0);
+  await submit(
+    document.querySelector("form.report-form"),
+    document.defaultView,
+  );
+  assert.equal(state.acquires, 0, "invalid drafts never start a check");
+});
+
+test("challenge: a valid submit runs the check, announces status and sends the token", async () => {
+  const { challenge, state } = fakeChallenge();
+  const contexts = [];
+  const { document, calls } = createHarness({
+    challenge,
+    adapter: {
+      async submit(input, context) {
+        calls.submissions.push(input);
+        contexts.push(context);
+        return {
+          reference: "CW-0011223344556677",
+          recoveryKey: "b".repeat(64),
+        };
+      },
+    },
+  });
+  setValidSubmission(document);
+  await submit(
+    document.querySelector("form.report-form"),
+    document.defaultView,
+  );
+  assert.equal(state.acquires, 1);
+  assert.deepEqual(contexts, [{ challengeToken: "synthetic-token-1" }]);
+  assert.equal(state.messages[0], "Synthetic widget loading.");
+  assert.equal(
+    state.containers[0],
+    document.querySelector(".report-challenge"),
+  );
+  const status = document.querySelector("form .report-status");
+  assert.equal(status.getAttribute("role"), "status");
+  assert.equal(status.getAttribute("aria-live"), "polite");
+  assert.equal(document.querySelector(".report-receipt").hidden, false);
+});
+
+test("challenge: a failed check keeps the draft and idempotency key and allows a retry", async () => {
+  let fail = true;
+  const { challenge, state } = fakeChallenge();
+  const acquire = challenge.acquire;
+  challenge.acquire = (...args) =>
+    fail ? Promise.reject(new Error("widget failed")) : acquire(...args);
+  const keys = [];
+  const { document, calls } = createHarness({
+    challenge,
+    createIdempotencyKey: () => {
+      keys.push("created");
+      return "stable-key";
+    },
+  });
+  setValidSubmission(document, {
+    description: "Draft text that must survive the retry.",
+  });
+  const form = document.querySelector("form.report-form");
+  await submit(form, document.defaultView);
+  assert.equal(calls.submissions.length, 0);
+  assert.equal(state.resets, 1);
+  assert.match(
+    document.querySelector("form .report-status").textContent,
+    /couldn't complete the human check/,
+  );
+  assert.equal(
+    document.getElementById("report-description").value,
+    "Draft text that must survive the retry.",
+  );
+  const button = form.querySelector('button[type="submit"]');
+  assert.equal(button.disabled, false);
+  assert.equal(button.textContent, "Submit privately for review");
+  fail = false;
+  await submit(form, document.defaultView);
+  assert.equal(calls.submissions.length, 1);
+  assert.equal(calls.submissions[0].idempotencyKey, "stable-key");
+});
+
+test("challenge: a refused token resets the widget, keeps the draft and reports it accessibly", async () => {
+  const { challenge, state } = fakeChallenge();
+  let attempts = 0;
+  const tokens = [];
+  const { document, calls } = createHarness({
+    challenge,
+    adapter: {
+      async submit(input, context) {
+        attempts += 1;
+        tokens.push(context.challengeToken);
+        if (attempts === 1) throw new ReportChallengeRejectedError("refused");
+        calls.submissions.push(input);
+        return {
+          reference: "CW-0011223344556677",
+          recoveryKey: "c".repeat(64),
+        };
+      },
+    },
+  });
+  setValidSubmission(document);
+  const form = document.querySelector("form.report-form");
+  await submit(form, document.defaultView);
+  assert.equal(state.resets, 1);
+  assert.match(
+    document.querySelector("form .report-status").textContent,
+    /human check expired or was not accepted/,
+  );
+  assert.equal(document.getElementById("report-county").value, "08001");
+  await submit(form, document.defaultView);
+  assert.deepEqual(tokens, ["synthetic-token-1", "synthetic-token-2"]);
+  assert.equal(calls.submissions.length, 1);
+});
+
+test("challenge: a service outage after the check resets the token and shows the generic message", async () => {
+  const { challenge, state } = fakeChallenge();
+  const { document } = createHarness({
+    challenge,
+    adapter: {
+      async submit() {
+        throw new Error("unavailable");
+      },
+    },
+  });
+  setValidSubmission(document);
+  await submit(
+    document.querySelector("form.report-form"),
+    document.defaultView,
+  );
+  assert.equal(state.resets, 1);
+  assert.match(
+    document.querySelector("form .report-status").textContent,
+    /couldn't submit this report/,
+  );
+});
+
+test("without a challenge the adapter receives no context and no widget container exists", async () => {
+  const contexts = [];
+  const { document } = createHarness({
+    adapter: {
+      async submit(_input, context) {
+        contexts.push(context);
+        return {
+          reference: "CW-0011223344556677",
+          recoveryKey: "d".repeat(64),
+        };
+      },
+    },
+  });
+  assert.equal(document.querySelector(".report-challenge"), null);
+  setValidSubmission(document);
+  await submit(
+    document.querySelector("form.report-form"),
+    document.defaultView,
+  );
+  assert.deepEqual(contexts, [undefined]);
+});
+
+function widgetHarness({ loadScript = true } = {}) {
+  const dom = new JSDOM("<!doctype html><main id='app'></main>", {
+    url: "https://demo.invalid/",
+  });
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+  };
+  globalThis.window = dom.window;
+  globalThis.document = dom.window.document;
+  const rendered = [];
+  const resets = [];
+  const loads = [];
+  const api = {
+    render(container, parameters) {
+      rendered.push({ container, parameters });
+      return "widget-1";
+    },
+    reset(id) {
+      resets.push(id);
+    },
+    remove() {},
+  };
+  const head = dom.window.document.head;
+  const append = head.append.bind(head);
+  head.append = (script) => {
+    loads.push(script.src);
+    append(script);
+    if (loadScript) {
+      dom.window.turnstile = api;
+      script.onload?.();
+    } else {
+      script.onerror?.();
+    }
+  };
+  return {
+    dom,
+    rendered,
+    resets,
+    loads,
+    restore() {
+      globalThis.window = previous.window;
+      globalThis.document = previous.document;
+    },
+  };
+}
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test("widget loader: requests nothing until the first check, then loads the script once", async (t) => {
+  const harness = widgetHarness();
+  t.after(() => harness.restore());
+  const challenge = createTurnstileChallenge("0x4AAAAAAA-synthetic");
+  assert.deepEqual(harness.loads, []);
+  const container = harness.dom.window.document.createElement("div");
+  const messages = [];
+  const first = challenge.acquire(container, (message) =>
+    messages.push(message),
+  );
+  await tick();
+  assert.deepEqual(harness.loads, [
+    "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit",
+  ]);
+  const { parameters } = harness.rendered[0];
+  assert.equal(parameters.sitekey, "0x4AAAAAAA-synthetic");
+  assert.equal(parameters.action, "submit-report");
+  assert.equal(parameters["refresh-expired"], "manual");
+  parameters["before-interactive-callback"]();
+  parameters.callback("token-1");
+  assert.equal(await first, "token-1");
+  assert.ok(
+    messages.some((message) => /complete the human check/.test(message)),
+  );
+  assert.ok(messages.includes("Human check complete."));
+
+  // A second submit restarts the same widget only after the token was spent.
+  challenge.reset();
+  const second = challenge.acquire(container, () => {});
+  await tick();
+  assert.equal(harness.rendered.length, 1);
+  assert.deepEqual(harness.resets, ["widget-1"]);
+  parameters.callback("token-2");
+  assert.equal(await second, "token-2");
+  assert.equal(harness.loads.length, 1);
+});
+
+test("widget loader: widget errors and timeouts reject so the form can retry", async (t) => {
+  const harness = widgetHarness();
+  t.after(() => harness.restore());
+  const challenge = createTurnstileChallenge("0x4AAAAAAA-synthetic");
+  const container = harness.dom.window.document.createElement("div");
+  const attempt = challenge.acquire(container, () => {});
+  await tick();
+  harness.rendered[0].parameters["error-callback"]();
+  await assert.rejects(attempt, /Challenge failed/);
+  challenge.reset();
+  const retry = challenge.acquire(container, () => {});
+  await tick();
+  harness.rendered[0].parameters["timeout-callback"]();
+  await assert.rejects(retry, /timed out/);
+});
+
+test("widget loader: a blocked script rejects and is requested again on the next try", async (t) => {
+  const harness = widgetHarness({ loadScript: false });
+  t.after(() => harness.restore());
+  const challenge = createTurnstileChallenge("0x4AAAAAAA-synthetic");
+  const container = harness.dom.window.document.createElement("div");
+  await assert.rejects(
+    challenge.acquire(container, () => {}),
+    /unavailable/,
+  );
+  assert.equal(harness.rendered.length, 0);
+  await assert.rejects(
+    challenge.acquire(container, () => {}),
+    /unavailable/,
+  );
+  assert.equal(harness.loads.length, 2);
+  assert.equal(
+    harness.dom.window.document.querySelectorAll("script").length,
+    0,
+  );
 });

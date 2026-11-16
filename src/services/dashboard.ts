@@ -193,6 +193,8 @@ export function createDashboardService(
           };
         case "posts":
           return { view: "posts" };
+        case "banners":
+          return { view: "banners" };
         default:
           throw new DashboardViewNotFoundError();
       }

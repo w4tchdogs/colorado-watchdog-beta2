@@ -1,6 +1,11 @@
 import type { CountyRegistryEntry } from "../contracts/county-registry.js";
 import type { ReportSubmission } from "../contracts/report-intake.js";
-import { mountReportInterface } from "./report-interface.js";
+import { CHALLENGE_TOKEN_HEADER } from "../services/report-challenge.js";
+import {
+  mountReportInterface,
+  ReportChallengeRejectedError,
+} from "./report-interface.js";
+import { createTurnstileChallenge } from "./turnstile-widget.js";
 
 const root = document.getElementById("report-interface-root");
 if (root) {
@@ -11,21 +16,36 @@ if (root) {
   if (root.getAttribute("data-report-mode") === "track") {
     window.history.replaceState(null, "", `${location.pathname}#report-track`);
   }
+  const sitekey = root.getAttribute("data-report-challenge-sitekey");
+  const challenge =
+    enabled && sitekey ? createTurnstileChallenge(sitekey) : undefined;
   mountReportInterface(root, {
     counties,
+    ...(challenge ? { challenge } : {}),
     trackingHref: "/track-report",
     submissionsEnabled: enabled,
-    demoNotice: enabled
-      ? "Local fictional-data test only. Do not enter real information."
-      : "Report submission is currently unavailable. Do not enter real information.",
+    ...(challenge
+      ? {}
+      : {
+          demoNotice: enabled
+            ? "Local fictional-data test only. Do not enter real information."
+            : "Report submission is currently unavailable. Do not enter real information.",
+        }),
     adapter: {
-      async submit(input: ReportSubmission) {
+      async submit(input: ReportSubmission, context) {
         const response = await fetch("/api/v1/reports", {
           method: "POST",
           credentials: "same-origin",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...(context?.challengeToken
+              ? { [CHALLENGE_TOKEN_HEADER]: context.challengeToken }
+              : {}),
+          },
           body: JSON.stringify(input),
         });
+        if (response.status === 429 && context?.challengeToken)
+          throw new ReportChallengeRejectedError("Challenge rejected");
         if (!response.ok) throw new Error("Submission unavailable");
         const value = (await response.json()) as {
           reference: string;

@@ -552,6 +552,7 @@ test("Website schema includes M0, M1-A, M2-D and M2-E tables without Profiles re
       "person_roles",
       "positions",
       "report_audit",
+      "report_challenge_claims",
       "report_evidence",
       "report_idempotency",
       "report_receipts",

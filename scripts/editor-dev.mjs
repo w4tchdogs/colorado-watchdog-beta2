@@ -58,7 +58,8 @@ const server = createServer(async (incoming, outgoing) => {
     if (method !== "GET" && method !== "HEAD") {
       for await (const chunk of incoming) {
         size += chunk.length;
-        if (size > 700_000) {
+        // Stage uploads carry a full banner image (25 MiB limit + overhead).
+        if (size > 27_262_976) {
           outgoing.writeHead(413, { "content-type": "application/json" });
           outgoing.end(JSON.stringify({ error: "request_too_large" }));
           return;
@@ -76,7 +77,10 @@ const server = createServer(async (incoming, outgoing) => {
     );
     const response = await sandbox.fetch(request);
     outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-    outgoing.end(method === "HEAD" ? undefined : await response.text());
+    // Raw bytes, never text: private banner previews are binary images.
+    outgoing.end(
+      method === "HEAD" ? undefined : Buffer.from(await response.arrayBuffer()),
+    );
   } catch {
     outgoing.writeHead(500, { "content-type": "application/json" });
     outgoing.end(JSON.stringify({ error: "internal_error" }));

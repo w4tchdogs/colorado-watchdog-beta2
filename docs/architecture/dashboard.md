@@ -42,7 +42,7 @@ A role change, a disabled account or a revoked link applies on the next request.
 | My Account (self-view) | Working | Any active human account, own row only | Yes | Yes | Yes | Yes |
 | Posts & Stories | Working | `content.publish` | No | Yes | Yes | Yes |
 | Reports | Planned | `report.review` | No | Yes | Yes | Yes |
-| Banners | Planned | `banner.manage` | No | No | Yes | Yes |
+| Banners | Working | `banner.manage` | No | No | Yes | Yes |
 | Accounts | Planned | `account.read` | No | No | Yes | Yes |
 | Audit | Planned | `audit.read` | No | No | Yes | Yes |
 | System Status | Planned | `d1.inspect` | No | No | Yes | Yes |
@@ -59,7 +59,7 @@ A contributor sees their own account and the one action they have, My Account, w
 
 The existing editorial workspace runs inside the shell unchanged in behavior: listing, search, type and status filters, sorting, paging, draft editing, the safe Markdown preview, save, archive and restore, relationships and revision history. See [editorial-workspace.md](editorial-workspace.md). `mountEditorApp` gained a `host` option so the shell owns the page chrome and the account switch. Seed content is fictional Lorem Ipsum.
 
-Publication is not offered in the dashboard. The local sandbox mounts the draft routes only, so publish and withdraw could not be verified here and are left to hosted EDIT-2.
+Publication is not offered in Posts & Stories. The local sandbox mounts the draft routes only, so post and story publish and withdraw could not be verified here and are left to hosted EDIT-2. The Banners tab is separate: it can publish, restore and withdraw banner publications within the disposable local sandbox, as verified in [PR #156](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/156) and [Issue #146](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/146).
 
 ### Stale-save conflict
 
@@ -100,7 +100,7 @@ The shell asks the server before it mounts a view, so a factory never runs for a
 
 | Module | Connects to | Notes |
 | --- | --- | --- |
-| Banners (reserved for BANNER-ADMIN-4) | The merged `/api/admin/banners/*` contract in [banner-admin-api.md](banner-admin-api.md), gated by `banner.manage` | Use private version previews for staged images and publication snapshots for history and restore. Local development can use synthetic images and test storage now that the shell exists. Live `BUCKET` verification is a hosted dependency |
+| Banners | The merged `/api/admin/banners/*` contract in [banner-admin-api.md](banner-admin-api.md), gated by `banner.manage`, through the browser client in `src/editor/banner-admin-client.ts` and the view in `src/editor/banner-views.ts` | Working (BANNER-ADMIN-4). County search by name or FIPS, stage a new banner or a replacement, private version preview, publish, replace, restore, withdraw, publication history, metadata edit, reorder, stale-version conflicts, idempotent retries, reconcile for missing or corrupt images, in-DOM confirmations. The sandbox serves the real D1-backed service over a sync→async binding adapter with in-memory storage. Live `BUCKET` verification is a hosted dependency |
 | Accounts | `createAccountAdminModule` and `/api/admin/accounts` in [account-management.md](account-management.md), gated by `account.read` and the other `account.*` and `identity.*` capabilities | Stays separate from My Account. The self-view never becomes an edit path for other accounts |
 | Reports | The staff report review API in [report-api.md](report-api.md), gated by `report.review` | Private report data appears only inside this module |
 | Audit | The audit service, gated by `audit.read` | Read-only, paged |
@@ -112,11 +112,11 @@ A hosted dashboard needs a Worker route that serves the shell without the `sandb
 
 ## Tests
 
-`tests/dashboard.test.mjs` covers navigation for each role, signed-out, disabled and unknown callers, the self-view field list, the contributor Overview, direct requests to restricted, planned and unknown views, malformed requests, sandbox token, origin and Host guards, role changes between requests, agent principals, hosted and public entry points, the Worker bundle, and browser storage. `tests/dashboard-ui.test.mjs` runs the real shell in jsdom over the real sandbox for the contributor flow, the editor listing, the two-view stale-save conflict and recovery, the unsaved-changes guard, signed-out and disabled states, error and empty states, and keyboard and labelling basics. The existing editorial tests still cover the workspace itself.
+`tests/dashboard.test.mjs` covers navigation for each role, signed-out, disabled and unknown callers, the self-view field list, the contributor Overview, direct requests to restricted, planned and unknown views, malformed requests, sandbox token, origin and Host guards, role changes between requests, agent principals, hosted and public entry points, the Worker bundle, and browser storage. `tests/dashboard-ui.test.mjs` runs the real shell in jsdom over the real sandbox for the contributor flow, the editor listing, the two-view stale-save conflict and recovery, the unsaved-changes guard, signed-out and disabled states, error and empty states, and keyboard and labelling basics. `tests/dashboard-banners-ui.test.mjs` runs the Banners module in jsdom over the real sandbox with synthetic PNG fixtures: county search, stage, private preview, publish with confirmation, replace, details edit, reorder, withdraw, restore from history, stale-version conflicts with kept edits, idempotent retries, missing stored images with reconcile, the live role matrix, and labelling. The existing editorial tests still cover the workspace itself.
 
 ## Limits
 
 - Local sandbox only. No hosted route, deployment or hosted verification.
 - Beta-1 was reviewed from archived source only (`lib/site-navigation.mjs`, `app/workspace.tsx` and `app/my-profile.tsx`): grouped sidebar sections, role-gated entries and a profile page open to every signed-in account. The running Beta-1 dashboard was not opened, so no screen-level parity is claimed.
-- No publication controls, no self-service account edits and no administrative counts.
+- No Posts & Stories publication controls, no self-service account edits and no administrative counts. The Banners tab can publish, restore and withdraw within the disposable local sandbox, as verified in [PR #156](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/156) and [Issue #146](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/146).
 - The standalone editor shell in `mountEditorApp` remains for the existing editorial tests. The sandbox serves the dashboard.

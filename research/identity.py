@@ -553,7 +553,9 @@ def _county_decisions(db, county_fips, *, planned_sources, allow_planned_sources
         linked_person = next(iter(linked_people), None)
         component_person[component_id] = linked_person
 
-        candidate_rows.sort(key=lambda row: (0 if row["lineage_kind"] == "corrected" and row["selected"] else 1,
+        # An existing profile's own claims anchor a component that already links to it.
+        candidate_rows.sort(key=lambda row: (0 if linked_person and row["person_id"] == linked_person else 1,
+                                             0 if row["lineage_kind"] == "corrected" and row["selected"] else 1,
                                              row["id"]))
         anchor = candidate_rows[0]
         person_id = linked_person or _stable_id("person", county_fips, component_id)

@@ -3,11 +3,14 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ContentAction } from "../contracts/content.js";
 import { DASHBOARD_API_PATHS } from "../contracts/dashboard.js";
+import { AsyncD1Database } from "../database/d1.js";
 import { migrateWebsiteDatabase } from "../database/migrations.js";
 import {
   openWebsiteDatabase,
   type WebsiteDatabase,
 } from "../database/sqlite.js";
+import { D1BannerAdministration } from "../services/banner-admin-d1.js";
+import { MemoryBannerObjectStorage } from "../services/banner-storage.js";
 import { createContentService } from "../services/content.js";
 import { createDashboardService } from "../services/dashboard.js";
 import {
@@ -17,11 +20,16 @@ import {
   type TrustedPrincipal,
 } from "../services/security.js";
 import {
+  createBannerAdminApiTransport,
+  isBannerAdminPath,
+} from "../transport/banner-admin-api.js";
+import {
   CONTENT_API_PATHS,
   createContentApiTransport,
   createContentTransportOperations,
 } from "../transport/content-api.js";
 import { createDashboardApiTransport } from "../transport/dashboard-api.js";
+import { createLocalD1Binding } from "./d1-binding.js";
 import { LookupRequestError, parseLookupRequest, runLookup } from "./lookup.js";
 
 /**
@@ -95,6 +103,8 @@ export interface EditorSandboxOptions {
 export interface EditorSandbox {
   readonly token: string;
   readonly database: WebsiteDatabase;
+  /** In-memory banner object storage, exposed so tests can hide or corrupt objects. */
+  readonly bannerStorage: MemoryBannerObjectStorage;
   fetch(request: Request): Promise<Response>;
   close(): void;
 }
@@ -106,7 +116,7 @@ const SECURITY_HEADERS = {
   "cross-origin-resource-policy": "same-origin",
   "cross-origin-opener-policy": "same-origin",
   "content-security-policy":
-    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
 } as const;
 
 export function sandboxJson(status: number, value: unknown): Response {
@@ -209,6 +219,16 @@ const STATIC_FILES: Readonly<
     file: "dashboard-views.js",
     type: "text/javascript; charset=utf-8",
   },
+  "/app/banner-admin-client.js": {
+    directory: "script",
+    file: "banner-admin-client.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/banner-views.js": {
+    directory: "script",
+    file: "banner-views.js",
+    type: "text/javascript; charset=utf-8",
+  },
 };
 
 function loopbackUrl(value: string | undefined): string | null {
@@ -263,6 +283,19 @@ export async function createEditorSandbox(
   const dashboardTransport = createDashboardApiTransport({
     resolvePrincipal: (request) => resolvePrincipal(database, request, adapter),
     service: dashboard,
+  });
+  // The merged banner administration service runs over a sync->async database
+  // adapter with an in-memory object store, so the local preview behaves like
+  // the hosted deployment without touching any real binding.
+  const bannerStorage = new MemoryBannerObjectStorage();
+  const bannerTransport = createBannerAdminApiTransport({
+    resolvePrincipal: (request) => resolvePrincipal(database, request, adapter),
+    authorize: (principal) =>
+      hasCapability(database, principal, "banner.manage"),
+    administration: new D1BannerAdministration(
+      new AsyncD1Database(createLocalD1Binding(database)),
+      bannerStorage,
+    ),
   });
 
   await seedContent(database, service);
@@ -347,6 +380,7 @@ export async function createEditorSandbox(
       url.pathname === SANDBOX_LOOKUP_PATH ||
       url.pathname === DASHBOARD_API_PATHS.session ||
       url.pathname === DASHBOARD_API_PATHS.view ||
+      isBannerAdminPath(url.pathname) ||
       Object.values(CONTENT_API_PATHS).includes(
         url.pathname as (typeof CONTENT_API_PATHS)[keyof typeof CONTENT_API_PATHS],
       );
@@ -384,7 +418,9 @@ export async function createEditorSandbox(
     const response = await (url.pathname === DASHBOARD_API_PATHS.session ||
     url.pathname === DASHBOARD_API_PATHS.view
       ? dashboardTransport
-      : transport
+      : isBannerAdminPath(url.pathname)
+        ? bannerTransport
+        : transport
     ).fetch(request);
     const headers = new Headers(response.headers);
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
@@ -396,6 +432,7 @@ export async function createEditorSandbox(
   return {
     token,
     database,
+    bannerStorage,
     fetch: handle,
     close: () => database.close(),
   };
