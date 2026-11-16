@@ -199,6 +199,7 @@ const allowed = new Set([
   "docs/architecture/content-foundation.md",
   "docs/architecture/editorial-workspace.md",
   "docs/architecture/banner-storage.md",
+  "docs/architecture/banner-admin-dashboard.md",
   "docs/architecture/banner-delivery.md",
   "docs/architecture/banner-screen-reader-verification.md",
   "src/services/banner-public.ts",
