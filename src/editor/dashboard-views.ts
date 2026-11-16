@@ -87,8 +87,7 @@ export const overviewView: DashboardViewFactory = (context) => {
   // A module this role will get but that is not available yet still means the
   // role has staff tools. Only a role with none at all gets the plain note.
   const staffTools =
-    others.some((module) => module.id !== "account") ||
-    data.planned.length > 0;
+    others.some((module) => module.id !== "account") || data.planned.length > 0;
 
   const children: Node[] = [
     h("h1", { id: "overview-heading" }, `Welcome, ${data.account.displayName}`),
