@@ -54,9 +54,12 @@ function isStaffReportsPath(pathname: string): boolean {
   }
 }
 
+const CHALLENGE_ORIGIN = "https://challenges.cloudflare.com";
+
 function securityHeaders(
   bannerOrigins: readonly string[],
   allowChatGptEditor = false,
+  challenge = false,
 ) {
   // Only well-formed https origins may be added for banner images.
   const origins = bannerOrigins.filter((origin) =>
@@ -67,7 +70,7 @@ function securityHeaders(
     "referrer-policy": "strict-origin-when-cross-origin",
     ...(!allowChatGptEditor ? { "x-frame-options": "DENY" } : {}),
     "cross-origin-opener-policy": "same-origin",
-    "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'self'; img-src ${["'self'", ...origins].join(" ")}; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors ${allowChatGptEditor ? "https://chatgpt.com" : "'none'"}`,
+    "content-security-policy": `default-src 'none'; script-src 'self'${challenge ? ` ${CHALLENGE_ORIGIN}` : ""}; ${challenge ? `frame-src ${CHALLENGE_ORIGIN}; ` : ""}style-src 'self'; img-src ${["'self'", ...origins].join(" ")}; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors ${allowChatGptEditor ? "https://chatgpt.com" : "'none'"}`,
   } as const;
 }
 
@@ -246,6 +249,11 @@ export function createPublicSite(options: PublicSiteOptions) {
   const editorHeaders = options.allowChatGptEditor
     ? securityHeaders(options.bannerOrigins ?? [], true)
     : SECURITY_HEADERS;
+  // Only the submission page may load or frame the challenge widget.
+  const challengeHeaders =
+    options.reportSubmissionsEnabled === true && options.reportChallenge
+      ? securityHeaders(options.bannerOrigins ?? [], false, true)
+      : null;
 
   const respond = (
     page: Page,
@@ -361,6 +369,10 @@ export function createPublicSite(options: PublicSiteOptions) {
           now: clock(),
           banners,
           reportSubmissionsEnabled: options.reportSubmissionsEnabled === true,
+          ...(options.reportSubmissionsEnabled === true &&
+          options.reportChallenge
+            ? { reportChallenge: options.reportChallenge }
+            : {}),
         };
         return respond(
           await route(context, url, pathname),
@@ -370,7 +382,10 @@ export function createPublicSite(options: PublicSiteOptions) {
             : {},
           PUBLIC_BROWSING_PATH.test(pathname)
             ? editorHeaders
-            : SECURITY_HEADERS,
+            : challengeHeaders &&
+                pathname.replace(/\/+$/, "") === "/submit-report"
+              ? challengeHeaders
+              : SECURITY_HEADERS,
         );
       } catch (error) {
         try {

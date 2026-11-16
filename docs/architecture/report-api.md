@@ -48,3 +48,12 @@ and its operational configuration are ready.
 
 See the [SUB-3 provider assessment](sub-3-guest-intake-assessment.md) for
 compatibility evidence and the proposed implementation scope.
+
+## Turnstile abuse control (SUB-3)
+
+With `REPORTS_TURNSTILE=enabled` and complete configuration the Worker supplies
+a Turnstile-backed `abuseControl`. The token travels in the `x-turnstile-token`
+request header. A failed or spent challenge returns 429 `rate_limited` and an
+unavailable provider or claim store returns 503 `service_unavailable`. The
+switch is off by default. See the
+[implementation notes](sub-3-guest-intake-assessment.md#implementation-local-default-off).

@@ -97,3 +97,16 @@ version-checked note workflow. These checks establish local behavior only; they
 do not demonstrate a hosted human browser session. The first hosted deployment
 still needs a host-verified ACCT-1 human identity context before staff can use
 this route.
+
+## Human check (SUB-3)
+
+`mountReportInterface` accepts an optional `challenge` host object with a
+`disclosure`, `acquire(container, announce)` and `reset()`. The interface shows
+the disclosure, calls `acquire` only after the draft validates, announces
+progress in the form's polite status region, passes the token to
+`adapter.submit(input, { challengeToken })` and calls `reset()` after any
+failure so the next attempt runs a new check. The draft and idempotency key
+are never cleared. An adapter signals a refused token with
+`ReportChallengeRejectedError`. Without `challenge` nothing changes. The
+browser host in [`turnstile-widget.ts`](../../src/site/turnstile-widget.ts)
+loads the provider script lazily and only on the submission page.

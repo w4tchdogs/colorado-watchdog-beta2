@@ -15,6 +15,7 @@
     "test": "npm run build && node --test",
     "test:d1": "node scripts/d1-local-check.mjs",
     "test:sites:d1": "npm run build && node scripts/sites-d1-local-check.mjs",
+    "test:turnstile:d1": "npm run build && node scripts/turnstile-d1-local-check.mjs",
     "editor:dev": "npm run build && node scripts/editor-dev.mjs",
     "site:dev": "npm run build && node scripts/site-dev.mjs",
     "site:dev:empty": "npm run build && node scripts/site-dev.mjs --empty",

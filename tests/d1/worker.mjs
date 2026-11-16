@@ -727,12 +727,12 @@ export default {
     ).all();
     check(
       "ordered custom migration history and checksums",
-      history.results?.length === 17 &&
+      history.results?.length === 18 &&
         history.results.every(
           (row, index) =>
             row.version === index + 1 &&
             row.name ===
-              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake", "owner_bootstrap_audit", "correct_lake_la_plata_county_names", "banner_homepage_curation", "content_publication"][index]}.sql` &&
+              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake", "owner_bootstrap_audit", "correct_lake_la_plata_county_names", "banner_homepage_curation", "content_publication", "report_challenge_claims"][index]}.sql` &&
             /^[0-9a-f]{64}$/.test(row.sha256),
         ),
     );
@@ -1055,7 +1055,7 @@ export default {
           'transaction_guard', 'transaction_guard_assertions', 'guard_probe_writes',
           'website_write_assertions', 'reports', 'report_receipts', 'report_idempotency',
           'report_evidence', 'report_status_history', 'report_audit',
-          'owner_bootstrap_audit')`).all();
+          'owner_bootstrap_audit', 'report_challenge_claims')`).all();
     const triggerCoverage = new Map();
     for (const trigger of generationTriggers.results ?? []) {
       const operations = triggerCoverage.get(trigger.tbl_name) ?? new Set();

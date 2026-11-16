@@ -307,6 +307,7 @@ async function main() {
     "0015_correct_lake_la_plata_county_names.sql",
     "0016_banner_homepage_curation.sql",
     "0017_content_publication.sql",
+    "0018_report_challenge_claims.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(
