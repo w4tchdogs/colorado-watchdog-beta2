@@ -275,6 +275,340 @@ async function verifyPublication(
   assert.match(await (await read("/posts")).text(), /No posts yet/);
 }
 
+/** Banner administration through the bundled Worker, local D1 and local R2 simulation. */
+async function verifyBannerAdmin(
+  base,
+  { agentToken, ownerToken, editorToken, contributorToken, disabledToken },
+) {
+  const { default: pngjs } = await import("pngjs");
+  const { createHash } = await import("node:crypto");
+  const makePng = (width, height, seed) => {
+    const image = new pngjs.PNG({ width, height });
+    for (let y = 0; y < height; y += 1)
+      for (let x = 0; x < width; x += 1) {
+        const i = (y * width + x) * 4;
+        image.data[i] = (x * 5 + seed * 29) & 255;
+        image.data[i + 1] = (y * 7 + seed * 53) & 255;
+        image.data[i + 2] = ((x + y) * 3 + seed * 11) & 255;
+        image.data[i + 3] = 255;
+      }
+    return new Uint8Array(pngjs.PNG.sync.write(image));
+  };
+  const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
+  const imageOne = makePng(64, 24, 41);
+  const imageTwo = makePng(72, 28, 42);
+  const root = `${base}/api/admin/banners`;
+  const as = (token) => (token ? { authorization: `Bearer ${token}` } : {});
+  const call = async (
+    method,
+    path,
+    token,
+    { json, body, headers = {} } = {},
+  ) => {
+    const response = await fetch(`${root}${path}`, {
+      method,
+      headers: {
+        ...as(token),
+        ...(json === undefined ? {} : { "content-type": "application/json" }),
+        ...headers,
+      },
+      body: json === undefined ? body : JSON.stringify(json),
+    });
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const type = response.headers.get("content-type") ?? "";
+    return {
+      status: response.status,
+      headers: response.headers,
+      bytes,
+      body: type.startsWith("application/json")
+        ? JSON.parse(new TextDecoder().decode(bytes))
+        : null,
+    };
+  };
+  const stage = (meta, token, bytes, type = "image/png") =>
+    call("POST", "/stage", token, {
+      body: bytes,
+      headers: {
+        "content-type": type,
+        "x-banner-stage": Buffer.from(JSON.stringify(meta)).toString(
+          "base64url",
+        ),
+      },
+    });
+  const COUNTY = "08005";
+  const FIRST = {
+    caption: "Synthetic first caption",
+    altText: "Synthetic first alt text",
+    displayMode: "cover",
+    focalX: 0.25,
+    focalY: 0.75,
+  };
+  const SECOND = {
+    caption: "Synthetic second caption",
+    altText: "Synthetic second alt text",
+    displayMode: "contain",
+    focalX: 0.6,
+    focalY: 0.4,
+  };
+
+  // Denial: anonymous, invalid and disabled credentials, and every lower role.
+  const reads = [
+    "/counties",
+    `/counties/${COUNTY}`,
+    "/probe/publications",
+    "/probe/reconcile",
+    "/versions/probe/image",
+  ];
+  for (const path of reads) {
+    assert.equal((await call("GET", path, null)).status, 401, path);
+    assert.equal((await call("GET", path, disabledToken)).status, 401, path);
+    assert.equal(
+      (await call("GET", path, `cwa_${"Z".repeat(43)}`)).status,
+      401,
+      path,
+    );
+    for (const token of [editorToken, contributorToken])
+      assert.equal((await call("GET", path, token)).status, 403, path);
+  }
+  for (const token of [editorToken, contributorToken])
+    assert.equal(
+      (
+        await call("POST", "/probe/withdraw", token, {
+          json: { expectedRowVersion: 1, idempotencyKey: "denied" },
+        })
+      ).status,
+      403,
+    );
+  assert.equal(
+    (
+      await stage(
+        {
+          bannerId: "denied",
+          countyFips: COUNTY,
+          sourceFilename: "denied.png",
+          idempotencyKey: "denied",
+          target: { kind: "existing", expectedRowVersion: 1 },
+        },
+        editorToken,
+        imageOne,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await call("GET", `/counties/${COUNTY}?x=1`, agentToken)).status,
+    400,
+  );
+  const list = await call("GET", "/counties?query=Arapahoe", agentToken);
+  assert.equal(list.status, 200);
+  assert.equal(list.body.counties[0].fips, COUNTY);
+  assert.equal((await call("GET", "/counties", ownerToken)).status, 200);
+
+  // Stage, private preview, publish.
+  const stageNew = (key) =>
+    stage(
+      {
+        bannerId: "sites-api-a",
+        countyFips: COUNTY,
+        sourceFilename: "synthetic-one.png",
+        idempotencyKey: key,
+        target: {
+          kind: "new",
+          metadata: { ...FIRST, displayOrder: 0, isPrimary: true },
+        },
+      },
+      agentToken,
+      imageOne,
+    );
+  const staged = await stageNew("sites-api-stage-1");
+  assert.equal(staged.status, 201, JSON.stringify(staged.body));
+  assert.equal(staged.body.verified, true);
+  const v1 = staged.body.version.id;
+  const replayed = await stageNew("sites-api-stage-1");
+  assert.equal(replayed.status, 200);
+  assert.equal(replayed.body.replayed, true);
+  assert.equal(replayed.body.version.id, v1);
+
+  const preview = await call("GET", `/versions/${v1}/image`, agentToken);
+  assert.equal(preview.status, 200);
+  assert.equal(preview.headers.get("cache-control"), "private, no-store");
+  assert.equal(preview.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(preview.headers.get("content-type"), "image/png");
+  assert.equal(sha(preview.bytes), sha(imageOne));
+  assert.equal(
+    (await call("GET", `/versions/${v1}/image`, editorToken)).status,
+    403,
+  );
+  assert.equal(
+    (await fetch(`${base}/banner-assets/${v1}`)).status,
+    404,
+    "a staged version must not be public",
+  );
+
+  const published = await call("POST", "/sites-api-a/publish", agentToken, {
+    json: {
+      versionId: v1,
+      expectedRowVersion: 1,
+      idempotencyKey: "sites-api-pub-1",
+      metadata: FIRST,
+    },
+  });
+  assert.equal(published.status, 200, JSON.stringify(published.body));
+  const publicOne = await fetch(`${base}/banner-assets/${v1}`);
+  assert.equal(publicOne.status, 200);
+  assert.equal(
+    sha(new Uint8Array(await publicOne.arrayBuffer())),
+    sha(imageOne),
+  );
+  assert.match(
+    await (await fetch(`${base}/counties/${COUNTY}`)).text(),
+    /Synthetic first alt text/,
+  );
+
+  // Replace, then restore the earlier publication with its own text.
+  const staged2 = await stage(
+    {
+      bannerId: "sites-api-a",
+      countyFips: COUNTY,
+      sourceFilename: "synthetic-two.png",
+      idempotencyKey: "sites-api-stage-2",
+      target: { kind: "existing", expectedRowVersion: 2 },
+    },
+    agentToken,
+    imageTwo,
+  );
+  assert.equal(staged2.status, 201, JSON.stringify(staged2.body));
+  const v2 = staged2.body.version.id;
+  assert.equal(
+    (await call("GET", `/versions/${v2}/image`, agentToken)).status,
+    200,
+  );
+  assert.equal((await fetch(`${base}/banner-assets/${v2}`)).status, 404);
+  const stale = await call("POST", "/sites-api-a/publish", agentToken, {
+    json: {
+      versionId: v2,
+      expectedRowVersion: 1,
+      idempotencyKey: "sites-api-pub-stale",
+      metadata: SECOND,
+    },
+  });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.error, "stale_version");
+  const replaced = await call("POST", "/sites-api-a/publish", agentToken, {
+    json: {
+      versionId: v2,
+      expectedRowVersion: 2,
+      idempotencyKey: "sites-api-pub-2",
+      metadata: SECOND,
+    },
+  });
+  assert.equal(replaced.status, 200);
+  assert.equal((await fetch(`${base}/banner-assets/${v1}`)).status, 404);
+  assert.equal((await fetch(`${base}/banner-assets/${v2}`)).status, 200);
+  const restored = await call("POST", "/sites-api-a/restore", agentToken, {
+    json: {
+      versionId: v1,
+      expectedRowVersion: 3,
+      idempotencyKey: "sites-api-restore-1",
+    },
+  });
+  assert.equal(restored.status, 200);
+  const county = await call("GET", `/counties/${COUNTY}`, agentToken);
+  const live = county.body.banners[0];
+  assert.equal(live.selectedVersionId, v1);
+  assert.equal(live.caption, FIRST.caption);
+  assert.equal(live.altText, FIRST.altText);
+  assert.equal(live.displayMode, FIRST.displayMode);
+  assert.equal(live.focalX, FIRST.focalX);
+  assert.equal(live.focalY, FIRST.focalY);
+  assert.equal(JSON.stringify(county.body).includes("banner-assets/"), false);
+  const history = await call("GET", "/sites-api-a/publications", agentToken);
+  assert.equal(history.body.publications.length, 3);
+  assert.equal(history.body.publications[0].origin, "restore_recorded");
+  const reconcile = await call("GET", "/sites-api-a/reconcile", agentToken);
+  assert.equal(reconcile.status, 200);
+  assert.ok(
+    reconcile.body.items.every(
+      (i) => i.classification === "verified_unchanged",
+    ),
+  );
+
+  // Bodies and uploads are bounded and closed.
+  assert.equal(
+    (
+      await call("POST", "/sites-api-a/withdraw", agentToken, {
+        json: {
+          expectedRowVersion: live.rowVersion,
+          idempotencyKey: "k",
+          actor: "x",
+        },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await call("POST", "/sites-api-a/withdraw", agentToken, {
+        body: "{not json",
+        headers: { "content-type": "application/json" },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await call("POST", "/sites-api-a/withdraw", agentToken, {
+        body: JSON.stringify({ pad: "x".repeat(70_000) }),
+        headers: { "content-type": "application/json" },
+      })
+    ).status,
+    413,
+  );
+  const oversized = await stage(
+    {
+      bannerId: "sites-api-big",
+      countyFips: COUNTY,
+      sourceFilename: "big.png",
+      idempotencyKey: "sites-api-big",
+      target: { kind: "existing", expectedRowVersion: 1 },
+    },
+    agentToken,
+    new Uint8Array(26 * 1024 * 1024),
+  );
+  assert.equal(oversized.status, 413);
+  const notAnImage = await stage(
+    {
+      bannerId: "sites-api-a",
+      countyFips: COUNTY,
+      sourceFilename: "text.png",
+      idempotencyKey: "sites-api-notimage",
+      target: { kind: "existing", expectedRowVersion: live.rowVersion },
+    },
+    agentToken,
+    new TextEncoder().encode("not an image"),
+  );
+  assert.equal(notAnImage.status, 415);
+  assert.equal(notAnImage.body.error, "unsupported_image_type");
+
+  // Withdraw leaves nothing public and nothing deleted.
+  const withdrawn = await call("POST", "/sites-api-a/withdraw", agentToken, {
+    json: {
+      expectedRowVersion: live.rowVersion,
+      idempotencyKey: "sites-api-withdraw",
+    },
+  });
+  assert.equal(withdrawn.status, 200);
+  assert.equal((await fetch(`${base}/banner-assets/${v1}`)).status, 404);
+  assert.equal(
+    (await call("GET", `/versions/${v1}/image`, agentToken)).status,
+    200,
+  );
+  assert.match(
+    await (await fetch(`${base}/counties/${COUNTY}`)).text(),
+    /class="empty-state"/,
+  );
+}
+
 async function main() {
   const agentToken = `cwa_${"A".repeat(43)}`;
   const ownerToken = `cwa_${"O".repeat(43)}`;
@@ -421,7 +755,7 @@ async function main() {
 
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
-  const startWorker = async () => {
+  const startWorker = async (workerConfig = config) => {
     worker = spawn(
       process.execPath,
       [
@@ -433,7 +767,7 @@ async function main() {
         "--port",
         String(port),
         "--config",
-        config,
+        workerConfig,
         "--persist-to",
         persist,
       ],
@@ -458,6 +792,61 @@ async function main() {
       contributorToken,
       disabledToken,
     });
+
+    await verifyBannerAdmin(base, {
+      agentToken,
+      ownerToken,
+      editorToken,
+      contributorToken,
+      disabledToken,
+    });
+    console.log(
+      "PASS bundled Worker banner administration: protected routes, bounded uploads, local R2 stage, private preview, publish, replace and restore with public delivery rules intact",
+    );
+
+    // The same Worker without its R2 binding authenticates and authorizes, then
+    // reports the administration API unavailable. Public pages keep rendering.
+    worker.kill("SIGTERM");
+    await new Promise((resolveExit) => worker.once("exit", resolveExit));
+    const noBucketConfig = join(persist, "wrangler.no-bucket.toml");
+    writeFileSync(
+      noBucketConfig,
+      readFileSync(config, "utf8")
+        .replace(
+          /^main = .*$/m,
+          `main = ${JSON.stringify(join(root, "dist", "server", "index.js"))}`,
+        )
+        .replace(/\[\[r2_buckets\]\][\s\S]*?(?=\n\[|$)/g, ""),
+    );
+    await startWorker(noBucketConfig);
+    const unavailable = await fetch(`${base}/api/admin/banners/counties`, {
+      headers: { authorization: `Bearer ${agentToken}` },
+    });
+    assert.equal(unavailable.status, 503);
+    assert.deepEqual(await unavailable.json(), {
+      error: "banner_admin_unavailable",
+    });
+    assert.equal(
+      (await fetch(`${base}/api/admin/banners/counties`)).status,
+      401,
+    );
+    assert.equal(
+      (
+        await fetch(`${base}/api/admin/banners/counties`, {
+          headers: { authorization: `Bearer ${editorToken}` },
+        })
+      ).status,
+      403,
+    );
+    assert.equal((await fetch(`${base}/`)).status, 200);
+    assert.equal((await fetch(`${base}/counties/08005`)).status, 200);
+    assert.equal((await fetch(`${base}/banner-assets/missing`)).status, 404);
+    console.log(
+      "PASS bundled Worker banner administration without an R2 binding is a controlled 503 and public pages are unaffected",
+    );
+    worker.kill("SIGTERM");
+    await new Promise((resolveExit) => worker.once("exit", resolveExit));
+    await startWorker();
 
     const unauthorizedStaffPage = await fetch(`${base}/admin/reports`);
     assert.equal(unauthorizedStaffPage.status, 401);
@@ -1163,6 +1552,25 @@ async function main() {
     /sql\.wasm|node_modules[\\/]sql\.js|research\/database/,
   );
   const siteWorker = await import(pathToFileURL(modulePath));
+  for (const environment of [
+    {},
+    {
+      DB: {
+        prepare() {
+          throw new Error("Private storage error");
+        },
+      },
+    },
+  ]) {
+    const unavailable = await siteWorker.default.fetch(
+      new Request("https://site.test/api/admin/banners/counties", {
+        headers: { authorization: `Bearer ${agentToken}` },
+      }),
+      environment,
+    );
+    assert.equal(unavailable.status, 503);
+    assert.doesNotMatch(await unavailable.text(), /Private storage error/);
+  }
   assert.equal(
     (
       await siteWorker.default.fetch(

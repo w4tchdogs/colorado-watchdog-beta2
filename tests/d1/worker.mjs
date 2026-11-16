@@ -9,6 +9,7 @@ import { D1ReportIntakeStore } from "../../src/services/report-intake-d1.ts";
 import { commitSyncChangesetD1 } from "../../src/services/sync-commit-d1.ts";
 import { reverseSyncBatchD1 } from "../../src/services/sync-revert-d1.ts";
 import { runBannerAdminChecks } from "./banner-admin-checks.mjs";
+import { runBannerApiChecks } from "./banner-api-checks.mjs";
 import { runBannerPublishChecks } from "./banner-publish-checks.mjs";
 
 const json = (value, status = 200) =>
@@ -171,10 +172,12 @@ export default {
         const fixtures = await request.json();
         const admin = await runBannerAdminChecks(env, fixtures);
         const publish = await runBannerPublishChecks(env, fixtures);
+        const api = await runBannerApiChecks(env, fixtures);
         return json({
           success: true,
           checks: admin.checks,
           publishChecks: publish.checks,
+          apiChecks: api.checks,
         });
       } catch (error) {
         return json({ success: false, error: String(error) }, 500);

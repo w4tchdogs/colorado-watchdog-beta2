@@ -9,6 +9,7 @@ import type {
   BannerReconciliationItem,
   BannerStageRequest,
   BannerStageResult,
+  BannerVersionImage,
   CountyBannerDetail,
   CountyBannerPage,
   ListCountiesRequest,
@@ -40,6 +41,7 @@ import {
   validText,
 } from "./banner-assets.js";
 import {
+  BANNER_IMAGE_LIMITS,
   type BannerImageInspection,
   inspectBannerImage,
 } from "./banner-image-inspector.js";
@@ -67,6 +69,7 @@ export class BannerSnapshotRequiredError extends BannerConflictError {
   constructor() {
     super(
       "This version has no recorded publication. Supply explicit caption, alt text, display mode and focal point to restore it",
+      "snapshot_required",
     );
     this.name = "BannerSnapshotRequiredError";
   }
@@ -82,7 +85,14 @@ const RETRYABLE_OPERATION = [
   "ready_for_retry",
 ];
 const BANNER_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+const VERSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const MAX_ATTEMPTS = 3;
+
+function hasSignature(body: Uint8Array, mediaType: string): boolean {
+  return mediaType === "image/png"
+    ? [137, 80, 78, 71, 13, 10, 26, 10].every((byte, i) => body[i] === byte)
+    : body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff;
+}
 
 type Row = Record<string, unknown>;
 
@@ -475,7 +485,12 @@ export class D1BannerAdministration implements BannerAdministration {
     const items: BannerReconciliationItem[] = [];
     for (const row of rows) {
       const state = str(row, "state") as BannerVersionState;
-      const stored = await this.storage.get(str(row, "object_key"));
+      let stored: Awaited<ReturnType<ImmutableObjectStorage["get"]>>;
+      try {
+        stored = await this.storage.get(str(row, "object_key"));
+      } catch {
+        throw new BannerStageError("storage_failed", "Object storage failed");
+      }
       let classification: BannerReconciliationClass;
       if (!stored)
         classification =
@@ -493,6 +508,58 @@ export class D1BannerAdministration implements BannerAdministration {
       items.push({ versionId: str(row, "id"), state, classification });
     }
     return items;
+  }
+
+  async readVersionImage(
+    principal: TrustedPrincipal,
+    versionId: string,
+  ): Promise<BannerVersionImage | null> {
+    await this.authorize(principal);
+    if (typeof versionId !== "string" || !VERSION_ID.test(versionId))
+      throw new BannerValidationError("Invalid version ID");
+    const row = await this.database.first<Row>(
+      "SELECT id, state, object_key, sha256, byte_size, media_type FROM banner_asset_versions WHERE id = ?",
+      [versionId],
+    );
+    if (!row || str(row, "state") !== "verified") return null;
+    const mediaType = str(row, "media_type");
+    const sha256 = str(row, "sha256");
+    const byteSize = num(row, "byte_size");
+    const unverifiable = () =>
+      new BannerConflictError(
+        "Stored image is missing or failed size and digest verification",
+        "object_verification_failed",
+      );
+    if (
+      (mediaType !== "image/png" && mediaType !== "image/jpeg") ||
+      !/^[0-9a-f]{64}$/.test(sha256) ||
+      !Number.isInteger(byteSize) ||
+      byteSize < 1 ||
+      byteSize > BANNER_IMAGE_LIMITS.maxBytes ||
+      str(row, "object_key") !== `banner-assets/${versionId}`
+    )
+      throw unverifiable();
+    let head: Awaited<ReturnType<ImmutableObjectStorage["head"]>>;
+    let stored: Awaited<ReturnType<ImmutableObjectStorage["get"]>>;
+    try {
+      head = await this.storage.head(str(row, "object_key"));
+      stored = head ? await this.storage.get(str(row, "object_key")) : null;
+    } catch {
+      throw new BannerStageError("storage_failed", "Object storage failed");
+    }
+    if (
+      !head ||
+      !stored ||
+      head.byteSize !== byteSize ||
+      stored.byteSize !== byteSize ||
+      stored.body.byteLength !== byteSize ||
+      stored.metadata.sha256 !== sha256 ||
+      stored.metadata.versionId !== versionId ||
+      (await sha256Hex(stored.body)) !== sha256 ||
+      !hasSignature(stored.body, mediaType)
+    )
+      throw unverifiable();
+    return { versionId, mediaType, byteSize, sha256, body: stored.body };
   }
 
   // ------------------------------------------------------------------ staging
@@ -634,13 +701,21 @@ export class D1BannerAdministration implements BannerAdministration {
     if (target.kind === "new" && banner)
       throw new BannerConflictError(
         "Banner already exists. Stage a new version of it instead",
+        "banner_exists",
       );
     if (target.kind === "existing") {
-      if (!banner) throw new BannerConflictError("Banner does not exist");
+      if (!banner)
+        throw new BannerConflictError(
+          "Banner does not exist",
+          "banner_not_found",
+        );
       if (str(banner, "county_fips") !== request.countyFips)
         throw new BannerConflictError("Banner belongs to a different county");
       if (num(banner, "version") !== target.expectedRowVersion)
-        throw new BannerConflictError("Stale banner row version");
+        throw new BannerConflictError(
+          "Stale banner row version",
+          "stale_version",
+        );
     }
     if (target.kind === "new") {
       const taken = await this.database.first(
@@ -650,6 +725,7 @@ export class D1BannerAdministration implements BannerAdministration {
       if (taken)
         throw new BannerConflictError(
           "Another banner in this county already uses that display order",
+          "order_conflict",
         );
       if (target.metadata.isPrimary) {
         const primary = await this.database.first(
@@ -659,6 +735,7 @@ export class D1BannerAdministration implements BannerAdministration {
         if (primary)
           throw new BannerConflictError(
             "This county already has a primary banner",
+            "order_conflict",
           );
       }
     }
@@ -669,6 +746,7 @@ export class D1BannerAdministration implements BannerAdministration {
     if (elsewhere)
       throw new BannerConflictError(
         "Image digest is already assigned to another logical banner. Association needs review",
+        "duplicate_image",
       );
     const same = await this.database.first<Row>(
       "SELECT * FROM banner_asset_versions WHERE banner_id = ? AND sha256 = ?",
@@ -690,6 +768,7 @@ export class D1BannerAdministration implements BannerAdministration {
       if (state !== "verified" && state !== "staged")
         throw new BannerConflictError(
           "A matching image version exists but is not verified. Reconcile before retrying",
+          "needs_reconciliation",
         );
       await this.guarded(principal, () => [
         ...guardExisting(),
@@ -820,6 +899,7 @@ export class D1BannerAdministration implements BannerAdministration {
     if (str(operation, "request_sha256") !== fingerprint)
       throw new BannerConflictError(
         "Idempotency key was already used for a different request",
+        "idempotency_conflict",
       );
     const state = str(operation, "state");
     if (state === "verified" || state === "staged" || state === "activated")
@@ -832,6 +912,7 @@ export class D1BannerAdministration implements BannerAdministration {
     if (!RETRYABLE_OPERATION.includes(state))
       throw new BannerConflictError(
         "Stage operation is not retryable and needs reconciliation",
+        "needs_reconciliation",
       );
     return this.transfer(principal, request, image, operation);
   }
@@ -853,6 +934,7 @@ export class D1BannerAdministration implements BannerAdministration {
     if (!version || !RETRYABLE_VERSION.includes(str(version, "state")))
       throw new BannerConflictError(
         "Saved stage operation needs reconciliation",
+        "needs_reconciliation",
       );
     if (str(version, "sha256") !== image.sha256)
       throw new BannerConflictError(
@@ -1170,6 +1252,7 @@ export class D1BannerAdministration implements BannerAdministration {
             if (request.publicationId)
               throw new BannerConflictError(
                 "That publication does not belong to this version",
+                "publication_mismatch",
               );
             throw new BannerSnapshotRequiredError();
           }
@@ -1212,7 +1295,10 @@ export class D1BannerAdministration implements BannerAdministration {
       request.expectedRowVersion,
     );
     if (str(banner, "status") !== "active")
-      throw new BannerConflictError("Only an active banner can be withdrawn");
+      throw new BannerConflictError(
+        "Only an active banner can be withdrawn",
+        "invalid_state",
+      );
     const selected = optStr(banner, "selected_version_id");
     const rowVersion = request.expectedRowVersion + 1;
     return this.commit<BannerChangeResult>({
@@ -1310,6 +1396,7 @@ export class D1BannerAdministration implements BannerAdministration {
       if (taken)
         throw new BannerConflictError(
           "Another banner in this county already uses that display order",
+          "order_conflict",
         );
     }
     if (
@@ -1323,6 +1410,7 @@ export class D1BannerAdministration implements BannerAdministration {
       if (taken)
         throw new BannerConflictError(
           "Another banner already uses that homepage order",
+          "order_conflict",
         );
     }
     const publicationId = record ? this.newIdentifier() : null;
@@ -1554,6 +1642,7 @@ export class D1BannerAdministration implements BannerAdministration {
     if (str(row, "request_sha256") !== fingerprint)
       throw new BannerConflictError(
         "Idempotency key was already used for a different request",
+        "idempotency_conflict",
       );
     return {
       ...(JSON.parse(str(row, "result_json")) as object),
@@ -1569,9 +1658,16 @@ export class D1BannerAdministration implements BannerAdministration {
       "SELECT * FROM banner_assets WHERE id = ?",
       [bannerId],
     );
-    if (!banner) throw new BannerConflictError("Banner does not exist");
+    if (!banner)
+      throw new BannerConflictError(
+        "Banner does not exist",
+        "banner_not_found",
+      );
     if (num(banner, "version") !== expectedRowVersion)
-      throw new BannerConflictError("Stale banner row version");
+      throw new BannerConflictError(
+        "Stale banner row version",
+        "stale_version",
+      );
     return banner;
   }
 
@@ -1586,6 +1682,7 @@ export class D1BannerAdministration implements BannerAdministration {
     if (!version || str(version, "state") !== "verified")
       throw new BannerConflictError(
         "Only a verified version belonging to this banner can be selected",
+        "version_not_publishable",
       );
     return version;
   }
@@ -1603,6 +1700,7 @@ export class D1BannerAdministration implements BannerAdministration {
     )
       throw new BannerConflictError(
         "Stored image is missing or failed size and digest verification",
+        "object_verification_failed",
       );
   }
 
@@ -1632,7 +1730,10 @@ export class D1BannerAdministration implements BannerAdministration {
       );
     for (const id of ids)
       if (known.get(id)?.version !== expectedVersions[id])
-        throw new BannerConflictError("Stale banner row version");
+        throw new BannerConflictError(
+          "Stale banner row version",
+          "stale_version",
+        );
     return known;
   }
 
@@ -1812,6 +1913,7 @@ export class D1BannerAdministration implements BannerAdministration {
       if (error instanceof Error && /UNIQUE|constraint/i.test(error.message))
         throw new BannerConflictError(
           "Change conflicts with another banner's order or primary setting",
+          "order_conflict",
         );
       throw error;
     }

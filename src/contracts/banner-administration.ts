@@ -262,6 +262,19 @@ export interface ReorderCountyResult {
   readonly replayed: boolean;
 }
 
+/**
+ * One verified image version, read for private preview. It carries no object
+ * key. `body` has already been checked against the recorded size, digest and
+ * object metadata.
+ */
+export interface BannerVersionImage {
+  readonly versionId: string;
+  readonly mediaType: BannerMediaType;
+  readonly byteSize: number;
+  readonly sha256: string;
+  readonly body: Uint8Array;
+}
+
 export interface BannerAdministration {
   listCounties(
     principal: TrustedPrincipal,
@@ -312,6 +325,17 @@ export interface BannerAdministration {
     principal: TrustedPrincipal,
     request: ReorderCountyRequest,
   ): Promise<ReorderCountyResult>;
+  /**
+   * Private preview read. Resolves a version ID to its authoritative record and
+   * returns its bytes only for a verified PNG or JPEG version, whether or not it
+   * is publicly selected. Returns null for an unknown or unverified version.
+   * Throws a conflict with code `object_verification_failed` when the stored
+   * object is missing or fails the size, digest, metadata or signature check.
+   */
+  readVersionImage(
+    principal: TrustedPrincipal,
+    versionId: string,
+  ): Promise<BannerVersionImage | null>;
   /** Read-only. Classifies stored objects against recorded digests. Changes nothing. */
   reconcileBanner(
     principal: TrustedPrincipal,
