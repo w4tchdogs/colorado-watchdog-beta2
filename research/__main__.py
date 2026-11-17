@@ -529,6 +529,13 @@ def _sync_command(args, path):
 
 
 def _sync_mcp_command(args, path):
+    if not path.is_file():
+        raise ValueError("Profiles database file does not exist")
+    request_path = None
+    if args.command == "sync-mcp-send":
+        request_path = _absolute_external_path(
+            args.request_file, parser_for(), "Prepared request files"
+        )
     db = connect(path)
     client = None
     try:
@@ -536,9 +543,6 @@ def _sync_mcp_command(args, path):
         client = mcp_sync_driver.McpHttpClient(args.endpoint, credential)
         credential = ""
         if args.command == "sync-mcp-send":
-            request_path = _absolute_external_path(
-                args.request_file, parser_for(), "Prepared request files"
-            )
             result = mcp_sync_driver.send_prepared(
                 db, args.submission_id, request_path, client
             )
@@ -771,6 +775,8 @@ def main(argv=None):
     if args.command in {"apply-identity", "verify-identity"}:
         _absolute_external_path(args.database, parser, "Research database")
         _absolute_external_path(args.plan, parser, "Private identity plan")
+    if args.command in {"sync-export-prepared", "sync-mcp-send", "sync-mcp-reverse"}:
+        _absolute_external_path(args.database, parser, "Research database")
     if args.command == "sync-export-prepared":
         try:
             result, status = _sync_export_prepared(args, path)
