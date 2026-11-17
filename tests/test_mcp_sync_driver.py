@@ -149,7 +149,8 @@ class FakeMcpClient:
 class McpSyncDriverTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.db = connect(":memory:")
+        self.db_path = Path(self.temp.name, "profiles-synthetic.sqlite")
+        self.db = connect(str(self.db_path))
         migrate(self.db)
         self.sid, self.request_file, self.request_bytes, self.export = prepared_fixture(
             self.db, self.temp.name
@@ -308,7 +309,7 @@ class McpSyncDriverTests(unittest.TestCase):
         self.assertIsNone(record.get("response"))
 
     def test_receipt_paginates_past_endpoint_maximum_and_checks_order(self):
-        db = connect(":memory:")
+        db = connect(str(Path(self.temp.name, "paged-profiles-synthetic.sqlite")))
         migrate(db)
         try:
             paged_dir = Path(self.temp.name, "paged")
@@ -359,13 +360,18 @@ class McpSyncDriverTests(unittest.TestCase):
 
     def test_reversal_is_read_back_and_reconciled_locally(self):
         client = FakeMcpClient(self.request_bytes)
-        result = mcp_sync_driver.send_prepared(self.db, self.sid, self.request_file, client)
-        self.assertEqual(result["state"], "acknowledged")
-        self.assertEqual(sync.reconcile_submission(self.db, self.sid)["state"], "committed")
-        reversal = mcp_sync_driver.reverse_and_reconcile(
-            self.db, SITE, client.batch_id, "synthetic-reversal-key", client
+        result = mcp_sync_driver.run_synthetic_roundtrip(
+            self.db, self.sid, self.request_file, "synthetic-reversal-key", client
         )
-        self.assertEqual(reversal["state"], "reverted")
+        self.assertEqual(result["state"], "complete")
+        self.assertTrue(result["reconciled"])
+        self.assertEqual(result["reversal_state"], "reverted")
+        self.assertTrue(result["reversal_reconciled"])
+        replay = mcp_sync_driver.run_synthetic_roundtrip(
+            self.db, self.sid, self.request_file, "synthetic-reversal-key", client
+        )
+        self.assertEqual(replay["state"], "complete")
+        self.assertEqual(client.server.batch_create_count, 1)
         stored = self.db.execute(
             "SELECT state,receipt_json FROM sync_reversal_receipts WHERE website_batch_id=?",
             (client.batch_id,),
@@ -373,6 +379,19 @@ class McpSyncDriverTests(unittest.TestCase):
         self.assertEqual(stored["state"], "reverted")
         self.assertEqual(json.loads(stored["receipt_json"])["reversalId"], "synthetic-reversal-1")
         self.assertTrue(client.server.reversed)
+
+    def test_roundtrip_mode_refuses_non_synthetic_request_before_network(self):
+        client = FakeMcpClient(self.request_bytes)
+        self.db.execute(
+            "UPDATE sync_submissions SET site_key='colorado_watchdog_alpha1' WHERE id=?",
+            (self.sid,),
+        )
+        with self.assertRaisesRegex(ValueError, "only at most five synthetic people"):
+            mcp_sync_driver.run_synthetic_roundtrip(
+                self.db, self.sid, self.request_file, "synthetic-reversal-key", client
+            )
+        self.assertEqual(client.tool_calls, [])
+        self.assertEqual(client.commit_calls, [])
 
 
 if __name__ == "__main__":

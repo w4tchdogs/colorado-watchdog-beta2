@@ -418,8 +418,8 @@ def reverse_and_reconcile(db, site_key, batch_id, idempotency_key, client):
     before = client.call_tool(
         "website_sync_lookup", {"batchId": batch_id, "itemOffset": 0, "itemLimit": 1}
     )
-    if before.get("status") != "committed" or before.get("batchId") != batch_id:
-        raise McpDriverError("Website batch is not in committed state")
+    if before.get("status") not in ("committed", "reverted") or before.get("batchId") != batch_id:
+        raise McpDriverError("Website batch is not in a reversible or already-reverted state")
     receipt = client.call_tool(
         "website_sync_reverse", {"batchId": batch_id, "idempotencyKey": idempotency_key}
     )
@@ -434,6 +434,64 @@ def reverse_and_reconcile(db, site_key, batch_id, idempotency_key, client):
     return {"status": receipt["status"], "batch_id": batch_id, **reconciled}
 
 
+def run_synthetic_roundtrip(db, submission_id, request_file, reversal_key, client):
+    """Exercise R6 and R8 end to end for a deliberately small synthetic fixture."""
+    row, _, request = _stored_request(db, submission_id, request_file)
+    validate_synthetic_request(row, request)
+    sent = send_prepared(db, submission_id, request_file, client)
+    if sent["state"] != "acknowledged":
+        return {"state": sent["state"], "receipt_items": None, "reconciled": False}
+    commit_reconciliation = sync.reconcile_submission(db, submission_id)
+    reversal = reverse_and_reconcile(
+        db, row["site_key"], sent["remote_batch_id"], reversal_key, client
+    )
+    return {
+        "state": "complete",
+        "receipt_items": sent["item_count"],
+        "reconciled": commit_reconciliation["state"] == "committed",
+        "reversal_state": reversal["state"],
+        "reversal_reconciled": reversal["state"] in ("reverted", "already_reverted"),
+    }
+
+
+def validate_synthetic_request(row, request):
+    """Refuse round-trip mode unless the stored request contains only tiny fixtures."""
+    changes = request.get("changes") if isinstance(request, dict) else None
+    if (
+        not isinstance(row["site_key"], str)
+        or not row["site_key"].startswith("synthetic-")
+        or not isinstance(changes, list)
+        or not 1 <= len(changes) <= 5
+        or any(
+            not isinstance(change, dict)
+            or change.get("op") != "create_person"
+            or change.get("entity") != "people"
+            or not isinstance(change.get("fields"), dict)
+            or set(change["fields"]) != {"display_name"}
+            or not isinstance(change["fields"].get("display_name"), str)
+            or not change["fields"]["display_name"].startswith("Synthetic ")
+            for change in changes
+        )
+    ):
+        raise McpDriverError("Round-trip mode accepts only at most five synthetic people")
+
+
 def prompt_credential():
     """Read a bearer secret without echoing it; callers must not log the result."""
     return getpass.getpass("Website sync bearer credential (hidden): ")
+
+
+def validate_staging_endpoint(endpoint):
+    parsed = urlsplit(endpoint)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or not parsed.hostname.startswith("colorado-watchdog-alpha1-staging.")
+        or not parsed.hostname.endswith(".workers.dev")
+        or parsed.path.rstrip("/") != "/mcp"
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise McpDriverError("Synthetic round-trip mode is restricted to the staging Worker MCP endpoint")

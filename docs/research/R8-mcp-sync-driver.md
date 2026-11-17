@@ -60,12 +60,25 @@ confirms lookup reports `reverted`, and records the reversal through
 `sync.reconcile_reversal`. Keep the credential, endpoint configuration where
 private, exported request, and receipts out of command transcripts and GitHub.
 
+For a one-command staging acceptance, `sync-mcp-roundtrip` is restricted to
+the existing `colorado-watchdog-alpha1-staging` Worker and a request with one to
+five `create_person` operations whose only field is a synthetic display name.
+It sends through R6, runs R8 commit reconciliation, reverses with the supplied
+reversal key, verifies the reverted lookup, and runs local reversal
+reconciliation before returning a bounded summary:
+
+```powershell
+python -B -m research sync-mcp-roundtrip $db --submission-id $submission `
+  --request-file $request --reversal-idempotency-key '<unique-reversal-key>' `
+  --endpoint 'https://<staging-host>/mcp'
+```
+
 ## Synthetic verification only
 
-The focused tests use disposable SQLite state and a synthetic Website MCP
-server. They cover prepare/export, first-attempt dry run, exact-byte R6 delivery,
-complete paged receipt recovery, lost-response retry with one server batch,
-R8 reconciliation, reversal and local reversal reconciliation. A hosted test
+The focused tests use disposable, on-disk SQLite state and a synthetic Website
+MCP server. They cover prepare/export, first-attempt dry run, exact-byte R6
+delivery, complete paged receipt recovery, lost-response retry with one server
+batch, R8 reconciliation, reversal and local reversal reconciliation. A hosted test
 must use the existing staging Worker, synthetic records, its scoped sync
 grants, and must confirm cleanup and revoke temporary access before reporting
 completion. This tool does not grant access or deploy a Worker.
