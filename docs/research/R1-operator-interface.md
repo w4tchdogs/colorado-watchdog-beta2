@@ -60,3 +60,48 @@ python -B -m research set-coverage DB --unit-id UNIT --axis leadership --status 
 Statuses are `not_started`, `partial`, `reviewed`, `stale`, and `blocked`. The operation writes only the chosen axis, includes before/after state, evidence, run, actor, and rationale in `research_events`, and leaves the other axes unchanged. `reviewed` is not exhaustive coverage, and unknown occupancy is not vacancy.
 
 The same operations are available as reusable functions in `research.operator` (`inspect_counties`, `inspect_units`, `inspect_people`, `inspect_claims`, `inspect_sources`, `inspect_matches`, `inspect_coverage`, `inspect_events`, `associate_claim`, `record_visit`, and `update_coverage`). Mutation functions require a connection with foreign keys enabled, reject an already-open transaction, and use their own immediate transaction.
+
+## Reviewed local Profile promotion
+
+Use a compatible checkout for the installed Profiles schema and one private
+plan per county batch. Use the reviewed batch manifest to account for every
+claim in scope. Include only claims that have a supported research identity,
+a documented office, position title or job description, and a verified
+citation connecting the person to the role. Keep unsupported claims in the
+county review queue. Office-only and duties-only roles may leave the title
+blank. An unresolved unit path can stay blank.
+
+The plan records the reviewer, review date, canonical county FIPS, exact
+research identities and claim groups, the reviewed role fields, and the
+citation verification date for each claim. Preserve the source wording.
+Use an actual verification date supported by the evidence review. An import
+timestamp, reported check date, or publisher label alone does not establish
+direct source verification. Complete any needed identity links through the
+existing research operator workflow before building the promotion preview.
+
+Use format `colorado-watchdog/profile-promotion/v1`. The top-level fields
+are `format`, `county_code`, `batch_id` (the retained intake batch),
+`manifest_sha256` (the reviewed scope), `reviewed_by`, `reviewed_on`, and
+`profiles`. Each Profile supplies `research_profile_id`, `full_name`,
+`reviewer_notes`, and `roles`. A role supplies `role_claim_ids`,
+`office_or_department`, `position_title`, `duties`,
+`employment_start_date`, `employment_end_date`, and `citations`. Each
+citation entry has `claim_id` and `verified_on`. Use `null` for unset
+optional values and ISO calendar dates for populated dates.
+
+Keep the plan, preview and receipts in the owner's private Profiles folder.
+
+```powershell
+python -B -m research preview-profile-promotion DB --plan PLAN.json
+python -B -m research apply-profile-promotion DB --plan PLAN.json --expect-plan-sha256 SHA --apply
+```
+
+Review the exact preview and retain its SHA-256. One writer rehearses the
+apply on a consistent private disposable copy, checks the created Profiles,
+county links, roles and evidence, then reruns the same plan there to verify
+stable IDs and zero duplicate writes. After the rehearsal passes, the
+writer repeats the apply against the working file with the reviewed hash.
+A changed plan or changed source state requires review of the new preview.
+After apply, read back the affected rows and run `python -B -m research check DB`.
+Record counts and the local receipt path. Intake selection and Website
+submission are separate workflows.
