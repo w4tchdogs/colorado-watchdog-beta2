@@ -106,6 +106,7 @@ export interface Page {
   readonly status?: number;
   readonly title: string;
   readonly description?: string;
+  readonly isHomePage?: boolean;
   /** Navigation key of the active section. */
   readonly section?: string;
   readonly breadcrumbs?: readonly Breadcrumb[];

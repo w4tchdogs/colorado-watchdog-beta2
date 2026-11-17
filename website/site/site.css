@@ -1267,13 +1267,57 @@ img {
 .discovery-card-action {
   color: var(--red);
 }
-.discovery-card:is(:hover, :focus-visible) {
+/* Stretch each homepage card's only link over its padding and border, keeping
+   the original link text, tab stop and default card layout. */
+.home-page :is(.cv-pathway, .editorial-grid .article-card) {
+  position: relative;
+}
+.home-page :is(.cv-pathway-link, .editorial-grid .article-card-title a)::after {
+  position: absolute;
+  inset: -3px -1px -1px;
+  content: "";
+}
+.home-page :is(.cv-pathway-link, .editorial-grid .article-card-title a):focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Use the discovery cards' colors across the homepage. Draw the white line
+   inward so adjacent menu rows and banner edges cannot cover it. */
+.home-page :is(
+  :is(.brand, .site-nav a, .header-login, a.button, .discovery-card):is(:hover, :focus-visible),
+  .cv-pathway:has(.cv-pathway-link:is(:hover, :focus-visible)),
+  .editorial-grid .article-card:has(.article-card-title a:is(:hover, :focus-visible))
+) {
   background: #111111;
   color: #ffffff;
   border-color: #111111;
+  outline: 2pt solid #ffffff;
+  outline-offset: -2pt;
 }
-.discovery-card:is(:hover, :focus-visible) > :is(svg, p, .discovery-card-action) {
+.home-page :is(
+  :is(.brand, .site-nav a, .header-login, a.button, .discovery-card):is(:hover, :focus-visible),
+  .cv-pathway:has(.cv-pathway-link:is(:hover, :focus-visible)),
+  .editorial-grid .article-card:has(.article-card-title a:is(:hover, :focus-visible))
+) * {
   color: inherit;
+}
+.home-page .article-card:has(.article-card-title a:is(:hover, :focus-visible)) .fictional-flag {
+  background: transparent;
+  border-color: currentColor;
+}
+.home-page :is(
+  :is(.brand, .site-nav a, .header-login, a.button, .discovery-card):focus-visible,
+  .cv-pathway:has(.cv-pathway-link:focus-visible),
+  .editorial-grid .article-card:has(.article-card-title a:focus-visible)
+) {
+  box-shadow: 0 0 0 2pt var(--ink);
+}
+.home-page .site-footer nav a {
+  text-decoration-line: none;
+}
+.home-page .site-footer nav a:hover {
+  text-decoration-line: underline;
 }
 @media (max-width: 1100px) {
   .discovery-grid {
