@@ -1015,7 +1015,12 @@ async function main() {
     assert.equal(county.status, 200, countyHtml);
     assert.match(countyHtml, /Synthetic Adams County/);
     assert.match(countyHtml, /Synthetic Regional Partner/);
-    assert.match(countyHtml, /Synthetic official roster/);
+    assert.match(countyHtml, /Synthetic Clerk/);
+    assert.match(countyHtml, /Source checked/);
+    assert.doesNotMatch(
+      countyHtml,
+      /Synthetic official roster|example\.test\/adams/,
+    );
 
     const directory = await fetch(`${base}/people?query=Synthetic`);
     const directoryHtml = await directory.text();

@@ -547,7 +547,7 @@ The reversal is explicit, capability-gated and audited. A reversible-until durat
 
 ## Public source citations
 
-Every `person_roles` association must retain a public source citation in the Website record. The accepted standard remains:
+Every `person_roles` association must retain a citation from a public source in the Website record for validation and audit. Public pages and unauthenticated role responses omit that citation. The accepted standard is:
 
 - one verified public citation from an `official` or `unofficial` publisher directly connecting the identified person to the documented role is sufficient
 - `publisher_classification` (`official` or `unofficial`) is stored separately from `source_type`, which preserves page type (`official_page`, `public_document`, or `other_public`)
@@ -566,7 +566,7 @@ reverify the source; source verification remains a Profiles research step.
 
 The synchronization contract should therefore require `source_ref` on every role-creating item and should reject any item that tries to create a role without a valid cited source.
 
-An existing source is reused by stable Website source ID or an exact URL lookup that returns one unambiguous record. Same URL with conflicting metadata is a `duplicate_key` conflict, not an implicit update. Source updates require the source's expected version and must not rewrite a role's checked date. The stable `person_roles.source_id` preserves the relationship, but updating a shared source record changes its displayed title/URL for every referencing role; a different citation for one role should use a new source and version-checked role update. `source_checked_at` is evidence-check time, not an employment start date. The existing M1-A foreign key enforces the source relationship. The sync service records supplied public citations and does not fetch caller-provided URLs; source verification belongs to the local research process, and the Website must not require a second citation.
+An existing source is reused by stable Website source ID or an exact URL lookup that returns one unambiguous record. Same URL with conflicting metadata is a `duplicate_key` conflict, not an implicit update. Source updates require the source's expected version and must not rewrite a role's checked date. The stable `person_roles.source_id` preserves the relationship, but updating a shared source record changes its stored title/URL for every referencing role; a different citation for one role should use a new source and version-checked role update. `source_checked_at` is evidence-check time, not an employment start date. The existing M1-A foreign key enforces the source relationship. The sync service records supplied public citations and does not fetch caller-provided URLs; source verification belongs to the local research process, and the Website must not require a second citation.
 
 ## Nonblocking duplicate flags
 

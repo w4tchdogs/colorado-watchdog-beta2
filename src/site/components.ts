@@ -127,6 +127,7 @@ export function recordId(id: string): SafeHtml {
 export interface RoleDates {
   readonly startDate: string | null;
   readonly endDate: string | null;
+  readonly sourceCheckedAt: string;
 }
 
 /**
@@ -137,6 +138,7 @@ export function roleDates(role: RoleDates): SafeHtml {
   return html`<dl class="role-dates">
     <div><dt>Role start</dt><dd>${role.startDate ? formatStoredDate(role.startDate) : trusted('<span class="unrecorded">Not recorded</span>')}</dd></div>
     <div><dt>Role end</dt><dd>${role.endDate ? formatStoredDate(role.endDate) : trusted('<span class="unrecorded">Not recorded</span>')}</dd></div>
+    <div><dt>Source checked</dt><dd>${formatStoredDate(role.sourceCheckedAt)}</dd></div>
   </dl>`;
 }
 

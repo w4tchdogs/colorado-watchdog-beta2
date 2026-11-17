@@ -128,7 +128,7 @@ export async function homePage(context: SiteContext): Promise<Page> {
     isHomePage: true,
     head: COMMUNITY_VOICES_HEAD,
     description:
-      "Community Voices. Government Accountability. Public, source-cited records of Colorado county organizations, positions and the people documented in them.",
+      "Community Voices. Government Accountability. Public records of Colorado county organizations, positions and the people documented in them.",
     lead,
     body,
   };

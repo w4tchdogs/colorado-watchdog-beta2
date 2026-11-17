@@ -45,7 +45,7 @@ export function readingRecordsPage(): Page {
   return {
     title: "How to read these records",
     description:
-      "How to interpret source citations, role dates, and organization relationships on Colorado Watchdog.",
+      "How to interpret documented roles, dates, and organization relationships on Colorado Watchdog.",
     section: "about",
     breadcrumbs: [
       { label: "Home", href: "/" },
@@ -62,19 +62,14 @@ export function readingRecordsPage(): Page {
       <h2>Documented roles</h2>
       <p>A documented role is a single record: one person, one position, one public source. The same person record can have several roles. A role appears because a source named that person in that position, not because anyone confirmed it independently.</p>
 
-      <h2>Source citations</h2>
-      <p>Each role shows its source: a title, the kind of source, the website it is on and a link. Follow the link to read the source yourself. Sources can change or disappear after they were checked.</p>
-      <dl class="definitions">
-        <div><dt>Official webpage</dt><dd>A page on a government body's own website.</dd></div>
-        <div><dt>Public document</dt><dd>A published document such as minutes, a budget or a directory file.</dd></div>
-        <div><dt>Other public source</dt><dd>Any other publicly available source.</dd></div>
-      </dl>
+      <h2>Supporting evidence</h2>
+      <p>Colorado Watchdog keeps supporting evidence for documented roles in its research records.</p>
 
       <h2>The three dates</h2>
       <dl class="definitions">
         <div><dt>Role start</dt><dd>The start date stored for the role, when a source gives one. Often it is not recorded.</dd></div>
         <div><dt>Role end</dt><dd>The end date stored for the role, when a source gives one. "Not recorded" means only that no end date is stored. It does not mean the person holds the role today.</dd></div>
-        <div><dt>Source checked</dt><dd>The date the cited source was last reviewed. It is not an employment date and says nothing about when a role began.</dd></div>
+        <div><dt>Source checked</dt><dd>The date the supporting source was last reviewed. It is not an employment date and says nothing about when a role began.</dd></div>
       </dl>
 
       <h2>People with the same name</h2>

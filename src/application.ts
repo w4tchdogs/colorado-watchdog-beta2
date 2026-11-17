@@ -1,5 +1,6 @@
 import { createAccountAdminModule } from "./account-admin.js";
 import {
+  type DirectoryPage,
   type DirectoryPageRequest,
   MAX_DIRECTORY_PAGE_SIZE,
 } from "./contracts/directory.js";
@@ -239,7 +240,9 @@ async function dispatch(
       const page =
         directoryResource === "organizations"
           ? await services.listCountyOrganizations(directoryRequest)
-          : await services.listCountyRoleEntries(directoryRequest);
+          : publicRolePage(
+              await services.listCountyRoleEntries(directoryRequest),
+            );
       return jsonResponse(200, { ...page });
     }
     if (peopleSearchRequest) {
@@ -255,7 +258,10 @@ async function dispatch(
     if (personProfileRequest) {
       const profile = await services.getPersonProfile(personProfileRequest);
       return profile
-        ? jsonResponse(200, { ...profile })
+        ? jsonResponse(200, {
+            person: profile.person,
+            ...publicRolePage(profile),
+          })
         : jsonResponse(404, { error: "not_found" });
     }
     if (organizationProfileRequest) {
@@ -271,7 +277,7 @@ async function dispatch(
         organizationRoleRequest,
       );
       return roles
-        ? jsonResponse(200, { ...roles })
+        ? jsonResponse(200, publicRolePage(roles))
         : jsonResponse(404, { error: "not_found" });
     }
 
@@ -622,6 +628,18 @@ function isNewAccount(value: unknown): value is {
       account.email === null ||
       typeof account.email === "string")
   );
+}
+
+function publicRolePage<T extends { readonly source: unknown }>({
+  items,
+  hasMore,
+  nextCursor,
+}: DirectoryPage<T>) {
+  return {
+    items: items.map(({ source: _source, ...entry }) => entry),
+    hasMore,
+    nextCursor,
+  };
 }
 
 function jsonResponse(

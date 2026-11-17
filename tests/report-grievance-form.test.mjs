@@ -17,7 +17,6 @@ const role = (id, overrides = {}) => ({
   startDate: "2023-01-10",
   endDate: null,
   sourceCheckedAt: "2026-10-02",
-  sourceTitle: "Fictional roster",
   group: "latest",
   ...overrides,
 });

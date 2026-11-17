@@ -214,7 +214,10 @@ test("county directory endpoints expose service projections and forward paginati
   );
   assert.deepEqual(await organizations.json(), organizationPage);
   assert.equal(roles.status, 200);
-  assert.deepEqual(await roles.json(), rolePage);
+  assert.deepEqual(await roles.json(), {
+    ...rolePage,
+    items: rolePage.items.map(({ source: _source, ...entry }) => entry),
+  });
   assert.deepEqual(calls, [
     ["organizations", { countyFips: "08001", limit: 100, afterId: "office-1" }],
     ["roles", { countyFips: "08001" }],

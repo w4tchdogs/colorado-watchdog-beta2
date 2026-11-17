@@ -205,6 +205,11 @@ rewriting the history above.
   date in Website sync records. A publisher classified `unresolved` is not an
   acceptable role citation.
 
+### Public display of Profiles evidence, November 17, 2026
+
+- Retain supporting evidence for each role in the private Profiles workflow. The existing Website sync contract carries role-source metadata for validation and audit.
+- Public Website pages and unauthenticated directory responses must omit Profiles citations, including their titles and URLs. A source-check date may be shown as a date. This decision is limited to Profiles.
+
 ## Profiles eligibility and same-name merging, November 16, 2026
 
 - A Profile needs a county, a name, and at least one of an office, a position, or a job description.

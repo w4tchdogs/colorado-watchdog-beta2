@@ -215,6 +215,8 @@ are in.
 
 ## Evidence rules in the presentation
 
+- Profile role evidence supports research, synchronization and audit. Profile
+  citations are omitted from public pages and unauthenticated role responses.
 - Role dates are shown as stored. A missing end date reads "Not recorded" and
   is never shown as current. The source-check date is labelled "Source
   checked" and kept apart from role dates.
