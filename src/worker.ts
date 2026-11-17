@@ -191,6 +191,7 @@ function reportApi(
   environment: RuntimeEnvironment,
   services: ReportApiOptions["services"],
   database?: AsyncD1Database,
+  accountSubmissions = false,
 ) {
   const turnstile = turnstileAbuseControl(environment, database);
   const testAbuseEnabled =
@@ -224,6 +225,7 @@ function reportApi(
       : unavailable;
   return {
     enabled: Boolean(abuseControl),
+    accountEnabled: Boolean(database) && accountSubmissions,
     challenge: turnstile
       ? { sitekey: turnstile.sitekey, origin: turnstile.origin }
       : undefined,
@@ -231,6 +233,9 @@ function reportApi(
       services,
       store: unavailable,
       storeForRequest: makeStore,
+      ...(database && accountSubmissions
+        ? { accountSubmissions: { enabled: true } }
+        : {}),
       ...(abuseControl
         ? {
             guestSubmissions: { enabled: true, abuseControl },
@@ -484,7 +489,12 @@ const routes = {
           humanSignIn: signIn.status === "enabled",
         },
       );
-      const reports = reportApi(environment, services, database);
+      const reports = reportApi(
+        environment,
+        services,
+        database,
+        signIn.status === "enabled",
+      );
       const currentHumanAccountId = async (request: Request) => {
         if (!hasSessionCookie(request)) return null;
         const principal = await accounts.resolvePrincipal(request);
@@ -499,7 +509,8 @@ const routes = {
         ...(bannerService
           ? { banners: bannerService, bannerDelivery: bannerService }
           : {}),
-        reportSubmissionsEnabled: reports.enabled,
+        reportSubmissionsEnabled: reports.enabled || reports.accountEnabled,
+        reportGuestEnabled: reports.enabled,
         ...(reports.challenge ? { reportChallenge: reports.challenge } : {}),
         // The header offers sign-in or the Dashboard only while Website human
         // sign-in is enabled, which is also the only time /dashboard exists.

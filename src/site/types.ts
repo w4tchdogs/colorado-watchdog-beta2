@@ -66,6 +66,8 @@ export interface PublicSiteOptions {
   readonly bannerOrigins?: readonly string[];
   /** Whether a configured local fictional-report test adapter is available. */
   readonly reportSubmissionsEnabled?: boolean;
+  /** Guest intake is open. Defaults to `reportSubmissionsEnabled`. Account-only hosts set it false. */
+  readonly reportGuestEnabled?: boolean;
   /**
    * Public Turnstile settings for guest intake. Present only when the
    * default-off challenge switch is on and fully configured. The widget script
@@ -96,6 +98,7 @@ export interface SiteContext {
   readonly now: Date;
   readonly banners: BannerSource;
   readonly reportSubmissionsEnabled: boolean;
+  readonly reportGuestEnabled: boolean;
   readonly reportChallenge?: { readonly sitekey: string };
 }
 

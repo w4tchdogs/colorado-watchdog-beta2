@@ -417,6 +417,9 @@ export function createPublicSite(options: PublicSiteOptions) {
           now: clock(),
           banners,
           reportSubmissionsEnabled: options.reportSubmissionsEnabled === true,
+          reportGuestEnabled:
+            options.reportSubmissionsEnabled === true &&
+            options.reportGuestEnabled !== false,
           ...(options.reportSubmissionsEnabled === true &&
           options.reportChallenge
             ? { reportChallenge: options.reportChallenge }
