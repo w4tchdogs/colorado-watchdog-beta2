@@ -126,6 +126,71 @@ The backup must report schema v6. On the copy, expect schema v7, integrity `ok`,
 
 Rollback: migration 007 runs in one transaction, so a failed upgrade stays at v6. If the working file needs recovery, keep clients closed, restore the `profiles-before-v7` backup to a fresh private path with `python -B -m research restore`, and verify it with the v6 checkout (the v7 `check` rejects a v6 file). Set the failed file and its SQLite sidecars aside together, move the verified restore into the working path, and use the v6 checkout until the upgrade is repeated. Once confirmed Profiles exist, a restore to v6 loses them, so back up again before and after promotion work.
 
+### Upgrade the working database from v7 to v8
+
+[Migration 008](../../research/migrations/008_profiles_website_review.sql) adds
+four optional fields to `profile`, an evidence-linked `profile_alternate_name`
+table and the `profiles_website_review` view. It never splits or rewrites an
+existing Full name. Existing components remain null and alternate names remain
+empty until independently verified. The result has 35 tables and five views.
+
+In DB Browser, open the private `research.sqlite` file, choose **Browse Data**,
+then select `profiles_website_review` from the table/view picker. Each confirmed
+role appears on one row. The grid contains only the eleven displayed columns;
+private evidence and citation titles and URLs remain in their source tables.
+The role's confirmed county supplies County. A confirmed unit supplies County
+Unit and, if it has a confirmed parent chain, County Sub Unit. An office-only
+role displays its office under County Unit. An unresolved parent is not guessed.
+An administrative or statutory chain is a reporting path (`›`); a navigation
+edge is labeled `Grouped under:` in County Sub Unit and does not assert
+reporting authority.
+
+For a new approved `profile_revisions` row, `Public revision` may include a
+`website_review.roles` array. Each role object must contain `role_id`,
+`county_code`, `first_name`, `middle_name`, `last_name`, `alternate_name_1`,
+`alternate_name_2`, `county_unit`, `county_sub_unit`, `position` and `role`,
+using the exact displayed strings and empty strings for blank cells. The view
+uses `Reviewed on` from the newest matching approved or superseded revision,
+as a date. If no snapshot matches the current row, Date Reviewed is blank.
+This includes edits made after approval. `Promotion reviewed on` and citation
+`Verified on` are separate dates. Approval snapshots stay private and do not
+alter the existing Website sync sender.
+
+Close DB Browser and all other writers. From the repository root of the merged
+v8 checkout, in Windows PowerShell, use fresh private paths:
+
+```powershell
+$db = 'D:/ChatGPT/Watchdog/profiles/database/research.sqlite'
+$backupDir = 'D:/ChatGPT/Watchdog/profiles/backups'
+$tag = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+$backup = Join-Path $backupDir "profiles-before-v8-$tag.cwbackup"
+$copy = Join-Path $backupDir "profiles-v8-rehearsal-$tag.sqlite"
+
+python -B -m research backup $db $backup
+if ($LASTEXITCODE -ne 0) { throw 'Backup failed.' }
+python -B -m research restore $backup $copy
+if ($LASTEXITCODE -ne 0) { throw 'Restore failed.' }
+python -B -m research migrate $copy
+if ($LASTEXITCODE -ne 0) { throw 'Migration rehearsal failed.' }
+python -B -m research check $copy
+if ($LASTEXITCODE -ne 0) { throw 'Rehearsal check failed.' }
+
+python -B -m research migrate $db
+if ($LASTEXITCODE -ne 0) { throw 'Working database migration failed.' }
+python -B -m research check $db
+if ($LASTEXITCODE -ne 0) { throw 'Working database check failed.' }
+```
+
+The backup must report v7. Compare every v7 table's rows and IDs between the
+restored copy and the working file before and after migration, allowing only
+the four new null `profile` columns and the new migration ledger entry. Check
+the existing evidence, approvals and Website receipts specifically. Both v8
+databases must report integrity `ok`, zero foreign-key violations, 35 tables
+and five views; the new alternate-name table starts empty. Do not copy the
+rehearsal database over the working file. Migration 008 is transactional; an
+error leaves v7 intact. Preserve the encrypted backup for rollback and use
+the v7 checkout to inspect any restored v7 copy.
+
 ## Mapping and provenance
 
 `research.mapping.parse_csv` implements the report's exact ordered 17-column header as `legacy-17/v1`. It validates UTF-8/BOM, exact header/width, CSV quoting, county/FIPS agreement, published name, Listed in official source/Explicitly former/Unclear legacy status, HTTP(S) URLs without credentials, source-date precision and full checked dates. Blank titles and dates remain unknown. Source wording, grouping basis, names and notes remain unchanged. Grouping basis validates Official county structure, Directory display fallback and Needs editorial review. Source-specific display labels remain verbatim because supported source groupings vary. The legacy status Listed in official source maps explicitly to the internal Listed enum; raw evidence retains the exact legacy value. No migration or rewrite of existing observations is needed.
