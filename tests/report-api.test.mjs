@@ -21,7 +21,13 @@ function setup(
   check = async () => ({ allowed: true }),
 ) {
   const store = sharedStore ?? new MemoryReportIntakeStore();
-  const principal = role ? { accountId: `synthetic-${role}`, role } : null;
+  const principal = role
+    ? {
+        accountId: `synthetic-${role}`,
+        role,
+        kind: role === "agent" ? "agent" : "human",
+      }
+    : null;
   const api = createReportApiModule({
     store,
     services: {
@@ -402,4 +408,25 @@ test("disabled intake blocks account submissions and keeps private tracking avai
   assert.equal(track.status, 200);
   assert.equal(track.headers.get("cache-control"), "no-store, private");
   assert.equal(await queueSize(store), 1);
+});
+
+test("an agent principal is refused when the account expectation is present and creates no report", async () => {
+  const store = new MemoryReportIntakeStore();
+  const response = await post(setup("agent", true, store).api, submission, {
+    [EXPECT]: "synthetic-agent",
+  });
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { error: "authentication_required" });
+  assert.equal(response.headers.get("cache-control"), "no-store, private");
+  assert.equal(await queueSize(store), 0);
+  // The same agent without the header keeps today's behavior, and a human with
+  // the header still succeeds.
+  assert.equal(
+    (
+      await post(setup("reporter", true, store).api, submission, {
+        [EXPECT]: "synthetic-reporter",
+      })
+    ).status,
+    201,
+  );
 });

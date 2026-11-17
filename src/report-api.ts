@@ -146,7 +146,10 @@ async function submission(
     if (!REPORT_ACCOUNT_EXPECTATION_PATTERN.test(expected))
       return json(400, { error: "invalid_request" });
     principal = await options.services.resolvePrincipal(request);
-    if (!principal) return json(401, { error: "authentication_required" });
+    // Only a live human session can submit as an account. An agent credential
+    // is refused here and never becomes a guest or reporter submission.
+    if (principal?.kind !== "human")
+      return json(401, { error: "authentication_required" });
     if (principal.accountId !== expected)
       return json(409, { error: "account_changed" });
   }
