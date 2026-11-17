@@ -501,7 +501,7 @@ test("with the switch off the Worker keeps today's closed behavior and never exp
 test("when enabled the sitekey and widget origin appear on the submission page only", async () => {
   const database = await migrated();
   const environment = workerEnvironment(database, ENABLED);
-  const submit = await getPage("/submit-report", environment);
+  const submit = await getPage("/submit-report?guest=1", environment);
   const html = await submit.text();
   assert.match(html, /data-report-enabled="true"/);
   assert.match(
@@ -525,6 +525,9 @@ test("when enabled the sitekey and widget origin appear on the submission page o
   }
   const track = await (await getPage("/track-report", environment)).text();
   assert.match(track, /data-report-enabled="true"/);
+  const entry = await (await getPage("/submit-report", environment)).text();
+  assert.match(entry, /Start a guest report/);
+  assert.doesNotMatch(entry, /sitekey|report-interface\.js/);
 });
 
 test("incomplete or unsafe configuration keeps intake closed", async () => {

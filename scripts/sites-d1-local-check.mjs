@@ -1213,7 +1213,7 @@ async function main() {
       );
     }
 
-    const reportPage = await fetch(`${base}/submit-report`);
+    const reportPage = await fetch(`${base}/submit-report?guest=1`);
     const reportHtml = await reportPage.text();
     assert.equal(reportPage.status, 200);
     assert.match(reportHtml, /report-interface\.css/);

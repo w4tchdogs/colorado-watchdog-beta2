@@ -463,6 +463,11 @@ const routes = {
         },
       );
       const reports = reportApi(environment, services, database);
+      const currentHumanAccountId = async (request: Request) => {
+        if (!hasSessionCookie(request)) return null;
+        const principal = await accounts.resolvePrincipal(request);
+        return principal?.kind === "human" ? principal.accountId : null;
+      };
       const site = createPublicSite({
         services: reads,
         editorial: createD1EditorialSource(database),
@@ -479,10 +484,11 @@ const routes = {
         ...(signIn.status === "enabled"
           ? {
               accountEntry: async (entryRequest: Request) => {
-                if (!hasSessionCookie(entryRequest)) return "signed-out";
-                const principal = await accounts.resolvePrincipal(entryRequest);
-                return principal?.kind === "human" ? "signed-in" : "signed-out";
+                return (await currentHumanAccountId(entryRequest))
+                  ? "signed-in"
+                  : "signed-out";
               },
+              reportAccountId: currentHumanAccountId,
             }
           : {}),
         reportReviewAccess: async (request) => {

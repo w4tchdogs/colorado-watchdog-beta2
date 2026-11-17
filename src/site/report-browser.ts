@@ -13,7 +13,9 @@ if (root) {
     root.getAttribute("data-report-counties") ?? "[]",
   ) as CountyRegistryEntry[];
   const enabled = root.getAttribute("data-report-enabled") === "true";
-  if (root.getAttribute("data-report-mode") === "track") {
+  const mode = root.getAttribute("data-report-mode");
+  const accountId = root.getAttribute("data-report-account-id");
+  if (mode === "track") {
     window.history.replaceState(null, "", `${location.pathname}#report-track`);
   }
   const sitekey = root.getAttribute("data-report-challenge-sitekey");
@@ -22,15 +24,19 @@ if (root) {
   mountReportInterface(root, {
     counties,
     ...(challenge ? { challenge } : {}),
+    ...(mode === "guest" || mode === "account" ? { submissionFlow: mode } : {}),
+    ...(mode === "account" && accountId ? { account: { accountId } } : {}),
+    submitHref: "/submit-report",
     trackingHref: "/track-report",
-    submissionsEnabled: enabled,
-    ...(challenge
-      ? {}
-      : {
-          demoNotice: enabled
-            ? "Local fictional-data test only. Do not enter real information."
-            : "Report submission is currently unavailable. Do not enter real information.",
-        }),
+    submissionsEnabled:
+      enabled &&
+      (mode === "guest" || (mode === "account" && Boolean(accountId))),
+    ...(enabled && mode !== "track" && !challenge
+      ? {
+          demoNotice:
+            "Local fictional-data test only. Do not enter real information.",
+        }
+      : {}),
     adapter: {
       async submit(input: ReportSubmission, context) {
         const response = await fetch("/api/v1/reports", {
