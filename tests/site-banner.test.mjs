@@ -792,7 +792,7 @@ test("explicit play and pause are announced once, and nothing else is", () => {
   }
 });
 
-test("full-width heroes overlay copy and keep the 3:1 baseline at every width", () => {
+test("full-width heroes overlay unshaded copy and keep the 3:1 baseline at every width", () => {
   const css = readFileSync(`${STATIC_DIRECTORY}site.css`, "utf8");
   const shared = css.slice(
     css.indexOf("\n.hero {"),
@@ -811,8 +811,14 @@ test("full-width heroes overlay copy and keep the 3:1 baseline at every width", 
   );
   assert.match(
     shared,
-    /\.hero-content \{[^}]*grid-area: 1 \/ 1;[^}]*z-index: 1;[^}]*linear-gradient/,
+    /\.hero-content \{[^}]*grid-area: 1 \/ 1;[^}]*z-index: 1;/,
   );
+  const textRules = css.matchAll(
+    /(?:^|\n)\s*((?:\.hero )?\.banner-caption|\.hero-content) \{([^}]+)\}/g,
+  );
+  for (const [, selector, declarations] of textRules) {
+    assert.doesNotMatch(declarations, /\bbackground(?:-[\w-]+)?\s*:/, selector);
+  }
   assert.match(shared, /\.hero \.banner-caption \{[^}]*grid-row: 2;/);
   assert.match(shared, /\.hero \.banner-controls \{\s*grid-row: 3;/);
   assert.match(/\.hero-content \.wrap \{[^}]*\}/.exec(css)[0], /var\(--wrap\)/);
