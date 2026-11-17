@@ -731,9 +731,18 @@ export function mountReportInterface(
     const certificationError = fieldError(document, certification.id);
     connectError(certification, null, certificationError);
     const reviewSummary = node(document, "div", "report-review-summary");
+    const reviewSubject = node(document, "p");
     const reviewCounty = node(document, "p");
     const reviewDescription = node(document, "p", "report-review-description");
-    reviewSummary.append(reviewCounty, reviewDescription);
+    const reviewSources = node(document, "p");
+    const reviewAttribution = node(document, "p");
+    reviewSummary.append(
+      reviewSubject,
+      reviewCounty,
+      reviewDescription,
+      reviewSources,
+      reviewAttribution,
+    );
     const showStep = (index: number, moveFocus = true) => {
       activeStep = index;
       for (const [position, step] of steps.entries()) {
@@ -748,6 +757,23 @@ export function mountReportInterface(
           : "County at the event: Not selected";
         reviewDescription.textContent =
           description.value.trim() || "Grievance details are missing.";
+        reviewSubject.textContent =
+          subjectKind.value && subjectId.value.trim()
+            ? `Directory reference: ${subjectKind.selectedOptions[0]?.textContent ?? ""} ${subjectId.value.trim()}`
+            : "Directory reference: None";
+        const filled = evidenceRows.filter(
+          (entry) => entry.title.value.trim() || entry.url.value.trim(),
+        );
+        reviewSources.textContent = filled.length
+          ? `Sources: ${filled
+              .map(
+                (entry) => entry.title.value.trim() || entry.url.value.trim(),
+              )
+              .join(" · ")}`
+          : "No supporting sources supplied.";
+        reviewAttribution.textContent = anonymous.checked
+          ? "Sent without your name."
+          : `Name shared privately with reviewers: ${nameInput.value.trim() || "Not provided"}`;
       }
       if (moveFocus) stepHeadings[index]?.focus();
     };
@@ -767,6 +793,9 @@ export function mountReportInterface(
           "I certify that this report is accurate to the best of my knowledge. · Required",
         ),
       );
+      const allegationsNotice = node(document, "p", "report-confidentiality");
+      allegationsNotice.textContent =
+        "Reports are allegations, not findings of fact. Submitting is not publication and does not establish wrongdoing. Source URLs are links only and files cannot be uploaded.";
       const sections = [
         {
           label: "Employee & event",
@@ -783,6 +812,7 @@ export function mountReportInterface(
           title: "Review and certify your report",
           fields: [
             reviewSummary,
+            allegationsNotice,
             reporterField,
             certificationLabel,
             certificationError,
@@ -981,7 +1011,25 @@ export function mountReportInterface(
       receiptDisclosed = false;
     };
     trackingLink.addEventListener("click", () => clearRecoveryDisclosure());
+    const clearFieldError = (event: Event) => {
+      const control = event.target as HTMLElement | null;
+      if (!control?.id || control.getAttribute("aria-invalid") !== "true")
+        return;
+      control.removeAttribute("aria-invalid");
+      const error = document.getElementById(`${control.id}-error`);
+      if (error) error.hidden = true;
+      for (const link of Array.from(errorList.querySelectorAll("a"))) {
+        if (link.getAttribute("href") === `#${control.id}`)
+          link.parentElement?.remove();
+      }
+      if (errorList.childElementCount === 0) errorSummary.hidden = true;
+    };
+    form.addEventListener("input", clearFieldError);
+    form.addEventListener("change", clearFieldError);
     form.addEventListener("input", (event) => {
+      if (event.target !== certification && workflow) {
+        certification.checked = false;
+      }
       if (event.target !== certification && formStatus.textContent) {
         pendingIdempotencyKey = null;
         formStatus.textContent = "";

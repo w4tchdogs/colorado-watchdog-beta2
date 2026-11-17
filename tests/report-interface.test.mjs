@@ -180,9 +180,24 @@ test("guest steps preserve entries, focus validation errors, certify and issue a
     .click();
   assert.equal(document.activeElement.id, "report-description");
   assert.equal(step(2).hidden, false);
+  const descriptionField = document.getElementById("report-description");
+  descriptionField.value = "A fictional concern for the synthetic test.";
+  descriptionField.dispatchEvent(
+    new dom.window.Event("input", { bubbles: true }),
+  );
+  assert.equal(descriptionField.hasAttribute("aria-invalid"), false);
+  assert.equal(
+    document.querySelector(
+      '.report-error-summary a[href="#report-description"]',
+    ),
+    null,
+  );
   setValidSubmission(document);
   stepButton(3).click();
   assert.match(step(3).textContent, /A fictional concern/);
+  assert.match(step(3).textContent, /No supporting sources supplied/);
+  assert.match(step(3).textContent, /Sent without your name/);
+  assert.match(step(3).textContent, /allegations, not findings of fact/);
   await submit(form, dom.window);
   assert.equal(calls.submissions.length, 0);
   assert.equal(
@@ -193,6 +208,11 @@ test("guest steps preserve entries, focus validation errors, certify and issue a
   );
   assert.equal(document.getElementById("reporter-name").disabled, true);
   document.getElementById("reporter-name").value = "Synthetic private name";
+  document.getElementById("report-certification").checked = true;
+  document
+    .getElementById("report-description")
+    .dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  assert.equal(document.getElementById("report-certification").checked, false);
   document.getElementById("report-certification").checked = true;
   await submit(form, dom.window);
   assert.equal(calls.submissions.length, 1);
