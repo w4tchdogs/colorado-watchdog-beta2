@@ -62,7 +62,7 @@ ${preview ? html`<meta name="robots" content="noindex, nofollow">` : ""}
 <script type="module" src="/assets/site.js"></script>
 ${page.head ?? ""}
 </head>
-<body>
+<body${page.isHomePage ? trusted(' class="home-page"') : ""}>
 <a class="skip-link" href="#main">Skip to main content</a>
 ${
   preview
