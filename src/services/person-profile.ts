@@ -81,7 +81,7 @@ export function getPersonProfile(
         version: asNumber(row.role_version),
         startDate: nullableString(row.start_date),
         endDate: nullableString(row.end_date),
-        sourceCheckedAt: asString(row.source_checked_at),
+        sourceCheckedAt: asString(row.source_checked_at ?? ""),
         county:
           row.role_county_fips === null
             ? null

@@ -827,7 +827,7 @@ test("content, relationships, and audit persist across database close and reopen
         database
           .prepare("SELECT COUNT(*) AS count FROM schema_migrations")
           .get().count,
-        27,
+        28,
       );
       const restored = service.restoreDraft(editor, draftId, 3);
       assert.equal(restored.version, 4);

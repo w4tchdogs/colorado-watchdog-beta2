@@ -474,7 +474,7 @@ export async function listOfficials(
         id: roleId,
         startDate: optionalText(row.start_date),
         endDate: optionalText(row.end_date),
-        sourceCheckedAt: text(row.source_checked_at),
+        sourceCheckedAt: text(row.source_checked_at ?? ""),
         county:
           roleCountyFips === null
             ? null

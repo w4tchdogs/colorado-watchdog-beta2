@@ -83,6 +83,21 @@ class UnstructuredRoleTests(unittest.TestCase):
         self.assertEqual(generated["eligibility_summary"]["unstructured_roles_planned"], 1)
         self.assertFalse(generated["truncated"])
 
+    def test_source_link_uses_recorded_discovery_day_and_allows_unknown_date(self):
+        claim = self.add_role("citationdate", title="Synthetic Deputy")
+        self.db.execute('UPDATE research_evidence SET "Reported check date"=NULL '
+                        'WHERE "Evidence record ID"=(SELECT "Evidence record ID" FROM profile_research_role '
+                        'WHERE "Role claim ID"=?)', (claim,))
+        self.db.commit()
+        fields = self.role_fields(build_changeset(self.db, SITE, county_fips=COUNTY), claim)
+        self.assertIsNone(fields["source_checked_at"])
+        self.db.execute('UPDATE research_evidence SET "Reported check date"=? '
+                        'WHERE "Evidence record ID"=(SELECT "Evidence record ID" FROM profile_research_role '
+                        'WHERE "Role claim ID"=?)', ("2026-11-02", claim))
+        self.db.commit()
+        fields = self.role_fields(build_changeset(self.db, SITE, county_fips=COUNTY), claim)
+        self.assertEqual(fields["source_checked_at"], "2026-11-02")
+
     def test_duties_only_role_keeps_duties_separate_and_leaves_the_title_empty(self):
         claim = self.add_role("duties", duties="Reviews building permits")
         fields = self.role_fields(build_changeset(self.db, SITE, county_fips=COUNTY), claim)

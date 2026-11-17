@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from uuid import uuid5, NAMESPACE_URL
 
 from research.db import validate_migration_history
+from research.evidence_dates import source_found_on
 from research.mapping import canonical_json
 
 PLAN_FORMAT = "colorado-watchdog/profile-promotion/v1"
@@ -98,7 +99,7 @@ def _normalize(plan):
         normalized_roles = []
         for role in roles:
             if not isinstance(role, dict) or set(role) != _ROLE:
-                raise ValueError("Each role must contain exactly the documented fields and citation dates")
+                raise ValueError("Each role must contain exactly the documented fields and citation links")
             claim_ids = role["role_claim_ids"]
             if not isinstance(claim_ids, list) or not claim_ids:
                 raise ValueError("Each role grouping must name exact research claim IDs")
@@ -123,16 +124,17 @@ def _normalize(plan):
             citations = role["citations"]
             if not isinstance(citations, list) or any(
                     not isinstance(citation, dict) or set(citation) != _CITATION for citation in citations):
-                raise ValueError("Every selected claim requires an explicit citation verification date")
+                raise ValueError("Every selected claim requires an explicit citation entry")
             citation_map = {}
             for citation in citations:
                 claim = _text(citation["claim_id"], "citation claim_id")
-                _date(citation["verified_on"], "citation verified_on")
+                if citation["verified_on"] is not None:
+                    _date(citation["verified_on"], "citation verified_on")
                 if claim in citation_map:
                     raise ValueError("Duplicate citation claim IDs are not allowed")
                 citation_map[claim] = citation["verified_on"]
             if set(citation_map) != set(claim_ids):
-                raise ValueError("Citation verification dates must cover exactly the selected role claims")
+                raise ValueError("Citation entries must cover exactly the selected role claims")
             normalized_roles.append({
                 "role_claim_ids": sorted(claim_ids), "office_or_department": office,
                 "position_title": title, "duties": duties,
@@ -148,7 +150,7 @@ def _normalize(plan):
             "profiles": normalized_profiles}
 
 
-def _claim_snapshot(db, claim_id, county, batch_id, research_profile_id, role, full_name):
+def _claim_snapshot(db, claim_id, county, batch_id, research_profile_id, full_name):
     row = db.execute(
         'SELECT c."Role claim ID" AS claim_id,c."County code" AS county,c."Evidence record ID" AS evidence_id,'
         'c."Linked profile" AS research_profile_id,c."Name as published" AS published_name,'
@@ -159,6 +161,7 @@ def _claim_snapshot(db, claim_id, county, batch_id, research_profile_id, role, f
         'EXISTS(SELECT 1 FROM profile_research_role newer WHERE newer."Earlier claim this replaces"=c."Role claim ID") AS is_superseded,'
         'e."Source title as observed" AS source_title,e."Source URL as observed" AS observed_url,'
         'e."Source version ID" AS source_version_id,e."Evidence excerpt" AS evidence_excerpt,'
+        'e."Reported check date" AS reported_check_date,s."First discovered on" AS first_discovered,'
         'e."Import batch ID" AS batch_id,e."Original record fingerprint" AS record_fingerprint,'
         'e."Original record" AS original_record,e."Where the record appeared" AS occurrence_locator,'
         's."Original source URL" AS source_url,s."Publisher type" AS publisher_type,'
@@ -174,11 +177,16 @@ def _claim_snapshot(db, claim_id, county, batch_id, research_profile_id, role, f
         raise ValueError("Superseded or non-current claims require separate review and cannot be promoted")
     if not row["published_name"] or row["published_name"].strip().casefold() != full_name.strip().casefold():
         raise ValueError("Reviewed Profile name does not match the selected claim")
+    return row
+
+
+def _has_public_citation_metadata(row):
+    """Retain role evidence even when its public citation metadata is incomplete."""
     if row["publisher_type"] not in {"official", "unofficial"} or row["page_type"] not in {
             "official_page", "public_document", "other_public"}:
-        raise ValueError("Selected claim lacks an existing official public citation classification")
+        return False
     if not row["source_title"] or row["observed_url"] != row["source_url"]:
-        raise ValueError("Selected evidence has incomplete or conflicting citation metadata")
+        return False
     try:
         parsed = urlsplit(row["observed_url"])
         valid_url = (parsed.scheme.lower() in {"http", "https"} and parsed.hostname
@@ -186,11 +194,7 @@ def _claim_snapshot(db, claim_id, county, batch_id, research_profile_id, role, f
                      and len(row["observed_url"].encode("utf-8")) <= 2048)
     except (ValueError, UnicodeError):
         valid_url = False
-    if not valid_url or len(row["source_title"].encode("utf-8")) > 500:
-        raise ValueError("Selected evidence has an invalid public citation URL or title")
-
-    # Every selected field must have a source-pinned value in this exact group.
-    return row
+    return bool(valid_url and len(row["source_title"].encode("utf-8")) <= 500)
 
 
 def _bind_fields(role, rows):
@@ -268,6 +272,7 @@ def build_preview(db, plan):
             raise ValueError("Duplicate stable Profile IDs in promotion batch")
         seen_profile_ids.add(profile_id)
         claim_rows = {}
+        claim_snapshots = {}
         roles = []
         evidence_dates = {}
         for role in person["roles"]:
@@ -275,12 +280,21 @@ def build_preview(db, plan):
             date_map = {item["claim_id"]: item["verified_on"] for item in role["citations"]}
             for claim_id in role["role_claim_ids"]:
                 row = _claim_snapshot(db, claim_id, checked["county_code"], checked["batch_id"],
-                                      research_id, role, person["full_name"])
+                                      research_id, person["full_name"])
                 rows.append(row)
                 claim_rows[claim_id] = row
-                prior_date = evidence_dates.setdefault(row["evidence_id"], date_map[claim_id])
-                if prior_date != date_map[claim_id]:
-                    raise ValueError("Claims sharing an evidence record must use one direct verification date")
+                claim_snapshot = dict(row)
+                if date_map[claim_id] is not None:
+                    # Explicit-date v1 plans retain their original replay fingerprint.
+                    claim_snapshot.pop("first_discovered")
+                    claim_snapshot.pop("reported_check_date")
+                claim_snapshots[claim_id] = claim_snapshot
+                verified_on = date_map[claim_id] or source_found_on(
+                    row["first_discovered"], row["reported_check_date"])
+                if verified_on is not None:
+                    prior_date = evidence_dates.setdefault(row["evidence_id"], verified_on)
+                    if prior_date != verified_on:
+                        raise ValueError("Claims sharing an evidence record must use one verification date")
             _bind_fields(role, rows)
             roles.append({"id": _id("role", profile_id, *role["role_claim_ids"]),
                           "grouping": role, "rows": rows})
@@ -294,7 +308,7 @@ def build_preview(db, plan):
                 "evidence_id": evidence_id, "source_id": row["source_id"],
                 "source_url": row["source_url"], "source_title": row["source_title"],
                 "publisher_type": row["publisher_type"], "page_type": row["page_type"],
-                "verified_on": evidence_dates[evidence_id],
+                "verified_on": evidence_dates.get(evidence_id) if _has_public_citation_metadata(row) else None,
                 "claim_ids": sorted(claim for claim, c_row in claim_rows.items()
                                      if c_row["evidence_id"] == evidence_id),
             })
@@ -307,7 +321,7 @@ def build_preview(db, plan):
             raise ValueError("Research identity is already linked to a different confirmed Profile ID")
         input_state["profiles"].append({
             "identity": dict(identity), "identity_evidence": dict(identity_source),
-            "claims": [dict(claim_rows[key]) for key in sorted(claim_rows)],
+            "claims": [claim_snapshots[key] for key in sorted(claim_snapshots)],
             "selected_fields": [{"role": role["grouping"], "claim_ids": role["grouping"]["role_claim_ids"]}
                                 for role in roles],
         })
@@ -339,19 +353,20 @@ def _expected_rows(preview, now):
         citations_by_evidence = {}
         for evidence in profile["evidence"]:
             citation_id = _id("citation", evidence["id"], evidence["source_id"], evidence["source_url"])
-            citations_by_evidence[evidence["evidence_id"]] = citation_id
             rows["profile_evidence"].append((evidence["id"], profile_id, plan["county_code"],
                 person["research_profile_id"], evidence["evidence_id"], person["reviewer_notes"], now))
-            rows["profile_evidence_citation"].append((citation_id, evidence["id"], evidence["source_id"],
-                evidence["source_url"], evidence["source_title"], evidence["publisher_type"],
-                evidence["page_type"], evidence["verified_on"]))
+            if evidence["verified_on"] is not None:
+                citations_by_evidence[evidence["evidence_id"]] = citation_id
+                rows["profile_evidence_citation"].append((citation_id, evidence["id"], evidence["source_id"],
+                    evidence["source_url"], evidence["source_title"], evidence["publisher_type"],
+                    evidence["page_type"], evidence["verified_on"]))
         for role in profile["roles"]:
             grouping = role["grouping"]
             rows["profile_role"].append((role["id"], profile_id, plan["county_code"], None, None,
                 grouping["office_or_department"], grouping["position_title"], grouping["duties"],
                 grouping["employment_start_date"], grouping["employment_end_date"], None, None))
             for claim in role["rows"]:
-                citation_id = citations_by_evidence[claim["evidence_id"]]
+                citation_id = citations_by_evidence.get(claim["evidence_id"])
                 evidence_id = _id("profile_evidence", profile_id, claim["evidence_id"])
                 rows["profile_evidence_role"].append((role["id"], claim["claim_id"], evidence_id,
                     profile_id, plan["county_code"], citation_id))

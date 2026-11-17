@@ -66,18 +66,19 @@ The same operations are available as reusable functions in `research.operator` (
 Use a compatible checkout for the installed Profiles schema and one private
 plan per county batch. Use the reviewed batch manifest to account for every
 claim in scope. Include only claims that have a supported research identity,
-a documented office, position title or job description, and a verified
-citation connecting the person to the role. Keep unsupported claims in the
+a documented office, position title or job description, and a retained
+evidence record linked to its source. Keep unsupported claims in the
 county review queue. Office-only and duties-only roles may leave the title
 blank. An unresolved unit path can stay blank.
 
 The plan records the reviewer, review date, canonical county FIPS, exact
 research identities and claim groups, the reviewed role fields, and the
-citation verification date for each claim. Preserve the source wording.
-Use an actual verification date supported by the evidence review. An import
-timestamp, reported check date, or publisher label alone does not establish
-direct source verification. Complete any needed identity links through the
-existing research operator workflow before building the promotion preview.
+source link for each claim. Preserve the source wording. The owner confirmed
+the existing sources were verified when found. Use the recorded source
+discovery date or its retained reported check date. If neither exists, keep
+the date unset and retain the evidence link. Complete any needed identity
+links through the research operator workflow before building the promotion
+preview.
 
 Use format `colorado-watchdog/profile-promotion/v1`. The top-level fields
 are `format`, `county_code`, `batch_id` (the retained intake batch),
@@ -86,8 +87,11 @@ are `format`, `county_code`, `batch_id` (the retained intake batch),
 `reviewer_notes`, and `roles`. A role supplies `role_claim_ids`,
 `office_or_department`, `position_title`, `duties`,
 `employment_start_date`, `employment_end_date`, and `citations`. Each
-citation entry has `claim_id` and `verified_on`. Use `null` for unset
-optional values and ISO calendar dates for populated dates.
+citation entry has `claim_id` and `verified_on`. Use `null` to derive the
+source discovery date from retained provenance. The date remains unset if
+neither discovery field is recorded. Use ISO calendar dates for populated
+dates. The private role evidence remains linked even if a separate dated
+public-citation row cannot be represented.
 
 Keep the plan, preview and receipts in the owner's private Profiles folder.
 

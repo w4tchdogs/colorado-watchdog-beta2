@@ -105,6 +105,25 @@ def make_plan(claim_ids):
 
 
 class PromotionCase(unittest.TestCase):
+    def test_source_link_promotes_with_retained_found_date_or_without_a_date(self):
+        db = self.db
+        db.execute('UPDATE research_evidence SET "Reported check date"=? WHERE "Evidence record ID"=?',
+                   ("2026-11-02", "role-evidence-office"))
+        db.commit()
+        plan = make_plan(["claim-office", "claim-duties"])
+        for profile in plan["profiles"]:
+            profile["roles"][0]["citations"][0]["verified_on"] = None
+        preview = build_preview(db, plan)
+        result = apply_reviewed_plan(db, plan, expected_sha256=preview["plan_sha256"])
+        self.assertEqual(result["profile_count"], 2)
+        links = list(db.execute('SELECT link."Role claim ID", evidence."Source ID", citation."Verified on" '
+                                'FROM profile_evidence_role link JOIN profile_evidence pe '
+                                'ON pe."Profile evidence ID"=link."Profile evidence ID" JOIN research_evidence evidence '
+                                'ON evidence."Evidence record ID"=pe."Evidence record ID" LEFT JOIN profile_evidence_citation citation '
+                                'ON citation."Citation ID"=link."Citation ID" ORDER BY link."Role claim ID"'))
+        self.assertEqual([tuple(row) for row in links], [("claim-duties", "role-source", None),
+                                                       ("claim-office", "role-source", "2026-11-02")])
+
     def setUp(self):
         self.db = fixture_db()
         self.plan = make_plan(["claim-office", "claim-duties"])

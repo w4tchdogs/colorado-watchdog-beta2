@@ -134,7 +134,7 @@ export function listCountyRoleEntries(
         version: asNumber(row.role_version),
         startDate: nullableString(row.start_date),
         endDate: nullableString(row.end_date),
-        sourceCheckedAt: asString(row.source_checked_at),
+        sourceCheckedAt: asString(row.source_checked_at ?? ""),
         publishedOffice: nullableString(row.published_office),
         publishedTitle: nullableString(row.published_title),
         jobDescription: nullableString(row.job_description),
