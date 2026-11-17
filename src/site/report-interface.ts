@@ -1,8 +1,21 @@
 import type { CountyRegistryEntry } from "../contracts/county-registry.js";
+import { deriveLegacyFields } from "../contracts/report-grievances.js";
 import type {
   ReportStatus,
   ReportSubmission,
 } from "../contracts/report-intake.js";
+import {
+  button,
+  connectError,
+  fieldError,
+  node,
+  setText,
+} from "./report-dom.js";
+import {
+  createGrievanceForm,
+  type FieldProblem,
+  type ReportDirectoryClient,
+} from "./report-grievance-form.js";
 
 export interface ReportUiReceipt {
   readonly reference: string;
@@ -100,6 +113,10 @@ export interface ReportInterfaceOptions {
   /** Optional human check. Without it the form behaves exactly as before. */
   readonly challenge?: ReportChallenge;
   readonly createIdempotencyKey?: () => string;
+  /** Source for the employee picker. Without it only the unlisted path works. */
+  readonly directory?: ReportDirectoryClient;
+  /** The clock that sets the event year window. */
+  readonly now?: () => Date;
 }
 
 type FieldErrors = Readonly<Record<string, string>>;
@@ -113,49 +130,6 @@ const STATUS_LABELS: Readonly<Record<ReportStatus, string>> = {
   declined: "Declined",
   closed: "Closed",
 };
-
-function node<K extends keyof HTMLElementTagNameMap>(
-  document: Document,
-  tag: K,
-  className?: string,
-): HTMLElementTagNameMap[K] {
-  const result = document.createElement(tag);
-  if (className) result.className = className;
-  return result;
-}
-
-function setText(element: Element, value: string): void {
-  element.textContent = value;
-}
-
-function button(
-  document: Document,
-  label: string,
-  className = "report-button",
-): HTMLButtonElement {
-  const result = node(document, "button", className);
-  result.type = "button";
-  result.textContent = label;
-  return result;
-}
-
-function fieldError(document: Document, id: string): HTMLParagraphElement {
-  const error = node(document, "p", "report-field-error");
-  error.id = `${id}-error`;
-  error.hidden = true;
-  return error;
-}
-
-function connectError(
-  control: HTMLElement,
-  hint: HTMLElement | null,
-  error: HTMLElement,
-): void {
-  control.setAttribute(
-    "aria-describedby",
-    [hint?.id, error.id].filter(Boolean).join(" "),
-  );
-}
 
 function requiredHint(document: Document, id: string): HTMLSpanElement {
   const hint = node(document, "span", "report-field-hint");
@@ -358,6 +332,13 @@ export function mountReportInterface(
     formStatus.setAttribute("role", "status");
     formStatus.setAttribute("aria-live", "polite");
 
+    const grievanceForm = workflow
+      ? createGrievanceForm(document, {
+          counties: options.counties,
+          ...(options.directory ? { directory: options.directory } : {}),
+          now: options.now ?? (() => new Date()),
+        })
+      : null;
     const countyField = node(document, "div", "report-field");
     const countyLabel = node(document, "label");
     countyLabel.htmlFor = "report-county";
@@ -736,13 +717,18 @@ export function mountReportInterface(
     const reviewDescription = node(document, "p", "report-review-description");
     const reviewSources = node(document, "p");
     const reviewAttribution = node(document, "p");
-    reviewSummary.append(
-      reviewSubject,
-      reviewCounty,
-      reviewDescription,
-      reviewSources,
-      reviewAttribution,
-    );
+    const reviewGrievances = node(document, "div", "report-review-grievances");
+    if (grievanceForm) {
+      reviewSummary.append(reviewGrievances, reviewSources, reviewAttribution);
+    } else {
+      reviewSummary.append(
+        reviewSubject,
+        reviewCounty,
+        reviewDescription,
+        reviewSources,
+        reviewAttribution,
+      );
+    }
     const showStep = (index: number, moveFocus = true) => {
       activeStep = index;
       for (const [position, step] of steps.entries()) {
@@ -752,15 +738,19 @@ export function mountReportInterface(
         else stepButtons[position]?.removeAttribute("aria-current");
       }
       if (index === 2) {
-        reviewCounty.textContent = countySelect.value
-          ? `County at the event: ${countySelect.selectedOptions[0]?.textContent ?? ""}`
-          : "County at the event: Not selected";
-        reviewDescription.textContent =
-          description.value.trim() || "Grievance details are missing.";
-        reviewSubject.textContent =
-          subjectKind.value && subjectId.value.trim()
-            ? `Directory reference: ${subjectKind.selectedOptions[0]?.textContent ?? ""} ${subjectId.value.trim()}`
-            : "Directory reference: None";
+        if (grievanceForm) {
+          grievanceForm.renderReview(reviewGrievances);
+        } else {
+          reviewCounty.textContent = countySelect.value
+            ? `County at the event: ${countySelect.selectedOptions[0]?.textContent ?? ""}`
+            : "County at the event: Not selected";
+          reviewDescription.textContent =
+            description.value.trim() || "Grievance details are missing.";
+          reviewSubject.textContent =
+            subjectKind.value && subjectId.value.trim()
+              ? `Directory reference: ${subjectKind.selectedOptions[0]?.textContent ?? ""} ${subjectId.value.trim()}`
+              : "Directory reference: None";
+        }
         const filled = evidenceRows.filter(
           (entry) => entry.title.value.trim() || entry.url.value.trim(),
         );
@@ -799,13 +789,21 @@ export function mountReportInterface(
       const sections = [
         {
           label: "Employee & event",
-          title: "Identify the county and subject",
-          fields: [subjectField, countyField],
+          title: grievanceForm
+            ? "Identify the county employee"
+            : "Identify the county and subject",
+          fields: grievanceForm
+            ? grievanceForm.step1Fields
+            : [subjectField, countyField],
         },
         {
           label: "Grievances & sources",
-          title: "Describe the grievance",
-          fields: [descriptionField, evidenceField, noUploads],
+          title: grievanceForm
+            ? "State the alleged grievances"
+            : "Describe the grievance",
+          fields: grievanceForm
+            ? [...grievanceForm.step2Fields, evidenceField, noUploads]
+            : [descriptionField, evidenceField, noUploads],
         },
         {
           label: "Review & sign",
@@ -1036,7 +1034,10 @@ export function mountReportInterface(
       }
     });
 
-    const applyErrors = (errors: FieldErrors) => {
+    const applyErrors = (
+      errors: FieldErrors,
+      extra: readonly FieldProblem[] = [],
+    ) => {
       errorList.replaceChildren();
       let firstInvalid: HTMLElement | undefined;
       const showError = (
@@ -1064,7 +1065,16 @@ export function mountReportInterface(
         errorList.append(item);
         firstInvalid ??= control;
       };
+      for (const problem of extra) {
+        showError(problem.control, problem.error, problem.message);
+      }
+      // The structured form reuses the single-narrative ids for its own
+      // controls, so its checks must not be overwritten by the legacy ones.
+      const replaced = grievanceForm
+        ? [countySelect.id, subjectId.id, description.id]
+        : [];
       for (const field of fields) {
+        if (replaced.includes(field.id)) continue;
         const control = document.getElementById(field.id);
         if (!control) continue;
         showError(control, field.error, field.getMessage(errors));
@@ -1123,35 +1133,58 @@ export function mountReportInterface(
         attribution: signed.checked ? "signed" : "anonymous",
         contactPreference: contactPreference.value,
       };
-      const errors = {
+      const formErrors: Record<string, string> = {
         ...validateForm(
           values,
           options.counties,
           evidence,
           Boolean(options.account),
         ),
+      };
+      if (grievanceForm) {
+        // The structured grievance fields replace these single-narrative checks.
+        delete formErrors.county;
+        delete formErrors.description;
+        delete formErrors.subject;
+      }
+      const errors = {
+        ...formErrors,
         ...(workflow && !certification.checked
           ? { certification: "Certify the report before submitting." }
           : {}),
       };
-      if (applyErrors(errors)) return;
+      if (applyErrors(errors, grievanceForm?.validate() ?? [])) return;
 
       const idempotencyKey =
         pendingIdempotencyKey ??
         (options.createIdempotencyKey ?? defaultIdempotencyKey)();
       pendingIdempotencyKey = idempotencyKey;
+      const structured = grievanceForm?.collect();
+      const legacy = structured
+        ? deriveLegacyFields(structured.grievances)
+        : null;
       const submission: ReportSubmission = {
-        countyId: values.countyId,
-        ...(values.subjectKind
+        countyId: legacy?.countyId ?? values.countyId,
+        ...(legacy
+          ? legacy.subject
+            ? { subject: legacy.subject }
+            : {}
+          : values.subjectKind
+            ? {
+                subject: {
+                  kind:
+                    values.subjectKind === "person" ? "person" : "organization",
+                  id: values.subjectId,
+                },
+              }
+            : {}),
+        description: legacy?.description ?? values.description.trim(),
+        ...(structured
           ? {
-              subject: {
-                kind:
-                  values.subjectKind === "person" ? "person" : "organization",
-                id: values.subjectId,
-              },
+              ...(structured.headline ? { headline: structured.headline } : {}),
+              grievances: structured.grievances,
             }
           : {}),
-        description: values.description.trim(),
         evidence: evidence
           .filter((item) => item.title || item.url || item.note)
           .map((item) => ({

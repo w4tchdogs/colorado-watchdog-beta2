@@ -401,6 +401,165 @@
   min-height: 1.25rem;
 }
 
+.report-picker,
+.report-grievance-list {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.report-picker .report-field,
+.report-date-row .report-field,
+.report-event-details .report-field,
+.report-grievance-card .report-field {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.report-filter-row,
+.report-date-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  min-width: 0;
+}
+
+.report-date-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.report-picker-results {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.report-picker-results li {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--report-line);
+  border-radius: 4px;
+  background: var(--report-surface);
+}
+
+.report-picker-result {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--report-red);
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.report-picker-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.report-role-box {
+  border-radius: 4px;
+}
+
+.report-role-group {
+  margin: 0.5rem 0 0;
+  font-size: 0.95rem;
+}
+
+.report-field .report-role-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-weight: 400;
+}
+
+.report-role-option input {
+  flex: none;
+  width: 1.25rem;
+  min-height: 1.25rem;
+}
+
+.report-selected-employee {
+  margin: 0;
+  font-weight: 800;
+}
+
+.report-grievance-card {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--report-line);
+  border-radius: 4px;
+  background: var(--report-paper);
+}
+
+.report-grievance-card legend {
+  padding-inline: 0.25rem;
+  font-weight: 800;
+}
+
+.report-word-count {
+  margin: 0;
+  color: var(--report-muted);
+  font-size: 0.85rem;
+}
+
+.report-word-count.is-over {
+  color: var(--report-red);
+  font-weight: 800;
+}
+
+.report-event-details {
+  display: grid;
+  gap: 1rem;
+}
+
+.report-event-details > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.report-event-details[open] > summary {
+  margin-bottom: 1rem;
+}
+
+.report-review-grievance {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--report-line);
+}
+
+.report-review-grievance h3 {
+  margin: 0 0 0.5rem;
+}
+
+.report-review-grievance dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0 0 0.75rem;
+}
+
+.report-review-grievance dt {
+  font-weight: 800;
+}
+
+.report-review-grievance dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 40rem) {
   .report-choices {
     grid-template-columns: 1fr;
@@ -434,5 +593,14 @@
 
   .report-receipt .report-button {
     justify-self: stretch;
+  }
+
+  .report-filter-row,
+  .report-date-row {
+    grid-template-columns: 1fr;
+  }
+
+  .report-review-grievance dl {
+    grid-template-columns: 1fr;
   }
 }

@@ -1,3 +1,26 @@
+import {
+  formatEventDate,
+  GRIEVANCE_TYPES,
+  type ReportGrievance,
+} from "../contracts/report-grievances.js";
+
+type EmployeeNames = Record<
+  string,
+  {
+    name: string;
+    roles: Record<
+      string,
+      {
+        title: string | null;
+        office: string | null;
+        sourceCheckedAt: string;
+        startDate: string | null;
+        endDate: string | null;
+      }
+    >;
+  }
+>;
+
 type Status =
   | "submitted"
   | "triage"
@@ -17,6 +40,10 @@ interface QueueItem {
 }
 interface Report extends QueueItem {
   description: string;
+  headline?: string;
+  grievances?: ReportGrievance[];
+  countyNames?: Record<string, string>;
+  employees?: EmployeeNames;
   reporter: {
     name?: string;
     email?: string;
@@ -145,19 +172,27 @@ function start(root: HTMLElement): void {
     title.textContent = `Report ${id}`;
     detail.append(title);
     try {
-      const [{ report, allowedNextStatuses, countyName }, { history }] =
-        await Promise.all([
-          api<{
-            report: Report;
-            countyName: string;
-            allowedNextStatuses: Status[];
-          }>(`/api/v1/reports/${encodeURIComponent(id)}`),
-          api<{ history: HistoryItem[] }>(
-            `/api/v1/reports/${encodeURIComponent(id)}/history`,
-          ),
-        ]);
+      const [
+        { report, allowedNextStatuses, countyName, countyNames, employees },
+        { history },
+      ] = await Promise.all([
+        api<{
+          report: Report;
+          countyName: string;
+          countyNames?: Record<string, string>;
+          employees?: EmployeeNames;
+          allowedNextStatuses: Status[];
+        }>(`/api/v1/reports/${encodeURIComponent(id)}`),
+        api<{ history: HistoryItem[] }>(
+          `/api/v1/reports/${encodeURIComponent(id)}/history`,
+        ),
+      ]);
       if (currentReportId !== id) return;
-      renderReport({ ...report, countyName }, history, allowedNextStatuses);
+      renderReport(
+        { ...report, countyName, countyNames, employees },
+        history,
+        allowedNextStatuses,
+      );
       announce(`Report ${id} loaded. Unverified allegation.`);
       if (focus) detail.focus();
     } catch (error) {
@@ -195,10 +230,67 @@ function start(root: HTMLElement): void {
           `${report.subject.kind}: ${report.subject.id}`,
         ),
       );
-    summary.append(
-      text("h3", "Submitted description"),
-      text("p", report.description),
-    );
+    if (report.grievances?.length) {
+      if (report.headline)
+        summary.append(pair("Proposed headline", report.headline));
+      report.grievances.forEach((item, index) => {
+        const card = document.createElement("article");
+        card.className = "staff-grievance";
+        card.append(
+          text("h3", `Grievance ${index + 1}`),
+          pair(
+            "Type",
+            GRIEVANCE_TYPES.find((type) => type.id === item.type)?.label ??
+              item.type,
+          ),
+          pair("Event date", formatEventDate(item.date)),
+          pair(
+            "County at the event",
+            `${report.countyNames?.[item.countyId] ?? item.countyId} (${item.countyId})`,
+          ),
+        );
+        if (item.subject.kind === "listed") {
+          const person = report.employees?.[item.subject.personId];
+          const role = person?.roles[item.subject.roleId];
+          card.append(
+            pair(
+              "Listed employee",
+              `${person?.name ?? "Name unavailable"} (${item.subject.personId})`,
+            ),
+            pair(
+              "Selected role",
+              role
+                ? `${role.title ?? "Title not recorded"} · ${role.office ?? "Office not recorded"} · source checked ${role.sourceCheckedAt.slice(0, 10)}${role.startDate || role.endDate ? ` · documented ${role.startDate ?? "start not recorded"} to ${role.endDate ?? "no end recorded"}` : ""}`
+                : "Role details unavailable",
+            ),
+            pair("Role ID", item.subject.roleId),
+          );
+        } else {
+          card.append(
+            pair("Unlisted employee", item.subject.name),
+            pair("Office or department", item.subject.office),
+          );
+        }
+        if (item.position)
+          card.append(pair("Position at the event", item.position));
+        card.append(
+          pair(
+            "Identification basis",
+            item.identificationBasis === "documented"
+              ? "Documented context"
+              : "As described by contributor",
+          ),
+          text("h4", "Details"),
+          text("p", item.details),
+        );
+        summary.append(card);
+      });
+    } else {
+      summary.append(
+        text("h3", "Submitted description"),
+        text("p", report.description),
+      );
+    }
     detail.append(summary);
     const reporter = section("Reporter information");
     reporter.append(

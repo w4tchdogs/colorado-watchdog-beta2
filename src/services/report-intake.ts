@@ -1,3 +1,17 @@
+import {
+  countWords,
+  deriveLegacyFields,
+  GRIEVANCE_TYPES,
+  IDENTIFICATION_BASES,
+  isValidEventDate,
+  MAX_GRIEVANCE_WORDS,
+  MAX_GRIEVANCES,
+  MAX_HEADLINE_LENGTH,
+  MAX_POSITION_LENGTH,
+  MAX_UNLISTED_NAME_LENGTH,
+  MAX_UNLISTED_OFFICE_LENGTH,
+  type ReportGrievance,
+} from "../contracts/report-grievances.js";
 import type {
   IntakeCommit,
   ReportActor,
@@ -43,7 +57,88 @@ const token = (bytes: number) => {
   return [...data].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 };
 
-export function validateSubmission(value: ReportSubmission): void {
+const ID_PATTERN = /^[a-zA-Z0-9_-]{1,100}$/;
+
+function validGrievance(item: unknown, now: Date): item is ReportGrievance {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+  const g = item as Record<string, unknown>;
+  const allowed = [
+    "type",
+    "details",
+    "date",
+    "countyId",
+    "subject",
+    "position",
+    "identificationBasis",
+  ];
+  if (Object.keys(g).some((key) => !allowed.includes(key))) return false;
+  if (!GRIEVANCE_TYPES.some((type) => type.id === g.type)) return false;
+  if (typeof g.details !== "string") return false;
+  const words = countWords(g.details);
+  if (words < 1 || words > MAX_GRIEVANCE_WORDS || g.details.length > 4000)
+    return false;
+  if (!isValidEventDate(g.date, now)) return false;
+  if (
+    typeof g.countyId !== "string" ||
+    !/^[a-zA-Z0-9_-]{1,80}$/.test(g.countyId)
+  )
+    return false;
+  if (
+    g.position !== undefined &&
+    (typeof g.position !== "string" || g.position.length > MAX_POSITION_LENGTH)
+  )
+    return false;
+  if (!IDENTIFICATION_BASES.some((basis) => basis.id === g.identificationBasis))
+    return false;
+  const subject = g.subject as Record<string, unknown> | undefined;
+  if (!subject || typeof subject !== "object" || Array.isArray(subject))
+    return false;
+  const keys = Object.keys(subject);
+  if (subject.kind === "listed")
+    return (
+      keys.every((key) => ["kind", "personId", "roleId"].includes(key)) &&
+      typeof subject.personId === "string" &&
+      ID_PATTERN.test(subject.personId) &&
+      typeof subject.roleId === "string" &&
+      ID_PATTERN.test(subject.roleId)
+    );
+  if (subject.kind === "unlisted")
+    return (
+      keys.every((key) => ["kind", "name", "office"].includes(key)) &&
+      typeof subject.name === "string" &&
+      subject.name.trim().length >= 1 &&
+      subject.name.length <= MAX_UNLISTED_NAME_LENGTH &&
+      typeof subject.office === "string" &&
+      subject.office.trim().length >= 1 &&
+      subject.office.length <= MAX_UNLISTED_OFFICE_LENGTH
+    );
+  return false;
+}
+
+export function validateSubmission(
+  value: ReportSubmission,
+  now = new Date(),
+): void {
+  if (value?.grievances !== undefined) {
+    const list = value.grievances;
+    if (
+      !Array.isArray(list) ||
+      list.length < 1 ||
+      list.length > MAX_GRIEVANCES ||
+      !list.every((item) => validGrievance(item, now)) ||
+      (value.headline !== undefined &&
+        (typeof value.headline !== "string" ||
+          value.headline.length > MAX_HEADLINE_LENGTH))
+    )
+      throw new ReportIntakeError("INVALID_SUBMISSION");
+    // The derived legacy fields stand in for client values the server ignores.
+    value = {
+      ...value,
+      ...deriveLegacyFields(list),
+    };
+  } else if (value?.headline !== undefined) {
+    throw new ReportIntakeError("INVALID_SUBMISSION");
+  }
   const invalid =
     !value ||
     typeof value.idempotencyKey !== "string" ||
@@ -51,8 +146,10 @@ export function validateSubmission(value: ReportSubmission): void {
     typeof value.countyId !== "string" ||
     !/^[a-zA-Z0-9_-]{1,80}$/.test(value.countyId) ||
     typeof value.description !== "string" ||
-    value.description.trim().length < 20 ||
-    value.description.length > 12000 ||
+    (value.grievances === undefined
+      ? value.description.trim().length < 20
+      : value.description.trim().length < 1) ||
+    value.description.length > (value.grievances ? 21000 : 12000) ||
     !Array.isArray(value.evidence) ||
     value.evidence.length > 10 ||
     !value.reporter ||
@@ -105,11 +202,22 @@ export async function submitReport(
   };
   replayed: boolean;
 }> {
-  validateSubmission(value);
+  validateSubmission(value, now);
+  if (value.grievances) {
+    const derived = deriveLegacyFields(value.grievances);
+    value = {
+      ...value,
+      countyId: derived.countyId,
+      description: derived.description,
+      subject: derived.subject,
+    };
+    if (!derived.subject) delete value.subject;
+  }
   if (
     !(await store.validateReferences({
       countyId: value.countyId,
       subject: value.subject,
+      ...(value.grievances ? { grievances: value.grievances } : {}),
     }))
   ) {
     throw new ReportIntakeError("INVALID_SUBMISSION");
@@ -138,6 +246,17 @@ export async function submitReport(
     countyId: normalized.countyId,
     subject: normalized.subject,
     description: normalized.description,
+    ...(normalized.headline !== undefined
+      ? { headline: normalized.headline.trim() }
+      : {}),
+    ...(normalized.grievances
+      ? {
+          grievances: normalized.grievances.map((g) => ({
+            ...g,
+            details: g.details.trim(),
+          })),
+        }
+      : {}),
     evidence: normalized.evidence,
     reporter: normalized.reporter,
     status: "submitted",

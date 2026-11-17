@@ -36,6 +36,12 @@ export interface ReportApiOptions {
     ApplicationServices,
     "resolvePrincipal" | "hasCapability"
   > & {
+    /** Optional. Names listed employees and roles in staff detail. */
+    readonly getPersonProfile?: (
+      input: Parameters<ApplicationServices["getPersonProfile"]>[0],
+    ) =>
+      | ReturnType<ApplicationServices["getPersonProfile"]>
+      | Promise<ReturnType<ApplicationServices["getPersonProfile"]>>;
     readonly listCounties: () =>
       | ReturnType<ApplicationServices["listCounties"]>
       | Promise<ReturnType<ApplicationServices["listCounties"]>>;
@@ -116,6 +122,14 @@ export function createReportApiModule(options: ReportApiOptions) {
           countyName:
             counties.find((county) => county.fips === commit.report.countyId)
               ?.name ?? commit.report.countyId,
+          countyNames: Object.fromEntries(
+            (commit.report.grievances ?? []).map((g) => [
+              g.countyId,
+              counties.find((county) => county.fips === g.countyId)?.name ??
+                g.countyId,
+            ]),
+          ),
+          employees: await describeListedEmployees(options, commit.report),
           allowedNextStatuses: getAllowedReportTransitions(
             commit.report.status,
           ),
@@ -249,6 +263,44 @@ async function listing(
   });
 }
 
+/** Resolves stored person and role IDs to documented names, best effort. */
+async function describeListedEmployees(
+  options: ReportApiOptions,
+  report: IntakeCommit["report"],
+): Promise<Record<string, unknown>> {
+  const out: Record<string, unknown> = {};
+  const lookup = options.services.getPersonProfile;
+  if (!lookup) return out;
+  const wanted = new Map<string, Set<string>>();
+  for (const g of report.grievances ?? []) {
+    if (g.subject.kind !== "listed") continue;
+    const roles = wanted.get(g.subject.personId) ?? new Set<string>();
+    roles.add(g.subject.roleId);
+    wanted.set(g.subject.personId, roles);
+  }
+  for (const [personId, roleIds] of wanted) {
+    try {
+      const page = await lookup({ personId, limit: 100 });
+      if (!page) continue;
+      const roles: Record<string, unknown> = {};
+      for (const item of page.items) {
+        if (!roleIds.has(item.role.id)) continue;
+        roles[item.role.id] = {
+          title: item.role.publishedTitle ?? item.position?.title ?? null,
+          office: item.role.publishedOffice ?? item.organization?.name ?? null,
+          sourceCheckedAt: item.role.sourceCheckedAt,
+          startDate: item.role.startDate,
+          endDate: item.role.endDate,
+        };
+      }
+      out[personId] = { name: page.person.displayName, roles };
+    } catch {
+      // Names are a convenience. The stored IDs remain authoritative.
+    }
+  }
+  return out;
+}
+
 function staffActor(principal: TrustedPrincipal) {
   if (
     principal.role !== "editor" &&
@@ -270,10 +322,13 @@ function isSubmission(value: unknown): value is ReportSubmission {
       "countyId",
       "subject",
       "description",
+      "headline",
+      "grievances",
       "evidence",
       "reporter",
       "idempotencyKey",
     ]) ||
+    (value.grievances !== undefined && !Array.isArray(value.grievances)) ||
     !object(value.reporter) ||
     !keysAre(value.reporter, [
       "name",
