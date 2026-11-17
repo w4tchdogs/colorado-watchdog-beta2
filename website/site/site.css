@@ -270,12 +270,6 @@ img {
   text-transform: uppercase;
   white-space: nowrap;
 }
-.header-login:hover,
-.header-login:focus-visible {
-  color: #ffffff;
-  background: var(--ink);
-  border-color: #ffffff;
-}
 .header-login-note {
   margin: 0;
   font-size: 0.6875rem;
@@ -295,6 +289,16 @@ img {
   font-weight: 800;
   text-transform: uppercase;
   cursor: pointer;
+}
+.nav-toggle:hover,
+.nav-toggle:focus-visible,
+.header-login:hover,
+.header-login:focus-visible {
+  background: #111111;
+  color: #ffffff;
+  border-color: #111111;
+  outline: 2pt solid #ffffff;
+  outline-offset: -2pt;
 }
 @media (min-width: 60rem) {
   .header-account {
@@ -341,6 +345,11 @@ img {
   .site-nav a:hover,
   .site-nav a[aria-current] {
     border-bottom-color: rgb(255 255 255 / 0.4);
+  }
+  .site-nav a:hover {
+    text-decoration-line: underline;
+  }
+  .site-nav a[aria-current] {
     border-left-color: #ffffff;
   }
 }
@@ -387,6 +396,10 @@ img {
 }
 .site-footer a {
   color: #ffffff;
+  text-decoration-line: none;
+}
+.site-footer a:hover {
+  text-decoration-line: underline;
 }
 .footer-grid {
   display: grid;
@@ -1285,10 +1298,9 @@ img {
   box-shadow: none;
 }
 
-/* Use the discovery cards' colors across the homepage. Draw the white line
-   inward so adjacent menu rows and banner edges cannot cover it. */
+/* Draw the homepage cards' white outline inside the box. */
 .home-page :is(
-  :is(.nav-toggle, .site-nav a, .header-login, a.button, .discovery-card):is(:hover, :focus-visible),
+  :is(a.button, .discovery-card):is(:hover, :focus-visible),
   .cv-pathway:has(.cv-pathway-link:is(:hover, :focus-visible)),
   .editorial-grid .article-card:has(.article-card-title a:is(:hover, :focus-visible))
 ) {
@@ -1299,7 +1311,7 @@ img {
   outline-offset: -2pt;
 }
 .home-page :is(
-  :is(.nav-toggle, .site-nav a, .header-login, a.button, .discovery-card):is(:hover, :focus-visible),
+  :is(a.button, .discovery-card):is(:hover, :focus-visible),
   .cv-pathway:has(.cv-pathway-link:is(:hover, :focus-visible)),
   .editorial-grid .article-card:has(.article-card-title a:is(:hover, :focus-visible))
 ) * {
@@ -1310,17 +1322,11 @@ img {
   border-color: currentColor;
 }
 .home-page :is(
-  :is(.nav-toggle, .site-nav a, .header-login, a.button, .discovery-card):focus-visible,
+  :is(a.button, .discovery-card):focus-visible,
   .cv-pathway:has(.cv-pathway-link:focus-visible),
   .editorial-grid .article-card:has(.article-card-title a:focus-visible)
 ) {
   box-shadow: 0 0 0 2pt var(--ink);
-}
-.home-page .site-footer nav a {
-  text-decoration-line: none;
-}
-.home-page .site-footer nav a:hover {
-  text-decoration-line: underline;
 }
 @media (max-width: 1100px) {
   .discovery-grid {
