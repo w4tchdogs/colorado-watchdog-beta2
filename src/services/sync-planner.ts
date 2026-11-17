@@ -583,18 +583,8 @@ function planUpdate(
   targets.add(key);
   const fields = raw.fields;
   const allowed = UPDATE_FIELDS[entity] ?? [];
-  if (
-    Object.keys(fields).some((f) => !allowed.includes(f)) ||
-    (entity === "person_roles" &&
-      Object.hasOwn(fields, "source_id") &&
-      !Object.hasOwn(fields, "source_checked_at"))
-  ) {
-    add(
-      Object.keys(fields).some((f) => !allowed.includes(f))
-        ? "unsupported_field"
-        : "source_check_required",
-      index,
-    );
+  if (Object.keys(fields).some((f) => !allowed.includes(f))) {
+    add("unsupported_field", index);
     items.push({
       itemIndex: index,
       entity,
@@ -688,7 +678,7 @@ function validateCreateFields(
     people: ["display_name"],
     positions: ["title"],
     role_sources: ["url", "title", "source_type", "publisher_classification"],
-    person_roles: ["source_checked_at", "county_fips"],
+    person_roles: ["county_fips"],
   };
   for (const field of required[entity])
     if (!Object.hasOwn(f, field)) {
@@ -887,10 +877,6 @@ function validateRoleUpdate(
   add: (code: SyncErrorCode, i?: number) => void,
   now: () => Date,
 ): boolean {
-  if (Object.hasOwn(f, "source_id") && !Object.hasOwn(f, "source_checked_at")) {
-    add("source_check_required", i);
-    return false;
-  }
   if (
     Object.hasOwn(f, "source_id") &&
     !exists(db, "role_sources", String(f.source_id))
@@ -902,7 +888,11 @@ function validateRoleUpdate(
     {
       start_date: f.start_date ?? row.start_date,
       end_date: f.end_date ?? row.end_date,
-      source_checked_at: f.source_checked_at ?? row.source_checked_at,
+      source_checked_at: Object.hasOwn(f, "source_checked_at")
+        ? f.source_checked_at
+        : Object.hasOwn(f, "source_id")
+          ? null
+          : row.source_checked_at,
     },
     i,
     undefined,
@@ -934,13 +924,17 @@ function validateRoleDates(
     add("date_order", i, ref);
     ok = false;
   }
-  if (f.source_checked_at !== undefined && !validUtc(f.source_checked_at)) {
+  if (
+    f.source_checked_at != null &&
+    !validDate(f.source_checked_at) &&
+    !validUtc(f.source_checked_at)
+  ) {
     add("invalid_timestamp", i, ref);
     ok = false;
   }
   if (
     typeof f.source_checked_at === "string" &&
-    validUtc(f.source_checked_at) &&
+    (validDate(f.source_checked_at) || validUtc(f.source_checked_at)) &&
     Date.parse(f.source_checked_at) > now().getTime() + 300_000
   ) {
     add("future_timestamp", i, ref);

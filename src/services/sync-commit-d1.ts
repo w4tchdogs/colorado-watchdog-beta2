@@ -530,7 +530,7 @@ async function prepareItems(
       if (!before || before.version !== item.expectedVersion)
         throw new Error("stale_plan");
       const previous: Record<string, D1Value> = {};
-      for (const key of Object.keys(change.fields))
+      for (const key of Object.keys(updateFields(change)))
         previous[key] = asD1Value(before[key]);
       prepared.push({
         item,
@@ -569,12 +569,24 @@ function insertEntityStatement(
   );
 }
 
+function updateFields(change: SyncChange): Record<string, unknown> {
+  if (!("fields" in change)) throw new Error("invalid_plan");
+  const fields = { ...change.fields } as Record<string, unknown>;
+  if (
+    change.entity === "person_roles" &&
+    Object.hasOwn(fields, "source_id") &&
+    !Object.hasOwn(fields, "source_checked_at")
+  ) {
+    fields.source_checked_at = null;
+  }
+  return fields;
+}
+
 function updateEntityStatement(
   db: AsyncD1Database,
   planned: PlannedCommit,
 ): D1BatchStatement {
-  if (!("fields" in planned.change)) throw new Error("invalid_plan");
-  const fields = planned.change.fields as Record<string, unknown>;
+  const fields = updateFields(planned.change);
   const keys = Object.keys(fields).sort();
   if (
     keys.length === 0 ||

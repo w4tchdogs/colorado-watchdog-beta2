@@ -199,7 +199,7 @@ export function createD1PublicReadServices(
           version: num(r.role_version),
           startDate: nullable(r.start_date),
           endDate: nullable(r.end_date),
-          sourceCheckedAt: str(r.source_checked_at),
+          sourceCheckedAt: str(r.source_checked_at ?? ""),
           publishedOffice: nullable(r.published_office),
           publishedTitle: nullable(r.published_title),
           jobDescription: nullable(r.job_description),
@@ -380,7 +380,7 @@ export function createD1PublicReadServices(
           version: num(r.role_version),
           startDate: nullable(r.start_date),
           endDate: nullable(r.end_date),
-          sourceCheckedAt: str(r.source_checked_at),
+          sourceCheckedAt: str(r.source_checked_at ?? ""),
           county:
             r.role_county_fips === null
               ? null
@@ -537,7 +537,7 @@ export function createD1PublicReadServices(
           version: num(r.role_version),
           startDate: nullable(r.start_date),
           endDate: nullable(r.end_date),
-          sourceCheckedAt: str(r.source_checked_at),
+          sourceCheckedAt: str(r.source_checked_at ?? ""),
         },
         person: {
           id: str(r.person_id),

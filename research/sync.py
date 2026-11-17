@@ -8,10 +8,10 @@ import hashlib
 import json
 from collections import Counter, defaultdict
 from urllib.parse import urlsplit
-from datetime import datetime, timezone
 from datetime import date as calendar_date
 from uuid import UUID, uuid5, NAMESPACE_URL
 
+from research.evidence_dates import source_found_on
 from research.mapping import canonical_json
 from research.store import timestamp
 from research.submission import prepare_submission
@@ -55,7 +55,7 @@ def _ref(entity_type, local_id):
 
 def _source_ok(db, evidence_id, *, allowed_publishers=("official",)):
     row = db.execute(
-        'SELECT e."Evidence record ID" AS id,e."Source ID" AS source_id,e."Source title as observed" AS observed_title,e."Source URL as observed" AS observed_url,e."Recorded on" AS recorded_at,s."Original source URL" AS original_url,'
+        'SELECT e."Evidence record ID" AS id,e."Source ID" AS source_id,e."Source title as observed" AS observed_title,e."Source URL as observed" AS observed_url,e."Reported check date" AS reported_check_date,s."First discovered on" AS first_discovered,s."Original source URL" AS original_url,'
         's."Previous source category" AS official_status,s."Publisher type" AS publisher_classification,s."Document type" AS page_type FROM research_evidence e JOIN research_sources s ON s."Source ID"=e."Source ID" '
         'WHERE e."Evidence record ID"=?',
         (evidence_id,),
@@ -85,25 +85,13 @@ def _source_ok(db, evidence_id, *, allowed_publishers=("official",)):
         return None, "invalid_public_citation_url"
     if len(row["observed_title"].encode("utf-8")) > 500:
         return None, "citation_title_too_long"
-    checked = row["recorded_at"]
-    try:
-        parsed = datetime.fromisoformat(checked.replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            return None, "source_check_time_not_utc"
-        checked = (
-            parsed.astimezone(timezone.utc)
-            .isoformat(timespec="seconds")
-            .replace("+00:00", "Z")
-        )
-    except (ValueError, AttributeError):
-        return None, "source_check_time_invalid"
     return {
         "source_id": row["source_id"],
         "url": row["observed_url"],
         "title": row["observed_title"],
         "publisher_classification": row["publisher_classification"],
         "source_type": source_type,
-        "source_checked_at": checked,
+        "source_checked_at": source_found_on(row["first_discovered"], row["reported_check_date"]),
     }, None
 
 
@@ -627,7 +615,7 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=None, county_f
                     }
                 )
                 continue
-        # Role citations may be published by a verified government or
+        # Role citations may be published by a classified government or
         # nongovernment publisher. Identity, organization names, and
         # affiliations continue to use _source_ok's official-only default.
         citation, reason = _source_ok(

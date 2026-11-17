@@ -58,9 +58,9 @@ This section resolves M2-A acceptance findings M2A-ACC-1 through 4 and 10 and is
 
 Create items use `{op, entity, clientRef, fields}`. `entity` must match the operation's one M1-A table. The create operations are `create_organization`, `add_county_affiliation`, `create_person`, `create_position`, `register_source`, and `create_person_role`. Create items never accept persistent IDs. Relationship fields use the existing ID (`*_id`) or same-request temporary reference (`*_ref`) spelling. A pair supplies exactly one form, except an organization root may omit its optional parent fields or set both parent ID and relationship to null. A temporary ref must name one unique, compatible create item earlier in array order; forward, self, unknown, duplicate and wrong-entity refs are rejected. Plans preserve input order and return dependency refs. References to existing records are checked for existence and relationship validity; they need no version pin unless updated.
 
-An update item is exactly `{"op":"update_record","entity":"organizations","targetId":"existing-website-id","expectedVersion":3,"fields":{"name":"Updated organization name"}}`. Its target must already exist; its expected version is a positive integer; one target may be updated only once per changeset. Duplicate targets return `duplicate_target`; a stale version returns `stale_version` with only the safe current version. Missing targets never become creates. The shared `MUTABLE_COLUMNS` object is not a sync allowlist. Permitted update fields are: organizations `name`, `organization_type`, `county_fips`, `parent_organization_id`, `parent_relationship`; people `display_name`; positions `title`; role_sources `title`; person_roles `start_date`, `end_date`, `source_checked_at`, and `source_id` only when a valid replacement source and new `source_checked_at` are supplied. Affiliations have no update fields. `update_organization` is superseded by `update_record`. All other tables and fields, including account/security fields and relationship retargeting, are rejected.
+An update item is exactly `{"op":"update_record","entity":"organizations","targetId":"existing-website-id","expectedVersion":3,"fields":{"name":"Updated organization name"}}`. Its target must already exist; its expected version is a positive integer; one target may be updated only once per changeset. Duplicate targets return `duplicate_target`; a stale version returns `stale_version` with only the safe current version. Missing targets never become creates. The shared `MUTABLE_COLUMNS` object is not a sync allowlist. Permitted update fields are: organizations `name`, `organization_type`, `county_fips`, `parent_organization_id`, `parent_relationship`; people `display_name`; positions `title`; role_sources `title`; person_roles `start_date`, `end_date`, `source_checked_at`, and `source_id` with a valid replacement source. A source replacement without a recorded discovery date clears the previous date. Affiliations have no update fields. `update_organization` is superseded by `update_record`. All other tables and fields, including account/security fields and relationship retargeting, are rejected.
 
-Dates are real calendar dates in `YYYY-MM-DD`; role end dates cannot precede start dates. `source_checked_at` is RFC 3339 UTC, is evidence-check time rather than employment time, and cannot exceed the injected trusted clock by more than five minutes. This skew is a local validator default, not an approved production freshness policy. Source URLs must be absolute HTTP(S), contain a host, contain no userinfo, and fit 2,048 UTF-8 bytes. URLs are syntax-checked only; the planner never fetches them. `example.invalid` is accepted for synthetic fixtures. Source reuse compares the exact supplied URL bytes and requires identical title and source type; conflicting metadata is a safe conflict. No URL normalization is used for identity. Source types follow the M1-A enum.
+Dates are real calendar dates in `YYYY-MM-DD`; role end dates cannot precede start dates. The optional `source_checked_at` is the recorded discovery date or a legacy RFC 3339 UTC timestamp. Supplied values cannot exceed the injected trusted clock by more than five minutes. This skew is a local validator default, not an approved production freshness policy. Source URLs must be absolute HTTP(S), contain a host, contain no userinfo, and fit 2,048 UTF-8 bytes. URLs are syntax-checked only; the planner never fetches them. `example.invalid` is accepted for synthetic fixtures. Source reuse compares the exact supplied URL bytes and requires identical title and source type; conflicting metadata is a safe conflict. No URL normalization is used for identity. Source types follow the M1-A enum.
 
 Limits apply together: 8 MiB total request, at least one change, 32 KiB per change and 20 duplicate flags. There is no cap on the number of changes, source citations or planned rows, and batches of 10,000 changes are tested locally. Field caps are 500 UTF-8 bytes for names/titles/reasons and 128 ASCII bytes for IDs and client refs. The planner performs bounded primary-key/county/uniqueness lookups and organization walks up to 64 ancestors; no write transaction is used. Results contain ordered `would_create`, `would_update`, `would_reuse` or `invalid` items, existing IDs only when already persisted, and bounded sanitized errors. Dry runs do not write rows, versions, audits, operations, sync state, flags or idempotency state, and generate no persistent Website IDs.
 
@@ -68,7 +68,7 @@ Duplicate flags are optional advisory input. Only bounded, well-formed person fl
 
 M2-B keeps validation/planning as internal functions with no principal parameter. M2-C consumes that planner without modifying its dry-run-only behavior. The M2-B dry-run portion covers acceptance matrix cases 1–10, 16, 22 and 23; local commit, atomicity and replay are now covered by the internal M2-C service. Stale conflicts include no row projection.
 
-The design is grounded in the accepted Website foundation at M1-A/M1-B and the owner directions in [decisions.md](../decisions.md). Owner directions include local research and screening, Website-assigned public IDs, version-checked changesets, one verified official county webpage directly connecting a person's name to a role as sufficient source evidence, and nonblocking duplicate flags. Technical choices below are recommendations, not new owner policy. The document is for the Website track; it does not authorize or require changes to Profiles.
+The design is grounded in the accepted Website foundation at M1-A/M1-B and the owner directions in [decisions.md](../decisions.md). Owner directions include local research and screening, Website-assigned public IDs, version-checked changesets, a linked source as sufficient role evidence, and nonblocking duplicate flags. Technical choices below are recommendations, not new owner policy. The document is for the Website track; it does not authorize or require changes to Profiles.
 
 ## Current baseline and system boundary
 
@@ -253,7 +253,7 @@ These defaults should be enforced by the Website before database writes begin. H
 }
 ```
 
-This is a synthetic dry-run example. The reserved `example.invalid` host is accepted as syntactically valid test data; the planner does not fetch or verify URLs. A real public citation must be verified by the local research process. The example uses a five-digit Colorado FIPS value (`08013`) and earlier same-request temporary references. An update item carries its own `targetId` and positive `expectedVersion` as described in the M2-B pinned section; there is no envelope-level `expectedVersions` map.
+This is a synthetic dry-run example. The reserved `example.invalid` host is accepted as syntactically valid test data; the planner does not fetch or verify URLs. A real role must link to its retained public source. The example uses a five-digit Colorado FIPS value (`08013`) and earlier same-request temporary references. An update item carries its own `targetId` and positive `expectedVersion` as described in the M2-B pinned section; there is no envelope-level `expectedVersions` map.
 
 ## Supported entity operations
 
@@ -292,7 +292,7 @@ The initial implementation should allow only a small, allowlisted operation set 
 7. `create_person_role`
    - creates the source-backed `person_roles` row
    - requires existing IDs or matching same-request refs for `person_id`, `position_id`, and `source_id`, plus valid date semantics
-   - source_checked_at is required; no role can be created without a citation
+   - a linked source is required; source_checked_at is optional
 
 8. `update_record`
    - generic version-checked update only for the narrow per-entity field table in the M2-B pinned section
@@ -549,11 +549,11 @@ The reversal is explicit, capability-gated and audited. A reversible-until durat
 
 Every `person_roles` association must retain a citation from a public source in the Website record for validation and audit. Public pages and unauthenticated role responses omit that citation. The accepted standard is:
 
-- one verified public citation from an `official` or `unofficial` publisher directly connecting the identified person to the documented role is sufficient
+- one linked public source from an `official` or `unofficial` publisher supports the documented role
 - `publisher_classification` (`official` or `unofficial`) is stored separately from `source_type`, which preserves page type (`official_page`, `public_document`, or `other_public`)
-- the URL, title, publisher classification, and page type remain attributable; `source_checked_at` preserves the verification date
+- the URL, title, publisher classification, and page type remain attributable
 - a source with unresolved publisher classification is not an acceptable role citation
-- `source_checked_at` records the time of verification
+- `source_checked_at` records when the source was found, if that date is available
 - a role without a valid public source is not accepted as a source-backed Website entry
 
 This role-citation rule does not relax official-evidence requirements for
@@ -562,11 +562,11 @@ generator applies the broader publisher allowance only to a role claim's own
 citation; its other evidence checks remain official-only. The sync request
 requires `publisher_classification` on `register_source` and persists it in
 `role_sources` separately from `source_type`. The Website does not fetch or
-reverify the source; source verification remains a Profiles research step.
+reverify the source. The accepted Profiles source link is sufficient.
 
 The synchronization contract should therefore require `source_ref` on every role-creating item and should reject any item that tries to create a role without a valid cited source.
 
-An existing source is reused by stable Website source ID or an exact URL lookup that returns one unambiguous record. Same URL with conflicting metadata is a `duplicate_key` conflict, not an implicit update. Source updates require the source's expected version and must not rewrite a role's checked date. The stable `person_roles.source_id` preserves the relationship, but updating a shared source record changes its stored title/URL for every referencing role; a different citation for one role should use a new source and version-checked role update. `source_checked_at` is evidence-check time, not an employment start date. The existing M1-A foreign key enforces the source relationship. The sync service records supplied public citations and does not fetch caller-provided URLs; source verification belongs to the local research process, and the Website must not require a second citation.
+An existing source is reused by stable Website source ID or an exact URL lookup that returns one unambiguous record. Same URL with conflicting metadata is a `duplicate_key` conflict, not an implicit update. Source updates require the source's expected version and must not rewrite a role's checked date. The stable `person_roles.source_id` preserves the relationship, but updating a shared source record changes its stored title/URL for every referencing role; a different citation for one role should use a new source and version-checked role update. `source_checked_at` records the source discovery date independently of employment dates. The existing M1-A foreign key enforces the source relationship. The sync service records the linked public source and does not fetch caller-provided URLs. The Website accepts the source link without requiring a separate check date.
 
 ## Nonblocking duplicate flags
 

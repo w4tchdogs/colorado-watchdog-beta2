@@ -55,7 +55,7 @@ Review findings before preparing a confirmed profile or a Website revision.
 | `profile_county` | The one required county for each confirmed Profile, keyed by Profile ID and referencing `county`. |
 | `profile_county_unit` | Approved county organization or unit details used by confirmed roles. |
 | `profile_evidence` | Private evidence supporting a confirmed profile. The schema must represent the link to its research identity and supporting evidence. |
-| `profile_evidence_citation` | Public URL, title, publisher classification, page type and verification date for a role citation, with a link to the private source. |
+| `profile_evidence_citation` | Public URL, title, publisher classification, page type and recorded discovery date when a dated public citation is available. The private evidence link supplies role provenance in all cases. |
 | `profile_evidence_role` | Links a confirmed role to supporting observations and evidence. Multiple supporting observations can be retained. |
 | `profile_position` | Approved title linked to a county unit where evidence supports a structured position. |
 | `profile_revisions` | Proposed edits, review history and the exact approved public revision, with review actor, time and fingerprint. |

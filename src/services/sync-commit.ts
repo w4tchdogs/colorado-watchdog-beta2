@@ -408,6 +408,13 @@ function applyPlan(
         .get(item.targetId);
       if (!before) throw new StaleVersionError();
       const fields = { ...change.fields } as Record<string, VersionedValue>;
+      if (
+        item.entity === "person_roles" &&
+        Object.hasOwn(fields, "source_id") &&
+        !Object.hasOwn(fields, "source_checked_at")
+      ) {
+        fields.source_checked_at = null;
+      }
       const previous = Object.fromEntries(
         Object.keys(fields).map((key) => [key, before[key] as VersionedValue]),
       );

@@ -39,7 +39,7 @@ These decisions describe intended architecture and collaboration; they do **not*
 | Backbone | AI-first modular design; one relational website D1 database, R2 files, shared dashboard/API/MCP service layer, early unified accounts, efficient bulk updates and recoverable backups |
 | Content | Site-managed Posts and stories as a central feature; beta-1 page patterns as reference only |
 | Research | Separate Windows 11 SQLite research database, DB Browser for SQLite; AI-led, county-by-county screening outside the Site |
-| Profile eligibility | One verified official county webpage linking a person's name to a position is sufficient; additional sources are allowed and useful |
+| Profile eligibility | An eligible Profile role needs a linked source. The recorded source discovery date serves as its verification date. |
 | Identity | Initial pre-import screening, then nonblocking possible-duplicate flags, later evidence-supported AI maintenance; name/nickname similarity alone never proves identity |
 | Research memory | Proposed 19-table relational model, including county-specific organizational structure, source discoveries and visits, coverage, role targets, aliases and website sync |
 | Shared AI memory | One GitHub repository, issue handoffs, checked PRs for durable documentation, short shared instructions and optional Project bootstrap text |
@@ -193,17 +193,20 @@ rewriting the history above.
 - Limit each export to 10,000 distinct profile records. Use deterministic profile-ID ordering, visibly mark truncation, and continue after the last profile ID. Include official and unofficial citations, preserve unresolved publishers as a separate state, and exclude private research notes, raw captures and unrelated personal data.
 - Keep the local Profiles export separate from Website M2 changesets and hosted write controls. This decision does not authorize a hosted migration, sync submission, or public publication.
 
-## Website role citations, November 16, 2026
+## Profiles and Website role citations, November 16–17, 2026
 
-- One verified public citation from a publisher classified `official` or
-  `unofficial` may support a person-role record when it directly connects the
-  identified person to the documented role. An unofficial role citation does
-  not satisfy or replace official evidence required for identity resolution,
-  organization names, or county affiliations.
-- Keep publisher classification separate from page type. Preserve the role
-  citation URL, title, publisher classification, page type, and verification
-  date in Website sync records. A publisher classified `unresolved` is not an
-  acceptable role citation.
+- A linked source satisfies the role's evidence requirement. The owner confirmed
+  that every source already in the Profiles database was verified when it was
+  found. Apply this decision to all counties and all existing review queues.
+- Use the recorded source discovery date as the verification date. If the source
+  has no separate discovery date, use the retained reported check date. Leave
+  an unrecorded date unset. A source link does not require a repeat visit.
+- Preserve the private evidence link, original role wording and any documented
+  date. Website role records retain the linked public source and its URL, title,
+  publisher classification and page type. Keep publisher classification
+  separate from page type. The existing Website public-source metadata and
+  official-evidence rules for identity, organization names and county
+  affiliations remain in force.
 
 ### Public display of Profiles evidence, November 17, 2026
 
@@ -216,7 +219,7 @@ rewriting the history above.
 - Within the same county, claims with the same name are merged when their office, position, or job description align. County plus name alone is not enough; name or nickname similarity without an aligned role descriptor does not establish a merge.
 - An unknown organization type or unresolved hierarchy is not, by itself, a reason to exclude an otherwise qualifying Profile.
 - Keep each supported role, its office/position/job-description text, county association, source citation and evidence history. Do not turn a responsibility into a job title.
-- This decision supersedes conflicting earlier identity evidence defaults and R7 eligibility assumptions. The identity planner, R7 generator and local Website reads implement it as of SYNC-1. The official and unofficial role-citation requirements recorded above remain separate.
+- This decision supersedes conflicting earlier identity evidence defaults and R7 eligibility assumptions. The identity planner, R7 generator and local Website reads implement it as of SYNC-1. Apply the source-link rule recorded above to every qualifying role.
 
 ## Profiles database column names, November 16, 2026
 

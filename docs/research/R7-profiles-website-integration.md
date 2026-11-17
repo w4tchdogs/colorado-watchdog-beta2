@@ -12,17 +12,16 @@ Citation page types are accepted only when `sources.page_type` is explicitly
 equal the retained source URL. `page_type` describes the page or document; it
 does not establish the publisher. For a person-role citation, publisher
 classification must be explicitly `official` or `unofficial`; `unresolved` is
-excluded. One verified public citation is sufficient when its retained role
-claim directly connects the identified person to the documented role. The
+excluded. A retained link to the public source is sufficient for the role. The
 generated source record preserves its URL, title, publisher classification and
-page type, while the role preserves `source_checked_at` as the verification
-date. Existing evidence-quality, citation metadata, identity and role
-eligibility checks still apply. Official publisher classification remains
+page type. The role carries the date the source was found as
+`source_checked_at` when recorded, using the retained reported check date as a
+fallback. An absent date does not exclude an otherwise eligible role. Official publisher classification remains
 required for identity resolution, organization names and county affiliations.
 
 ## Roles that rest on documented text
 
-A role needs a person, an explicit county, a verified public citation and at least one documented detail: an office, a position title or a job description. The generator emits a structured position link only when a resolved organization, a position target and a documented title all exist. Otherwise it emits the documented text on the role itself and leaves the organization and position links empty. An office-only role stores `published_office`, a duties-only role stores `job_description` and leaves the title empty, and a title with no resolved organization stores `published_title`. Duties are never copied into a title, and no title, organization or hierarchy is inferred. An unknown organization type or unresolved hierarchy does not exclude a role. A role with no detail, no county or no verified citation is excluded. Website migration `0022_unstructured_person_roles.sql` adds `county_fips`, `published_office`, `published_title` and `job_description` to `person_roles`, makes `position_id` optional and preserves existing roles, IDs, versions and citations. Profile, county and officials pages show the documented role details. The citation is retained for sync and audit and is omitted from public pages and unauthenticated directory responses.
+A role needs a person, an explicit county, a linked public source and at least one documented detail: an office, a position title or a job description. The generator emits a structured position link only when a resolved organization, a position target and a documented title all exist. Otherwise it emits the documented text on the role itself and leaves the organization and position links empty. An office-only role stores `published_office`, a duties-only role stores `job_description` and leaves the title empty, and a title with no resolved organization stores `published_title`. Duties are never copied into a title, and no title, organization or hierarchy is inferred. An unknown organization type or unresolved hierarchy does not exclude a role. A role with no detail, no county or no linked public source is excluded. Website migration `0022_unstructured_person_roles.sql` adds `county_fips`, `published_office`, `published_title` and `job_description` to `person_roles`, makes `position_id` optional and preserves existing roles, IDs, versions and citations. Profile, county and officials pages show the documented role details. The citation is retained for sync and audit and is omitted from public pages and unauthenticated directory responses.
 
 Organization parentage is emitted only from an existing explicit local parent
 decision with its evidence. Partner organizations have no county department

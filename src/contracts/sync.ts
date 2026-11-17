@@ -100,7 +100,7 @@ export interface CreatePersonRole {
   readonly fields: Readonly<{
     start_date?: string | null;
     end_date?: string | null;
-    source_checked_at: string;
+    source_checked_at?: string | null;
     county_fips: string;
     published_office?: string;
     published_title?: string;
@@ -139,7 +139,7 @@ export type UpdateRecord =
       readonly fields: Readonly<{
         start_date?: string | null;
         end_date?: string | null;
-        source_checked_at?: string;
+        source_checked_at?: string | null;
         source_id?: never;
       }>;
     })
@@ -148,7 +148,7 @@ export type UpdateRecord =
       readonly fields: Readonly<{
         start_date?: string | null;
         end_date?: string | null;
-        source_checked_at: string;
+        source_checked_at?: string | null;
         source_id: string;
       }>;
     });

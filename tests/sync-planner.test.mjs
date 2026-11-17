@@ -241,7 +241,7 @@ test("source reuse is byte-exact and source evidence cannot be silently retained
       db,
       request([update("person_roles", "role-a", 1, { source_id: "source-a" })]),
     );
-    assert.equal(sourceChange.errors[0].code, "source_check_required");
+    assert.equal(sourceChange.eligible, true);
     const title = planSyncChangeset(
       db,
       request([
