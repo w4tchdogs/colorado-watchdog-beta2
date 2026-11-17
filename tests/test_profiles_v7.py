@@ -231,6 +231,8 @@ class ProfilesCase(unittest.TestCase):
         # A confirmed parent must match the researched parent.
         self.fails('INSERT INTO profile_county_unit VALUES (?,?,?,?,?,?,?,?,?)',
                    ("cu-orphan", "08107", "Other", "division", "u-parent", "cu-child", "ev-3", "R", NOW), "researched unit parent")
+        self.fails('UPDATE profile_county_unit SET "Research unit ID" = ? WHERE "County unit ID" = ?',
+                   ("u-child", "cu-parent"), "researched unit parent")
         # Role county follows the profile's county, unit and position must agree.
         self.fails('INSERT INTO profile_role("Role ID","Profile ID","County code","Position title") VALUES (?,?,?,?)',
                    ("r-x", "p-1", "08031", "Wrong county"), "FOREIGN KEY")

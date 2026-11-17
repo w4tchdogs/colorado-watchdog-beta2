@@ -222,6 +222,15 @@ WHEN NEW."Research unit ID" IS NOT NULL AND NEW."Parent county unit" IS NOT NULL
     WHERE s."Office or unit ID" = NEW."Research unit ID" AND s."Parent office or unit" = p."Research unit ID")
 BEGIN SELECT RAISE(ABORT, 'Parent must match the researched unit parent'); END;
 
+CREATE TRIGGER profile_county_unit_preserves_researched_children
+BEFORE UPDATE OF "Research unit ID" ON "profile_county_unit"
+WHEN NEW."Research unit ID" IS NOT NULL AND NEW."Research unit ID" IS NOT OLD."Research unit ID" AND EXISTS (
+    SELECT 1 FROM "profile_county_unit" child
+    JOIN "county_research_unit_structure" source ON source."Office or unit ID" = child."Research unit ID"
+    WHERE child."Parent county unit" = OLD."County unit ID"
+      AND source."Parent office or unit" IS NOT NEW."Research unit ID")
+BEGIN SELECT RAISE(ABORT, 'Parent must match the researched unit parent'); END;
+
 -- The approved public revision stays immutable after supersession.
 CREATE TRIGGER profile_revision_approved_immutable BEFORE UPDATE ON "profile_revisions"
 WHEN OLD."Revision status" IN ('approved', 'superseded') AND (
