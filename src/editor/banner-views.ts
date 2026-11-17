@@ -158,6 +158,7 @@ export function createBannersView(
       newStage: null,
     };
     const previews = new Set<string>();
+    let destroyed = false;
 
     const stateFor = (bannerId: string): BannerState => {
       let entry = state.banners.get(bannerId);
@@ -194,6 +195,7 @@ export function createBannersView(
     // route and shown as a blob URL. `null` records a failed load.
     const thumbs = new Map<string, string | null>();
     const thumbLoading = new Set<string>();
+    const thumbUpdates = new Map<string, () => void>();
     const previewVersionId = (banner: BannerAdminBanner): string | null =>
       banner.selectedVersionId ??
       banner.versions.find((version) => version.state === "verified")?.id ??
@@ -206,14 +208,15 @@ export function createBannersView(
         void view.client
           .versionImage(id)
           .then((image) => {
-            thumbs.set(id, makePreview(image.bytes, image.mediaType));
+            if (!destroyed)
+              thumbs.set(id, makePreview(image.bytes, image.mediaType));
           })
           .catch(() => {
-            thumbs.set(id, null);
+            if (!destroyed) thumbs.set(id, null);
           })
           .finally(() => {
             thumbLoading.delete(id);
-            render();
+            thumbUpdates.get(id)?.();
           });
       }
     };
@@ -277,6 +280,8 @@ export function createBannersView(
     // ------------------------------------------------------------- render
 
     const render = () => {
+      if (destroyed) return;
+      thumbUpdates.clear();
       // Re-rendering replaces every control, so keyboard focus would fall to
       // the page. Remember the focused control and put focus back afterwards,
       // unless a step asked for focus to move somewhere specific.
@@ -295,7 +300,7 @@ export function createBannersView(
         h(
           "p",
           { class: "dash-lede" },
-          "County banner images for the public site. Every change here affects only this disposable local sandbox.",
+          "Manage the banners displayed on county pages.",
         ),
       ];
       if (state.notice)
@@ -662,24 +667,28 @@ export function createBannersView(
     const bannerThumb = (banner: BannerAdminBanner): Node[] => {
       const id = previewVersionId(banner);
       if (!id) return [];
-      const url = thumbs.get(id);
-      if (url)
-        return [
-          h("img", {
-            class: "banner-thumb",
-            src: url,
-            alt: `Private preview of the ${banner.selectedVersionId ? "current" : "latest"} image for banner ${banner.id}`,
-          }),
-        ];
-      return [
-        h(
-          "p",
-          { class: "help banner-thumb-note" },
-          thumbs.has(id)
-            ? "The preview could not be loaded."
-            : "Loading preview...",
-        ),
-      ];
+      const slot = h("div");
+      const update = () => {
+        const url = thumbs.get(id);
+        const content = url
+          ? h("img", {
+              class: "banner-thumb",
+              src: url,
+              alt: `Private preview of the ${banner.selectedVersionId ? "current" : "latest"} image for banner ${banner.id}`,
+            })
+          : h(
+              "p",
+              { class: "help banner-thumb-note" },
+              thumbs.has(id)
+                ? "The preview could not be loaded."
+                : "Loading preview...",
+            );
+        replaceChildren(doc, slot, content);
+      };
+      // A background preview must leave the active form and file input intact.
+      thumbUpdates.set(id, update);
+      update();
+      return [slot];
     };
 
     const statusLabel = (banner: BannerAdminBanner): string =>
@@ -955,9 +964,9 @@ export function createBannersView(
       const county = state.detail?.county.name ?? "";
       const text =
         confirm.kind === "publish"
-          ? `Publish the staged image for ${county} banner ${banner.id} in this local sandbox?`
+          ? `Publish the staged image for ${county} banner ${banner.id} to the county page?`
           : confirm.kind === "withdraw"
-            ? `Withdraw ${county} banner ${banner.id} from public view in this local sandbox? Its history is kept.`
+            ? `Withdraw ${county} banner ${banner.id} from the county page? Its history is kept.`
             : `Restore the recorded publication ${confirm.publicationId} for ${county} banner ${banner.id}, with its image, caption, alt text and display settings?`;
       const panel = h(
         "div",
@@ -1871,8 +1880,7 @@ export function createBannersView(
           orderedBannerIds: state.order,
           expectedRowVersions,
         });
-        state.notice =
-          "Display order saved. This affected only the local sandbox.";
+        state.notice = "Display order saved.";
         await loadCounty(detail.county.fips);
       } catch (error) {
         announceError(describe(error));
@@ -1899,7 +1907,7 @@ export function createBannersView(
         bannerState.editingDetails = false;
         bannerState.publications = null;
         bannerState.publicationsError = null;
-        state.notice = `${done}. This affected only the local sandbox.`;
+        state.notice = `${done}.`;
         announce(done);
         if (state.detail) await loadCounty(state.detail.county.fips);
         else render();
@@ -1943,6 +1951,8 @@ export function createBannersView(
 
     return {
       destroy() {
+        destroyed = true;
+        thumbUpdates.clear();
         dropPreviews();
       },
     };

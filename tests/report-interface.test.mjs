@@ -2,12 +2,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { JSDOM } from "jsdom";
+import { createServices } from "../dist/services/index.js";
+import { createPublicSite } from "../dist/site/index.js";
 import {
   mountReportInterface,
+  ReportAccountChangedError,
   ReportChallengeRejectedError,
 } from "../dist/site/report-interface.js";
 import { createTurnstileChallenge } from "../dist/site/turnstile-widget.js";
 import { createFictionalReportAdapter } from "../dist/site-dev/report-demo.js";
+import { get, siteAssets, withPreview } from "./site-fixtures.mjs";
 
 const migration = readFileSync(
   new URL("../website/migrations/0001_counties.sql", import.meta.url),
@@ -28,11 +32,12 @@ function createHarness(overrides = {}) {
     url: "https://demo.invalid/",
   });
   const root = dom.window.document.getElementById("app");
-  const calls = { submissions: [], tracks: [] };
+  const calls = { submissions: [], contexts: [], tracks: [] };
   const adapterOverrides = overrides.adapter ?? {};
   const adapter = {
-    async submit(input) {
+    async submit(input, context) {
       calls.submissions.push(input);
+      calls.contexts.push(context);
       return {
         reference: "CW-0011223344556677",
         recoveryKey: "a".repeat(64),
@@ -93,6 +98,236 @@ test("renders all 64 registry counties, accessible report fields, and both scree
     document.querySelector('[aria-live="polite"]')?.getAttribute("role"),
     "status",
   );
+});
+
+test("submission chooser exposes only configured, trusted paths and leaves tracking available", async () => {
+  await withPreview("empty", async (preview) => {
+    const services = createServices({ database: preview.database });
+    const disabled = createPublicSite({ services, assets: siteAssets() });
+    for (const path of [
+      "/submit-report",
+      "/submit-report?guest=1",
+      "/submit-report?account=1",
+    ]) {
+      const result = await get(disabled, path);
+      assert.match(result.main(), /Report submission is currently unavailable/);
+      assert.equal(result.$("#report-interface-root"), null);
+      assert.ok(result.$('a[href="/track-report"]'));
+    }
+
+    const site = createPublicSite({
+      services,
+      assets: siteAssets(),
+      reportSubmissionsEnabled: true,
+      accountEntry: async (request) =>
+        request.headers.get("cookie") === "fixture=authenticated"
+          ? "signed-in"
+          : "signed-out",
+      reportAccountId: async () => "synthetic-account",
+    });
+    const entry = await get(site, "/submit-report");
+    assert.ok(entry.$('a[href="/submit-report?guest=1"]'));
+    assert.ok(
+      entry.$('a[href="/auth/login?return_to=%2Fsubmit-report%3Faccount%3D1"]'),
+    );
+    const signedOut = await get(site, "/submit-report?account=1");
+    assert.equal(signedOut.$("#report-interface-root"), null);
+    const init = { headers: { cookie: "fixture=authenticated" } };
+    const chooser = await get(site, "/submit-report", init);
+    assert.ok(chooser.$('a[href="/submit-report?account=1"]'));
+    assert.doesNotMatch(chooser.text, /synthetic-account/);
+    const account = await get(site, "/submit-report?account=1", init);
+    assert.ok(
+      account.$(
+        "[data-report-mode=account][data-report-account-id=synthetic-account]",
+      ),
+    );
+    assert.match(account.headers.get("cache-control"), /no-store.*private/);
+    const guest = await get(site, "/submit-report?guest=1", init);
+    assert.ok(guest.$("[data-report-mode=guest]"));
+    assert.doesNotMatch(guest.text, /synthetic-account/);
+    assert.equal(
+      (await get(site, "/submit-report?account=1&guest=1")).status,
+      400,
+    );
+    assert.equal((await get(site, "/submit-report?guest=0")).status, 400);
+  });
+});
+
+test("guest steps preserve entries, focus validation errors, certify and issue a private tracking link", async () => {
+  const { document, dom, calls } = createHarness({
+    submissionFlow: "guest",
+    submitHref: "/submit-report",
+    trackingHref: "/track-report",
+  });
+  const step = (number) => document.getElementById(`report-step-${number}`);
+  const stepButton = (number) =>
+    document.querySelector(`button[aria-controls="report-step-${number}"]`);
+  const form = document.querySelector("#report-submit form");
+  assert.equal(step(1).hidden, false);
+  assert.equal(step(2).hidden, true);
+  assert.equal(stepButton(1).getAttribute("aria-current"), "step");
+  step(1).querySelector(".report-step-actions button").click();
+  assert.equal(document.activeElement.id, "report-step-2-heading");
+  stepButton(3).click();
+  assert.equal(document.activeElement.id, "report-step-3-heading");
+  await submit(form, dom.window);
+  assert.equal(calls.submissions.length, 0);
+  assert.equal(document.activeElement.className, "report-error-summary");
+  assert.equal(step(1).hidden, false);
+  document
+    .querySelector('.report-error-summary a[href="#report-description"]')
+    .click();
+  assert.equal(document.activeElement.id, "report-description");
+  assert.equal(step(2).hidden, false);
+  const descriptionField = document.getElementById("report-description");
+  descriptionField.value = "A fictional concern for the synthetic test.";
+  descriptionField.dispatchEvent(
+    new dom.window.Event("input", { bubbles: true }),
+  );
+  assert.equal(descriptionField.hasAttribute("aria-invalid"), false);
+  assert.equal(
+    document.querySelector(
+      '.report-error-summary a[href="#report-description"]',
+    ),
+    null,
+  );
+  setValidSubmission(document);
+  stepButton(3).click();
+  assert.match(step(3).textContent, /A fictional concern/);
+  assert.match(step(3).textContent, /No supporting sources supplied/);
+  assert.match(step(3).textContent, /Sent without your name/);
+  assert.match(step(3).textContent, /allegations, not findings of fact/);
+  await submit(form, dom.window);
+  assert.equal(calls.submissions.length, 0);
+  assert.equal(
+    document
+      .getElementById("report-certification")
+      .getAttribute("aria-invalid"),
+    "true",
+  );
+  assert.equal(document.getElementById("reporter-name").disabled, true);
+  document.getElementById("reporter-name").value = "Synthetic private name";
+  document.getElementById("report-certification").checked = true;
+  document
+    .getElementById("report-description")
+    .dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  assert.equal(document.getElementById("report-certification").checked, false);
+  document.getElementById("report-certification").checked = true;
+  await submit(form, dom.window);
+  assert.equal(calls.submissions.length, 1);
+  assert.equal(calls.submissions[0].reporter.attribution, "anonymous");
+  assert.equal(calls.submissions[0].reporter.name, undefined);
+  assert.equal(document.activeElement.id, "report-receipt-heading");
+  const tracking = document.querySelector(".report-receipt a");
+  assert.equal(tracking.getAttribute("href"), "/track-report");
+  tracking.addEventListener("click", (event) => event.preventDefault(), {
+    once: true,
+  });
+  tracking.click();
+  assert.equal(
+    document.querySelectorAll(".report-receipt code")[1].textContent,
+    "",
+  );
+});
+
+test("anonymous-name selection keeps the expected account binding for authenticated submission", async () => {
+  const { document, dom, calls } = createHarness({
+    submissionFlow: "account",
+    account: { accountId: "synthetic-account" },
+  });
+  setValidSubmission(document);
+  document.querySelector('button[aria-controls="report-step-3"]').click();
+  document.getElementById("report-certification").checked = true;
+  await submit(document.querySelector("#report-submit form"), dom.window);
+  assert.equal(calls.submissions[0].reporter.attribution, "anonymous");
+  assert.equal(calls.submissions[0].reporter.accountId, undefined);
+  assert.equal(calls.contexts[0].accountExpectation, "synthetic-account");
+  assert.equal(calls.submissions[0].reporter.name, undefined);
+});
+
+test("anonymous choice sends no name even after one was typed and hidden", async () => {
+  for (const flow of ["guest", "account"]) {
+    const { document, dom, calls } = createHarness({
+      submissionFlow: flow,
+      ...(flow === "account"
+        ? { account: { accountId: "synthetic-account" } }
+        : {}),
+    });
+    setValidSubmission(document);
+    const anonymous = document.querySelector(
+      'input[name="attribution"][value="anonymous"]',
+    );
+    const name = document.getElementById("reporter-name");
+    if (flow === "guest") anonymous.click();
+    else anonymous.checked = false;
+    anonymous.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    assert.equal(name.disabled, false);
+    name.value = "Fictional Name";
+    anonymous.click();
+    anonymous.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    assert.equal(name.disabled, true);
+    document.querySelector('button[aria-controls="report-step-3"]').click();
+    document.getElementById("report-certification").checked = true;
+    await submit(document.querySelector("#report-submit form"), dom.window);
+    assert.equal(calls.submissions.length, 1, flow);
+    assert.equal(calls.submissions[0].reporter.name, undefined, flow);
+    assert.equal(calls.submissions[0].reporter.attribution, "anonymous", flow);
+  }
+});
+
+test("guest sharing a name privately is labeled and sent as an optional reviewer-only name", async () => {
+  const { document, dom, calls } = createHarness({ submissionFlow: "guest" });
+  setValidSubmission(document);
+  assert.match(
+    document.querySelector('label[for="reporter-name"]').textContent,
+    /shared privately with reviewers/i,
+  );
+  const anonymous = document.querySelector(
+    'input[name="attribution"][value="anonymous"]',
+  );
+  anonymous.click();
+  anonymous.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  document.getElementById("reporter-name").value = "Fictional Name";
+  document.querySelector('button[aria-controls="report-step-3"]').click();
+  document.getElementById("report-certification").checked = true;
+  await submit(document.querySelector("#report-submit form"), dom.window);
+  assert.equal(calls.submissions[0].reporter.name, "Fictional Name");
+  assert.equal(calls.submissions[0].reporter.accountId, undefined);
+  assert.equal(calls.contexts[0], undefined);
+});
+
+test("an ended or changed account session shows recovery links and keeps the draft", async () => {
+  const { document, dom, calls } = createHarness({
+    submissionFlow: "account",
+    account: { accountId: "synthetic-account" },
+    accountRecovery: {
+      signInHref: "/auth/login?return_to=%2Fsubmit-report%3Faccount%3D1",
+      reloadHref: "/submit-report?account=1",
+    },
+    adapter: {
+      async submit() {
+        throw new ReportAccountChangedError("changed");
+      },
+    },
+  });
+  setValidSubmission(document);
+  document.querySelector('button[aria-controls="report-step-3"]').click();
+  document.getElementById("report-certification").checked = true;
+  await submit(document.querySelector("#report-submit form"), dom.window);
+  const links = [...document.querySelectorAll(".report-field-hint a")].map(
+    (a) => [a.textContent, a.getAttribute("href")],
+  );
+  assert.deepEqual(links, [
+    ["Sign in again", "/auth/login?return_to=%2Fsubmit-report%3Faccount%3D1"],
+    ["Reload the form", "/submit-report?account=1"],
+  ]);
+  assert.match(
+    document.querySelector(".report-status").textContent,
+    /nothing was submitted/i,
+  );
+  assert.equal(document.getElementById("report-county").value, "08001");
+  assert.equal(calls.submissions.length, 0);
 });
 
 test("validates required fields and preserves values after a recoverable error", async () => {
@@ -186,8 +421,9 @@ test("supports optional subjects and anonymous versus authenticated attribution"
     id: "synthetic-organization",
   });
   assert.equal(signedIn.calls.submissions[0].reporter.attribution, "signed");
+  assert.equal(signedIn.calls.submissions[0].reporter.accountId, undefined);
   assert.equal(
-    signedIn.calls.submissions[0].reporter.accountId,
+    signedIn.calls.contexts[0].accountExpectation,
     "synthetic-account",
   );
   assert.equal(

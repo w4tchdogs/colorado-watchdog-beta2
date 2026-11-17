@@ -262,7 +262,7 @@ async function main() {
     REPORTS_TEST_TURNSTILE_VERIFY_URL: `http://127.0.0.1:${verifier.port}/siteverify`,
   });
   try {
-    const page = await fetch(`${base}/submit-report`);
+    const page = await fetch(`${base}/submit-report?guest=1`);
     const html = await page.text();
     assert.match(
       html,

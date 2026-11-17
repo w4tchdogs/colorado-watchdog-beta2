@@ -1216,7 +1216,7 @@ async function main() {
       );
     }
 
-    const reportPage = await fetch(`${base}/submit-report`);
+    const reportPage = await fetch(`${base}/submit-report?guest=1`);
     const reportHtml = await reportPage.text();
     assert.equal(reportPage.status, 200);
     assert.match(reportHtml, /report-interface\.css/);
@@ -1647,6 +1647,10 @@ async function main() {
               AUTH0_CANONICAL_ORIGIN: base,
               AUTH0_REDIRECT_URI: `${base}/auth/callback`,
               AUTH0_TEST_UPSTREAM: tenant.origin,
+              // Local intake so the account report form can be exercised.
+              ...(enabled
+                ? { APP_ENV: "test", REPORTS_TEST_ABUSE_CONTROL: "enabled" }
+                : {}),
             }).flatMap(([name, value]) => ["--var", `${name}:${value}`]),
           );
         },

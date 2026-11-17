@@ -30,7 +30,7 @@
   background: var(--surface);
   border: 1px solid var(--line);
   border-top: 3px solid var(--ink);
-  border-radius: var(--radius);
+  border-radius: var(--panel-radius);
 }
 .cv-pathway-active {
   border-color: var(--ink);
@@ -121,7 +121,7 @@
   padding: var(--space-4);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--panel-radius);
 }
 .cv-field-grid {
   display: grid;
