@@ -9,12 +9,12 @@ import {
   openWebsiteDatabase,
   type WebsiteDatabase,
 } from "../database/sqlite.js";
-import { D1BannerAdministration } from "../services/banner-admin-d1.js";
-import { MemoryBannerObjectStorage } from "../services/banner-storage.js";
 import {
   createAiProposalService,
   createFixtureAiProvider,
 } from "../services/ai-proposals.js";
+import { D1BannerAdministration } from "../services/banner-admin-d1.js";
+import { MemoryBannerObjectStorage } from "../services/banner-storage.js";
 import { createContentService } from "../services/content.js";
 import { createDashboardService } from "../services/dashboard.js";
 import {

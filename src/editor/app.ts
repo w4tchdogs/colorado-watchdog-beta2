@@ -9,6 +9,7 @@ import type {
   ContentSummary,
   ContentType,
 } from "../contracts/content.js";
+import { type AiPanel, createAiPanel } from "./ai-panel.js";
 import {
   describeError,
   type EditorApiClient,
@@ -20,7 +21,6 @@ import { clear, el, replaceChildren } from "./dom.js";
 import { renderMarkdownInto } from "./preview.js";
 import { createRelationshipsPanel, type Rel } from "./relationships.js";
 import { buildRevisionCompare } from "./revision-compare.js";
-import { type AiPanel, createAiPanel } from "./ai-panel.js";
 import { createVisualCanvas } from "./visual-canvas.js";
 import { toVisual } from "./visual-model.js";
 import {

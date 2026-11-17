@@ -1,4 +1,3 @@
-import type { AiProposalRequest, AiProposalResult } from "./ai-contract.js";
 import type {
   ContentCheckpoint,
   ContentDraftChanges,
@@ -17,6 +16,7 @@ import type {
   OrganizationLookupItem,
   PersonLookupItem,
 } from "../contracts/editor-lookup.js";
+import type { AiProposalRequest, AiProposalResult } from "./ai-contract.js";
 
 /**
  * Browser-side client for the internal editorial API. It only builds requests

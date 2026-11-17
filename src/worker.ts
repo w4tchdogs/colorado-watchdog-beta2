@@ -10,6 +10,10 @@ import { AsyncD1Database } from "./database/d1.js";
 import { handleWebsiteMcpRequest } from "./mcp/website.js";
 import { createSyncMcpBridge } from "./mcp/website-sync.js";
 import { createReportApiModule, type ReportApiOptions } from "./report-api.js";
+import {
+  createAiProposalService,
+  createAiProviderFromEnv,
+} from "./services/ai-proposals.js";
 import { D1BannerAdministration } from "./services/banner-admin-d1.js";
 import { D1BannerPublicService } from "./services/banner-public.js";
 import { R2BannerObjectStorage } from "./services/banner-storage.js";
@@ -40,14 +44,10 @@ import {
 import {
   CONTENT_API_PATHS,
   CONTENT_PUBLICATION_API_PATHS,
-  createContentApiTransport,
   type ContentTransportOperations,
+  createContentApiTransport,
   createContentTransportOperations,
 } from "./transport/content-api.js";
-import {
-  createAiProposalService,
-  createAiProviderFromEnv,
-} from "./services/ai-proposals.js";
 import {
   dashboardUnavailable,
   handleDashboardRequest,

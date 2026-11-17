@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { EditorApiError } from "../dist/editor/api-client.js";
 import {
   proposalBlocksToVisual,
   validateAiProposal,
   validateAiRequest,
 } from "../dist/editor/ai-blocks.js";
+import { EditorApiError } from "../dist/editor/api-client.js";
 import {
   createAiProposalService,
   createAiProviderFromEnv,

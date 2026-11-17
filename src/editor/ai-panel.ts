@@ -4,6 +4,8 @@
  * working draft changes when the author applies it, and only if the proposal
  * is still bound to the same article, saved version and working text.
  */
+
+import { proposalBlocksToVisual } from "./ai-blocks.js";
 import {
   AI_OPERATION_LABELS,
   AI_PROPOSAL_SCHEMA_VERSION,
@@ -13,7 +15,6 @@ import {
   type AiProposalRequest,
   type AiProposalResult,
 } from "./ai-contract.js";
-import { proposalBlocksToVisual } from "./ai-blocks.js";
 import { describeError, type EditorApiClient } from "./api-client.js";
 import { clear, el } from "./dom.js";
 import { renderMarkdownInto } from "./preview.js";
