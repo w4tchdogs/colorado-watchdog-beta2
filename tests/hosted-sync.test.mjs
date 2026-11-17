@@ -348,3 +348,38 @@ test("without a database binding the sync route is unavailable", async () => {
   );
   assert.equal(response.status, 503);
 });
+
+test("the capability admin route refuses anonymous and non-owner callers", async () => {
+  await setup(async ({ world, accounts, owner }) => {
+    const path = "/api/admin/accounts/sync-agent/capabilities";
+    const send = (headers) =>
+      worker.fetch(
+        new Request(`${ORIGIN}${path}`, {
+          method: "PUT",
+          headers: {
+            "content-type": "application/json",
+            origin: ORIGIN,
+            ...headers,
+          },
+          body: JSON.stringify({ capability: "sync.apply" }),
+        }),
+        world.env,
+      );
+    assert.equal((await send({})).status, 401);
+    assert.equal(
+      (await send({ authorization: `Bearer ${ADMIN}` })).status,
+      403,
+    );
+    assert.equal(
+      (await send({ authorization: `Bearer ${SECRET}` })).status,
+      403,
+    );
+    assert.equal(n(world, "agent_capability_grants"), 0);
+    await accounts.setAgentCapability(owner, "sync-agent", "sync.read", true);
+    const script = await worker.fetch(
+      new Request(`${ORIGIN}/admin/accounts.js`),
+      world.env,
+    );
+    assert.match(await script.text(), /Sync capabilities/);
+  });
+});
