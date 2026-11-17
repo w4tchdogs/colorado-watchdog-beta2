@@ -180,12 +180,22 @@ img {
   box-shadow: 0 0 0 6px var(--ink);
 }
 .site-header-inner {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+  padding-inline: 22px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2) var(--space-5);
   padding-block: var(--space-3);
+}
+@media (max-width: 37.5rem) {
+  .site-header-inner {
+    padding-inline: 15px;
+  }
 }
 .brand {
   flex: 1 1 0;
@@ -198,6 +208,9 @@ img {
   gap: var(--space-3);
   color: #ffffff;
   text-decoration: none;
+}
+.brand {
+  gap: 12px;
 }
 .brand-logo {
   flex: none;
@@ -237,7 +250,7 @@ img {
   letter-spacing: 0.02em;
   text-decoration: none;
   text-transform: uppercase;
-  border-bottom: 3px solid transparent;
+  border-bottom: 1px solid transparent;
 }
 .site-nav a:hover,
 .site-nav a[aria-current] {
@@ -330,10 +343,13 @@ img {
   }
   .site-nav ul {
     flex-wrap: nowrap;
-    gap: 0;
+    gap: 12px;
   }
   .site-nav a {
-    padding-inline: var(--space-2);
+    padding: 10px 0;
+    font-size: 0.5rem;
+    line-height: 12px;
+    letter-spacing: normal;
     white-space: nowrap;
   }
   .brand {
@@ -353,12 +369,18 @@ img {
     display: none;
   }
 }
-@media (min-width: 90rem) {
+/* Beta-1 wide-desktop rules (above 1350px): 30px inset, 9px links, 19px gap. */
+@media (min-width: 84.4375rem) {
   .site-header-inner {
+    padding-inline: 30px;
     column-gap: var(--space-5);
   }
+  .site-nav ul {
+    gap: 19px;
+  }
   .site-nav a {
-    padding-inline: var(--space-3);
+    font-size: 0.5625rem;
+    line-height: 13.5px;
   }
 }
 @media (max-width: 74.99rem) {
