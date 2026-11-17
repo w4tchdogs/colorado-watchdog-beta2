@@ -4,7 +4,11 @@ import type {
   ReportStatus,
   ReportSubmission,
 } from "./contracts/report-intake.js";
-import { ReportIntakeError } from "./contracts/report-intake.js";
+import {
+  REPORT_ACCOUNT_EXPECTATION_HEADER,
+  REPORT_ACCOUNT_EXPECTATION_PATTERN,
+  ReportIntakeError,
+} from "./contracts/report-intake.js";
 import type { ApplicationServices } from "./services/index.js";
 import {
   getAllowedReportTransitions,
@@ -133,6 +137,19 @@ async function submission(
   const config = options.guestSubmissions;
   if (!config?.enabled || !config.abuseControl)
     return json(503, { error: "submission_unavailable" });
+  // An account form states which account it was rendered for. Compare it with
+  // the live session before the abuse check or any read of the body, and never
+  // fall back to a guest submission when the session is gone or has changed.
+  const expected = request.headers.get(REPORT_ACCOUNT_EXPECTATION_HEADER);
+  let principal: TrustedPrincipal | null = null;
+  if (expected !== null) {
+    if (!REPORT_ACCOUNT_EXPECTATION_PATTERN.test(expected))
+      return json(400, { error: "invalid_request" });
+    principal = await options.services.resolvePrincipal(request);
+    if (!principal) return json(401, { error: "authentication_required" });
+    if (principal.accountId !== expected)
+      return json(409, { error: "account_changed" });
+  }
   const abuse = await config.abuseControl.check(request);
   if (!abuse.allowed) {
     const retry = Math.max(1, Math.min(3600, abuse.retryAfterSeconds ?? 60));
@@ -144,7 +161,8 @@ async function submission(
   }
   const value = await readBody(request);
   if (!isSubmission(value)) return json(400, { error: "invalid_request" });
-  const principal = await options.services.resolvePrincipal(request);
+  if (expected === null)
+    principal = await options.services.resolvePrincipal(request);
   const result = await submitReport(
     store,
     value,

@@ -23,6 +23,12 @@ export interface ReportTrackingProjection {
 export interface ReportSubmitContext {
   /** Single-use challenge token. Present only when the host runs a challenge. */
   readonly challengeToken?: string;
+  /**
+   * The account this form was rendered for. A comparison value only: the host
+   * sends it outside the report body and the server derives the stored account
+   * from the live session.
+   */
+  readonly accountExpectation?: string;
 }
 
 /**
@@ -47,6 +53,9 @@ export interface ReportChallenge {
 
 /** Thrown by an adapter when the server refused the challenge token. */
 export class ReportChallengeRejectedError extends Error {}
+
+/** Thrown by an adapter when the session is gone or belongs to another account. */
+export class ReportAccountChangedError extends Error {}
 
 /** Host integration boundary. The host binds the authenticated actor server-side. */
 export interface ReportUiAdapter {
@@ -83,6 +92,11 @@ export interface ReportInterfaceOptions {
   readonly submissionFlow?: "guest" | "account";
   readonly submitHref?: string;
   readonly trackingHref?: string;
+  /** Where an account form sends a reporter whose session ended or changed. */
+  readonly accountRecovery?: {
+    readonly signInHref: string;
+    readonly reloadHref: string;
+  };
   /** Optional human check. Without it the form behaves exactly as before. */
   readonly challenge?: ReportChallenge;
   readonly createIdempotencyKey?: () => string;
@@ -340,6 +354,7 @@ export function mountReportInterface(
     const form = node(document, "form", "report-form");
     form.noValidate = true;
     const formStatus = node(document, "p", "report-status");
+    formStatus.tabIndex = -1;
     formStatus.setAttribute("role", "status");
     formStatus.setAttribute("aria-live", "polite");
 
@@ -562,7 +577,7 @@ export function mountReportInterface(
     anonymousLabel.append(
       anonymous,
       document.createTextNode(
-        workflow ? " Use an anonymous name" : " Anonymous",
+        workflow ? " Send without my name" : " Anonymous",
       ),
     );
     const signedLabel = node(document, "label", "report-radio-label");
@@ -597,7 +612,7 @@ export function mountReportInterface(
     nameLabel.htmlFor = "reporter-name";
     nameLabel.textContent =
       workflow === "guest"
-        ? "Name for private review · optional"
+        ? "Name shared privately with reviewers · optional"
         : "Name (optional unless reporting signed in)";
     const nameInput = node(document, "input");
     nameInput.id = nameLabel.htmlFor;
@@ -607,6 +622,12 @@ export function mountReportInterface(
     nameInput.autocomplete = "name";
     const nameError = fieldError(document, nameInput.id);
     connectError(nameInput, null, nameError);
+    const nameHint = node(document, "p", "report-field-hint");
+    nameHint.id = "reporter-name-hint";
+    nameHint.textContent = workflow
+      ? "Only the review team sees a name. Leave “Send without my name” selected to send none."
+      : "Only the review team sees a name. It is never published automatically.";
+    nameInput.setAttribute("aria-describedby", nameHint.id);
     if (workflow) {
       const updateNamePreference = () => {
         nameInput.disabled = anonymous.checked;
@@ -658,6 +679,7 @@ export function mountReportInterface(
       attributionGroup,
       attributionError,
       nameLabel,
+      nameHint,
       nameInput,
       nameError,
       emailLabel,
@@ -670,6 +692,19 @@ export function mountReportInterface(
       ...(workflow ? [] : [signedInRequired]),
     );
 
+    const accountRecovery = node(document, "p", "report-field-hint");
+    accountRecovery.setAttribute("role", "group");
+    accountRecovery.setAttribute("aria-label", "Account session options");
+    accountRecovery.hidden = true;
+    const signInAgain = node(document, "a");
+    signInAgain.textContent = "Sign in again";
+    const reloadForm = node(document, "a");
+    reloadForm.textContent = "Reload the form";
+    accountRecovery.append(
+      signInAgain,
+      document.createTextNode(" · "),
+      reloadForm,
+    );
     const challengeNotice = node(document, "p", "report-field-hint");
     const challengeBox = node(document, "div", "report-challenge");
     challengeBox.hidden = true;
@@ -753,6 +788,7 @@ export function mountReportInterface(
             certificationError,
             ...(options.challenge ? [challengeNotice, challengeBox] : []),
             formStatus,
+            accountRecovery,
           ],
         },
       ];
@@ -817,6 +853,7 @@ export function mountReportInterface(
         reporterField,
         ...(options.challenge ? [challengeNotice, challengeBox] : []),
         formStatus,
+        accountRecovery,
         submitButton,
         noUploads,
       );
@@ -1075,9 +1112,6 @@ export function mountReportInterface(
             ...(item.note ? { note: item.note } : {}),
           })),
         reporter: {
-          ...(options.account && (signed.checked || workflow === "account")
-            ? { accountId: options.account.accountId }
-            : {}),
           ...(values.name ? { name: values.name } : {}),
           ...(values.email ? { email: values.email } : {}),
           attribution: signed.checked ? "signed" : "anonymous",
@@ -1116,9 +1150,19 @@ export function mountReportInterface(
       }
       submitButton.textContent = "Submitting privately…";
       try {
+        accountRecovery.hidden = true;
+        const accountExpectation =
+          options.account && (signed.checked || workflow === "account")
+            ? options.account.accountId
+            : undefined;
         const receipt = await options.adapter.submit(
           submission,
-          challengeToken ? { challengeToken } : undefined,
+          challengeToken || accountExpectation
+            ? {
+                ...(challengeToken ? { challengeToken } : {}),
+                ...(accountExpectation ? { accountExpectation } : {}),
+              }
+            : undefined,
         );
         pendingIdempotencyKey = null;
         setText(receiptReference, receipt.reference);
@@ -1143,6 +1187,16 @@ export function mountReportInterface(
       } catch (error) {
         // A challenge token is single-use, so every failed attempt needs a new one.
         options.challenge?.reset();
+        if (error instanceof ReportAccountChangedError) {
+          signInAgain.href =
+            options.accountRecovery?.signInHref ?? "/auth/login";
+          reloadForm.href = options.accountRecovery?.reloadHref ?? "";
+          accountRecovery.hidden = false;
+          formStatus.textContent =
+            "Your sign-in ended or changed to a different account, so nothing was submitted. Sign in again or reload the form. Reloading clears what you entered.";
+          formStatus.focus();
+          return;
+        }
         formStatus.textContent =
           error instanceof ReportChallengeRejectedError
             ? "The human check expired or was not accepted. Your entries remain here; select Submit to run the check again."

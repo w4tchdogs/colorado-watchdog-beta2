@@ -260,3 +260,146 @@ test("staff queue is metadata-only and status transitions require an expected ve
     "Synthetic private review note.",
   );
 });
+
+// The account form sends the account it was rendered for in a header, never in
+// the JSON body. The server only compares it with the live session.
+const EXPECT = "x-report-account-expectation";
+async function post(api, body, headers = {}) {
+  return api.fetch(
+    new Request("https://local.test/api/v1/reports", {
+      method: "POST",
+      headers: {
+        origin: "https://local.test",
+        "content-type": "application/json",
+        ...headers,
+      },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+async function queueSize(store) {
+  const { request } = setup("editor", true, store);
+  return (await (await request("/api/v1/reports")).json()).reports.length;
+}
+
+test("account submission succeeds only under the matching live session and stores the session account", async () => {
+  const store = new MemoryReportIntakeStore();
+  const { api } = setup("reporter", true, store);
+  const first = await post(api, submission, { [EXPECT]: "synthetic-reporter" });
+  assert.equal(first.status, 201);
+  const receipt = await first.json();
+  assert.equal(receipt.recoveryKey.length, 64);
+  const { request: staff } = setup("editor", true, store);
+  const id = store.reportIdForReference(receipt.reference);
+  const stored = await (await staff(`/api/v1/reports/${id}`)).json();
+  assert.equal(stored.report.reporter.accountId, "synthetic-reporter");
+  // Same key replays without a second recovery key, and tracking still works.
+  const replay = await post(api, submission, {
+    [EXPECT]: "synthetic-reporter",
+  });
+  assert.equal(replay.status, 200);
+  const replayed = await replay.json();
+  assert.equal(replayed.recoveryKey, undefined);
+  assert.equal(replayed.reference, receipt.reference);
+  const { request: anyone } = setup(null, true, store);
+  const track = await anyone("/api/v1/reports/track", "POST", {
+    reference: receipt.reference,
+    recoveryKey: receipt.recoveryKey,
+  });
+  assert.equal(track.status, 200);
+  assert.equal(await queueSize(store), 1);
+});
+
+test("a changed or expired session creates no report and never falls back to guest", async () => {
+  const store = new MemoryReportIntakeStore();
+  const changed = await post(setup("other", true, store).api, submission, {
+    [EXPECT]: "synthetic-reporter",
+  });
+  assert.equal(changed.status, 409);
+  assert.deepEqual(await changed.json(), { error: "account_changed" });
+  assert.equal(changed.headers.get("cache-control"), "no-store, private");
+  const expired = await post(setup(null, true, store).api, submission, {
+    [EXPECT]: "synthetic-reporter",
+  });
+  assert.equal(expired.status, 401);
+  assert.deepEqual(await expired.json(), { error: "authentication_required" });
+  assert.equal(await queueSize(store), 0);
+  // The same draft is not replayed as a guest report either.
+  for (const bad of ["", "x".repeat(129), "has space", "a/b"]) {
+    const response = await post(
+      setup("reporter", true, store).api,
+      submission,
+      {
+        [EXPECT]: bad,
+      },
+    );
+    assert.equal(response.status, 400, JSON.stringify(bad));
+  }
+  assert.equal(await queueSize(store), 0);
+});
+
+test("a client-supplied reporter.accountId stays rejected even with a matching expectation", async () => {
+  const store = new MemoryReportIntakeStore();
+  const response = await post(
+    setup("reporter", true, store).api,
+    {
+      ...submission,
+      reporter: { ...submission.reporter, accountId: "synthetic-reporter" },
+    },
+    { [EXPECT]: "synthetic-reporter" },
+  );
+  assert.equal(response.status, 400);
+  assert.equal(await queueSize(store), 0);
+});
+
+test("guest name choices: anonymous sends none, shared name is stored privately", async () => {
+  const store = new MemoryReportIntakeStore();
+  const guest = setup(null, true, store).api;
+  const { request: staff } = setup("editor", true, store);
+  const stored = async (response) =>
+    (
+      await (
+        await staff(
+          `/api/v1/reports/${store.reportIdForReference((await response.json()).reference)}`,
+        )
+      ).json()
+    ).report.reporter;
+  const none = await post(guest, {
+    ...submission,
+    idempotencyKey: "synthetic-g-1",
+  });
+  assert.equal((await stored(none)).name, undefined);
+  const named = await post(guest, {
+    ...submission,
+    idempotencyKey: "synthetic-g-2",
+    reporter: { ...submission.reporter, name: "Fictional Name" },
+  });
+  const reporter = await stored(named);
+  assert.equal(reporter.name, "Fictional Name");
+  assert.equal(reporter.attribution, "anonymous");
+  assert.equal(reporter.accountId, undefined);
+});
+
+test("disabled intake blocks account submissions and keeps private tracking available", async () => {
+  const store = new MemoryReportIntakeStore();
+  const receipt = await (
+    await post(setup(null, true, store).api, submission)
+  ).json();
+  const { api, request } = setup("reporter", false, store);
+  const blocked = await post(
+    api,
+    { ...submission, idempotencyKey: "synthetic-d-1" },
+    {
+      [EXPECT]: "synthetic-reporter",
+    },
+  );
+  assert.equal(blocked.status, 503);
+  assert.equal(blocked.headers.get("cache-control"), "no-store, private");
+  const track = await request("/api/v1/reports/track", "POST", {
+    reference: receipt.reference,
+    recoveryKey: receipt.recoveryKey,
+  });
+  assert.equal(track.status, 200);
+  assert.equal(track.headers.get("cache-control"), "no-store, private");
+  assert.equal(await queueSize(store), 1);
+});

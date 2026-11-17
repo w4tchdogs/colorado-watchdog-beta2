@@ -6,6 +6,7 @@ import { createServices } from "../dist/services/index.js";
 import { createPublicSite } from "../dist/site/index.js";
 import {
   mountReportInterface,
+  ReportAccountChangedError,
   ReportChallengeRejectedError,
 } from "../dist/site/report-interface.js";
 import { createTurnstileChallenge } from "../dist/site/turnstile-widget.js";
@@ -31,11 +32,12 @@ function createHarness(overrides = {}) {
     url: "https://demo.invalid/",
   });
   const root = dom.window.document.getElementById("app");
-  const calls = { submissions: [], tracks: [] };
+  const calls = { submissions: [], contexts: [], tracks: [] };
   const adapterOverrides = overrides.adapter ?? {};
   const adapter = {
-    async submit(input) {
+    async submit(input, context) {
       calls.submissions.push(input);
+      calls.contexts.push(context);
       return {
         reference: "CW-0011223344556677",
         recoveryKey: "a".repeat(64),
@@ -219,8 +221,93 @@ test("anonymous-name selection keeps the expected account binding for authentica
   document.getElementById("report-certification").checked = true;
   await submit(document.querySelector("#report-submit form"), dom.window);
   assert.equal(calls.submissions[0].reporter.attribution, "anonymous");
-  assert.equal(calls.submissions[0].reporter.accountId, "synthetic-account");
+  assert.equal(calls.submissions[0].reporter.accountId, undefined);
+  assert.equal(calls.contexts[0].accountExpectation, "synthetic-account");
   assert.equal(calls.submissions[0].reporter.name, undefined);
+});
+
+test("anonymous choice sends no name even after one was typed and hidden", async () => {
+  for (const flow of ["guest", "account"]) {
+    const { document, dom, calls } = createHarness({
+      submissionFlow: flow,
+      ...(flow === "account"
+        ? { account: { accountId: "synthetic-account" } }
+        : {}),
+    });
+    setValidSubmission(document);
+    const anonymous = document.querySelector(
+      'input[name="attribution"][value="anonymous"]',
+    );
+    const name = document.getElementById("reporter-name");
+    if (flow === "guest") anonymous.click();
+    else anonymous.checked = false;
+    anonymous.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    assert.equal(name.disabled, false);
+    name.value = "Fictional Name";
+    anonymous.click();
+    anonymous.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    assert.equal(name.disabled, true);
+    document.querySelector('button[aria-controls="report-step-3"]').click();
+    document.getElementById("report-certification").checked = true;
+    await submit(document.querySelector("#report-submit form"), dom.window);
+    assert.equal(calls.submissions.length, 1, flow);
+    assert.equal(calls.submissions[0].reporter.name, undefined, flow);
+    assert.equal(calls.submissions[0].reporter.attribution, "anonymous", flow);
+  }
+});
+
+test("guest sharing a name privately is labeled and sent as an optional reviewer-only name", async () => {
+  const { document, dom, calls } = createHarness({ submissionFlow: "guest" });
+  setValidSubmission(document);
+  assert.match(
+    document.querySelector('label[for="reporter-name"]').textContent,
+    /shared privately with reviewers/i,
+  );
+  const anonymous = document.querySelector(
+    'input[name="attribution"][value="anonymous"]',
+  );
+  anonymous.click();
+  anonymous.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  document.getElementById("reporter-name").value = "Fictional Name";
+  document.querySelector('button[aria-controls="report-step-3"]').click();
+  document.getElementById("report-certification").checked = true;
+  await submit(document.querySelector("#report-submit form"), dom.window);
+  assert.equal(calls.submissions[0].reporter.name, "Fictional Name");
+  assert.equal(calls.submissions[0].reporter.accountId, undefined);
+  assert.equal(calls.contexts[0], undefined);
+});
+
+test("an ended or changed account session shows recovery links and keeps the draft", async () => {
+  const { document, dom, calls } = createHarness({
+    submissionFlow: "account",
+    account: { accountId: "synthetic-account" },
+    accountRecovery: {
+      signInHref: "/auth/login?return_to=%2Fsubmit-report%3Faccount%3D1",
+      reloadHref: "/submit-report?account=1",
+    },
+    adapter: {
+      async submit() {
+        throw new ReportAccountChangedError("changed");
+      },
+    },
+  });
+  setValidSubmission(document);
+  document.querySelector('button[aria-controls="report-step-3"]').click();
+  document.getElementById("report-certification").checked = true;
+  await submit(document.querySelector("#report-submit form"), dom.window);
+  const links = [...document.querySelectorAll(".report-field-hint a")].map(
+    (a) => [a.textContent, a.getAttribute("href")],
+  );
+  assert.deepEqual(links, [
+    ["Sign in again", "/auth/login?return_to=%2Fsubmit-report%3Faccount%3D1"],
+    ["Reload the form", "/submit-report?account=1"],
+  ]);
+  assert.match(
+    document.querySelector(".report-status").textContent,
+    /nothing was submitted/i,
+  );
+  assert.equal(document.getElementById("report-county").value, "08001");
+  assert.equal(calls.submissions.length, 0);
 });
 
 test("validates required fields and preserves values after a recoverable error", async () => {
@@ -314,8 +401,9 @@ test("supports optional subjects and anonymous versus authenticated attribution"
     id: "synthetic-organization",
   });
   assert.equal(signedIn.calls.submissions[0].reporter.attribution, "signed");
+  assert.equal(signedIn.calls.submissions[0].reporter.accountId, undefined);
   assert.equal(
-    signedIn.calls.submissions[0].reporter.accountId,
+    signedIn.calls.contexts[0].accountExpectation,
     "synthetic-account",
   );
   assert.equal(

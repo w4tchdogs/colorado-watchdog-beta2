@@ -1,8 +1,12 @@
 import type { CountyRegistryEntry } from "../contracts/county-registry.js";
-import type { ReportSubmission } from "../contracts/report-intake.js";
+import {
+  REPORT_ACCOUNT_EXPECTATION_HEADER,
+  type ReportSubmission,
+} from "../contracts/report-intake.js";
 import { CHALLENGE_TOKEN_HEADER } from "../services/report-challenge.js";
 import {
   mountReportInterface,
+  ReportAccountChangedError,
   ReportChallengeRejectedError,
 } from "./report-interface.js";
 import { createTurnstileChallenge } from "./turnstile-widget.js";
@@ -27,6 +31,10 @@ if (root) {
     ...(mode === "guest" || mode === "account" ? { submissionFlow: mode } : {}),
     ...(mode === "account" && accountId ? { account: { accountId } } : {}),
     submitHref: "/submit-report",
+    accountRecovery: {
+      signInHref: `/auth/login?return_to=${encodeURIComponent("/submit-report?account=1")}`,
+      reloadHref: "/submit-report?account=1",
+    },
     trackingHref: "/track-report",
     submissionsEnabled:
       enabled &&
@@ -47,9 +55,20 @@ if (root) {
             ...(context?.challengeToken
               ? { [CHALLENGE_TOKEN_HEADER]: context.challengeToken }
               : {}),
+            ...(context?.accountExpectation
+              ? {
+                  [REPORT_ACCOUNT_EXPECTATION_HEADER]:
+                    context.accountExpectation,
+                }
+              : {}),
           },
           body: JSON.stringify(input),
         });
+        if (
+          context?.accountExpectation &&
+          (response.status === 401 || response.status === 409)
+        )
+          throw new ReportAccountChangedError("Account changed");
         if (response.status === 429 && context?.challengeToken)
           throw new ReportChallengeRejectedError("Challenge rejected");
         if (!response.ok) throw new Error("Submission unavailable");
