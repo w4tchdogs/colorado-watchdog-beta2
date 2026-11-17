@@ -11,11 +11,11 @@ const names = (await readdir(resolve(root, "website/migrations")))
   .filter((name) => /^\d{4}_[a-z0-9_]+\.sql$/.test(name))
   .sort();
 if (
-  names.length !== 28 ||
+  names.length !== 29 ||
   names.some((name, index) => Number(name.slice(0, 4)) !== index + 1)
 ) {
   throw new Error(
-    "Expected the exact contiguous staging migration catalog 0001–0028",
+    "Expected the exact contiguous staging migration catalog 0001–0029",
   );
 }
 const expectedMigrations = await Promise.all(
