@@ -1134,3 +1134,112 @@ button.outline-item:hover {
 .outline-l2 { padding-left: 1rem; }
 .outline-l3 { padding-left: 1.6rem; }
 .outline-l4 { padding-left: 2.2rem; }
+
+/* AI assistant (EDIT-4 PR 2) */
+.canvas-pane {
+  position: relative;
+}
+
+.ai-selbar {
+  position: absolute;
+  z-index: 7;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.3rem;
+  max-width: 17.5rem;
+  background: var(--ink);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+
+.ai-selbar[hidden],
+.ai-submenu[hidden] {
+  display: none;
+}
+
+.ai-selbar button {
+  background: var(--paper);
+  min-height: 2rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+.ai-submenu {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.ai-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.4rem 0;
+}
+
+.ai-choices select {
+  width: auto;
+  max-width: 100%;
+}
+
+#ai-panel textarea {
+  width: 100%;
+}
+
+#ai-panel h4 {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.9rem;
+}
+
+.ai-status {
+  min-height: 1.25rem;
+  font-size: 0.9rem;
+}
+
+.ai-compare {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: 1fr;
+}
+
+.ai-compare > div {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper);
+}
+
+.ai-compare h5 {
+  margin: 0 0 0.25rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.ai-text p {
+  margin: 0.25rem 0;
+}
+
+.ai-blocks {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.ai-blocks li {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.ai-kind {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+}

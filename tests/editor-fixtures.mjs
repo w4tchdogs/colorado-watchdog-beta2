@@ -30,6 +30,7 @@ export function sandboxFetch(sandbox, hook) {
         method: call.init.method,
         headers: call.init.headers,
         ...(call.init.body === undefined ? {} : { body: call.init.body }),
+        ...(call.init.signal ? { signal: call.init.signal } : {}),
       }),
     );
   };

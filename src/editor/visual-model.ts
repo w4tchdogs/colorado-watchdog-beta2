@@ -257,6 +257,20 @@ function inlineToMarkdown(nodes: readonly VInline[]): string {
     .join("");
 }
 
+/** The inline Markdown of one text block, without its block prefix. */
+export const blockMarkdown = (block: VBlock): string =>
+  inlineToMarkdown(normalizeBlockText(block.text));
+
+/** Parses one line of inline Markdown, or returns null if it is not plain inline text. */
+export function inlineFromMarkdown(markdown: string): VInline[] | null {
+  if (/[\r\n]/.test(markdown) || markdown.trim() === "") return null;
+  const result = toVisual(markdown);
+  const only = result.ok ? result.blocks[0] : undefined;
+  return result.ok && result.blocks.length === 1 && only?.kind === "p"
+    ? only.text
+    : null;
+}
+
 /** Escapes a leading character that would otherwise start another block. */
 function guardLineStart(text: string): string {
   if (/^[#>+\-~]/.test(text)) return `\\${text}`;

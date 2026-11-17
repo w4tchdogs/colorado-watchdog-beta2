@@ -16,6 +16,13 @@ export interface RuntimeEnvironment extends HumanSignInEnvironment {
   readonly REPORTS_TURNSTILE_ORIGIN?: string;
   /** Test-only Siteverify substitute. Honored only for loopback under APP_ENV=test. */
   readonly REPORTS_TEST_TURNSTILE_VERIFY_URL?: string;
+  /**
+   * AI proposals are off unless set. `fixture` is deterministic and offline.
+   * `openai` also needs `OPENAI_API_KEY` and `AI_MODEL`, set as Worker secrets.
+   */
+  readonly AI_PROVIDER?: string;
+  readonly AI_MODEL?: string;
+  readonly OPENAI_API_KEY?: string;
   readonly DB?: D1Binding;
   /** Optional Sites R2 binding; pages keep their placeholder when absent. */
   readonly BUCKET?: R2BucketLike;

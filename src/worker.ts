@@ -10,6 +10,10 @@ import { AsyncD1Database } from "./database/d1.js";
 import { handleWebsiteMcpRequest } from "./mcp/website.js";
 import { createSyncMcpBridge } from "./mcp/website-sync.js";
 import { createReportApiModule, type ReportApiOptions } from "./report-api.js";
+import {
+  createAiProposalService,
+  createAiProviderFromEnv,
+} from "./services/ai-proposals.js";
 import { D1BannerAdministration } from "./services/banner-admin-d1.js";
 import { D1BannerPublicService } from "./services/banner-public.js";
 import { R2BannerObjectStorage } from "./services/banner-storage.js";
@@ -40,6 +44,7 @@ import {
 import {
   CONTENT_API_PATHS,
   CONTENT_PUBLICATION_API_PATHS,
+  type ContentTransportOperations,
   createContentApiTransport,
   createContentTransportOperations,
 } from "./transport/content-api.js";
@@ -278,6 +283,19 @@ function originRejected(): Response {
   });
 }
 
+/** AI proposals stay unavailable (503) until a provider is configured. */
+function aiOperations(
+  environment: RuntimeEnvironment,
+): Pick<ContentTransportOperations, "proposeAi"> {
+  const provider = createAiProviderFromEnv(environment);
+  if (!provider) return {};
+  const service = createAiProposalService({ provider });
+  return {
+    proposeAi: (_principal, request, signal) =>
+      service.propose(request, signal),
+  };
+}
+
 const routes = {
   async fetch(
     request: Request,
@@ -429,6 +447,7 @@ const routes = {
               createD1ContentService(database, authorizeDrafts),
             ),
             ...createContentPublicationService(database, authorize),
+            ...aiOperations(environment),
           },
         }).fetch(request);
       }

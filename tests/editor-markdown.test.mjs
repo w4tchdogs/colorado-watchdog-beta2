@@ -126,5 +126,6 @@ test("line diff reports additions and removals and is bounded", () => {
 });
 
 test("browser client paths match the server transport paths", () => {
+  // The browser client carries the draft and AI paths and adds no others.
   assert.deepEqual(EDITOR_API_PATHS, CONTENT_API_PATHS);
 });

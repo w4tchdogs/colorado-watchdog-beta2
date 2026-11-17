@@ -9,8 +9,10 @@
 import { clear, el } from "./dom.js";
 import { safeLinkTarget } from "./markdown.js";
 import {
+  blockMarkdown,
   cloneBlocks,
   IMAGE_PLACEHOLDER_SRC,
+  inlineFromMarkdown,
   isEmptyText,
   KIND_LABELS,
   normalizeBlockText,
@@ -32,6 +34,17 @@ export interface CanvasOptions {
   readonly onRoundTripWarning: (warn: boolean) => void;
   readonly onNotice: (kind: "info" | "error", text: string) => void;
   readonly checkpointDelayMs?: number;
+  /** Reports a non-empty text selection inside one block, or null when none. */
+  readonly onSelection?: (
+    info: { readonly index: number; readonly rect: DOMRect } | null,
+  ) => void;
+}
+
+/** A text block the author is working in, for AI proposals. */
+export interface CurrentBlock {
+  readonly index: number;
+  readonly kind: VKind;
+  readonly markdown: string;
 }
 
 export interface Canvas {
@@ -46,6 +59,18 @@ export interface Canvas {
   /** Headings in document order, for the outline. */
   getOutline(): OutlineEntry[];
   focusBlock(index: number): void;
+  /** The focused text block, or null when a divider, image or nothing is selected. */
+  getCurrentBlock(): CurrentBlock | null;
+  blockCount(): number;
+  /**
+   * Replaces one block's text when it still reads `expected`. One undo step.
+   * Returns false, changing nothing, when the block moved or changed.
+   */
+  replaceBlockText(index: number, expected: string, markdown: string): boolean;
+  /** Inserts blocks after `index` (-1 for the start). One undo step. */
+  insertBlocksAfter(index: number, added: readonly VBlock[]): void;
+  /** Replaces the whole body. One undo step. */
+  replaceAll(next: readonly VBlock[]): void;
   setBlocks(blocks: readonly VBlock[]): void;
   setReadOnly(value: boolean): void;
   focus(): void;
@@ -1103,8 +1128,45 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
   });
   const element = h("div", { class: "vcanvas" }, column, endButton);
 
+  const reportSelection = () => {
+    if (!options.onSelection) return;
+    const selection = doc.getSelection();
+    const active = editables[current];
+    const here = blocks[current];
+    if (
+      readOnly ||
+      !active ||
+      !here ||
+      !isTextKind(here.kind) ||
+      !selection ||
+      selection.rangeCount === 0 ||
+      selection.isCollapsed ||
+      !active.contains(selection.anchorNode) ||
+      !active.contains(selection.focusNode)
+    ) {
+      options.onSelection(null);
+      return;
+    }
+    options.onSelection({
+      index: current,
+      rect: selection.getRangeAt(0).getBoundingClientRect(),
+    });
+  };
+
+  /** One undoable structural change: settle typing, mutate, render, record. */
+  function structural(change: () => number | null): void {
+    if (readOnly) return;
+    syncBlock(current);
+    checkpoint();
+    const focus = change();
+    renderAll(focus, focus === null ? null : 0);
+    emit();
+    checkpoint();
+  }
+
   const onSelectionChange = () => {
     if (destroyed) return;
+    reportSelection();
     const query = (
       doc as Document & { queryCommandState?: (c: string) => boolean }
     ).queryCommandState;
@@ -1150,6 +1212,48 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
             ]
           : [],
       );
+    },
+    getCurrentBlock() {
+      const block = blocks[current];
+      if (!block || !isTextKind(block.kind)) return null;
+      syncBlock(current);
+      return {
+        index: current,
+        kind: block.kind,
+        markdown: blockMarkdown(block),
+      };
+    },
+    blockCount: () => blocks.length,
+    replaceBlockText(index, expected, markdown) {
+      const block = blocks[index];
+      const text = inlineFromMarkdown(markdown);
+      if (readOnly || !block || !isTextKind(block.kind) || !text) return false;
+      syncBlock(index);
+      if (blockMarkdown(block) !== expected) return false;
+      structural(() => {
+        block.text = text;
+        return index;
+      });
+      return true;
+    },
+    insertBlocksAfter(index, added) {
+      structural(() => {
+        const only = blocks.length === 1 ? blocks[0] : undefined;
+        if (only && only.kind === "p" && isEmptyText(only.text)) {
+          blocks = cloneBlocks(added);
+          return 0;
+        }
+        const at = Math.max(-1, Math.min(index, blocks.length - 1));
+        blocks.splice(at + 1, 0, ...cloneBlocks(added));
+        return at + 1;
+      });
+    },
+    replaceAll(next) {
+      structural(() => {
+        blocks =
+          next.length === 0 ? [{ kind: "p", text: [] }] : cloneBlocks(next);
+        return 0;
+      });
     },
     focusBlock(index) {
       const target = editables[index];

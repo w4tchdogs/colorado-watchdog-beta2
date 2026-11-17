@@ -150,6 +150,11 @@ export interface ContentRevision {
   readonly recordedAt: string;
   /** Set only for `restore_revision`: the earlier version that was restored. */
   readonly restoredFromVersion: number | null;
+  /**
+   * Set when this revision preserves the exact working draft from just before
+   * an accepted AI edit. It is an ordinary revision and restores like one.
+   */
+  readonly checkpointLabel: string | null;
 }
 
 /** Revision listings omit the body and relationships. */
@@ -157,6 +162,18 @@ export type ContentRevisionSummary = Omit<
   ContentRevision,
   "body" | "relationships"
 >;
+
+export const MAX_CONTENT_CHECKPOINTS = 10;
+export const MAX_CHECKPOINT_LABEL_LENGTH = 80;
+
+/** The complete working draft captured immediately before an AI edit. */
+export interface ContentCheckpoint {
+  readonly label: string;
+  readonly title: string;
+  readonly summary: string | null;
+  readonly body: string;
+  readonly relationships: ContentRelationships;
+}
 
 export interface ContentRevisionListRequest {
   readonly limit?: number;
