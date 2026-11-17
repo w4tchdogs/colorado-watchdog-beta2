@@ -219,6 +219,8 @@ rewriting the history above.
 - Within the same county, claims with the same name are merged when their office, position, or job description align. County plus name alone is not enough; name or nickname similarity without an aligned role descriptor does not establish a merge.
 - An unknown organization type or unresolved hierarchy is not, by itself, a reason to exclude an otherwise qualifying Profile.
 - Keep each supported role, its office/position/job-description text, county association, source citation and evidence history. Do not turn a responsibility into a job title.
+- The owner reaffirmed on November 17 that private Profiles include both current and former county officials and employees. Apply the same identity, role and linked-source standard to former roles. Preserve the original listing status and documented employment dates. Leave unknown dates unset.
+- The owner directed on November 17 that confirmed role titles omit the standalone word “County”. Preserve the source wording, county and office or department separately. Group title variants when they describe the same role for the same person, and retain every supporting claim and source link. For example, “County Clerk and Recorder” and “Clerk & Recorder” describe one Clerk & Recorder role, and “County Treasurer” and “Treasurer” describe one Treasurer role.
 - This decision supersedes conflicting earlier identity evidence defaults and R7 eligibility assumptions. The identity planner, R7 generator and local Website reads implement it as of SYNC-1. Apply the source-link rule recorded above to every qualifying role.
 
 ## Profiles database column names, November 16, 2026
