@@ -28,11 +28,14 @@ class SubmissionError(ValueError):
     """The request cannot be safely prepared for submission."""
 
 
-def prepare_submission(db, site_key, idempotency_key, original_payload, *, now=None):
+def prepare_submission(db, site_key, idempotency_key, original_payload, *, now=None, before_insert=None):
     """Persist an immutable request before any transport is invoked.
 
     Exact input JSON is retained for safe retries. The fingerprint is computed
     over canonical JSON so harmless object-key ordering does not change identity.
+    `before_insert(db)`, when given, runs inside the same write transaction as the
+    insert of a new submission, after the exact-key check, so a guard it applies
+    cannot be raced by another connection.
     """
     _validate_key(site_key, "site key")
     _validate_key(idempotency_key, "idempotency key")
@@ -73,6 +76,8 @@ def prepare_submission(db, site_key, idempotency_key, original_payload, *, now=N
                     "The idempotency key is already bound to a different request"
                 )
             return {"submission_id": existing["id"], "created": False}
+        if before_insert is not None:
+            before_insert(db)
         submission_id = str(uuid4())
         db.execute(
             """INSERT INTO sync_submissions

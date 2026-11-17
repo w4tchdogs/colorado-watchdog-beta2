@@ -310,6 +310,8 @@ def parser_for():
     prepare.add_argument("--expect-fingerprint", required=True,
                          help="Changeset SHA-256 shown by sync-preview")
     prepare.add_argument("--max-changes", type=int, default=None)
+    prepare.add_argument("--county-fips",
+                         help="Canonical Colorado county FIPS. Use the same value as the reviewed sync-preview")
     prepare.add_argument("--hosted", action="store_true",
                          help="Use the same interim hosted batch size as the reviewed sync-preview --hosted")
 
@@ -462,7 +464,8 @@ def _sync_command(args, path):
                 raise ValueError("--expect-fingerprint must be a 64-character SHA-256 value")
             if getattr(args, "hosted", False) and args.max_changes is not None:
                 raise ValueError("--hosted and --max-changes cannot be combined")
-            generated, fingerprint = _sync_preview(db, args.site_key, args.max_changes, None, getattr(args, "hosted", False))
+            generated, fingerprint = _sync_preview(
+                db, args.site_key, args.max_changes, getattr(args, "county_fips", None), getattr(args, "hosted", False))
             if fingerprint != args.expect_fingerprint.lower():
                 raise ValueError("Changeset fingerprint differs from the reviewed preview")
             if not generated["request"]["changes"]:
@@ -477,6 +480,7 @@ def _sync_command(args, path):
                 "created": prepared["created"],
                 "changeset_fingerprint": fingerprint,
                 "selected": "all",
+                "county_fips": getattr(args, "county_fips", None),
                 "change_count": generated["eligible_count"],
             }, 0
         if args.command == "sync-status":

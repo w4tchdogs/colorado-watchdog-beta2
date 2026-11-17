@@ -1029,7 +1029,9 @@ def require_previous_submission_resolved(db, site_key, idempotency_key):
     receipt records, so a new one is refused while an earlier submission for the same
     Site is pending (outcome uncertain) or acknowledged but not yet reconciled.
     Repeating the same idempotency key is always allowed. A rejected submission mapped
-    nothing, so it does not block.
+    nothing, so it does not block. prepare_research_submission runs this inside the
+    write transaction that inserts the new submission, so two connections cannot both
+    pass it.
     """
     if db.execute("SELECT 1 FROM sync_submissions WHERE site_key=? AND idempotency_key=?",
                   (site_key, idempotency_key)).fetchone():
@@ -1056,8 +1058,9 @@ def prepare_research_submission(db, site_key, idempotency_key, generated, *, now
     text = json.dumps(
         generated["request"], ensure_ascii=False, separators=(",", ":"), allow_nan=False
     )
-    require_previous_submission_resolved(db, site_key, idempotency_key)
-    prepared = prepare_submission(db, site_key, idempotency_key, text, now=now)
+    prepared = prepare_submission(
+        db, site_key, idempotency_key, text, now=now,
+        before_insert=lambda conn: require_previous_submission_resolved(conn, site_key, idempotency_key))
     sid = prepared["submission_id"]
     with db:
         db.execute("BEGIN IMMEDIATE")

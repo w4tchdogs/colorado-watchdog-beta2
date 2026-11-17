@@ -1,9 +1,13 @@
 """Interim hosted batch sizing and sequential multi-batch submission, with synthetic records only."""
 
+import io
 import json
 import tempfile
+import threading
+import time
 import unittest
 import uuid
+from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -26,14 +30,14 @@ SITE = "synthetic-hosted-batching-site"
 COUNTY = "08001"
 
 
-def seed(db, claims=12, people=8, sources=3):
+def seed(db, claims=12, people=8, sources=3, county=COUNTY):
     """Claims beyond `people` reuse an earlier person, so later batches reference existing records."""
-    db.executemany("INSERT INTO counties VALUES (?,?)", [(COUNTY, COUNTIES[COUNTY])])
+    db.executemany("INSERT OR IGNORE INTO counties VALUES (?,?)", [(county, COUNTIES[county])])
     db.commit()
-    payload = csv_bytes([observation(COUNTY, full_name=f"Synthetic Person {i % people}",
-                                     source_url=f"https://example.invalid/{COUNTY}/source-{i % sources}")
+    payload = csv_bytes([observation(county, full_name=f"Synthetic Person {county} {i % people}",
+                                     source_url=f"https://example.invalid/{county}/source-{i % sources}")
                          for i in range(claims)])
-    batch = ingest_csv(db, payload, file_name="hosted.csv", version_label="hosted",
+    batch = ingest_csv(db, payload, file_name=f"hosted-{county}.csv", version_label=f"hosted-{county}",
                        provenance="synthetic", selected=True)
     rows = list(db.execute(
         'SELECT c."Role claim ID" AS id,c."Evidence record ID" AS evidence_id,e."Source ID" AS source_id '
@@ -46,12 +50,12 @@ def seed(db, claims=12, people=8, sources=3):
     for index, row in enumerate(rows):
         db.execute('UPDATE evidence_links SET "Source title as observed"=? WHERE "Evidence record ID"=?',
                    (f"Synthetic source {row['source_id']}", row["evidence_id"]))
-        profile = f"person-hosted-{index % people}"
+        profile = f"person-hosted-{county}-{index % people}"
         if profile not in seen:
             seen.add(profile)
             db.execute('INSERT INTO research_people("Profile ID","County code","Full name","Identity review status",'
                        '"Evidence for identity") VALUES(?,?,?,\'evidence_supported\',?)',
-                       (profile, COUNTY, f"Synthetic Person {index % people}", row["evidence_id"]))
+                       (profile, county, f"Synthetic Person {county} {index % people}", row["evidence_id"]))
         db.execute('UPDATE role_claims SET "Linked profile"=?,"Office or department as published"=? '
                    'WHERE "Role claim ID"=?', (profile, f"Synthetic Office {index}", row["id"]))
     db.commit()
@@ -288,6 +292,156 @@ class HostedCliTests(unittest.TestCase):
         preview, _ = self.run_command("sync-preview", site_key=SITE, max_changes=None, county_fips=COUNTY)
         self.assertNotIn("batching", preview)
         self.assertFalse(preview["truncated"])
+
+
+OTHER_COUNTY = "08003"
+
+
+class CountyScopedCliTests(unittest.TestCase):
+    """sync-prepare rebuilds the same county scope that sync-preview reviewed."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.path = Path(self.temp.name, "fictional.sqlite")
+        db = connect(self.path)
+        migrate(db)
+        seed(db, claims=4, people=3, sources=2, county=COUNTY)
+        seed(db, claims=3, people=2, sources=1, county=OTHER_COUNTY)
+        db.close()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def cli(self, *argv):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            status = cli.main([argv[0], str(self.path), *argv[1:]])
+        return status, json.loads(out.getvalue())
+
+    def prepare(self, key, fingerprint, *extra):
+        return self.cli("sync-prepare", "--site-key", SITE, "--idempotency-key", key,
+                        "--select", "all", "--expect-fingerprint", fingerprint, *extra)
+
+    def test_county_preview_and_prepare_share_one_scope_and_exclude_other_counties(self):
+        status, statewide = self.cli("sync-preview", "--site-key", SITE)
+        self.assertEqual(status, 0)
+        self.assertIn(f"/{OTHER_COUNTY}/", json.dumps(statewide["request"]))
+        status, county = self.cli("sync-preview", "--site-key", SITE, "--county-fips", COUNTY, "--hosted")
+        self.assertEqual(status, 0)
+        self.assertNotEqual(county["changeset_fingerprint"], statewide["changeset_fingerprint"])
+        text = json.dumps(county["request"])
+        self.assertIn(f"/{COUNTY}/", text)
+        self.assertNotIn(f"/{OTHER_COUNTY}/", text)
+        self.assertNotIn(f"Synthetic Person {OTHER_COUNTY}", text)
+
+        # Without the scope, prepare rebuilds statewide and refuses the county fingerprint.
+        status, refused = self.prepare("county-1", county["changeset_fingerprint"], "--hosted")
+        self.assertEqual(status, 2)
+        self.assertIn("differs from the reviewed preview", json.dumps(refused))
+
+        status, prepared = self.prepare("county-1", county["changeset_fingerprint"],
+                                        "--county-fips", COUNTY, "--hosted")
+        self.assertEqual(status, 0, prepared)
+        self.assertEqual(prepared["county_fips"], COUNTY)
+        self.assertEqual(prepared["changeset_fingerprint"], county["changeset_fingerprint"])
+        self.assertEqual(prepared["change_count"], county["planned_operations"])
+        db = connect(self.path)
+        try:
+            stored = db.execute("SELECT request_json FROM sync_submissions WHERE id=?",
+                                (prepared["submission_id"],)).fetchone()[0]
+            claim_counties = {row[0] for row in db.execute(
+                'SELECT c."County code" FROM sync_submission_items i JOIN role_claims c '
+                'ON c."Role claim ID"=i.claim_id WHERE i.submission_id=?', (prepared["submission_id"],))}
+        finally:
+            db.close()
+        self.assertEqual(json.loads(stored), county["request"])
+        self.assertEqual(claim_counties, {COUNTY})
+
+    def test_statewide_preview_and_prepare_are_unchanged_without_the_option(self):
+        status, statewide = self.cli("sync-preview", "--site-key", SITE)
+        self.assertEqual(status, 0)
+        status, prepared = self.prepare("statewide-1", statewide["changeset_fingerprint"])
+        self.assertEqual(status, 0, prepared)
+        self.assertIsNone(prepared["county_fips"])
+        self.assertEqual(prepared["change_count"], statewide["planned_operations"])
+
+    def test_a_scope_that_is_not_a_canonical_fips_is_refused(self):
+        status, _ = self.prepare("bad", "0" * 64, "--county-fips", "8001")
+        self.assertEqual(status, 2)
+
+
+class ConcurrentPrepareTests(unittest.TestCase):
+    """The unresolved-submission guard and the insert share one SQLite write transaction."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.path = Path(self.temp.name, "fictional.sqlite")
+        db = connect(self.path)
+        migrate(db)
+        seed(db)
+        with patch.object(sync, "HOSTED_MAX_CHANGES_SELF_CONTAINED", 9), \
+                patch.object(sync, "HOSTED_MAX_CHANGES_REFERENCE_HEAVY", 5):
+            self.generated = build_hosted_changeset(db, SITE, county_fips=COUNTY)
+        db.close()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_two_connections_with_different_keys_cannot_both_leave_a_submission_unresolved(self):
+        first = connect(self.path)
+        real_guard = sync.require_previous_submission_resolved
+        started, errors, results = threading.Event(), [], {}
+
+        def prepare_second():
+            second = connect(self.path)
+            try:
+                results["second"] = prepare_research_submission(second, SITE, "key-b", self.generated)
+            except Exception as error:  # recorded so the assertion shows any unexpected failure
+                errors.append(f"{type(error).__name__}: {error}")
+            finally:
+                second.close()
+
+        worker = threading.Thread(target=prepare_second)
+
+        def guard_then_let_the_other_connection_race(conn, site_key, key):
+            real_guard(conn, site_key, key)
+            if key == "key-a" and not started.is_set():
+                started.set()
+                worker.start()
+                # The second connection would pass a guard run outside this transaction now.
+                time.sleep(0.5)
+
+        try:
+            with patch.object(sync, "require_previous_submission_resolved",
+                              side_effect=guard_then_let_the_other_connection_race):
+                results["first"] = prepare_research_submission(first, SITE, "key-a", self.generated)
+                worker.join(10)
+            self.assertFalse(worker.is_alive())
+            self.assertTrue(results["first"]["created"])
+            self.assertNotIn("second", results)
+            self.assertEqual(len(errors), 1, errors)
+            self.assertTrue(errors[0].startswith("ValueError"), errors)
+            self.assertIn("uncertain outcome", errors[0])
+            unresolved = first.execute(
+                "SELECT count(*) FROM sync_submissions WHERE site_key=? AND state IN ('pending','acknowledged')",
+                (SITE,)).fetchone()[0]
+            self.assertEqual(unresolved, 1)
+            again = prepare_research_submission(first, SITE, "key-a", self.generated)
+            self.assertEqual(again, {"submission_id": results["first"]["submission_id"], "created": False})
+        finally:
+            first.close()
+
+    def test_a_mismatched_request_under_an_existing_key_is_still_rejected(self):
+        db = connect(self.path)
+        try:
+            prepare_research_submission(db, SITE, "key-a", self.generated)
+            other = json.loads(json.dumps(self.generated))
+            other["request"]["changes"] = other["request"]["changes"][:1]
+            with self.assertRaises(Exception) as caught:
+                prepare_research_submission(db, SITE, "key-a", other)
+            self.assertIn("different request", str(caught.exception))
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":
