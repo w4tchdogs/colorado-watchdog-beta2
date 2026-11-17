@@ -257,3 +257,14 @@ operator procedure is in [the Profiles foundation guide](research/R0-foundation.
   local Profiles SQLite and Website D1.
 - The editor, human sync access design and choice of table names or views
   are open design questions. MCP remains an AI operator interface.
+
+## Local Profiles data areas, November 17, 2026
+
+- Keep People Research and County Research distinct in the local database.
+  Prefix all research tables with `research_` and order the adjacent research
+  areas by name from sources and observations through reviewed conclusions.
+- Use Profiles for confirmed records prepared for the Website. Keep research
+  observations distinguishable from confirmed Profiles and keep Website
+  submission state distinguishable from local confirmation.
+- Proposed tables and the complete v5 mapping are in the
+  [local Profiles database redesign](research/local-profiles-schema-redesign.md).

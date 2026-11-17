@@ -377,6 +377,7 @@ const allowed = new Set([
   "docs/research/source-page-types.md",
   "docs/research/publisher-classification-and-private-export.md",
   "docs/research/R0-foundation.md",
+  "docs/research/local-profiles-schema-redesign.md",
   "docs/research/legacy-csv-compatibility.md",
   "docs/research/csv-intake.md",
   "docs/research/R1-operator-interface.md",
