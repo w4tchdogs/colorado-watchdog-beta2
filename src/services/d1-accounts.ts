@@ -129,7 +129,7 @@ export function createD1AccountServices(
   ): Promise<AccountDetails | null> {
     await requireCapability(principal, "account.read");
     const row = await database.first<Row>(
-      `SELECT id,kind,role,status,display_name,email,preferences,version
+      `SELECT id,kind,role,status,display_name,email,preferences,version,archived_at
        FROM accounts WHERE id = ?`,
       [id],
     );
@@ -195,6 +195,7 @@ export function createD1AccountServices(
       throw new InvalidInputError();
     const conditions: string[] = [];
     const values: (string | number)[] = [];
+    if (!filter.includeArchived) conditions.push("archived_at IS NULL");
     if (filter.query) {
       conditions.push(
         "(display_name LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')",
@@ -219,7 +220,7 @@ export function createD1AccountServices(
       values.push(filter.afterId);
     }
     const rows = await database.all<Row>(
-      `SELECT id,kind,role,status,display_name,version FROM accounts
+      `SELECT id,kind,role,status,display_name,version,archived_at FROM accounts
        ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
        ORDER BY id LIMIT ?`,
       limit + 1,
@@ -259,6 +260,14 @@ export function createD1AccountServices(
       { kind: input.kind, role: input.role },
       [
         database.prepare(
+          "UPDATE identities SET revoked_at=?,version=version+1,updated_at=? WHERE account_id=? AND provider='agent-key' AND revoked_at IS NULL",
+          [now().toISOString(), now().toISOString(), id],
+        ),
+        database.prepare(
+          "UPDATE agent_capability_grants SET revoked_at=?,revoked_by_account_id=? WHERE account_id=? AND revoked_at IS NULL",
+          [now().toISOString(), principal.accountId, id],
+        ),
+        database.prepare(
           `INSERT INTO accounts (id,kind,role,display_name,email) VALUES (?,?,?,?,?)`,
           [
             id,
@@ -278,6 +287,7 @@ export function createD1AccountServices(
       kind: input.kind,
       role: input.role,
       status: "active",
+      archivedAt: null,
       displayName,
       version: 1,
     };
@@ -558,6 +568,51 @@ export function createD1AccountServices(
     return version;
   }
 
+  async function archiveAccount(
+    principal: TrustedPrincipal,
+    id: string,
+    expectedVersion: number,
+    operationId?: string,
+  ): Promise<number> {
+    await requireCapability(principal, "account.change_role");
+    if (!validExpectedVersion(expectedVersion)) throw new InvalidInputError();
+    const rows = await database.all<Row>(
+      "SELECT kind,status,version,archived_at FROM accounts WHERE id=? AND version=?",
+      1,
+      [id, expectedVersion],
+    );
+    const row = rows[0];
+    if (!row || row.kind !== "agent" || row.archived_at !== null)
+      throw new InvalidInputError();
+    const version = num(row.version) + 1;
+    await auditedBatch(
+      principal,
+      "account.archive",
+      "account",
+      id,
+      "Archived an unused agent account",
+      {},
+      [
+        database.prepare(
+          "UPDATE identities SET revoked_at=?,version=version+1,updated_at=? WHERE account_id=? AND provider='agent-key' AND revoked_at IS NULL",
+          [now().toISOString(), now().toISOString(), id],
+        ),
+        database.prepare(
+          "UPDATE agent_capability_grants SET revoked_at=?,revoked_by_account_id=? WHERE account_id=? AND revoked_at IS NULL",
+          [now().toISOString(), principal.accountId, id],
+        ),
+        database.prepare(
+          "UPDATE accounts SET archived_at=?,status='disabled',version=version+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND version=? AND kind='agent' AND archived_at IS NULL",
+          [now().toISOString(), id, expectedVersion],
+        ),
+        assertOneChange(`account:${id}`),
+      ],
+      operationId,
+      "account.change_role",
+    );
+    return version;
+  }
+
   async function createOperation(
     principal: TrustedPrincipal,
     kind: string,
@@ -701,6 +756,7 @@ export function createD1AccountServices(
     createHumanIdentity,
     issueAgentCredential,
     setAgentCapability,
+    archiveAccount,
     listAgentCapabilities,
     revokeIdentity,
     createOperation,
@@ -748,6 +804,7 @@ function parseAccountSummary(row: Row): AccountSummary {
     kind: row.kind,
     role: row.role,
     status: row.status,
+    archivedAt: row.archived_at === null ? null : String(row.archived_at),
     displayName: row.display_name,
     version: num(row.version),
   };

@@ -206,6 +206,7 @@ const allowed = new Set([
   "website/migrations/0024_agent_capability_grants.sql",
   "website/migrations/0025_agent_inspect_grant.sql",
   "website/migrations/0026_agent_banner_publish_grant.sql",
+  "website/migrations/0027_archived_accounts.sql",
   "src/auth/config.ts",
   "src/auth/http.ts",
   "src/auth/identity.ts",
