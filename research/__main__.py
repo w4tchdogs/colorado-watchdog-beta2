@@ -293,6 +293,9 @@ def parser_for():
         command.add_argument("--max-changes", type=int, default=None,
                              help="Optional voluntary limit. By default a changeset holds as much as fits the 8 MiB request limit")
         command.add_argument("--county-fips", help="Optional canonical Colorado county FIPS")
+        command.add_argument("--hosted", action="store_true",
+                             help="Apply the interim hosted batch size: 260 operations for a provably "
+                                  "self-contained changeset, otherwise 100. Cannot be combined with --max-changes")
 
     database_command(
         "mcp-readiness-summary",
@@ -307,6 +310,10 @@ def parser_for():
     prepare.add_argument("--expect-fingerprint", required=True,
                          help="Changeset SHA-256 shown by sync-preview")
     prepare.add_argument("--max-changes", type=int, default=None)
+    prepare.add_argument("--county-fips",
+                         help="Canonical Colorado county FIPS. Use the same value as the reviewed sync-preview")
+    prepare.add_argument("--hosted", action="store_true",
+                         help="Use the same interim hosted batch size as the reviewed sync-preview --hosted")
 
     status = database_command("sync-status", "inspect sanitized local submission status")
     status.add_argument("--submission-id", required=True)
@@ -334,11 +341,15 @@ def _absolute_external_path(candidate, parser, label):
     return _external_path(candidate, parser, label)
 
 
-def _sync_preview(db, site_key, max_changes, county_fips=None):
+def _sync_preview(db, site_key, max_changes, county_fips=None, hosted=False):
     kwargs = {"max_changes": max_changes}
     if county_fips is not None:
         kwargs["county_fips"] = county_fips
-    generated = sync.build_changeset(db, site_key, **kwargs)
+    if hosted:
+        generated = sync.build_hosted_changeset(
+            db, site_key, **({"county_fips": county_fips} if county_fips is not None else {}))
+    else:
+        generated = sync.build_changeset(db, site_key, **kwargs)
     fingerprint = hashlib.sha256(
         json.dumps(generated["request"], ensure_ascii=False, sort_keys=True,
                    separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -420,8 +431,10 @@ def _sync_command(args, path):
     db = _read_only(path) if read_only else connect(path)
     try:
         if args.command in {"sync-eligibility", "sync-preview"}:
+            if getattr(args, "hosted", False) and args.max_changes is not None:
+                raise ValueError("--hosted and --max-changes cannot be combined")
             generated, fingerprint = _sync_preview(
-                db, args.site_key, args.max_changes, getattr(args, "county_fips", None))
+                db, args.site_key, args.max_changes, getattr(args, "county_fips", None), getattr(args, "hosted", False))
             result = {
                 "mode": args.command,
                 "status": "previewed",
@@ -439,6 +452,7 @@ def _sync_command(args, path):
                 "eligibility": generated.get("eligibility_summary", {}),
                 "planned_operations": generated["eligible_count"],
                 "planned_operations_by_entity": generated.get("planned_operations_by_entity", {}),
+                **({"batching": generated["batching"]} if "batching" in generated else {}),
                 "exclusion_counts_by_reason": generated.get("exclusion_counts_by_reason", {}),
                 "excluded": generated["excluded"][:200],
             }
@@ -448,7 +462,10 @@ def _sync_command(args, path):
         if args.command == "sync-prepare":
             if not re.fullmatch(r"[0-9a-fA-F]{64}", args.expect_fingerprint):
                 raise ValueError("--expect-fingerprint must be a 64-character SHA-256 value")
-            generated, fingerprint = _sync_preview(db, args.site_key, args.max_changes)
+            if getattr(args, "hosted", False) and args.max_changes is not None:
+                raise ValueError("--hosted and --max-changes cannot be combined")
+            generated, fingerprint = _sync_preview(
+                db, args.site_key, args.max_changes, getattr(args, "county_fips", None), getattr(args, "hosted", False))
             if fingerprint != args.expect_fingerprint.lower():
                 raise ValueError("Changeset fingerprint differs from the reviewed preview")
             if not generated["request"]["changes"]:
@@ -463,6 +480,7 @@ def _sync_command(args, path):
                 "created": prepared["created"],
                 "changeset_fingerprint": fingerprint,
                 "selected": "all",
+                "county_fips": getattr(args, "county_fips", None),
                 "change_count": generated["eligible_count"],
             }, 0
         if args.command == "sync-status":
