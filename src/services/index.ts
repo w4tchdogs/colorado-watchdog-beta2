@@ -142,6 +142,18 @@ export interface ApplicationServices {
     expiresAt?: string | null,
     operationId?: string,
   ): ReturnType<typeof issueAgentCredential>;
+  /** Hosted D1 only. Owner-gated, audited and limited to the sync capabilities. */
+  setAgentCapability?(
+    principal: TrustedPrincipal,
+    accountId: string,
+    capability: string,
+    granted: boolean,
+    operationId?: string,
+  ): Promise<void>;
+  listAgentCapabilities?(
+    principal: TrustedPrincipal,
+    accountId: string,
+  ): Promise<readonly string[]>;
   revokeIdentity(
     principal: TrustedPrincipal,
     identityId: string,

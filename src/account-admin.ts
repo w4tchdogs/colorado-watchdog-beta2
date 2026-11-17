@@ -108,7 +108,7 @@ export function createAccountAdminModule(
           return json(200, result);
         }
         const match =
-          /^\/api\/admin\/accounts\/([^/]+)(?:\/(role|identities|credentials|audit))?$/.exec(
+          /^\/api\/admin\/accounts\/([^/]+)(?:\/(role|identities|credentials|audit|capabilities))?$/.exec(
             url.pathname,
           );
         const matchedId = match?.[1];
@@ -207,6 +207,32 @@ export function createAccountAdminModule(
               body.subject,
             ),
           });
+        }
+        if (action === "capabilities") {
+          if (!services.setAgentCapability || !services.listAgentCapabilities)
+            return json(404, { error: "not_found" });
+          if (request.method === "GET")
+            return json(200, {
+              capabilities: await services.listAgentCapabilities(principal, id),
+            });
+          if (request.method === "PUT" || request.method === "DELETE") {
+            const body = await readJson(request);
+            if (
+              !isObject(body) ||
+              Object.keys(body).some((k) => k !== "capability") ||
+              typeof body.capability !== "string"
+            )
+              return json(400, { error: "invalid_request" });
+            await services.setAgentCapability(
+              principal,
+              id,
+              body.capability,
+              request.method === "PUT",
+            );
+            return json(200, {
+              capabilities: await services.listAgentCapabilities(principal, id),
+            });
+          }
         }
         if (action === "credentials" && request.method === "POST") {
           const body = await readJson(request);

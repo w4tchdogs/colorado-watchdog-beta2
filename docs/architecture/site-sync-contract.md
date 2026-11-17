@@ -1,8 +1,16 @@
 # Website synchronization contract (M2-A)
 
+## Hosted route (SYNC-1 hosted, migration 0024)
+
+The Worker serves the four sync operations at `/internal/sync/changesets/dry-run`, `/internal/sync/changesets/commit`, `/internal/sync/batches/lookup` and `/internal/sync/batches/reverse`. They are POST-only, JSON-only and never public. Each request is authenticated with a Website agent bearer credential, then authorized, before its body is read. Without a database binding the routes answer 503.
+
+No role holds `sync.read`, `sync.apply` or `sync.revert`. An agent account receives one only through an active row in `agent_capability_grants` (migration 0024). A grant is limited to agent accounts and to these three capabilities, is created and revoked only by an account holding `account.change_role` (the owner), is audited (`account.capability.grant` and `account.capability.revoke`), and is retained after revocation. Every grant change advances the dependency generation, so a guarded commit that began earlier is stale. The owner manages grants at `GET`, `PUT` and `DELETE /api/admin/accounts/{id}/capabilities` with a JSON body `{"capability": "sync.read"}`, behind the existing same-origin and `account.read` checks. Humans, including owners, never hold sync capabilities.
+
+`dry_run` and `lookup` need `sync.read`, `commit` needs `sync.apply`, and `reverse` needs `sync.revert`. Lookup and reversal act only on batches the calling account committed, and another account's batch looks the same as a missing one. There is no broad SQL access, no cross-database access and no diagnostic route. Local tests cover default denial, grant rules, plan, commit, same-key replay, readback, reversal and revocation. Hosted behavior is recorded in the SYNC-1 Issue.
+
 ## Authorization and D1 readiness (M2-F)
 
-The sync transport remains internal and unregistered. Its deny-by-default
+The sync transport is registered on the Worker behind explicit agent grants (see above). Its deny-by-default
 authorization mapping, current-principal checks, and local-only D1 readiness
 evidence are documented in [d1-readiness.md](d1-readiness.md).
 

@@ -116,6 +116,10 @@ const SAFE_REVERSAL =
   "The batch could not be safely reversed; no changes were applied.";
 
 /** Internal and unregistered: authorization and operation handlers are opt-in. */
+export function isSyncApiPath(pathname: string): boolean {
+  return (Object.values(SYNC_API_PATHS) as string[]).includes(pathname);
+}
+
 export function createSyncApiTransport(
   dependencies: SyncTransportDependencies = {},
 ): { fetch(request: Request): Promise<Response> } {
@@ -143,11 +147,8 @@ async function handleRequest(
   if (needsKey ? !isId(key) : request.headers.has("idempotency-key"))
     return json(400, { error: "invalid_idempotency_key" });
 
-  const body = await readJson(request);
-  if (!body.ok) return json(body.status, { error: body.error });
-  const input = parseRequest(route, body.value);
-  if (!input.ok) return json(400, { error: input.error });
-
+  // Authenticate and authorize before reading the body, so an unauthenticated
+  // caller never makes the Worker buffer or parse a large request.
   let principal: TrustedPrincipal | null;
   try {
     principal = (await dependencies.resolvePrincipal?.(request)) ?? null;
@@ -164,6 +165,11 @@ async function handleRequest(
   }
   if (!hasHandler(dependencies.operations, route))
     return json(503, { error: "operation_unavailable" });
+
+  const body = await readJson(request);
+  if (!body.ok) return json(body.status, { error: body.error });
+  const input = parseRequest(route, body.value);
+  if (!input.ok) return json(400, { error: input.error });
 
   try {
     if (route === "dry_run" && "request" in input.value) {

@@ -25,6 +25,7 @@ import {
 import { D1ReportIntakeStore } from "./services/report-intake-d1.js";
 import type { HumanIdentityAdapter } from "./services/security.js";
 import { createSitesIdentityAdapter } from "./services/sites-identity.js";
+import { createHostedSyncTransportDependencies } from "./services/sync-hosted.js";
 import { createD1EditorialSource } from "./site/d1-editorial-source.js";
 import { createPublicSite, createWebsite } from "./site/index.js";
 import type { PublicSiteServices } from "./site/types.js";
@@ -43,6 +44,7 @@ import {
   handleDashboardRequest,
   isDashboardPath,
 } from "./transport/dashboard-hosted.js";
+import { createSyncApiTransport, isSyncApiPath } from "./transport/sync-api.js";
 
 declare const __WATCHDOG_SITES_PROJECT_ID__: string | null;
 declare const __WATCHDOG_WEBSITE_MIGRATIONS__: readonly {
@@ -282,6 +284,18 @@ const routes = {
       if (isAuthPath(pathname))
         return handleAuthRequest(request, { database: null, signIn });
       if (isBannerAdminPath(pathname)) return bannerAdminUnavailable();
+      if (isSyncApiPath(pathname))
+        return new Response(
+          JSON.stringify({ error: "operation_unavailable" }),
+          {
+            status: 503,
+            headers: {
+              "cache-control": "no-store",
+              "content-type": "application/json; charset=utf-8",
+              "x-content-type-options": "nosniff",
+            },
+          },
+        );
       if (isDashboardPath(pathname)) return dashboardUnavailable();
       if (publicationRoute) return createContentApiTransport().fetch(request);
       if (new URL(request.url).pathname === "/mcp") {
@@ -389,6 +403,17 @@ const routes = {
           resolvePrincipal: accounts.resolvePrincipal,
           authorize,
           operations: createContentPublicationService(database, authorize),
+        }).fetch(request);
+      }
+      if (isSyncApiPath(pathname)) {
+        // Agent-only, capability-gated and default-deny. Every operation needs
+        // an explicit sync grant that no role holds, and nothing is public.
+        return createSyncApiTransport({
+          resolvePrincipal: accounts.resolvePrincipal,
+          ...createHostedSyncTransportDependencies(
+            database,
+            accounts.hasCapability,
+          ),
         }).fetch(request);
       }
       if (isBannerAdminPath(pathname)) {
