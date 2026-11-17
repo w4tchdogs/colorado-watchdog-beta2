@@ -134,8 +134,15 @@ export async function handleWebsiteMcpRequest(
   if (!isRecord(params) || typeof params.name !== "string") {
     return jsonResponse(200, rpcError(id, -32602, "invalid_params"));
   }
+  // Protocol 2026-07-28 clients send a request `_meta` envelope (protocol
+  // version, client info, client capabilities) on every request. It carries
+  // no actor identity and is never used for authorization, so it is accepted
+  // as an object and otherwise ignored. Any other extra key is still refused.
   if (
-    Object.keys(params).some((key) => key !== "name" && key !== "arguments")
+    Object.keys(params).some(
+      (key) => key !== "name" && key !== "arguments" && key !== "_meta",
+    ) ||
+    (params._meta !== undefined && !isRecord(params._meta))
   ) {
     return jsonResponse(200, rpcError(id, -32602, "invalid_params"));
   }
