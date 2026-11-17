@@ -16,6 +16,7 @@ import type {
   D1Value,
 } from "../database/d1.js";
 import type { TrustedPrincipal } from "./security.js";
+import { SyncPlanReads } from "./sync-plan-reads-d1.js";
 import { planSyncChangesetD1 } from "./sync-planner-d1.js";
 
 export interface D1SyncCommitItem {
@@ -44,6 +45,25 @@ export type D1SyncCommitResult =
       readonly items: readonly [];
       readonly errors: readonly SyncPlanError[];
     };
+
+/**
+ * Safe operator diagnostic for one commit: counts and timings only, never request
+ * content, record values or credentials.
+ */
+export interface D1SyncCommitDiagnostic {
+  readonly outcome: string;
+  readonly operations: number;
+  readonly planReads: number;
+  readonly finalPlanReads: number;
+  readonly milliseconds: {
+    readonly plan: number;
+    readonly prepare: number;
+    readonly finalPlan: number;
+    readonly write: number;
+    readonly total: number;
+  };
+  readonly statements: number;
+}
 
 export type D1SyncAuthorizer = (
   principal: TrustedPrincipal,
@@ -135,9 +155,34 @@ export async function commitSyncChangesetD1(
   principal: TrustedPrincipal,
   idempotencyKey: string,
   request: SyncChangeSetRequest,
-  options: { authorize?: D1SyncAuthorizer; now?: () => Date } = {},
+  options: {
+    authorize?: D1SyncAuthorizer;
+    now?: () => Date;
+    diagnostic?: (value: D1SyncCommitDiagnostic) => void;
+  } = {},
 ): Promise<D1SyncCommitResult> {
   const now = options.now ?? (() => new Date());
+  const started = Date.now();
+  const marks = { plan: 0, prepare: 0, finalPlan: 0, write: 0 };
+  let planReads = 0;
+  let finalPlanReads = 0;
+  let statementCount = 0;
+  const report = (outcome: string) => {
+    try {
+      options.diagnostic?.({
+        outcome,
+        operations: Array.isArray(request?.changes)
+          ? request.changes.length
+          : 0,
+        planReads,
+        finalPlanReads,
+        milliseconds: { ...marks, total: Date.now() - started },
+        statements: statementCount,
+      });
+    } catch {
+      // A diagnostic never changes the commit result.
+    }
+  };
   const requestId =
     isRecord(request) && typeof request.requestId === "string"
       ? request.requestId
@@ -171,8 +216,18 @@ export async function commitSyncChangesetD1(
   }
 
   const dryRun = { ...request, intent: "dry_run" as const };
-  const plan = await planSyncChangesetD1(database, dryRun, now);
-  if (!plan.eligible)
+  // One set-based read of everything the request names. It is taken after the
+  // generation snapshot above, and every table it reads advances that generation
+  // on write, so the guarded batch fails if any of it changes before the write.
+  // That is what lets the final plan and commit preparation reuse it.
+  let phase = Date.now();
+  const reads = new SyncPlanReads(database);
+  await reads.prefetch(dryRun);
+  const plan = await planSyncChangesetD1(database, dryRun, now, reads);
+  planReads = reads.queries;
+  marks.plan = Date.now() - phase;
+  if (!plan.eligible) {
+    report("rejected_plan");
     return {
       status: "rejected",
       requestId: request.requestId,
@@ -180,10 +235,12 @@ export async function commitSyncChangesetD1(
       items: [],
       errors: plan.errors,
     };
+  }
 
+  phase = Date.now();
   const batchId = newId();
   const committedAt = now().toISOString();
-  const itemPlans = await prepareItems(database, request.changes, plan.items);
+  const itemPlans = await prepareItems(reads, request.changes, plan.items);
   const resultItems = itemPlans.map(
     ({ item, change, websiteId, version, outcome }) =>
       ({
@@ -338,10 +395,17 @@ export async function commitSyncChangesetD1(
     ),
   );
 
+  marks.prepare = Date.now() - phase;
   // Revalidate clock-sensitive rules immediately before the write. Database
-  // state remains protected by the captured generation assertion.
-  const finalPlan = await planSyncChangesetD1(database, dryRun, now);
-  if (!finalPlan.eligible)
+  // state remains protected by the captured generation assertion, so the final
+  // plan reuses the same reads and only reads anything it did not already hold.
+  phase = Date.now();
+  const before = reads.queries;
+  const finalPlan = await planSyncChangesetD1(database, dryRun, now, reads);
+  finalPlanReads = reads.queries - before;
+  marks.finalPlan = Date.now() - phase;
+  if (!finalPlan.eligible) {
+    report("rejected_final_plan");
     return {
       status: "rejected",
       requestId: request.requestId,
@@ -349,16 +413,23 @@ export async function commitSyncChangesetD1(
       items: [],
       errors: finalPlan.errors,
     };
+  }
   if (!(await canApply(database, principal, options.authorize, now()))) {
     throw new Error(
       "The trusted Website principal cannot apply synchronization",
     );
   }
 
+  statementCount = statements.length;
+  phase = Date.now();
   try {
     await database.guardedBatch(generation, principal, statements);
+    marks.write = Date.now() - phase;
+    report("committed");
     return { ...stored, replayed: false, errors: [] };
   } catch {
+    marks.write = Date.now() - phase;
+    report("write_failed");
     const winner = await findIdempotency(
       database,
       principal.accountId,
@@ -407,7 +478,7 @@ async function findIdempotency(
 }
 
 async function prepareItems(
-  db: AsyncD1Database,
+  db: SyncPlanReads,
   changes: readonly SyncChange[],
   items: readonly PlannedSyncItem[],
 ): Promise<PlannedCommit[]> {
@@ -417,10 +488,7 @@ async function prepareItems(
     if (!change || item.action === "invalid") throw new Error("invalid_plan");
     if (item.action === "would_reuse") {
       if (!item.websiteId) throw new Error("invalid_plan");
-      const row = await db.first<{ version: unknown }>(
-        `SELECT version FROM "${item.entity}" WHERE id = ?`,
-        [item.websiteId],
-      );
+      const row = await db.row(item.entity, item.websiteId);
       if (!row || typeof row.version !== "number")
         throw new Error("invalid_plan");
       prepared.push({
@@ -458,10 +526,7 @@ async function prepareItems(
         !("fields" in change)
       )
         throw new Error("invalid_plan");
-      const before = await db.first<Record<string, unknown>>(
-        `SELECT * FROM "${item.entity}" WHERE id = ?`,
-        [item.targetId],
-      );
+      const before = await db.row(item.entity, item.targetId);
       if (!before || before.version !== item.expectedVersion)
         throw new Error("stale_plan");
       const previous: Record<string, D1Value> = {};
