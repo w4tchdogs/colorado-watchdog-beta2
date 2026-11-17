@@ -42,6 +42,8 @@ function block(node: Block): SafeHtml {
     }
     case "hr":
       return html`<hr>`;
+    case "figure":
+      return html`<p>[image omitted: ${node.alt}]</p>`;
   }
 }
 
@@ -67,6 +69,8 @@ function blockText(node: Block): string {
       return node.v;
     case "hr":
       return "";
+    case "figure":
+      return `[image omitted: ${node.alt}]`;
   }
 }
 

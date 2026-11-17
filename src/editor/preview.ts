@@ -61,6 +61,34 @@ function renderBlock(doc: Document, block: Block): HTMLElement {
     }
     case "hr":
       return el(doc, "hr");
+    case "figure": {
+      // Images are never loaded. The placeholder keeps the alt text and caption.
+      const figure = el(
+        doc,
+        "figure",
+        { class: "image-placeholder" },
+        el(
+          doc,
+          "div",
+          {
+            class: "image-placeholder-box",
+            role: "img",
+            "aria-label": block.alt,
+          },
+          "Image placeholder",
+        ),
+        el(
+          doc,
+          "p",
+          { class: "image-placeholder-alt" },
+          `Alt text: ${block.alt || "(none)"}`,
+        ),
+      );
+      if (block.caption) {
+        figure.appendChild(el(doc, "figcaption", {}, block.caption));
+      }
+      return figure;
+    }
   }
 }
 

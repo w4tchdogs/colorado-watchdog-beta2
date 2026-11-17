@@ -20,6 +20,10 @@ import { renderMarkdownInto } from "./preview.js";
 import { createRelationshipsPanel, type Rel } from "./relationships.js";
 import { createVisualCanvas } from "./visual-canvas.js";
 import { toVisual } from "./visual-model.js";
+import {
+  createWriterChrome,
+  renderOutline as renderOutlineInto,
+} from "./writer-chrome.js";
 
 export interface EditorSession {
   /** Sandbox account key sent with each request. */
@@ -902,30 +906,19 @@ export function mountEditorApp(
       onNotice: (_kind, text) => announce(text),
       checkpointDelayMs: previewDelay <= 0 ? 0 : 500,
     });
-    const visualButton = h(
-      "button",
-      { type: "button", id: "mode-visual", class: "seg" },
-      "Visual",
-    );
-    const sourceButton = h(
-      "button",
-      { type: "button", id: "mode-source", class: "seg" },
-      "Source",
-    );
-    const previewButton = h(
-      "button",
-      { type: "button", id: "toggle-preview" },
-      "Preview",
-    );
-    const settingsButton = h(
-      "button",
-      {
-        type: "button",
-        id: "toggle-settings",
-        "aria-controls": `${idPrefix}-settings`,
-      },
-      "Settings",
-    );
+    const {
+      visualButton,
+      sourceButton,
+      previewButton,
+      historyButton,
+      settingsButton,
+      widthDesktop,
+      widthNarrow,
+      previewTools,
+      outlineList,
+      outlineSlot,
+    } = createWriterChrome(doc, idPrefix);
+    let narrowPreview = false;
     const sourcePane = h(
       "div",
       { class: "source-pane" },
@@ -959,6 +952,7 @@ export function mountEditorApp(
       ),
       modeNote,
       roundTripNote,
+      previewTools,
       canvas.element,
       sourcePane,
       preview,
@@ -1015,6 +1009,8 @@ export function mountEditorApp(
           "Shown in lists and at the top of the article.",
         ),
       ),
+      outlineSlot,
+      canvas.blockPanel,
       relationshipsSlot,
       revisionsSlot,
     );
@@ -1057,6 +1053,7 @@ export function mountEditorApp(
                 sourceButton,
               ),
               previewButton,
+              historyButton,
               settingsButton,
               lifecycleButton,
               saveButton,
@@ -1118,6 +1115,12 @@ export function mountEditorApp(
       if (previewing || mode !== "visual") canvas.linkForm.hidden = true;
       sourcePane.hidden = previewing || mode !== "source";
       preview.hidden = !previewing;
+      previewTools.hidden = !previewing;
+      preview.classList.toggle("preview-narrow", narrowPreview);
+      widthDesktop.setAttribute("aria-pressed", String(!narrowPreview));
+      widthNarrow.setAttribute("aria-pressed", String(narrowPreview));
+      canvas.blockPanel.hidden = mode !== "visual";
+      renderOutline();
       modeNote.hidden = modeNote.textContent === "" || previewing;
       roundTripNote.hidden = roundTripNote.hidden || mode !== "visual";
       saveButton.disabled = lock || conflict !== null || !dirty;
@@ -1147,6 +1150,23 @@ export function mountEditorApp(
       }
       relationships.render();
       renderRevisionsPanel();
+    }
+
+    function renderOutline(): void {
+      renderOutlineInto(
+        doc,
+        outlineList,
+        mode === "visual"
+          ? {
+              canvas,
+              onJump: () => {
+                previewing = false;
+                updateStatus();
+              },
+            }
+          : null,
+        draft.body,
+      );
     }
 
     function schedulePreview(): void {
@@ -1239,6 +1259,21 @@ export function mountEditorApp(
           ? titleInput
           : bodyInput
       ).focus();
+    });
+    historyButton.addEventListener("click", () => {
+      settingsOpen = true;
+      updateStatus();
+      revisionsSlot.setAttribute("tabindex", "-1");
+      revisionsSlot.scrollIntoView?.({ block: "start" });
+      revisionsSlot.focus();
+    });
+    widthDesktop.addEventListener("click", () => {
+      narrowPreview = false;
+      updateStatus();
+    });
+    widthNarrow.addEventListener("click", () => {
+      narrowPreview = true;
+      updateStatus();
     });
     settingsButton.addEventListener("click", () => {
       settingsOpen = !settingsOpen;
