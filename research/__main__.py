@@ -12,7 +12,7 @@ from research import operator
 from research import identity
 from research import identity_triage, source_types, publisher, export as profiles_export
 from research import batch_selection
-from research import submission, sync
+from research import submission, sync, mcp_sync_driver
 from research.backup import backup_database, restore_database
 from research.db import connect, migrate, seed_counties, validate_database, validate_migration_history
 from research.intake import preview_csv, quarantine_validation_report
@@ -320,6 +320,37 @@ def parser_for():
 
     reconcile = database_command("sync-reconcile", "reconcile a verified receipt stored by the R6 client")
     reconcile.add_argument("--submission-id", required=True)
+
+    export_prepared = database_command(
+        "sync-export-prepared", "export the exact prepared R6 request bytes to a new private file"
+    )
+    export_prepared.add_argument("--submission-id", required=True)
+    export_prepared.add_argument("--output", type=Path, required=True)
+
+    mcp_send = database_command(
+        "sync-mcp-send", "send one exact R6 prepared request through Website MCP"
+    )
+    mcp_send.add_argument("--submission-id", required=True)
+    mcp_send.add_argument("--request-file", type=Path, required=True,
+                          help="Private file with the exact prepared request bytes")
+    mcp_send.add_argument("--endpoint", required=True,
+                          help="Explicit HTTPS URL ending in /mcp")
+
+    mcp_reverse = database_command(
+        "sync-mcp-reverse", "reverse one reconciled batch through Website MCP"
+    )
+    mcp_reverse.add_argument("--submission-id", required=True)
+    mcp_reverse.add_argument("--idempotency-key", required=True)
+    mcp_reverse.add_argument("--endpoint", required=True,
+                             help="Explicit HTTPS URL ending in /mcp")
+    mcp_roundtrip = database_command(
+        "sync-mcp-roundtrip", "run a small synthetic R6/R8 round trip on staging"
+    )
+    mcp_roundtrip.add_argument("--submission-id", required=True)
+    mcp_roundtrip.add_argument("--request-file", type=Path, required=True)
+    mcp_roundtrip.add_argument("--reversal-idempotency-key", required=True)
+    mcp_roundtrip.add_argument("--endpoint", required=True,
+                               help="The existing staging Worker /mcp URL")
     return parser
 
 
@@ -501,6 +532,70 @@ def _sync_command(args, path):
             }, 0
         reconciled = sync.reconcile_submission(db, args.submission_id)
         return {"mode": args.command, **reconciled}, 0
+    finally:
+        db.close()
+
+
+def _sync_mcp_command(args, path):
+    if not path.is_file():
+        raise ValueError("Profiles database file does not exist")
+    request_path = None
+    if args.command in {"sync-mcp-send", "sync-mcp-roundtrip"}:
+        request_path = _absolute_external_path(
+            args.request_file, parser_for(), "Prepared request files"
+        )
+    if args.command == "sync-mcp-roundtrip":
+        mcp_sync_driver.validate_staging_endpoint(args.endpoint)
+    db = connect(path)
+    client = None
+    try:
+        if args.command == "sync-mcp-roundtrip":
+            row, _, request = mcp_sync_driver._stored_request(
+                db, args.submission_id, request_path
+            )
+            mcp_sync_driver.validate_synthetic_request(row, request)
+        credential = mcp_sync_driver.prompt_credential()
+        client = mcp_sync_driver.McpHttpClient(args.endpoint, credential)
+        credential = ""
+        if args.command == "sync-mcp-send":
+            result = mcp_sync_driver.send_prepared(
+                db, args.submission_id, request_path, client
+            )
+        elif args.command == "sync-mcp-reverse":
+            record = submission.get_submission(db, args.submission_id)
+            if record is None or record["state"] != "acknowledged":
+                raise ValueError(
+                    "Submission must have an authoritative commit receipt before reversal"
+                )
+            receipt = record.get("response")
+            if not isinstance(receipt, dict) or not isinstance(receipt.get("batchId"), str):
+                raise ValueError("Submission has no stored Website batch receipt")
+            result = mcp_sync_driver.reverse_and_reconcile(
+                db, record["site_key"], receipt["batchId"],
+                args.idempotency_key, client,
+            )
+        else:
+            result = mcp_sync_driver.run_synthetic_roundtrip(
+                db, args.submission_id, request_path,
+                args.reversal_idempotency_key, client,
+            )
+        exit_status = 0
+        if args.command == "sync-mcp-roundtrip" and result.get("state") != "complete":
+            exit_status = 2
+        return {"mode": args.command, **result}, exit_status
+    finally:
+        if client is not None:
+            client.close()
+        db.close()
+
+
+def _sync_export_prepared(args, path):
+    db = _read_only(path)
+    try:
+        output = _absolute_external_path(args.output, parser_for(), "Prepared request files")
+        return {"mode": args.command, **submission.export_prepared_request(
+            db, args.submission_id, output
+        )}, 0
     finally:
         db.close()
 
@@ -703,6 +798,32 @@ def main(argv=None):
     if args.command in {"apply-identity", "verify-identity"}:
         _absolute_external_path(args.database, parser, "Research database")
         _absolute_external_path(args.plan, parser, "Private identity plan")
+    if args.command in {"sync-export-prepared", "sync-mcp-send", "sync-mcp-reverse", "sync-mcp-roundtrip"}:
+        _absolute_external_path(args.database, parser, "Research database")
+    if args.command == "sync-export-prepared":
+        try:
+            result, status = _sync_export_prepared(args, path)
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            return status
+        except (OSError, sqlite3.Error, ValueError, RuntimeError) as error:
+            message = str(error) if isinstance(error, ValueError) else (
+                "Prepared request export failed; no request contents are included"
+            )
+            print(json.dumps(_json_error(args.command, "sync_export_failed", message),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command in {"sync-mcp-send", "sync-mcp-reverse", "sync-mcp-roundtrip"}:
+        try:
+            result, status = _sync_mcp_command(args, path)
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            return status
+        except (OSError, sqlite3.Error, ValueError, RuntimeError) as error:
+            message = str(error) if isinstance(error, ValueError) else (
+                "MCP sync operation failed; no request or credential details are included"
+            )
+            print(json.dumps(_json_error(args.command, "sync_mcp_operation_failed", message),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
     if args.command.startswith("sync-"):
         _absolute_external_path(args.database, parser, "Research database")
     if args.command in {"preview-batch-selection", "apply-batch-selection",

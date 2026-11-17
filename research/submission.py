@@ -6,9 +6,11 @@ it sends only a previously persisted payload and its persisted idempotency key.
 
 import hashlib
 import json
+import os
 import re
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 from uuid import uuid4
 
 COMMIT_PATH = "/internal/sync/changesets/commit"
@@ -197,6 +199,35 @@ def get_submission(db, submission_id):
     else:
         result.pop("response_json")
     return result
+
+
+def export_prepared_request(db, submission_id, destination):
+    """Export exact stored UTF-8 request bytes to a new private file, never overwrite."""
+    row = db.execute(
+        "SELECT request_json FROM sync_submissions WHERE id=?", (submission_id,)
+    ).fetchone()
+    if row is None:
+        raise SubmissionError("The prepared submission was not found")
+    payload = row["request_json"].encode("utf-8")
+    if len(payload) > MAX_REQUEST_BYTES:
+        raise SubmissionError("The prepared request exceeds the Website size limit")
+    path = Path(destination)
+    if not path.is_absolute():
+        raise SubmissionError("The prepared request destination must be absolute")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+    fd = os.open(path, flags, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as output:
+            output.write(payload)
+            output.flush()
+            os.fsync(output.fileno())
+    except Exception:
+        # Retain any partially written file for operator inspection; never delete it here.
+        raise
+    return {"request_file": str(path), "request_sha256": hashlib.sha256(payload).hexdigest(),
+            "request_bytes": len(payload)}
 
 
 def _validate_payload(value):
