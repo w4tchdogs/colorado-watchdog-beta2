@@ -27,6 +27,10 @@ import { personPage } from "./pages/person.js";
 import { reportPage } from "./pages/report.js";
 import { staffReportsPage } from "./pages/staff-reports.js";
 import {
+  isReportDirectoryPath,
+  reportDirectoryResponse,
+} from "./report-directory.js";
+import {
   type AccountEntry,
   BadRequest,
   NotFound,
@@ -340,6 +344,19 @@ export function createPublicSite(options: PublicSiteOptions) {
           pathname = decodeURIComponent(url.pathname);
         } catch {
           return respond(notFoundPage("page"), head);
+        }
+
+        if (isReportDirectoryPath(pathname)) {
+          if (options.reportSubmissionsEnabled !== true || head)
+            return respond(notFoundPage("page"), head);
+          const lookup = await reportDirectoryResponse(
+            url,
+            options.services,
+            clock(),
+          );
+          for (const [name, value] of Object.entries(SECURITY_HEADERS))
+            if (!lookup.headers.has(name)) lookup.headers.set(name, value);
+          return lookup;
         }
 
         const asset = ASSET_PATH.exec(pathname);

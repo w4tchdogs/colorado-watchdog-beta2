@@ -4,12 +4,35 @@ import {
   type ReportSubmission,
 } from "../contracts/report-intake.js";
 import { CHALLENGE_TOKEN_HEADER } from "../services/report-challenge.js";
+import type { ReportDirectoryClient } from "./report-grievance-form.js";
 import {
   mountReportInterface,
   ReportAccountChangedError,
   ReportChallengeRejectedError,
 } from "./report-interface.js";
 import { createTurnstileChallenge } from "./turnstile-widget.js";
+
+async function directoryJson<T>(params: Record<string, string>): Promise<T> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value) query.set(key, value);
+  }
+  const response = await fetch(
+    `/submit-report/directory${query.size ? `?${query}` : ""}`,
+    { credentials: "same-origin", headers: { accept: "application/json" } },
+  );
+  if (!response.ok) throw new Error("Directory unavailable");
+  return (await response.json()) as T;
+}
+
+function createDirectoryClient(): ReportDirectoryClient {
+  return {
+    search: ({ county, office, query, page }) =>
+      directoryJson({ county, office, q: query, page: String(page) }),
+    offices: (county) => directoryJson({ offices: county }),
+    roles: (personId) => directoryJson({ person: personId }),
+  };
+}
 
 const root = document.getElementById("report-interface-root");
 if (root) {
@@ -27,6 +50,7 @@ if (root) {
     enabled && sitekey ? createTurnstileChallenge(sitekey) : undefined;
   mountReportInterface(root, {
     counties,
+    directory: createDirectoryClient(),
     ...(challenge ? { challenge } : {}),
     ...(mode === "guest" || mode === "account" ? { submissionFlow: mode } : {}),
     ...(mode === "account" && accountId ? { account: { accountId } } : {}),
