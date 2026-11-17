@@ -176,11 +176,11 @@ test("the shared header keeps the entry visible on narrow screens", () => {
     fileURLToPath(new URL("../website/site/site.css", import.meta.url)),
     "utf8",
   );
-  const narrow = css.slice(css.indexOf("@media (max-width: 59.99rem)"));
-  assert.match(narrow.slice(0, 500), /\.header-account/);
+  const narrow = css.slice(css.indexOf("@media (max-width: 74.99rem)"));
+  assert.match(narrow.slice(0, 600), /\.header-actions/);
   assert.doesNotMatch(
-    narrow.slice(0, 500),
-    /\.header-account\s*\{[^}]*display:\s*none/,
+    narrow.slice(0, 600),
+    /\.header-(actions|account)\s*\{[^}]*display:\s*none/,
   );
   assert.match(css, /\.header-login:focus-visible/);
 });
@@ -566,5 +566,29 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
     window.location.hash = "#/posts";
     await waitFor("#state-not-found");
     assert.ok($("#state-not-found"));
+  });
+});
+
+test("the header offers Submit a report in every account state, ahead of the account entry", async () => {
+  await withWorld(async (world) => {
+    const jar = await signedIn(world, EDITOR);
+    for (const options of [{}, { jar }]) {
+      const html = await (await send(world, "/counties", options)).text();
+      assert.match(
+        html,
+        /<a class="header-submit" href="\/submit-report">Submit a report <svg[^>]*aria-hidden="true"/,
+      );
+      assert.ok(
+        html.indexOf('class="header-submit"') <
+          html.indexOf('class="header-login"'),
+      );
+      if (!options.jar)
+        assert.match(html, /class="header-login-note visually-hidden"/);
+    }
+    for (const env of [{ ...world.env, AUTH0_CLIENT_SECRET: undefined }, {}]) {
+      const html = await (await send(world, "/", { env })).text();
+      assert.match(html, /href="\/submit-report"/);
+      assert.doesNotMatch(html, /header-login/);
+    }
   });
 });
