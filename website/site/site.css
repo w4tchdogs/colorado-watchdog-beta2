@@ -297,8 +297,8 @@ img {
   background: #111111;
   color: #ffffff;
   border-color: #111111;
-  outline: 2pt solid #ffffff;
-  outline-offset: -2pt;
+  outline: 1px solid #ffffff;
+  outline-offset: -1px;
 }
 @media (min-width: 60rem) {
   .header-account {
@@ -1280,6 +1280,9 @@ img {
 .discovery-card-action {
   color: var(--red);
 }
+.home-page :is(a.button, .discovery-card, .editorial-grid .article-card) {
+  border-radius: var(--radius);
+}
 /* Stretch each homepage card's only link over its padding and border, keeping
    the original link text, tab stop and default card layout. */
 .home-page :is(.cv-pathway, .editorial-grid .article-card) {
@@ -1307,8 +1310,8 @@ img {
   background: #111111;
   color: #ffffff;
   border-color: #111111;
-  outline: 2pt solid #ffffff;
-  outline-offset: -2pt;
+  outline: 1px solid #ffffff;
+  outline-offset: -1px;
 }
 .home-page :is(
   :is(a.button, .discovery-card):is(:hover, :focus-visible),
