@@ -1,3 +1,5 @@
+import type { ReportGrievance } from "./report-grievances.js";
+
 export type ReportStatus =
   | "submitted"
   | "triage"
@@ -27,6 +29,12 @@ export interface ReportSubmission {
   countyId: string;
   subject?: { kind: "person" | "organization"; id: string };
   description: string;
+  /**
+   * Structured grievances. When present the server derives countyId, subject
+   * and description from them, so legacy readers keep working.
+   */
+  headline?: string;
+  grievances?: ReportGrievance[];
   evidence: Array<{ title: string; url?: string; note?: string }>;
   reporter: {
     accountId?: string;
@@ -44,6 +52,8 @@ export interface ReportRecord {
   countyId: string;
   subject?: ReportSubmission["subject"];
   description: string;
+  headline?: string;
+  grievances?: ReportGrievance[];
   evidence: ReportSubmission["evidence"];
   reporter: ReportSubmission["reporter"];
   status: ReportStatus;
@@ -93,6 +103,8 @@ export interface ReportIntakeStore {
   validateReferences(input: {
     countyId: string;
     subject?: ReportSubmission["subject"];
+    /** Every event county and listed person-role pair must exist. */
+    grievances?: readonly ReportGrievance[];
   }): Promise<boolean>;
   /** Atomically enforces idempotency and persists report, receipt digest, history and audit. */
   create(input: {

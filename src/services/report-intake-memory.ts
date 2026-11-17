@@ -22,10 +22,24 @@ export class MemoryReportIntakeStore implements ReportIntakeStore {
   async validateReferences(input: {
     countyId: string;
     subject?: { kind: "person" | "organization"; id: string };
+    grievances?: ReadonlyArray<{
+      countyId: string;
+      subject:
+        | { kind: "listed"; personId: string; roleId: string }
+        | { kind: "unlisted"; name: string; office: string };
+    }>;
   }): Promise<boolean> {
+    const county = (id: string) => id.startsWith("synthetic-county");
     return (
-      input.countyId === "synthetic-county" &&
-      (!input.subject || input.subject.id.startsWith("synthetic-"))
+      county(input.countyId) &&
+      (!input.subject || input.subject.id.startsWith("synthetic-")) &&
+      (input.grievances ?? []).every(
+        (g) =>
+          county(g.countyId) &&
+          (g.subject.kind === "unlisted" ||
+            (g.subject.personId.startsWith("synthetic-") &&
+              g.subject.roleId.startsWith(`${g.subject.personId}-role`))),
+      )
     );
   }
 

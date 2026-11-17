@@ -33,6 +33,7 @@ export class D1ReportIntakeStore implements ReportIntakeStore {
   async validateReferences(input: {
     countyId: string;
     subject?: ReportRecord["subject"];
+    grievances?: ReportRecord["grievances"];
   }): Promise<boolean> {
     if (
       !(await this.db.first("SELECT fips FROM counties WHERE fips = ?", [
@@ -40,6 +41,22 @@ export class D1ReportIntakeStore implements ReportIntakeStore {
       ]))
     )
       return false;
+    for (const grievance of input.grievances ?? []) {
+      if (
+        !(await this.db.first("SELECT fips FROM counties WHERE fips = ?", [
+          grievance.countyId,
+        ]))
+      )
+        return false;
+      if (
+        grievance.subject.kind === "listed" &&
+        !(await this.db.first(
+          "SELECT id FROM person_roles WHERE id = ? AND person_id = ?",
+          [grievance.subject.roleId, grievance.subject.personId],
+        ))
+      )
+        return false;
+    }
     if (!input.subject) return true;
     const table = input.subject.kind === "person" ? "people" : "organizations";
     return Boolean(
@@ -80,6 +97,10 @@ export class D1ReportIntakeStore implements ReportIntakeStore {
           report.subject?.id ?? null,
           JSON.stringify({
             description: report.description,
+            ...(report.headline !== undefined
+              ? { headline: report.headline }
+              : {}),
+            ...(report.grievances ? { grievances: report.grievances } : {}),
             reporter: report.reporter,
           }),
           report.status,
@@ -278,6 +299,8 @@ export class D1ReportIntakeStore implements ReportIntakeStore {
     if (!reportRow || !receiptRow) return undefined;
     const privateData = parseJson<{
       description: string;
+      headline?: string;
+      grievances?: ReportRecord["grievances"];
       reporter: ReportRecord["reporter"];
     }>(reportRow.private_json);
     const subject =
@@ -292,6 +315,10 @@ export class D1ReportIntakeStore implements ReportIntakeStore {
       countyId: String(reportRow.county_fips),
       subject,
       description: privateData.description,
+      ...(privateData.headline !== undefined
+        ? { headline: privateData.headline }
+        : {}),
+      ...(privateData.grievances ? { grievances: privateData.grievances } : {}),
       reporter: privateData.reporter,
       evidence: evidenceRows.map((item) => parseJson(item.private_json)),
       status: reportRow.status as ReportRecord["status"],

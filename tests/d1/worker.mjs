@@ -143,8 +143,140 @@ export default {
         first.receipt.reference,
         first.receipt.recoveryKey,
       );
+      // Structured grievances: seeded roles, per-grievance counties, exact readback.
+      await env.DB.batch([
+        env.DB.prepare(
+          "INSERT OR IGNORE INTO organizations (id, name, organization_type) VALUES ('d1-report-org', 'Synthetic Report Office', 'office')",
+        ),
+        env.DB.prepare(
+          "INSERT OR IGNORE INTO positions (id, organization_id, title) VALUES ('d1-report-position', 'd1-report-org', 'Synthetic Clerk')",
+        ),
+        env.DB.prepare(
+          "INSERT OR IGNORE INTO role_sources (id, url, title, source_type) VALUES ('d1-report-source', 'https://example.invalid/roles', 'Synthetic roster', 'other_public')",
+        ),
+        env.DB.prepare(
+          "INSERT OR IGNORE INTO person_roles (id, person_id, position_id, source_id, source_checked_at) VALUES ('d1-report-role-a1', 'd1-backfill-person-a', 'd1-report-position', 'd1-report-source', '2026-11-01'), ('d1-report-role-a2', 'd1-backfill-person-a', 'd1-report-position', 'd1-report-source', '2026-11-02'), ('d1-report-role-b1', 'd1-backfill-person-b', 'd1-report-position', 'd1-report-source', '2026-11-03')",
+        ),
+      ]);
+      const thisYear = new Date().getUTCFullYear();
+      const grievances = [
+        {
+          type: "delay-or-failure-to-perform",
+          details: "A fictional delay in a synthetic D1 request.",
+          date: { year: thisYear, month: 2 },
+          countyId: "08001",
+          subject: {
+            kind: "listed",
+            personId: "d1-backfill-person-a",
+            roleId: "d1-report-role-a1",
+          },
+          position: "Synthetic Clerk",
+          identificationBasis: "documented",
+        },
+        {
+          type: "other",
+          details: "A second fictional event in a different county.",
+          date: { year: thisYear - 1 },
+          countyId: "08003",
+          subject: {
+            kind: "listed",
+            personId: "d1-backfill-person-a",
+            roleId: "d1-report-role-a2",
+          },
+          identificationBasis: "contributor",
+        },
+        {
+          type: "other",
+          details: "A third fictional event with an unlisted employee.",
+          date: { year: thisYear, month: 3, day: 4 },
+          countyId: "08005",
+          subject: {
+            kind: "unlisted",
+            name: "Synthetic Unlisted Person",
+            office: "Synthetic Unlisted Office",
+          },
+          identificationBasis: "contributor",
+        },
+      ];
+      const structured = {
+        countyId: "ignored",
+        description: "ignored",
+        headline: "A synthetic headline",
+        grievances,
+        evidence: [],
+        reporter: submission.reporter,
+        idempotencyKey: "d1-structured-key",
+      };
+      const structuredFirst = await submitReport(store, structured, reporter);
+      const structuredReplay = await submitReport(store, structured, reporter);
+      const structuredId = await env.DB.prepare(
+        "SELECT report_id FROM report_receipts WHERE reference = ?",
+      )
+        .bind(structuredFirst.receipt.reference)
+        .first("report_id");
+      const structuredCommit = await getReportForStaff(
+        store,
+        structuredId,
+        staff,
+      );
+      const structuredRow = await env.DB.prepare(
+        "SELECT county_fips, subject_kind, subject_id FROM reports WHERE id = ?",
+      )
+        .bind(structuredId)
+        .first();
+      const wrongPair = await store.validateReferences({
+        countyId: "08001",
+        grievances: [
+          {
+            ...grievances[0],
+            subject: {
+              kind: "listed",
+              personId: "d1-backfill-person-a",
+              roleId: "d1-report-role-b1",
+            },
+          },
+        ],
+      });
+      const wrongCounty = await store.validateReferences({
+        countyId: "08001",
+        grievances: [{ ...grievances[0], countyId: "99999" }],
+      });
+      let invalidStructured = false;
+      try {
+        await submitReport(
+          store,
+          {
+            ...structured,
+            idempotencyKey: "d1-structured-bad-key",
+            grievances: [
+              {
+                ...grievances[0],
+                subject: { kind: "listed", personId: "missing", roleId: "x" },
+              },
+            ],
+          },
+          reporter,
+        );
+      } catch {
+        invalidStructured = true;
+      }
+      const structuredOk =
+        !structuredFirst.replayed &&
+        structuredReplay.replayed &&
+        structuredReplay.receipt.recoveryKey === undefined &&
+        JSON.stringify(structuredCommit.report.grievances) ===
+          JSON.stringify(grievances) &&
+        structuredCommit.report.headline === "A synthetic headline" &&
+        structuredCommit.report.countyId === "08001" &&
+        structuredRow.county_fips === "08001" &&
+        structuredRow.subject_id === "d1-backfill-person-a" &&
+        structuredCommit.report.description.includes("Grievance 3:") &&
+        !wrongPair &&
+        !wrongCounty &&
+        invalidStructured;
       return json({
         success:
+          structuredOk &&
           !first.replayed &&
           replay.replayed &&
           replay.receipt.recoveryKey === undefined &&

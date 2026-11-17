@@ -65,6 +65,31 @@ function setValidSubmission(document, { description, county = "08001" } = {}) {
     description ?? "A fictional concern described for interface testing.";
 }
 
+/** Fills the structured Employee & event and grievance fields for the workflow. */
+function fillGrievance(
+  document,
+  window,
+  { county = "08001", year, details } = {},
+) {
+  const change = (element, value) => {
+    element.value = value;
+    element.dispatchEvent(new window.Event("change", { bubbles: true }));
+  };
+  const thisYear = new Date().getUTCFullYear();
+  document.getElementById("report-unlisted-name").value =
+    "Fictional Test Employee";
+  document.getElementById("report-unlisted-office").value =
+    "Fictional Test Office";
+  change(document.getElementById("report-county"), county);
+  change(
+    document.getElementById("report-event-year"),
+    String(year ?? thisYear),
+  );
+  change(document.getElementById("report-g0-type"), "other");
+  document.getElementById("report-g0-details").value =
+    details ?? "A fictional concern described for interface testing.";
+}
+
 async function submit(form, window) {
   form.dispatchEvent(
     new window.Event("submit", { bubbles: true, cancelable: true }),
@@ -176,11 +201,11 @@ test("guest steps preserve entries, focus validation errors, certify and issue a
   assert.equal(document.activeElement.className, "report-error-summary");
   assert.equal(step(1).hidden, false);
   document
-    .querySelector('.report-error-summary a[href="#report-description"]')
+    .querySelector('.report-error-summary a[href="#report-g0-details"]')
     .click();
-  assert.equal(document.activeElement.id, "report-description");
+  assert.equal(document.activeElement.id, "report-g0-details");
   assert.equal(step(2).hidden, false);
-  const descriptionField = document.getElementById("report-description");
+  const descriptionField = document.getElementById("report-g0-details");
   descriptionField.value = "A fictional concern for the synthetic test.";
   descriptionField.dispatchEvent(
     new dom.window.Event("input", { bubbles: true }),
@@ -188,11 +213,11 @@ test("guest steps preserve entries, focus validation errors, certify and issue a
   assert.equal(descriptionField.hasAttribute("aria-invalid"), false);
   assert.equal(
     document.querySelector(
-      '.report-error-summary a[href="#report-description"]',
+      '.report-error-summary a[href="#report-g0-details"]',
     ),
     null,
   );
-  setValidSubmission(document);
+  fillGrievance(document, dom.window);
   stepButton(3).click();
   assert.match(step(3).textContent, /A fictional concern/);
   assert.match(step(3).textContent, /No supporting sources supplied/);
@@ -210,7 +235,7 @@ test("guest steps preserve entries, focus validation errors, certify and issue a
   document.getElementById("reporter-name").value = "Synthetic private name";
   document.getElementById("report-certification").checked = true;
   document
-    .getElementById("report-description")
+    .getElementById("report-g0-details")
     .dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   assert.equal(document.getElementById("report-certification").checked, false);
   document.getElementById("report-certification").checked = true;
@@ -236,7 +261,7 @@ test("anonymous-name selection keeps the expected account binding for authentica
     submissionFlow: "account",
     account: { accountId: "synthetic-account" },
   });
-  setValidSubmission(document);
+  fillGrievance(document, dom.window);
   document.querySelector('button[aria-controls="report-step-3"]').click();
   document.getElementById("report-certification").checked = true;
   await submit(document.querySelector("#report-submit form"), dom.window);
@@ -254,7 +279,7 @@ test("anonymous choice sends no name even after one was typed and hidden", async
         ? { account: { accountId: "synthetic-account" } }
         : {}),
     });
-    setValidSubmission(document);
+    fillGrievance(document, dom.window);
     const anonymous = document.querySelector(
       'input[name="attribution"][value="anonymous"]',
     );
@@ -278,7 +303,7 @@ test("anonymous choice sends no name even after one was typed and hidden", async
 
 test("guest sharing a name privately is labeled and sent as an optional reviewer-only name", async () => {
   const { document, dom, calls } = createHarness({ submissionFlow: "guest" });
-  setValidSubmission(document);
+  fillGrievance(document, dom.window);
   assert.match(
     document.querySelector('label[for="reporter-name"]').textContent,
     /shared privately with reviewers/i,
@@ -311,7 +336,7 @@ test("an ended or changed account session shows recovery links and keeps the dra
       },
     },
   });
-  setValidSubmission(document);
+  fillGrievance(document, dom.window);
   document.querySelector('button[aria-controls="report-step-3"]').click();
   document.getElementById("report-certification").checked = true;
   await submit(document.querySelector("#report-submit form"), dom.window);
