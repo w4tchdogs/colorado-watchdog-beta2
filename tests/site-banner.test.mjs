@@ -183,7 +183,13 @@ const enhancement = readFileSync(`${STATIC_DIRECTORY}site.js`, "utf8");
 
 function carouselPage(
   markup,
-  { reduced = false, autoplay = false, deferred = [], mutate } = {},
+  {
+    reduced = false,
+    autoplay = false,
+    optOut = reduced || !autoplay,
+    deferred = [],
+    mutate,
+  } = {},
 ) {
   const { window } = new JSDOM(
     `<section class="hero"><div class="hero-banner">${markup}</div></section>`,
@@ -211,8 +217,10 @@ function carouselPage(
   });
   Object.defineProperty(window.performance, "now", { value: () => now });
   const motion = new window.EventTarget();
-  // Most tests drive playback by hand, so the first load runs as if motion
-  // were reduced (no automatic start) unless `autoplay` is requested.
+  // Most tests drive playback by hand, so the first load runs as if the
+  // visitor had reduced animations (no automatic start) unless `autoplay`.
+  if (optOut)
+    window.localStorage.setItem("watchdog.banner.animations", "reduced");
   motion.matches = reduced || !autoplay;
   window.matchMedia = () => motion;
   window.setTimeout = (callback, delay) => {
@@ -316,9 +324,10 @@ test("carousel keeps a no-script fallback and synchronizes manual navigation", a
       buttons.map((button) => button.getAttribute("aria-label")),
       [
         "Previous banner",
-        "Next banner",
         "Pause banner rotation",
         "Play banner rotation",
+        "Next banner",
+        null,
       ],
     );
     assert.ok(
@@ -418,7 +427,8 @@ test("play is intentional and pauses the dwell and in-flight fade", () => {
     assert.equal(timers.size, 0);
     motion.matches = false;
     motion.dispatchEvent(new window.Event("change"));
-    assert.equal(timers.size, 0);
+    // Clearing the system preference resumes automatic rotation.
+    assert.equal(timers.size, 1);
   } finally {
     window.close();
   }
@@ -817,6 +827,59 @@ test("rotation starts by itself and hover or focus does not stop it", () => {
     assert.equal(reduced.timers.size, 0);
   } finally {
     reduced.window.close();
+  }
+});
+
+test("reduced-motion visitors get a remembered animation toggle like Beta-1", () => {
+  const page = carouselPage(bannerFrame(carouselSlides, "08001").value, {
+    autoplay: true,
+    reduced: true,
+    optOut: false,
+  });
+  const { control, frame, window, timers } = page;
+  try {
+    const toggle = control("motion");
+    assert.equal(toggle.hidden, false);
+    assert.equal(toggle.textContent, "Reduce animations");
+    assert.equal(toggle.getAttribute("aria-pressed"), "true");
+    // Animation is on by default, as in Beta-1.
+    assert.ok(frame.hasAttribute("data-banner-playing"));
+    assert.equal(timers.size, 1);
+    toggle.click();
+    assert.equal(frame.hasAttribute("data-banner-playing"), false);
+    assert.equal(timers.size, 0);
+    assert.equal(control("image").hasAttribute("data-banner-zoom"), false);
+    assert.equal(toggle.textContent, "Enable animations");
+    assert.equal(
+      window.localStorage.getItem("watchdog.banner.animations"),
+      "reduced",
+    );
+    toggle.click();
+    assert.ok(frame.hasAttribute("data-banner-playing"));
+    assert.equal(
+      window.localStorage.getItem("watchdog.banner.animations"),
+      "enabled",
+    );
+  } finally {
+    window.close();
+  }
+  const plain = carouselPage(bannerFrame(carouselSlides, "08001").value, {
+    autoplay: true,
+  });
+  try {
+    assert.equal(plain.control("motion").hidden, true);
+  } finally {
+    plain.window.close();
+  }
+  const remembered = carouselPage(bannerFrame(carouselSlides, "08001").value, {
+    autoplay: true,
+    reduced: true,
+  });
+  try {
+    assert.equal(remembered.control("motion").textContent, "Enable animations");
+    assert.equal(remembered.frame.hasAttribute("data-banner-playing"), false);
+  } finally {
+    remembered.window.close();
   }
 });
 

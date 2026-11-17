@@ -183,10 +183,11 @@ export function bannerFrame(
       <p class="banner-status" aria-live="polite" aria-atomic="true" data-banner-status>Banner 1 of ${selected.length}</p>
       <p class="visually-hidden" aria-live="polite" aria-atomic="true" data-banner-announce></p>
       <div class="banner-buttons">
-        <button type="button" data-banner-previous aria-label="Previous banner">Previous</button>
-        <button type="button" data-banner-next aria-label="Next banner">Next</button>
-        <button type="button" data-banner-pause aria-label="Pause banner rotation" aria-disabled="true">Pause</button>
-        <button type="button" data-banner-play aria-label="Play banner rotation">Play</button>
+        <button type="button" data-banner-previous aria-label="Previous banner"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+        <button type="button" data-banner-pause aria-label="Pause banner rotation" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></button>
+        <button type="button" data-banner-play aria-label="Play banner rotation"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4v16l13-8z"/></svg></button>
+        <button type="button" data-banner-next aria-label="Next banner"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
+        <button type="button" class="banner-motion" data-banner-motion aria-pressed="true" hidden>Reduce animations</button>
       </div>
     </div>`
       : ""

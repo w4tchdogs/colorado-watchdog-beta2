@@ -324,12 +324,32 @@ function enhanceBanner(frame) {
     frame.dataset.bannerState = available ? "ready" : "unavailable";
   }
 
-  if (!controls || !caption || !status || !play || !pause || slides.length < 2) {
+  if (
+    !controls ||
+    !caption ||
+    !status ||
+    !play ||
+    !pause ||
+    slides.length < 2
+  ) {
     watchImage(image, setImageAvailability)();
     return;
   }
 
   frame.setAttribute("data-banner-gallery", "");
+  // Like Beta-1, animation is on by default. When the system asks for reduced
+  // motion, a visitor toggle (remembered in this browser) decides.
+  const motionKey = "watchdog.banner.animations";
+  const motionToggle = controls.querySelector("[data-banner-motion]");
+  let motionOptIn = true;
+  try {
+    motionOptIn = window.localStorage.getItem(motionKey) !== "reduced";
+  } catch {
+    // Storage can be blocked. Keep the default.
+  }
+  function motionEnabled() {
+    return !motion?.matches || motionOptIn;
+  }
   const dwell = 7000;
   const failed = new Set();
   let index = 0;
@@ -345,7 +365,7 @@ function enhanceBanner(frame) {
     return (
       pageActive &&
       !document.hidden &&
-      !motion?.matches &&
+      motionEnabled() &&
       frame.dataset.bannerState === "ready" &&
       failed.size < slides.length - 1
     );
@@ -355,6 +375,28 @@ function enhanceBanner(frame) {
     frame.toggleAttribute("data-banner-playing", playing);
     play.setAttribute("aria-disabled", String(playing || !canPlay()));
     pause.setAttribute("aria-disabled", String(!playing));
+    play.hidden = playing;
+    pause.hidden = !playing;
+  }
+
+  function updateMotionToggle() {
+    if (!motionToggle) return;
+    motionToggle.hidden = !motion?.matches;
+    motionToggle.setAttribute("aria-pressed", String(motionOptIn));
+    motionToggle.textContent = motionOptIn
+      ? "Reduce animations"
+      : "Enable animations";
+  }
+
+  function applyMotion() {
+    stop();
+    if (!motionEnabled()) {
+      if (incoming) promote(incoming);
+      image.removeAttribute("data-banner-zoom");
+    }
+    updateMotionToggle();
+    updatePlayback();
+    start(false);
   }
 
   // Position and playback use separate polite regions.
@@ -429,7 +471,7 @@ function enhanceBanner(frame) {
   function showCandidate() {
     const candidate = pending;
     pending = undefined;
-    if (!playing || motion?.matches || frame.dataset.bannerState !== "ready") {
+    if (!playing || !motionEnabled() || frame.dataset.bannerState !== "ready") {
       promote(candidate);
       return;
     }
@@ -439,7 +481,10 @@ function enhanceBanner(frame) {
     nextImage.setAttribute("data-banner-incoming", "");
     nextImage.setAttribute("aria-hidden", "true");
     nextImage.addEventListener("animationend", (event) => {
-      if (event.animationName === "banner-crossfade" && incoming === candidate) {
+      if (
+        event.animationName === "banner-crossfade" &&
+        incoming === candidate
+      ) {
         promote(candidate);
       }
     });
@@ -526,9 +571,18 @@ function enhanceBanner(frame) {
     if (document.hidden) stop();
     else updatePlayback();
   });
-  motion?.addEventListener("change", () => {
-    stop();
-    if (motion.matches && incoming) promote(incoming);
+  motion?.addEventListener("change", applyMotion);
+  motionToggle?.addEventListener("click", () => {
+    motionOptIn = !motionOptIn;
+    try {
+      window.localStorage.setItem(
+        motionKey,
+        motionOptIn ? "enabled" : "reduced",
+      );
+    } catch {
+      // The choice still applies for this page view.
+    }
+    applyMotion();
   });
   window.addEventListener("pagehide", () => {
     pageActive = false;
@@ -552,6 +606,7 @@ function enhanceBanner(frame) {
     updatePlayback();
   })();
   updateStatus();
+  updateMotionToggle();
   updatePlayback();
   controls.hidden = false;
 }

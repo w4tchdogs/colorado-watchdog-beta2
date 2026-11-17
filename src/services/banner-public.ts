@@ -176,7 +176,7 @@ export class D1BannerPublicService implements BannerSource {
   async resolveCounty(fips: string): Promise<readonly ResolvedBanner[]> {
     if (!/^08\d{3}$/.test(fips)) return [];
     const rows = await this.database.all<PublicBannerRow>(
-      `${SELECT_BANNER} AND a.county_fips = ? ORDER BY a.is_primary DESC, a.display_order, a.id`,
+      `${SELECT_BANNER} AND a.county_fips = ? ORDER BY RANDOM()`,
       100,
       [fips],
     );
@@ -199,7 +199,13 @@ export class D1BannerPublicService implements BannerSource {
   }
 
   async forCounty(fips: string): Promise<readonly BannerPresentation[]> {
-    return (await this.resolveCounty(fips)).map(toPresentation);
+    // Like the homepage, a county's sequence is a fresh random draw on every
+    // request. The draw position replaces display order and the primary flag.
+    return (await this.resolveCounty(fips)).map((banner, index) => ({
+      ...toPresentation(banner),
+      order: index,
+      primary: false,
+    }));
   }
 
   async forHome(): Promise<readonly BannerPresentation[]> {

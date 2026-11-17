@@ -1052,11 +1052,6 @@ img {
 [data-banner-playing] .banner-image[data-banner-zoom] {
   animation-play-state: running;
 }
-@media (prefers-reduced-motion: reduce) {
-  .banner-image[data-banner-zoom] {
-    animation: none;
-  }
-}
 .banner-caption {
   position: absolute;
   right: 0.75rem;
@@ -1102,6 +1097,9 @@ img {
   gap: 0.5rem;
 }
 .banner-buttons button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 44px;
   min-height: 44px;
   padding: 0.25rem 0.625rem;
   border: 1px solid currentColor;
@@ -1112,6 +1110,17 @@ img {
   cursor: pointer;
   opacity: 0.35;
   transition: opacity 0.2s ease, background-color 0.2s ease;
+}
+.banner-buttons button svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  fill: currentColor;
+}
+.banner-buttons button[hidden] {
+  display: none;
+}
+.banner-buttons .banner-motion {
+  font-size: 0.8125rem;
 }
 .banner-buttons button:hover,
 .banner-buttons button:focus-visible {
