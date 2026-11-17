@@ -124,6 +124,7 @@ SELECT g.first_name AS "First Name", g.middle_name AS "Middle Name", g.last_name
          WHERE rev."Profile ID" = g.profile_id AND rev."Revision status" IN ('approved', 'superseded')
            AND json_extract(item.value, '$.role_id') = g.role_id
            AND json_extract(item.value, '$.county_code') IS g.county_code
+           AND json_extract(item.value, '$.county') IS g.county
            AND json_extract(item.value, '$.first_name') IS g.first_name
            AND json_extract(item.value, '$.middle_name') IS g.middle_name
            AND json_extract(item.value, '$.last_name') IS g.last_name

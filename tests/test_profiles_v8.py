@@ -134,7 +134,7 @@ class ReviewGridCase(unittest.TestCase):
                    ('', ''): 'r-office', ('', 'Processes public records'): 'r-duties'}
         for row in self.rows():
             role_id = details[(row['Position'], row['Role'])]
-            snapshot.append(dict(role_id=role_id, county_code='08107', first_name=row['First Name'],
+            snapshot.append(dict(role_id=role_id, county_code='08107', county=row['County'], first_name=row['First Name'],
                                  middle_name=row['Middle Name'], last_name=row['Last Name'],
                                  alternate_name_1=row['Alternate Name 1'], alternate_name_2=row['Alternate Name 2'],
                                  county_unit=row['County Unit'], county_sub_unit=row['County Sub Unit'],

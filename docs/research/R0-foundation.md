@@ -147,7 +147,7 @@ reporting authority.
 
 For a new approved `profile_revisions` row, `Public revision` may include a
 `website_review.roles` array. Each role object must contain `role_id`,
-`county_code`, `first_name`, `middle_name`, `last_name`, `alternate_name_1`,
+`county_code`, `county`, `first_name`, `middle_name`, `last_name`, `alternate_name_1`,
 `alternate_name_2`, `county_unit`, `county_sub_unit`, `position` and `role`,
 using the exact displayed strings and empty strings for blank cells. The view
 uses `Reviewed on` from the newest matching approved or superseded revision,
