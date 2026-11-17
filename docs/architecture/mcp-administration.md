@@ -104,3 +104,23 @@ Stage through the protected API with a credential that holds `banner.manage`. Us
 A `stale_version` error means someone else changed the banner. Read it again and decide again with a new key.
 
 **Verification.** `tests/mcp-banner-tools.test.mjs` runs the built Worker with a synthetic database and an in-memory bucket. `tests/d1/banner-mcp-checks.mjs` runs inside `npm run test:d1` against an isolated local Wrangler D1, including a grant revoked between the permission check and the write batch. Hosted MCP banner acceptance has not been run. Cloudflare staging needs migration 0026 applied and an owner-issued `banner.publish` grant first.
+
+## Profiles sync tools (MCP-3)
+
+The Website MCP endpoint carries four Profiles sync tools. They are a thin typed layer over the hosted sync transport from PR #179 and the set-based planner and commit from PR #193. The MCP handler authenticates the bearer credential, checks the tool’s grant, and then runs the same transport in process for that principal. Request validation, the live per-operation grant check, batch ownership, dependency and version checks, the atomic write, same-key replay and the durable receipt are the existing ones. The tools read and write nothing themselves.
+
+| Tool | Grant | Arguments | Result |
+| --- | --- | --- | --- |
+| `website_sync_dry_run` | `sync.read` | `changeset`, optional `itemOffset`, `itemLimit` | `eligible`, `itemCount`, `counts` by entity and action, one page of items, `nextItemOffset`, `errors` (at most 200) and `duplicateFlags`. Writes nothing |
+| `website_sync_commit` | `sync.apply` | `idempotencyKey`, `changeset`, optional `itemOffset`, `itemLimit` | `status`, `batchId`, `requestId`, `committedAt`, `replayed`, `itemCount`, `counts` and the first page of items. A rejected changeset returns an error result `commit_rejected` with the transport’s coded errors |
+| `website_sync_lookup` | `sync.read` | exactly one of `batchId` and `idempotencyKey`, optional `itemOffset`, `itemLimit` | `status` (`committed` or `reverted`), `batchId`, `committedAt`, `reversedAt`, `itemCount`, `counts` and one page of items. Another account’s batch is `batch_not_found` |
+| `website_sync_reverse` | `sync.revert` | `batchId`, `idempotencyKey` | `reverted`, `already_reverted` or `reversal_blocked`, with the stored receipt fields |
+
+**Receipt compatibility.** The `changeset` argument is the prepared `m2-sync/v1` request exactly as `sync-prepare` stores it, and the items carry the same fields as the REST receipt (`itemIndex`, `clientRef`, `entity`, `websiteId`, `version`, `outcome`). A client that needs the complete receipt for `sync-reconcile` reads every page with `website_sync_lookup`. Pages hold 100 items by default and at most 250. A prepared request with intent `commit` can be sent to `website_sync_dry_run` unchanged. It is planned as a dry run, and `website_sync_commit` still requires intent `commit`.
+
+**Payload size.** Discovery, inspection and banner calls keep the 24 KiB request cap. A body over 24 KiB is read only when the bearer credential resolves to an agent that holds `sync.read` or `sync.apply`, and then only up to 2 MiB counted on the bytes actually received, whatever the declared length. It is accepted only for `website_sync_dry_run` and `website_sync_commit`, and each tool still needs its own grant. Anything else gets `413 request_too_large` before the body is parsed. The synthetic 816-operation changeset is about 166 KB and the isolated Adams preview was about 245 KB, both inside the cap. Results are limited to 192 KiB, and a larger result is refused with `result_too_large` and never cut short.
+
+**Permission scope.** No role holds `sync.read`, `sync.apply` or `sync.revert`. They reach an agent only through an active grant issued by the Website Owner, and Agent Owner credentials are refused as for the other tools. Tool errors are `authentication_required`, `not_authorized`, `invalid_arguments`, `batch_not_found`, `commit_rejected`, the transport’s codes such as `invalid_request`, `unsupported_contract_version` and `item_too_large`, `sync_unavailable` and `sync_failed`.
+
+**Verification.** `tests/mcp-sync-tools.test.mjs` runs the built Worker with a synthetic database and the 816-operation fixture. `tests/d1/sync-mcp-checks.mjs` runs inside `npm run test:d1` against an isolated local Wrangler D1. Hosted acceptance has not been run.
+

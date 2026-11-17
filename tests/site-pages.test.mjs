@@ -98,7 +98,11 @@ test("homepage renders navigation, discovery entry points and honest content", a
       );
     }
     // Nothing unimplemented is advertised.
-    assert.doesNotMatch(page.text, /submit a report|log in|sign up|grievance/i);
+    // The shared header now offers Submit a report, so check the page body.
+    assert.doesNotMatch(
+      page.main(),
+      /submit a report|log in|sign up|grievance/i,
+    );
     assert.ok(page.$$(".article-card").length > 0);
     for (const card of page.$$(".cv-pathway, .editorial-grid .article-card")) {
       assert.equal(card.querySelectorAll("a[href]").length, 1);
@@ -131,14 +135,18 @@ test("Home and Stories share navigation, MENU and footer hover styles", async ()
       const style = document.createElement("style");
       // jsdom has no pointer input. Activate the stylesheet's hover rules
       // with an attribute on the same elements that receive pointer hover.
-      style.textContent = css.text.replaceAll(":hover", "[data-test-hover]");
+      // jsdom's 1024px viewport is below the 75rem desktop header breakpoint,
+      // so disable the narrow-screen block to assert the desktop hover styles.
+      style.textContent = css.text
+        .replaceAll(":hover", "[data-test-hover]")
+        .replace("@media (max-width: 74.99rem)", "@media (max-width: 0rem)");
       document.head.append(style);
 
       const menu = page.$(".nav-toggle");
       menu.setAttribute("data-test-hover", "");
       assert.equal(
         getComputedStyle(menu).backgroundColor,
-        "rgb(17, 17, 17)",
+        "rgb(23, 23, 23)",
         path,
       );
 

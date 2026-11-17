@@ -209,7 +209,7 @@ const snapshot = (world) =>
 const pngA = { ...FIXTURES.pngA };
 const pngB = { ...FIXTURES.pngB };
 
-test("tools/list names the four inspection tools and the five banner tools", async () => {
+test("tools/list names the inspection, banner and sync tools", async () => {
   await setup(async ({ rpc }) => {
     const listed = await rpc(null, "tools/list");
     const tools = listed.result.tools;
@@ -225,6 +225,10 @@ test("tools/list names the four inspection tools and the five banner tools", asy
         "website_banner_publish",
         "website_banner_withdraw",
         "website_banner_restore",
+        "website_sync_dry_run",
+        "website_sync_commit",
+        "website_sync_lookup",
+        "website_sync_reverse",
       ],
     );
     for (const tool of tools)
