@@ -181,6 +181,7 @@ rewriting the history above.
 
 - Prioritize one WordPress-style Website dashboard for signed-in human account holders, editors, administrators and the owner. Show tabs and actions according to existing server-verified capabilities. The prepared first slice is Overview, My Account and a working Posts & Stories workflow. Use the archived Beta-1 dashboard as a layout and workflow reference.
 - Hold CONTENT-1 and use generic Lorem Ipsum in local editorial fixtures. Keep the real Idlewild drafts private and the existing launch goal on the backlog.
+- On November 17 the owner requested continuing work on the Posts & Stories dashboard editor from the existing local EDIT-2 slice. The CONTENT-1 pause still applies.
 - The dashboard is the manual operator surface while hosted D1/R2 access and verification are open. The existing Website D1/R2 and shared dashboard/API/MCP backbone still applies. The supplied generic CMS prompt and framework, browser-storage and generic database follow-ups are reference material only. The owner will say when the prepared Fable assignment is initiated.
 
 ## Profiles publisher classification and private export, November 15, 2026

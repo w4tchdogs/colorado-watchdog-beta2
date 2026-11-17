@@ -182,7 +182,7 @@ Still open:
    retiring Sites. The [hosting decision](../decisions.md#cloudflare-hosting-transition-and-first-owner-target-november-16-2026)
    already selects the existing AUTH-3 application and GitHub connection for
    staging.
-2. **Report expansion.** Define grievance cards, event context and the employee picker before changing the intake contract. Draft workspace, private attachments, revision and withdrawal, and editorial release follow that model.
+2. **Report expansion.** The employee picker, event context and grievance cards are the merged baseline in [PR #228](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/228). Draft workspace, private attachments, revision and withdrawal, editorial release and approved attribution still need their own work. See [CURRENT](CURRENT.md) for hosted status.
 
 ## Maintenance
 
