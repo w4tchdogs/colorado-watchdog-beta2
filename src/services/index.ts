@@ -20,6 +20,7 @@ import type { WebsiteDatabase } from "../database/sqlite.js";
 import {
   type AccountFilter,
   changeAccountRole,
+  archiveAccount as archiveLocalAccount,
   createAccount,
   createHumanIdentity,
   getAccount,
@@ -29,6 +30,8 @@ import {
   listAccounts,
   type NewAccount,
   revokeIdentity,
+  setAgentCapability,
+  listAgentCapabilities,
   updateAccount,
 } from "./accounts.js";
 import { listAuditEvents } from "./audit.js";
@@ -122,6 +125,12 @@ export interface ApplicationServices {
     changes: Parameters<typeof updateAccount>[4],
     operationId?: string,
   ): number | Promise<number>;
+  archiveAccount(
+    principal: TrustedPrincipal,
+    id: string,
+    expectedVersion: number,
+    operationId?: string,
+  ): number | Promise<number>;
   changeAccountRole(
     principal: TrustedPrincipal,
     id: string,
@@ -149,11 +158,11 @@ export interface ApplicationServices {
     capability: string,
     granted: boolean,
     operationId?: string,
-  ): Promise<void>;
+  ): void | Promise<void>;
   listAgentCapabilities?(
     principal: TrustedPrincipal,
     accountId: string,
-  ): Promise<readonly string[]>;
+  ): readonly string[] | Promise<readonly string[]>;
   revokeIdentity(
     principal: TrustedPrincipal,
     identityId: string,
@@ -283,6 +292,27 @@ export function createServices(
         changes,
         operationId,
       );
+    },
+    archiveAccount(principal, id, expectedVersion, operationId) {
+      return archiveLocalAccount(
+        requireDatabase(),
+        principal,
+        id,
+        expectedVersion,
+        operationId,
+      );
+    },
+    setAgentCapability(principal, accountId, capability, granted) {
+      return setAgentCapability(
+        requireDatabase(),
+        principal,
+        accountId,
+        capability,
+        granted,
+      );
+    },
+    listAgentCapabilities(principal, accountId) {
+      return listAgentCapabilities(requireDatabase(), principal, accountId);
     },
     changeAccountRole(principal, id, expectedVersion, role, operationId) {
       return changeAccountRole(

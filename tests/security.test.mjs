@@ -577,6 +577,115 @@ test("account administration is bounded, redacts credential hashes, and rejects 
   }
 });
 
+test("owner archives an unused agent without losing audit, grant or sync batch history", async () => {
+  const fixture = await createFixture();
+  try {
+    const app = createApplication(fixture.services);
+    const owner = await fixture.principalFor("owner-login");
+    const agent = fixture.services.createAccount(owner, {
+      kind: "agent",
+      role: "contributor",
+      displayName: "Synthetic archive rehearsal",
+    });
+    const credential = await fixture.services.issueAgentCredential(
+      owner,
+      agent.id,
+    );
+    fixture.services.setAgentCapability(owner, agent.id, "sync.read", true);
+    fixture.services.setAgentCapability(owner, agent.id, "sync.apply", true);
+    fixture.database
+      .prepare(
+        "INSERT INTO sync_batches (id,actor_account_id,idempotency_key,request_fingerprint,contract_version,request_id,status,committed_at,result_json) VALUES ('archive-batch',?,'archive-key',?,'m2-sync/v1','archive-request','committed','2026-11-17T12:00:00.000Z','{}')",
+      )
+      .run(agent.id, "a".repeat(64));
+    const account = await fixture.services.getAccountDetails(owner, agent.id);
+    const response = await app.fetch(
+      new Request(
+        `https://watchdog.test/api/admin/accounts/${agent.id}/archive`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "https://watchdog.test",
+            "x-test-human-subject": "owner-login",
+          },
+          body: JSON.stringify({ expectedVersion: account.version }),
+        },
+      ),
+    );
+    assert.equal(response.status, 200);
+    const archived = await fixture.services.getAccountDetails(owner, agent.id);
+    assert.equal(archived.status, "archived");
+    assert.equal(archived.version, account.version + 1);
+    assert.deepEqual(
+      fixture.services.listAgentCapabilities(owner, agent.id),
+      [],
+    );
+    assert.equal(
+      fixture.database
+        .prepare(
+          "SELECT COUNT(*) count FROM identities WHERE account_id=? AND revoked_at IS NULL",
+        )
+        .get(agent.id).count,
+      0,
+    );
+    assert.equal(
+      fixture.database
+        .prepare(
+          "SELECT COUNT(*) count FROM sync_batches WHERE actor_account_id=?",
+        )
+        .get(agent.id).count,
+      1,
+    );
+    assert.equal(
+      fixture.services.listAccounts(owner, {
+        query: "Synthetic archive rehearsal",
+      }).accounts.length,
+      0,
+    );
+    assert.equal(
+      fixture.services.listAccounts(owner, {
+        query: "Synthetic archive rehearsal",
+        status: "archived",
+      }).accounts.length,
+      1,
+    );
+    const defaultList = await app.fetch(
+      new Request(
+        "https://watchdog.test/api/admin/accounts?query=Synthetic%20archive%20rehearsal",
+        { headers: { "x-test-human-subject": "owner-login" } },
+      ),
+    );
+    assert.deepEqual((await defaultList.json()).accounts, []);
+    const archivedList = await app.fetch(
+      new Request(
+        "https://watchdog.test/api/admin/accounts?query=Synthetic%20archive%20rehearsal&status=archived",
+        { headers: { "x-test-human-subject": "owner-login" } },
+      ),
+    );
+    assert.equal((await archivedList.json()).accounts[0].id, agent.id);
+    assert.equal(
+      fixture.services
+        .listAuditEvents(owner)
+        .some(
+          (event) =>
+            event.action === "account.archive" && event.target_id === agent.id,
+        ),
+      true,
+    );
+    assert.equal(
+      await fixture.services.resolvePrincipal(
+        new Request("https://watchdog.test/", {
+          headers: { authorization: `Bearer ${credential.secret}` },
+        }),
+      ),
+      null,
+    );
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("Sites identity adapter trusts only a verified host context and fails closed", async () => {
   const request = new Request("https://watchdog.test/", {
     headers: {

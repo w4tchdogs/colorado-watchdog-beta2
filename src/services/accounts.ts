@@ -5,6 +5,7 @@ import {
   type AccountKind,
   type AccountRole,
   createAgentCredential,
+  isGrantableAgentCapability,
   isCurrentPrincipal,
   newId,
   requireCapability,
@@ -22,7 +23,7 @@ export interface AccountSummary {
   readonly id: string;
   readonly kind: AccountKind;
   readonly role: AccountRole;
-  readonly status: "active" | "disabled";
+  readonly status: "active" | "disabled" | "archived";
   readonly displayName: string;
   readonly version: number;
 }
@@ -31,7 +32,7 @@ export interface AccountFilter {
   readonly query?: string;
   readonly kind?: AccountKind;
   readonly role?: AccountRole;
-  readonly status?: "active" | "disabled";
+  readonly status?: "active" | "disabled" | "archived";
   readonly limit?: number;
   readonly afterId?: string;
 }
@@ -79,7 +80,9 @@ export function getAccount(
     typeof row.id !== "string" ||
     (row.kind !== "human" && row.kind !== "agent") ||
     !isRole(row.role) ||
-    (row.status !== "active" && row.status !== "disabled") ||
+    (row.status !== "active" &&
+      row.status !== "disabled" &&
+      row.status !== "archived") ||
     typeof row.display_name !== "string" ||
     typeof row.version !== "number"
   ) {
@@ -162,13 +165,15 @@ export function listAccounts(
     (filter.role !== undefined && !isRole(filter.role)) ||
     (filter.status !== undefined &&
       filter.status !== "active" &&
-      filter.status !== "disabled") ||
+      filter.status !== "disabled" &&
+      filter.status !== "archived") ||
     (filter.afterId !== undefined &&
       (filter.afterId.length < 1 || filter.afterId.length > 128))
   )
     throw new InvalidInputError();
   const conditions: string[] = [];
   const args: (string | number)[] = [];
+  if (filter.status !== "archived") conditions.push("status <> 'archived'");
   if (filter.query) {
     conditions.push(
       "(display_name LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')",
@@ -220,7 +225,9 @@ function parseAccountSummary(row: Record<string, unknown>): AccountSummary {
     typeof row.id !== "string" ||
     (row.kind !== "human" && row.kind !== "agent") ||
     !isRole(row.role) ||
-    (row.status !== "active" && row.status !== "disabled") ||
+    (row.status !== "active" &&
+      row.status !== "disabled" &&
+      row.status !== "archived") ||
     typeof row.display_name !== "string" ||
     typeof row.version !== "number"
   )
@@ -310,7 +317,7 @@ export function updateAccount(
   changes: {
     readonly displayName?: string;
     readonly email?: string | null;
-    readonly status?: "active" | "disabled";
+    readonly status?: "active" | "disabled" | "archived";
     readonly preferences?: Readonly<Record<string, unknown>>;
   },
   operationId?: string,
@@ -333,9 +340,14 @@ export function updateAccount(
     values.email = changes.email?.trim() ?? null;
   }
   if (changes.status !== undefined) {
-    if (changes.status !== "active" && changes.status !== "disabled") {
+    if (
+      changes.status !== "active" &&
+      changes.status !== "disabled" &&
+      changes.status !== "archived"
+    ) {
       throw new InvalidInputError();
     }
+    if (changes.status === "archived") throw new InvalidInputError();
     values.status = changes.status;
   }
   if (changes.preferences !== undefined) {
@@ -383,6 +395,47 @@ export function updateAccount(
         expectedVersion,
         values,
       );
+    },
+  );
+}
+
+/** Archive is owner-only because the account must retain a readable history. */
+export function archiveAccount(
+  database: WebsiteDatabase,
+  principal: TrustedPrincipal,
+  id: string,
+  expectedVersion: number,
+  operationId?: string,
+): number {
+  requireCapability(database, principal, "account.change_role");
+  const account = database
+    .prepare("SELECT kind,status FROM accounts WHERE id=?")
+    .get(id);
+  if (!account || account.kind !== "agent" || account.status === "archived")
+    throw new InvalidInputError();
+  return runAuditedMutation(
+    database,
+    { principal, operationId },
+    {
+      action: "account.archive",
+      targetType: "account",
+      targetId: id,
+      summary: "Archived an unused agent account",
+    },
+    () => {
+      database
+        .prepare(
+          "UPDATE identities SET revoked_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),version=version+1,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE account_id=? AND provider='agent-key' AND revoked_at IS NULL",
+        )
+        .run(id);
+      database
+        .prepare(
+          "UPDATE agent_capability_grants SET revoked_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),revoked_by_account_id=? WHERE account_id=? AND revoked_at IS NULL",
+        )
+        .run(principal.accountId, id);
+      return updateVersionedRow(database, "accounts", id, expectedVersion, {
+        status: "archived",
+      });
     },
   );
 }
@@ -482,6 +535,62 @@ export function createHumanIdentity(
       return id;
     },
   );
+}
+
+export function setAgentCapability(
+  database: WebsiteDatabase,
+  principal: TrustedPrincipal,
+  accountId: string,
+  capability: string,
+  granted: boolean,
+): void {
+  requireCapability(database, principal, "account.change_role");
+  if (!isGrantableAgentCapability(capability)) throw new InvalidInputError();
+  runAuditedMutation(
+    database,
+    { principal },
+    {
+      action: granted
+        ? "account.capability.grant"
+        : "account.capability.revoke",
+      targetType: "account",
+      targetId: accountId,
+      summary: granted
+        ? "Granted an agent capability"
+        : "Revoked an agent capability",
+      details: { capability },
+    },
+    () => {
+      if (granted) {
+        database
+          .prepare(
+            "INSERT INTO agent_capability_grants (id,account_id,capability,granted_by_account_id,granted_at) SELECT ?,id,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now') FROM accounts WHERE id=? AND kind='agent' AND status='active'",
+          )
+          .run(newId(), capability, principal.accountId, accountId);
+      } else {
+        database
+          .prepare(
+            "UPDATE agent_capability_grants SET revoked_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),revoked_by_account_id=? WHERE account_id=? AND capability=? AND revoked_at IS NULL",
+          )
+          .run(principal.accountId, accountId, capability);
+      }
+      return true;
+    },
+  );
+}
+
+export function listAgentCapabilities(
+  database: WebsiteDatabase,
+  principal: TrustedPrincipal,
+  accountId: string,
+): readonly string[] {
+  requireCapability(database, principal, "account.read");
+  return database
+    .prepare(
+      "SELECT capability FROM agent_capability_grants WHERE account_id=? AND revoked_at IS NULL ORDER BY capability",
+    )
+    .all(accountId)
+    .map((row) => String(row.capability));
 }
 
 export async function issueAgentCredential(
