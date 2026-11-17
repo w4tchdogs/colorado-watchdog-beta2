@@ -298,84 +298,165 @@ function enhanceBanner(frame) {
     if (!(error instanceof SyntaxError)) throw error;
   }
 
+  function watchImage(candidate, settle) {
+    function loaded() {
+      if (typeof candidate.decode === "function") {
+        candidate.decode().then(
+          () => settle(true),
+          () => settle(candidate.naturalWidth > 0),
+        );
+      } else {
+        settle(true);
+      }
+    }
+    candidate.addEventListener("load", loaded, { once: true });
+    candidate.addEventListener("error", () => settle(false), { once: true });
+    return () => {
+      if (!candidate.getAttribute("src") || !candidate.complete) return;
+      if (candidate.naturalWidth > 0) loaded();
+      else settle(false);
+    };
+  }
+
+  function setImageAvailability(available) {
+    image.hidden = !available;
+    frame.classList.toggle("has-image", available);
+    frame.dataset.bannerState = available ? "ready" : "unavailable";
+  }
+
+  if (!controls || !caption || !status || !play || !pause || slides.length < 2) {
+    watchImage(image, setImageAvailability)();
+    return;
+  }
+
+  frame.setAttribute("data-banner-gallery", "");
+  const dwell = 7000;
+  const failed = new Set();
   let index = 0;
-  let timer;
+  let pending;
+  let incoming;
+  let playing = false;
   let pageActive = true;
-  const interval = Number(frame.dataset.bannerInterval);
-  const delay = Number.isFinite(interval)
-    ? Math.min(20000, Math.max(3000, interval))
-    : 8000;
+  let remaining = dwell;
+  let deadline;
+  let timer;
 
   function canPlay() {
     return (
       pageActive &&
       !document.hidden &&
       !motion?.matches &&
-      frame.dataset.bannerState !== "unavailable"
+      frame.dataset.bannerState === "ready" &&
+      failed.size < slides.length - 1
     );
   }
 
   function updatePlayback() {
-    play?.setAttribute(
-      "aria-disabled",
-      String(timer !== undefined || !canPlay()),
-    );
-    pause?.setAttribute("aria-disabled", String(timer === undefined));
+    frame.toggleAttribute("data-banner-playing", playing);
+    play.setAttribute("aria-disabled", String(playing || !canPlay()));
+    pause.setAttribute("aria-disabled", String(!playing));
   }
 
-  // Playback changes are spoken once, by a second polite region, so the
-  // position status keeps its single announcement per selection. Every stop
-  // clears the text silently, which lets a later identical message be heard.
+  // Position and playback use separate polite regions.
   function say(message) {
     if (announce) announce.textContent = message;
   }
 
-  // Stops from the person's own action (Pause, focus or pointer entering the
-  // carousel) say "paused" only when rotation was running. Automatic stops
-  // (hidden page, reduced motion, failed image) stay silent.
   function stop(spoken = false) {
-    const running = timer !== undefined;
-    window.clearInterval(timer);
-    timer = undefined;
-    if (running) say(spoken === true ? "Banner rotation paused" : "");
+    if (timer !== undefined) {
+      remaining = Math.max(0, deadline - performance.now());
+      window.clearTimeout(timer);
+      timer = undefined;
+    }
+    if (playing) say(spoken === true ? "Banner rotation paused" : "");
+    playing = false;
     updatePlayback();
   }
 
-  function updateStatus() {
-    if (!status) return;
-    const unavailable = frame.dataset.bannerState === "unavailable";
+  function updateStatus(
+    unavailable = frame.dataset.bannerState === "unavailable",
+  ) {
     status.textContent = `Banner ${index + 1} of ${slides.length}${unavailable ? " · Image unavailable" : ""}`;
   }
 
-  function watchImage(candidate) {
-    function settle(available) {
-      if (candidate !== image) return;
-      candidate.hidden = !available;
-      frame.classList.toggle("has-image", available);
-      frame.dataset.bannerState = available ? "ready" : "unavailable";
-      if (!available) {
-        stop();
-        updateStatus();
-      } else {
-        updatePlayback();
-      }
+  function nextIndex(offset, from = index) {
+    for (let step = 1; step < slides.length; step++) {
+      const next = (from + offset * step + slides.length) % slides.length;
+      if (!failed.has(next)) return next;
     }
-    candidate.addEventListener("load", () => settle(true), { once: true });
-    candidate.addEventListener("error", () => settle(false), { once: true });
-    return () => {
-      if (candidate.complete) settle(candidate.naturalWidth > 0);
-    };
   }
 
-  function move(offset) {
-    index = (index + offset + slides.length) % slides.length;
-    const slide = slides[index];
+  function preloadNext() {
+    if (pending || incoming || frame.dataset.bannerState !== "ready") return;
+    const next = nextIndex(1);
+    if (next !== undefined) loadCandidate(next);
+    else if (playing) stop();
+  }
+
+  function scheduleDwell() {
+    if (!playing || incoming || !pending?.ready || timer !== undefined) return;
+    deadline = performance.now() + remaining;
+    timer = window.setTimeout(() => {
+      timer = undefined;
+      showCandidate();
+    }, remaining);
+  }
+
+  function promote(candidate) {
+    const oldImage = image;
+    const slide = slides[candidate.index];
+    image = candidate.image;
+    index = candidate.index;
+    incoming = undefined;
+    image.removeAttribute("aria-hidden");
+    image.removeAttribute("data-banner-incoming");
+    image.setAttribute("data-banner-image", "");
+    if (image.parentNode === frame) oldImage.remove();
+    else oldImage.replaceWith(image);
+    frame.classList.toggle("mode-cover", slide.mode === "cover");
+    frame.classList.toggle("mode-contain", slide.mode === "contain");
+    frame.dataset.bannerId = slide.bannerId;
+    frame.dataset.bannerVersion = slide.assetVersion;
+    setImageAvailability(true);
+    caption.textContent = slide.caption;
+    caption.hidden = !slide.caption;
+    remaining = dwell;
+    updateStatus();
+    updatePlayback();
+    preloadNext();
+  }
+
+  function showCandidate() {
+    const candidate = pending;
+    pending = undefined;
+    if (!playing || motion?.matches || frame.dataset.bannerState !== "ready") {
+      promote(candidate);
+      return;
+    }
+    incoming = candidate;
+    const nextImage = candidate.image;
+    nextImage.setAttribute("data-banner-zoom", "");
+    nextImage.setAttribute("data-banner-incoming", "");
+    nextImage.setAttribute("aria-hidden", "true");
+    nextImage.addEventListener("animationend", (event) => {
+      if (event.animationName === "banner-crossfade" && incoming === candidate) {
+        promote(candidate);
+      }
+    });
+    image.after(nextImage);
+  }
+
+  function loadCandidate(next, manual = false) {
+    if (pending?.index === next) {
+      pending.manual ||= manual;
+      if (manual && pending.ready) showCandidate();
+      return;
+    }
+    const slide = slides[next];
     const nextImage = document.createElement("img");
     nextImage.className = `banner-image fx-${slide.focalX} fy-${slide.focalY}`;
-    nextImage.setAttribute("data-banner-image", "");
     nextImage.alt = slide.alt;
     nextImage.decoding = "async";
-    nextImage.hidden = true;
     if (
       [slide.width, slide.height].every(
         (value) => Number.isSafeInteger(value) && value > 0,
@@ -384,36 +465,45 @@ function enhanceBanner(frame) {
       nextImage.width = slide.width;
       nextImage.height = slide.height;
     }
-    frame.classList.remove("has-image");
-    frame.classList.toggle("mode-cover", slide.mode === "cover");
-    frame.classList.toggle("mode-contain", slide.mode === "contain");
-    frame.dataset.bannerId = slide.bannerId;
-    frame.dataset.bannerVersion = slide.assetVersion;
-    frame.dataset.bannerState = "loading";
-    caption.textContent = slide.caption;
-    caption.hidden = !slide.caption;
-
-    const checkImage = watchImage(nextImage);
+    const candidate = { index: next, image: nextImage, manual, ready: false };
+    pending = candidate;
+    const checkImage = watchImage(nextImage, (available) => {
+      if (pending !== candidate) return;
+      if (!available) {
+        pending = undefined;
+        failed.add(next);
+        if (candidate.manual) updateStatus(true);
+        preloadNext();
+        updatePlayback();
+        return;
+      }
+      candidate.ready = true;
+      if (candidate.manual) showCandidate();
+      else scheduleDwell();
+    });
     nextImage.src = slide.src;
-    image.replaceWith(nextImage);
-    image = nextImage;
-    updateStatus();
-    updatePlayback();
     checkImage();
   }
 
-  watchImage(image)();
-  if (
-    !controls ||
-    !caption ||
-    !status ||
-    !play ||
-    !pause ||
-    slides.length < 2
-  ) {
-    return;
+  function move(offset) {
+    // A manual selection interrupts an active fade and navigates from its
+    // intended destination. A late load from an earlier click is ignored.
+    if (incoming) promote(incoming);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      timer = undefined;
+    }
+    const next = nextIndex(offset, pending?.manual ? pending.index : index);
+    remaining = dwell;
+    if (next === index) {
+      pending = undefined;
+      preloadNext();
+    } else if (next !== undefined) {
+      loadCandidate(next, true);
+    }
   }
 
+  const initial = image;
   controls
     .querySelector("[data-banner-previous]")
     .addEventListener("click", () => move(-1));
@@ -422,11 +512,15 @@ function enhanceBanner(frame) {
     .addEventListener("click", () => move(1));
   pause.addEventListener("click", () => stop(true));
   play.addEventListener("click", () => {
-    if (timer !== undefined || !canPlay()) return;
-    timer = window.setInterval(() => move(1), delay);
+    if (playing || !canPlay()) return;
+    playing = true;
+    image.setAttribute("data-banner-zoom", "");
     updatePlayback();
     say("Banner rotation playing");
+    preloadNext();
+    scheduleDwell();
   });
+
   const carousel = frame.parentElement;
   const hero = carousel.closest(".hero") ?? carousel;
   carousel.addEventListener("focusin", () => stop(true));
@@ -436,7 +530,10 @@ function enhanceBanner(frame) {
     if (document.hidden) stop();
     else updatePlayback();
   });
-  motion?.addEventListener("change", () => stop());
+  motion?.addEventListener("change", () => {
+    stop();
+    if (motion.matches && incoming) promote(incoming);
+  });
   window.addEventListener("pagehide", () => {
     pageActive = false;
     stop();
@@ -445,6 +542,17 @@ function enhanceBanner(frame) {
     pageActive = true;
     updatePlayback();
   });
+  watchImage(initial, (available) => {
+    if (initial !== image) return;
+    setImageAvailability(available);
+    if (available) preloadNext();
+    else {
+      failed.add(index);
+      stop();
+    }
+    updateStatus();
+    updatePlayback();
+  })();
   updateStatus();
   updatePlayback();
   controls.hidden = false;

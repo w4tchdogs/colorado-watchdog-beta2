@@ -170,7 +170,7 @@ export function bannerFrame(
   return html`<div class="banner-frame has-image mode-${banner.mode}" data-banner-frame
       data-banner-id="${banner.bannerId}" data-banner-version="${banner.assetVersion}"
       data-banner-count="${selected.length}"
-      ${multiple ? html`data-banner-slides="${JSON.stringify(selected)}" data-banner-interval="8000"` : ""}>
+      ${multiple ? html`data-banner-slides="${JSON.stringify(selected)}"` : ""}>
     <div class="banner-placeholder" aria-hidden="true"></div>
     <img class="banner-image fx-${banner.focalX} fy-${banner.focalY}" data-banner-image
       src="${banner.src}" alt="${banner.alt}"

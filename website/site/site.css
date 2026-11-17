@@ -1010,6 +1010,53 @@ img {
 .mode-contain[data-banner-state="ready"] .banner-image {
   background: #0d0d0d;
 }
+.banner-frame[data-banner-gallery] {
+  isolation: isolate;
+}
+.banner-frame[data-banner-gallery] .banner-image {
+  object-fit: cover;
+  background: transparent;
+  transform-origin: center;
+}
+.banner-frame[data-banner-gallery].has-image::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(90deg, #000c 0%, #0007 48%, #0002 100%);
+}
+@keyframes banner-zoom {
+  from {
+    transform: scale(1.01);
+  }
+  to {
+    transform: scale(1.05);
+  }
+}
+@keyframes banner-crossfade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.banner-image[data-banner-zoom] {
+  animation: banner-zoom 15s linear both paused;
+}
+.banner-image[data-banner-incoming] {
+  z-index: 1;
+  animation: banner-zoom 15s linear both paused, banner-crossfade 4s ease-in-out both paused;
+}
+[data-banner-playing] .banner-image[data-banner-zoom] {
+  animation-play-state: running;
+}
+@media (prefers-reduced-motion: reduce) {
+  .banner-image[data-banner-zoom] {
+    animation: none;
+  }
+}
 .banner-caption {
   position: absolute;
   right: 0;
@@ -1228,7 +1275,7 @@ img {
   position: relative;
   grid-row: 2;
   justify-self: end;
-  z-index: 2;
+  z-index: 3;
 }
 .hero .banner-controls {
   grid-row: 3;
