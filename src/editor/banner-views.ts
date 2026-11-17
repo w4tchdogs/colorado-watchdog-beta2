@@ -265,7 +265,7 @@ export function createBannersView(
         h(
           "p",
           { class: "dash-lede" },
-          "County banner images for the public site. Every change here affects only this disposable local sandbox.",
+          "Manage the banners displayed on county pages.",
         ),
       ];
       if (state.notice)
@@ -885,9 +885,9 @@ export function createBannersView(
       const county = state.detail?.county.name ?? "";
       const text =
         confirm.kind === "publish"
-          ? `Publish the staged image for ${county} banner ${banner.id} in this local sandbox?`
+          ? `Publish the staged image for ${county} banner ${banner.id} to the county page?`
           : confirm.kind === "withdraw"
-            ? `Withdraw ${county} banner ${banner.id} from public view in this local sandbox? Its history is kept.`
+            ? `Withdraw ${county} banner ${banner.id} from the county page? Its history is kept.`
             : `Restore the recorded publication ${confirm.publicationId} for ${county} banner ${banner.id}, with its image, caption, alt text and display settings?`;
       const panel = h(
         "div",
@@ -1760,8 +1760,7 @@ export function createBannersView(
           orderedBannerIds: state.order,
           expectedRowVersions,
         });
-        state.notice =
-          "Display order saved. This affected only the local sandbox.";
+        state.notice = "Display order saved.";
         await loadCounty(detail.county.fips);
       } catch (error) {
         announceError(describe(error));
@@ -1788,7 +1787,7 @@ export function createBannersView(
         bannerState.editingDetails = false;
         bannerState.publications = null;
         bannerState.publicationsError = null;
-        state.notice = `${done}. This affected only the local sandbox.`;
+        state.notice = `${done}.`;
         announce(done);
         if (state.detail) await loadCounty(state.detail.county.fips);
         else render();

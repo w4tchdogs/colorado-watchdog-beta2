@@ -176,7 +176,7 @@ const publishStaged = async (d, id, countyName) => {
   await waitFor(() => d.$(`#banner-confirm-${id}`), "confirm panel");
   assert.match(d.text(`#banner-confirm-${id}`), new RegExp(countyName));
   assert.match(d.text(`#banner-confirm-${id}`), new RegExp(id));
-  assert.match(d.text(`#banner-confirm-${id}`), /local sandbox/);
+  assert.match(d.text(`#banner-confirm-${id}`), /to the county page/);
   // Keyboard continuity: focus moves into the confirmation, not to the page.
   assert.equal(
     d.$(`#banner-confirm-${id}`).ownerDocument.activeElement?.id,

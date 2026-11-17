@@ -662,6 +662,10 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
     window.location.hash = "#/banners";
     await waitFor("#banners-heading");
     assert.equal($("#banners-heading")?.textContent, "Banners");
+    assert.equal(
+      $("#banners-heading")?.nextElementSibling?.textContent,
+      "Manage the banners displayed on county pages.",
+    );
     assert.ok(calls.some((c) => c.input === "/internal/dashboard/views/get"));
     for (const call of calls) {
       assert.deepEqual(

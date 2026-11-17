@@ -437,7 +437,7 @@ a.dash-action {
 /* The same 8-column county index the public Counties page uses. */
 .banner-county-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0.75rem 0 0;
   padding: 0;
   list-style: none;
@@ -448,13 +448,13 @@ a.dash-action {
 
 @media (min-width: 36rem) {
   .banner-county-grid {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
 @media (min-width: 60rem) {
   .banner-county-grid {
-    grid-template-columns: repeat(8, 1fr);
+    grid-template-columns: repeat(8, minmax(0, 1fr));
   }
 }
 
@@ -478,6 +478,7 @@ a.dash-action {
   color: inherit;
   font: inherit;
   line-height: 1.2;
+  overflow-wrap: anywhere;
   text-align: left;
   cursor: pointer;
 }
