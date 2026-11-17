@@ -206,8 +206,8 @@ test("public resolver filters lifecycle, county, verification, selection, and cu
     }),
   ]);
   assert.deepEqual(
-    (await service.resolveCounty("08001")).map((b) => b.bannerId),
-    ["primary", "other", "homepage-first"],
+    (await service.resolveCounty("08001")).map((b) => b.bannerId).sort(),
+    ["homepage-first", "other", "primary"],
   );
   const otherCounty = await service.resolveCounty("08003");
   assert.deepEqual(
@@ -279,7 +279,7 @@ test("synthetic D1/R2 service renders county and curated homepage banners withou
     const county = await preview.fetch(new Request(`${ORIGIN}/counties/08001`));
     const countyMarkup = await county.text();
     assert.equal(county.status, 200);
-    assert.match(countyMarkup, /data-banner-id="county-primary"/);
+    assert.match(countyMarkup, /data-banner-id="(county-primary|home-first)"/);
     const image = await preview.fetch(
       new Request(`${ORIGIN}/banner-assets/${VERSION_A}`),
     );
@@ -393,7 +393,7 @@ test("homepage renders zero, one and several eligible banners with the existing 
   assert.match(many, /data-banner-controls/);
 });
 
-test("county pages keep their own banner order", async () => {
+test("county pages draw a random order and ignore primary and display order", async () => {
   const { service } = fixture(
     [
       row({ id: "second", version: versionId(1), order: 1 }),
@@ -401,10 +401,21 @@ test("county pages keep their own banner order", async () => {
       row({ id: "primary", version: versionId(3), order: 5, primary: 1 }),
     ],
     [],
+    (items) => [...items].reverse(),
+  );
+  const draw = await service.forCounty("08001");
+  // The reversed fixture order stands in for the SQL RANDOM() draw order.
+  assert.deepEqual(
+    draw.map((b) => b.bannerId),
+    ["primary", "first", "second"],
   );
   assert.deepEqual(
-    (await service.resolveCounty("08001")).map((b) => b.bannerId),
-    ["primary", "first", "second"],
+    draw.map((b) => [b.order, b.primary]),
+    [
+      [0, false],
+      [1, false],
+      [2, false],
+    ],
   );
 });
 

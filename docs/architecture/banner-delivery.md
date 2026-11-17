@@ -31,8 +31,10 @@ object is replaced by the next candidate. The draw order becomes the carousel
 order, with no primary flag. The existing carousel renders the draw with its
 current controls, captions, alt text, crop, focal point and branded fallback:
 no banner shows the fallback, one has no controls and several show them. County
-pages are unchanged and keep their primary-first, then `display_order`
-sequence. `homepage_order` is no longer consulted. The homepage response sets no
+pages now draw their active, verified banners in a fresh random order on
+every request (`ORDER BY RANDOM()`, up to 100), so a county's primary flag and
+`display_order` no longer decide the sequence. `homepage_order` is no longer
+consulted. The homepage response sets no
 cache headers, so each fresh load can differ.
 
 Until R2-1 is deployed and verified, the checked-in Sites hosting manifest on `main` retains `r2: null`. The R2-1 branch declares `"r2": "BUCKET"` as the Sites storage documentation describes, and hosted provisioning is unverified. The earlier reason was that the platform
