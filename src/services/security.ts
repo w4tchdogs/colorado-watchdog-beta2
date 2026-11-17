@@ -106,6 +106,26 @@ export function roleHasCapability(
   );
 }
 
+/**
+ * Capabilities no role holds. An agent account receives one only through an
+ * active, explicit row in agent_capability_grants.
+ */
+export const GRANTABLE_AGENT_CAPABILITIES = [
+  "sync.read",
+  "sync.apply",
+  "sync.revert",
+] as const;
+export type GrantableAgentCapability =
+  (typeof GRANTABLE_AGENT_CAPABILITIES)[number];
+
+export function isGrantableAgentCapability(
+  capability: unknown,
+): capability is GrantableAgentCapability {
+  return (GRANTABLE_AGENT_CAPABILITIES as readonly unknown[]).includes(
+    capability,
+  );
+}
+
 const AGENT_KEY_PREFIX = "cwa_";
 export const AGENT_KEY_PATTERN = /^cwa_[A-Za-z0-9_-]{43}$/;
 
@@ -204,7 +224,15 @@ export function hasCapability(
     hasUnexpiredIdentity(current.expires_at, new Date()) &&
     current.kind === principal.kind &&
     current.role === principal.role &&
-    roleHasCapability(current.role, capability)
+    (roleHasCapability(current.role, capability) ||
+      (current.kind === "agent" &&
+        isGrantableAgentCapability(capability) &&
+        !!database
+          .prepare(
+            `SELECT 1 AS granted FROM agent_capability_grants
+             WHERE account_id = ? AND capability = ? AND revoked_at IS NULL`,
+          )
+          .get(principal.accountId, capability)))
   );
 }
 

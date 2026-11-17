@@ -654,6 +654,7 @@ async function main() {
     "0021_report_challenge_claims.sql",
     "0022_unstructured_person_roles.sql",
     "0023_sync_batch_result_size.sql",
+    "0024_agent_capability_grants.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(

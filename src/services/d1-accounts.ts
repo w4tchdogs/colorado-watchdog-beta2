@@ -18,6 +18,7 @@ import {
   hashCredential,
   isAccountKind,
   isAccountRole,
+  isGrantableAgentCapability,
   makeTrustedPrincipal,
   newId,
   roleHasCapability,
@@ -38,7 +39,12 @@ export function createD1AccountServices(
     principal: TrustedPrincipal | null,
     capability: string,
   ): Promise<boolean> {
-    if (!principal || !roleHasCapability(principal.role, capability))
+    if (!principal) return false;
+    const granted =
+      principal.kind === "agent" &&
+      isGrantableAgentCapability(capability) &&
+      !roleHasCapability(principal.role, capability);
+    if (!granted && !roleHasCapability(principal.role, capability))
       return false;
     const row = await database.first<Row>(
       `SELECT a.kind, a.role, a.status, i.expires_at
@@ -47,7 +53,14 @@ export function createD1AccountServices(
          AND i.revoked_at IS NULL`,
       [principal.accountId, principal.identityId, principal.provider],
     );
-    return rowIsCurrent(row, principal, now());
+    if (!rowIsCurrent(row, principal, now())) return false;
+    if (!granted) return true;
+    const grant = await database.first<Row>(
+      `SELECT 1 AS granted FROM agent_capability_grants
+       WHERE account_id = ? AND capability = ? AND revoked_at IS NULL`,
+      [principal.accountId, capability],
+    );
+    return !!grant;
   }
 
   async function requireCapability(
@@ -445,6 +458,59 @@ export function createD1AccountServices(
     return { identityId, secret: credential.secret };
   }
 
+  async function setAgentCapability(
+    principal: TrustedPrincipal,
+    accountId: string,
+    capability: string,
+    granted: boolean,
+    operationId?: string,
+  ): Promise<void> {
+    await requireCapability(principal, "account.change_role");
+    if (!isGrantableAgentCapability(capability) || !accountId.trim())
+      throw new InvalidInputError();
+    const id = newId();
+    const at = now().toISOString();
+    await auditedBatch(
+      principal,
+      granted ? "account.capability.grant" : "account.capability.revoke",
+      "account",
+      accountId,
+      granted ? "Granted an agent capability" : "Revoked an agent capability",
+      { capability },
+      [
+        granted
+          ? database.prepare(
+              `INSERT INTO agent_capability_grants (id,account_id,capability,granted_by_account_id,granted_at)
+               SELECT ?,id,?,?,? FROM accounts WHERE id=? AND kind='agent' AND status='active'
+                 AND NOT EXISTS (SELECT 1 FROM agent_capability_grants g WHERE g.account_id=accounts.id AND g.capability=? AND g.revoked_at IS NULL)`,
+              [id, capability, principal.accountId, at, accountId, capability],
+            )
+          : database.prepare(
+              `UPDATE agent_capability_grants SET revoked_at=?,revoked_by_account_id=?
+               WHERE account_id=? AND capability=? AND revoked_at IS NULL`,
+              [at, principal.accountId, accountId, capability],
+            ),
+        assertOneChange(`capability:${accountId}:${capability}`),
+      ],
+      operationId,
+      "account.change_role",
+    );
+  }
+
+  async function listAgentCapabilities(
+    principal: TrustedPrincipal,
+    accountId: string,
+  ): Promise<readonly string[]> {
+    await requireCapability(principal, "account.read");
+    const rows = await database.all<Row>(
+      `SELECT capability FROM agent_capability_grants
+       WHERE account_id=? AND revoked_at IS NULL ORDER BY capability`,
+      10,
+      [accountId],
+    );
+    return rows.map((row) => String(row.capability));
+  }
+
   async function revokeIdentity(
     principal: TrustedPrincipal,
     identityId: string,
@@ -634,6 +700,8 @@ export function createD1AccountServices(
     changeAccountRole,
     createHumanIdentity,
     issueAgentCredential,
+    setAgentCapability,
+    listAgentCapabilities,
     revokeIdentity,
     createOperation,
     listAuditEvents,
