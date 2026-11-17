@@ -242,40 +242,50 @@ img {
 .site-nav a[aria-current] {
   border-bottom-color: #ffffff;
 }
-/* Shared-header entry to the dashboard (visual reference: the archived
-   Beta-1 masthead login button: transparent, white border, white uppercase
-   text, dark fill on hover and focus). */
+/* Shared-header actions (visual reference: the archived Beta-1 masthead
+   buttons). SUBMIT A REPORT is white with red text. LOG IN / SIGN UP and
+   DASHBOARD are transparent with a white border. Both are uppercase 800
+   weight, 2px radius, and fill dark (#171717) on hover and focus. */
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
 .header-account {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.25rem;
-  max-width: 15rem;
 }
+.header-submit,
 .header-login {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 2.75rem;
-  padding: 0.5rem 1rem;
-  color: #ffffff;
-  background: transparent;
+  gap: 10px;
+  padding: 12px 15px;
   border: 1px solid #ffffff;
   border-radius: 2px;
-  font-size: 0.8125rem;
+  font-size: 0.625rem;
   font-weight: 800;
-  letter-spacing: 0.02em;
+  letter-spacing: normal;
   line-height: 1.3;
   text-decoration: none;
   text-transform: uppercase;
   white-space: nowrap;
+  transition:
+    background-color 0.16s,
+    color 0.16s,
+    border-color 0.16s;
 }
-.header-login-note {
-  margin: 0;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  line-height: 1.3;
-  text-align: right;
+.header-submit {
+  color: var(--red);
+  background: #ffffff;
+}
+.header-login {
+  color: #ffffff;
+  background: transparent;
+}
+.header-submit-arrow {
+  flex: none;
 }
 .nav-toggle {
   padding: var(--space-2) var(--space-4);
@@ -292,38 +302,82 @@ img {
 }
 .nav-toggle:hover,
 .nav-toggle:focus-visible,
+.header-submit:hover,
+.header-submit:focus-visible,
 .header-login:hover,
 .header-login:focus-visible {
-  background: #111111;
+  background: #171717;
   color: #ffffff;
-  border-color: #111111;
-  outline: 1px solid #ffffff;
-  outline-offset: -1px;
+  border-color: #ffffff;
 }
-@media (min-width: 60rem) {
-  .header-account {
+.header-submit:focus-visible,
+.header-login:focus-visible,
+.nav-toggle:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .header-submit,
+  .header-login {
+    transition: none;
+  }
+}
+@media (min-width: 75rem) {
+  .site-header-inner {
+    flex-wrap: nowrap;
+    column-gap: var(--space-3);
+  }
+  .site-nav ul {
+    flex-wrap: nowrap;
+    gap: 0;
+  }
+  .site-nav a {
+    padding-inline: var(--space-2);
+    white-space: nowrap;
+  }
+  .brand {
+    flex: none;
+    order: 1;
+  }
+  .site-nav {
+    order: 2;
+    margin-left: auto;
+  }
+  .header-actions {
     order: 3;
+    flex-wrap: nowrap;
+    flex: none;
   }
   .nav-toggle {
     display: none;
   }
-  .brand {
-    flex: none;
+}
+@media (min-width: 90rem) {
+  .site-header-inner {
+    column-gap: var(--space-5);
+  }
+  .site-nav a {
+    padding-inline: var(--space-3);
   }
 }
-@media (max-width: 59.99rem) {
-  .header-account {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-end;
-    max-width: none;
-    flex-basis: 100%;
-    order: 4;
+@media (max-width: 74.99rem) {
+  .brand {
+    order: 1;
   }
-  .header-login-note {
-    flex: 1 1 12rem;
-    text-align: left;
+  .nav-toggle {
+    order: 2;
+  }
+  .header-actions {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+  .header-submit,
+  .header-login {
+    min-height: 2.75rem;
+  }
+  .site-nav {
+    order: 4;
   }
   .js .site-nav {
     display: none;

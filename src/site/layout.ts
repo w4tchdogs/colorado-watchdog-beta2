@@ -14,11 +14,19 @@ const NAVIGATION = [
 export const DASHBOARD_LOGIN_HREF = "/auth/login?return_to=%2Fdashboard";
 export const DASHBOARD_HREF = "/dashboard";
 
+/** Public report form. Always offered, so visitors can reach the availability message and tracking. */
+export const SUBMIT_REPORT_HREF = "/submit-report";
+
 function accountEntry(entry: AccountEntry | null | undefined): SafeHtml {
   if (!entry) return html``;
   if (entry === "signed-in")
     return html`<div class="header-account"><a class="header-login" href="${DASHBOARD_HREF}">Dashboard</a></div>`;
-  return html`<div class="header-account"><a class="header-login" href="${DASHBOARD_LOGIN_HREF}" aria-describedby="header-login-note">Log in / Sign up</a><p class="header-login-note" id="header-login-note">Sign-in works only for a Website account that is already linked.</p></div>`;
+  return html`<div class="header-account"><a class="header-login" href="${DASHBOARD_LOGIN_HREF}" aria-describedby="header-login-note">Log in / Sign up</a><p class="header-login-note visually-hidden" id="header-login-note">Sign-in works only for a Website account that is already linked.</p></div>`;
+}
+
+/** Beta-1 style masthead actions: filled submit button, then the account entry. */
+function headerActions(entry: AccountEntry | null | undefined): SafeHtml {
+  return html`<div class="header-actions"><a class="header-submit" href="${SUBMIT_REPORT_HREF}">Submit a report <svg class="header-submit-arrow" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 7h10v10"></path><path d="M7 17 17 7"></path></svg></a>${accountEntry(entry)}</div>`;
 }
 
 export const TAGLINE = "Accountability Starts with Being Heard";
@@ -71,7 +79,7 @@ ${
 }
 <header class="site-header">
   <div class="wrap site-header-inner">
-    <a class="brand" href="/">${logo(56)}<span class="brand-text"><span class="brand-name">Colorado Watchdog</span><span class="brand-tagline">${TAGLINE}</span></span></a>${accountEntry(entry)}
+    <a class="brand" href="/">${logo(56)}<span class="brand-text"><span class="brand-name">Colorado Watchdog</span><span class="brand-tagline">${TAGLINE}</span></span></a>${headerActions(entry)}
     <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" hidden>Menu</button>
     <nav id="site-nav" class="site-nav" aria-label="Main">
       <ul>
