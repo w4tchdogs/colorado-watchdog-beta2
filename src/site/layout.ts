@@ -78,7 +78,7 @@ ${
     : ""
 }
 <header class="site-header">
-  <div class="wrap site-header-inner">
+  <div class="masthead-inner site-header-inner">
     <a class="brand" href="/">${logo(56)}<span class="brand-text"><span class="brand-name">Colorado Watchdog</span><span class="brand-tagline">${TAGLINE}</span></span></a>${headerActions(entry)}
     <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" hidden>Menu</button>
     <nav id="site-nav" class="site-nav" aria-label="Main">
