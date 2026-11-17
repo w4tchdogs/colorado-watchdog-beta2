@@ -11,7 +11,6 @@ import type {
   PublicationMetadata,
   ReorderCountyResult,
 } from "../contracts/banner-administration.js";
-import { SANDBOX_ACCOUNT_HEADER, SANDBOX_TOKEN_HEADER } from "./api-client.js";
 
 /**
  * Browser-side client for the merged `/api/admin/banners/*` contract. It only
@@ -79,10 +78,12 @@ export type BannerAdminFetch = (
 
 export interface BannerAdminClientOptions {
   readonly fetch: BannerAdminFetch;
-  /** Sandbox only: the per-launch token the local server embeds in the page. */
-  readonly token: string;
-  /** Sandbox only: which synthetic account the request speaks for. */
-  readonly account: () => string;
+  /**
+   * Extra request headers. Only the local sandbox sets this, to carry its
+   * per-launch token and synthetic account. The hosted dashboard omits it and
+   * relies on the Website session cookie that the fetch wrapper attaches.
+   */
+  readonly headers?: () => Record<string, string>;
 }
 
 export interface BannerVersionImageResponse {
@@ -161,10 +162,7 @@ function base64url(bytes: Uint8Array): string {
 }
 
 export function createBannerAdminClient(options: BannerAdminClientOptions) {
-  const headers = (): Record<string, string> => ({
-    [SANDBOX_TOKEN_HEADER]: options.token,
-    [SANDBOX_ACCOUNT_HEADER]: options.account(),
-  });
+  const headers = (): Record<string, string> => options.headers?.() ?? {};
 
   async function send<T>(
     path: string,

@@ -48,8 +48,7 @@ if (root) {
     });
   const bannerClient = createBannerAdminClient({
     fetch: bannerFetch,
-    token,
-    account: () => session.account,
+    headers: sandboxHeaders(connection),
   });
 
   void (async () => {

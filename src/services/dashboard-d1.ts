@@ -34,7 +34,7 @@ import {
  * `HOSTED_DASHBOARD_MODULES`.
  */
 export const HOSTED_DASHBOARD_MODULES: ReadonlySet<DashboardModuleId> =
-  new Set<DashboardModuleId>(["overview", "account"]);
+  new Set<DashboardModuleId>(["overview", "account", "banners"]);
 
 export interface HostedDashboardAccounts {
   hasCapability(
@@ -185,6 +185,11 @@ export function createD1DashboardService(
             signInMethods: await signInMethods(principal),
             modules: await modulesFor(principal, "active"),
           };
+        case "banners":
+          // The module only names the view. Every banner read and write goes
+          // through the protected `/api/admin/banners/*` routes, which check
+          // `banner.manage` and the live account themselves.
+          return { view: "banners" };
         default:
           throw new DashboardViewNotFoundError();
       }
