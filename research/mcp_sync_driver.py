@@ -8,6 +8,9 @@ kept only in memory, and never included in diagnostics.
 import getpass
 import json
 import re
+import shutil
+import subprocess
+import sys
 import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
@@ -108,6 +111,9 @@ class McpHttpClient:
         self.timeout = timeout
         self._request_id = 0
         self._opener = urllib.request.build_opener(_NoRedirect())
+        self._default_opener = self._opener
+        self._use_powershell = sys.platform == "win32"
+        self._use_powershell = sys.platform == "win32"
 
     def close(self):
         self._credential = ""
@@ -115,6 +121,8 @@ class McpHttpClient:
     def _post(self, body):
         if len(body) > MCP_MAX_BYTES:
             raise McpDriverError("MCP request exceeds the endpoint byte limit")
+        if self._use_powershell and self._opener is self._default_opener:
+            return self._post_with_powershell(body)
         request = urllib.request.Request(
             self.endpoint,
             data=body,
@@ -140,6 +148,60 @@ class McpHttpClient:
         except (UnicodeError, json.JSONDecodeError) as error:
             raise McpDriverError("MCP endpoint returned an unreadable response") from error
         if not isinstance(value, dict):
+            raise McpDriverError("MCP endpoint returned an invalid response")
+        return status, value
+
+    def _post_with_powershell(self, body):
+        executable = shutil.which("pwsh")
+        if not executable:
+            raise McpDriverError("PowerShell 7 is required for the Windows MCP transport")
+        script = r"""
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+try {
+  $inputValue = [Console]::In.ReadToEnd() | ConvertFrom-Json
+  $bodyBytes = [Convert]::FromBase64String($inputValue.body)
+  $response = Invoke-WebRequest -Uri $inputValue.endpoint -Method Post `
+    -ContentType 'application/json' -Headers @{ Authorization = $inputValue.authorization } `
+    -Body $bodyBytes -SkipHttpErrorCheck -TimeoutSec $inputValue.timeout
+  $responseBytes = [Text.Encoding]::UTF8.GetBytes([string]$response.Content)
+  [Console]::Out.Write((@{ status = [int]$response.StatusCode; body = [Convert]::ToBase64String($responseBytes) } | ConvertTo-Json -Compress))
+} catch {
+  [Console]::Out.Write('{"error":"transport"}')
+  exit 2
+}
+"""
+        input_bytes = _json_bytes(
+            {
+                "endpoint": self.endpoint,
+                "authorization": f"Bearer {self._credential}",
+                "timeout": self.timeout,
+                "body": __import__("base64").b64encode(body).decode("ascii"),
+            }
+        )
+        try:
+            result = subprocess.run(
+                [executable, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+                input=input_bytes,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=self.timeout + 10,
+                check=False,
+            )
+        except Exception as error:
+            raise McpDriverError("MCP transport outcome is uncertain") from error
+        if result.returncode != 0:
+            raise McpDriverError("MCP transport outcome is uncertain")
+        try:
+            envelope = json.loads(result.stdout.decode("utf-8"), object_pairs_hook=_unique_object)
+            if envelope.get("error") == "transport":
+                raise McpDriverError("MCP transport outcome is uncertain")
+            status = envelope["status"]
+            raw = __import__("base64").b64decode(envelope["body"], validate=True)
+            value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
+        except (KeyError, TypeError, ValueError, UnicodeError, json.JSONDecodeError) as error:
+            raise McpDriverError("MCP endpoint returned an unreadable response") from error
+        if len(raw) > MCP_MAX_BYTES or not isinstance(value, dict):
             raise McpDriverError("MCP endpoint returned an invalid response")
         return status, value
 
