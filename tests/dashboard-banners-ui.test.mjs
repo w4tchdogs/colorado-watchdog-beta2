@@ -137,11 +137,13 @@ async function mountBanners({
 }
 
 const openCounty = async (d, fips, name) => {
-  d.type(d.$("#banner-county-query"), fips);
-  d.click("#banner-county-submit");
   await waitFor(
-    () => new RegExp(`${name} \\(${fips}\\)`).test(d.text("#banner-counties")),
+    () => d.$(`button.banner-county-open[data-fips="${fips}"]`),
     `county ${fips} listed`,
+  );
+  assert.match(
+    d.$(`button.banner-county-open[data-fips="${fips}"]`).textContent,
+    new RegExp(name),
   );
   d.click(`button.banner-county-open[data-fips="${fips}"]`);
   return waitFor(() => d.$("#banner-county"), "county detail");
@@ -191,17 +193,24 @@ test("an administrator can find counties, stage a new banner and publish it", as
     await waitFor(() => d.$("#banners-heading"), "banners view");
     assert.ok(d.nav().includes("Banners"));
 
-    d.type(d.$("#banner-county-query"), "Adams");
-    d.click("#banner-county-submit");
-    await waitFor(() => d.$("#banner-counties"), "county results");
-    assert.match(d.text("#banner-counties"), /Adams \(08001\)/);
-
-    d.type(d.$("#banner-county-query"), "08005");
-    d.click("#banner-county-submit");
+    // The 8-column index lists all 64 counties and highlights matches.
     await waitFor(
-      () => /Arapahoe \(08005\)/.test(d.text("#banner-counties")),
-      "FIPS search",
+      () => d.$$("#banner-counties > li").length === 64,
+      "64 counties",
     );
+    const matches = () =>
+      d
+        .$$("#banner-counties > li.is-match")
+        .map((li) => li.getAttribute("data-fips"));
+    assert.deepEqual(matches(), []);
+    d.type(d.$("#banner-county-query"), "Adams");
+    assert.deepEqual(matches(), ["08001"]);
+    d.type(d.$("#banner-county-query"), "08005");
+    assert.deepEqual(matches(), ["08005"]);
+    d.type(d.$("#banner-county-query"), "zzz");
+    assert.deepEqual(matches(), []);
+    assert.match(d.text("#banner-county-query-help"), /No county matches/);
+    d.type(d.$("#banner-county-query"), "");
 
     await openCounty(d, "08001", "Adams");
     assert.ok(d.$("#banner-county-empty"));
