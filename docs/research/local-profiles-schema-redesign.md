@@ -2,8 +2,7 @@
 
 Design proposal, November 17, 2026. Baseline: Profiles SQLite schema v5,
 migrations 001–005. The owner distinguishes People Research, County Research
-and Profiles prepared for the Website. Every research table name starts with
-`research_`. Use the [human operation decision](../decisions.md#human-operation-of-profiles-november-17-2026)
+and Profiles prepared for the Website. Use the [human operation decision](../decisions.md#human-operation-of-profiles-november-17-2026)
 as the editing and sync requirement.
 
 ## What an operator sees
@@ -21,44 +20,32 @@ and evidence registry so one observation can support both kinds of research.
 Within this database, County Research means county government structure,
 positions and coverage. The county lookup supplies names and FIPS codes.
 
-## Research table order in DB Browser
+## Table order in DB Browser
 
-Use a two-digit number immediately after `research_`. An alphabetical
-table picker then keeps the entire Research block together and shows the
-observations before the conclusions.
+The alphabetical picker groups County Research under `county_research_*`
+and People Research under `profile_research_*`. Shared sources, evidence,
+intake and history use `research_*`. Confirmed profile records are in the
+physical `profile` table. Website sync records use `website_*`.
 
-| Prefix | What you see in that part of the list |
-| --- | --- |
-| `research_01_` | Shared sources, evidence, visits, intake batches and runs |
-| `research_02_people_` | People identities under review, names, role observations and possible matches |
-| `research_03_county_` | County units, names and sources for the structure |
-| `research_04_` | People conclusions and county conclusions, documented positions and coverage |
-| `research_05_` | Research change history |
-
-Add `research_04_people_conclusions` and `research_04_county_conclusions`
-as views of evidence-supported identities and county structure. Keep their
-source records and any unresolved observations in the earlier groups.
-Reviewed research conclusions can support a Profiles revision. Confirmation
-and selection for Website sync are explicit steps in the Profiles workflow.
-
-`profiles` is the physical table for confirmed profile records. It is
-separate from the numbered Research block. An alphabetical picker places
-`profiles` above `research_`. In the human editing workflow, show People and
-County Research, then Profiles, then Website Sync.
+`profile_research_conclusions` and `county_research_conclusions` are views
+of evidence-supported identities and county structure.
+`profile_research_observations_selected` is the existing observation view
+under its new name. It filters observations by the selected intake batches.
+Review findings before preparing a confirmed profile or a Website revision.
 
 ## Profiles tables to add
 
 | Table | Contents and key relationships |
 | --- | --- |
-| `profiles` | One confirmed local person per stable Profile ID. Human-facing fields start with Full name. Creation and update times track the editable profile record. |
-| `profile_roles` | One confirmed role per Profile Role ID, linked to Profile ID and county. Show Office, Position, Job description, optional published organization/position, and documented dates. A person can have several roles and counties. |
-| `profile_citations` | Public URL, title, publisher classification, page type and verification date for the citation chosen for a role. Keep the link to the private source. Select the citation used by the current Website contract explicitly. |
-| `profile_organizations` | Approved public organization name, type, parent relationship and county scope needed by confirmed roles. |
-| `profile_organization_counties` | Approved county affiliations when an organization serves multiple counties. |
-| `profile_positions` | Approved title linked to its public organization, where evidence supports a structured position. |
-| `profile_research_people` | Link Profile ID to the evidence-supported local research identities used to confirm it. |
-| `profile_role_evidence` | Link a role to the supporting claims and evidence IDs; preserve multiple supporting observations. Private lineage stays local. |
-| `profile_changes` | Proposed edits, review history and exact approved public revisions. Retain the review actor, time, prior revision and the accepted change fingerprint. Use reviewed revisions as the input to the sync planner. |
+| `profile` | One confirmed local person per stable Profile ID. Human-facing fields start with Full name. |
+| `profile_county` | Approved county relationships used by confirmed Profiles. The row identity and location of organization-to-county affiliations need a schema decision. |
+| `profile_county_unit` | Approved county organization or unit details used by confirmed roles. |
+| `profile_evidence` | Private evidence supporting a confirmed profile. The schema must represent the link to its research identity and supporting evidence. |
+| `profile_evidence_citation` | Public URL, title, publisher classification, page type and verification date for a role citation, with a link to the private source. |
+| `profile_evidence_role` | Links a confirmed role to supporting observations and evidence. Multiple supporting observations can be retained. |
+| `profile_position` | Approved title linked to a county unit where evidence supports a structured position. |
+| `profile_revisions` | Proposed edits, review history and the exact approved public revision, with review actor, time and fingerprint. |
+| `profile_role` | One confirmed role linked to a Profile ID and county. Keep office, position title, job description and documented dates distinct. |
 
 Show county and sync state in a `profiles_overview` browse view, derived from
 roles and Website receipts. Keep Full name and role information prominent.
@@ -70,40 +57,88 @@ An uncertain submission has its own pending state.
 
 ## Existing v5 tables and view
 
-These are proposed destinations for all current schema objects. Keep existing
-IDs, rows and relationships during the migration.
+Preserve existing IDs, rows and relationships. The owner confirmed zero rows
+in `site_links`, `sync_batches` and `sync_items` on the working v5 file
+on November 17, 2026. Before retiring them, check their counts on the database
+being migrated and update the backup and restore schema checks. A nonempty
+legacy table requires a preservation plan before retirement.
 
-| Current | Proposed | Area |
+| Current | Target | Area |
 | --- | --- | --- |
-| `research_people` | `research_02_people_identities` | People Research identities |
-| `role_claims` | `research_02_people_role_claims` | People Research observations |
-| `name_variants` | `research_02_people_names` | People Research names |
-| `possible_matches` | `research_02_people_possible_matches` | People Research identity review |
-| `selected_role_claims` (view) | `research_02_people_selected_role_claims` (view) | People Research intake selection |
-| `org_units` | `research_03_county_units` | County Research structure |
-| `org_names` | `research_03_county_unit_names` | County Research organization names |
-| `role_targets` | `research_04_county_documented_positions` | County Research documented positions |
-| `unit_coverage` | `research_04_county_coverage` | County Research coverage |
-| `source_unit_links` | `research_03_county_unit_sources` | County Research links to shared sources |
-| `sources` | `research_01_sources` | Shared Research source registry |
-| `evidence_links` | `research_01_evidence` | Shared Research source observations |
-| `source_visits` | `research_01_source_visits` | Shared Research source visits |
-| `scrape_batches` | `research_01_batches` | Shared Research intake and selected batch families |
-| `research_runs` | `research_01_runs` | Shared Research run history |
-| `research_events` | `research_05_history` | Shared Research audit history |
-| `counties` | `counties` | Shared county lookup |
-| `site_links` | `website_legacy_profile_links` | Website Sync retained legacy person mapping |
-| `site_entity_links` | `website_entity_links` | Website Sync entity ID mapping |
-| `site_entity_lineage` | `website_entity_lineage` | Website Sync retained source lineage |
+| `research_people` | `profile_research` | People Research identities |
+| `role_claims` | `profile_research_observations` | People Research observations |
+| `name_variants` | `profile_research_name` | People Research names |
+| `possible_matches` | `profile_research_duplicates` | People Research identity review |
+| `selected_role_claims` (view) | `profile_research_observations_selected` (view) | People Research intake selection |
+| `org_units` | `county_research_unit_structure` | County Research structure |
+| `org_names` | `county_research_unit_names` | County Research organization names |
+| `role_targets` | `county_research_positions` | County Research documented positions |
+| `unit_coverage` | `county_research_coverage` | County Research coverage |
+| `source_unit_links` | `county_research_unit_sources` | County Research links to shared sources |
+| `sources` | `research_sources` | Shared Research source registry |
+| `evidence_links` | `research_evidence` | Shared Research source observations |
+| `source_visits` | `research_source_visits` | Shared Research source visits |
+| `scrape_batches` | `research_scrapes` | Shared Research intake and selected batch families |
+| `research_runs` | `research_runs` | Shared Research run history |
+| `research_events` | `research_history` | Shared Research audit history |
+| `counties` | `county` | Shared county lookup |
+| `site_links` | Retire if empty | Legacy Website sync |
+| `site_entity_links` | `website_ids` | Website Sync entity ID mapping |
+| `site_entity_lineage` | `website_id_evidence` | Website Sync retained source lineage |
 | `site_sync_update_approvals` | `website_update_approvals` | Website Sync version-pinned approvals |
-| `sync_batches` | `website_legacy_batches` | Website Sync retained legacy batches |
-| `sync_items` | `website_legacy_batch_items` | Website Sync retained legacy batch items |
-| `sync_submissions` | `website_submissions` | Website Sync durable requests |
-| `sync_submission_items` | `website_submission_items` | Website Sync item-to-record links |
-| `sync_submission_receipts` | `website_submission_receipts` | Website Sync commit receipts |
-| `sync_item_receipts` | `website_item_receipts` | Website Sync item receipts |
+| `sync_batches` | Retire if empty | Legacy Website sync |
+| `sync_items` | Retire if empty | Legacy Website sync |
+| `sync_submissions` | `website_requests` | Website Sync durable requests |
+| `sync_submission_items` | `website_request_changes` | Website Sync item-to-record links |
+| `sync_submission_receipts` | `website_request_receipts` | Website Sync commit receipts |
+| `sync_item_receipts` | `website_change_receipts` | Website Sync item receipts |
 | `sync_reversal_receipts` | `website_reversal_receipts` | Website Sync reversal receipts |
 | `schema_migrations` | `schema_migrations` | SQLite migration ledger |
+
+## Full table and view list
+
+The target has 34 tables and 4 views, listed in alphabetical picker order.
+
+```text
+county
+county_research_conclusions (view)
+county_research_coverage
+county_research_positions
+county_research_unit_names
+county_research_unit_sources
+county_research_unit_structure
+profile
+profile_county
+profile_county_unit
+profile_evidence
+profile_evidence_citation
+profile_evidence_role
+profile_position
+profile_research
+profile_research_conclusions (view)
+profile_research_duplicates
+profile_research_name
+profile_research_observations
+profile_research_observations_selected (view)
+profile_revisions
+profile_role
+profiles_overview (view)
+research_evidence
+research_history
+research_runs
+research_scrapes
+research_source_visits
+research_sources
+schema_migrations
+website_change_receipts
+website_id_evidence
+website_ids
+website_request_changes
+website_request_receipts
+website_requests
+website_reversal_receipts
+website_update_approvals
+```
 
 ## Research into Profiles and Website Sync
 
