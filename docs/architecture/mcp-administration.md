@@ -14,6 +14,8 @@ does not accept an actor identity from request parameters or trust injected
 identity headers. Website Owner and Administrator roles receive the capability;
 Agent Owner credentials are explicitly refused.
 
+**Inspection-only grant (MCP-2).** Migration `0025_agent_inspect_grant.sql` lets the existing owner-only, audited agent capability grant carry `d1.inspect`. A contributor agent holds no role capability, so with only that grant its credential passes the MCP inspection gate and nothing else: it holds no account, identity, audit, checkpoint, banner, content, report or sync capability, and the grant is checked in the same account service the dashboard and Website API use. Grants are retained after revocation. Revoking the grant, the credential or the account removes access. Issue the credential from the account dashboard or `PUT /api/admin/accounts/{id}/capabilities` and `POST .../credentials` as the Website Owner.
+
 The fixed tools report inspection status, county reference counts, migration
 history, and county provenance summaries for Lake (`08065`) or La Plata
 (`08067`). They expose aggregate counts only. They do not accept SQL, table

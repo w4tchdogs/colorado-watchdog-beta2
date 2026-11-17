@@ -380,6 +380,6 @@ test("the capability admin route refuses anonymous and non-owner callers", async
       new Request(`${ORIGIN}/admin/accounts.js`),
       world.env,
     );
-    assert.match(await script.text(), /Sync capabilities/);
+    assert.match(await script.text(), /Agent capabilities/);
   });
 });
