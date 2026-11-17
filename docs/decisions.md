@@ -268,3 +268,19 @@ operator procedure is in [the Profiles foundation guide](research/R0-foundation.
   submission state distinguishable from local confirmation.
 - Proposed tables and the complete v5 mapping are in the
   [local Profiles database redesign](research/local-profiles-schema-redesign.md).
+
+## Local Profiles table names, November 17, 2026
+
+- The current naming plan uses `county`, `profile`, `county_research_*`,
+  `profile_research_*` and `research_*` for shared research. It replaces
+  the earlier single numbered research block.
+- Use `county_research_coverage` and keep
+  `profile_research_observations_selected` as the view over observations
+  from selected import batches.
+- The owner chose `website_change_receipts`, `website_id_evidence`,
+  `website_ids`, `website_request_changes`, `website_request_receipts`,
+  `website_requests`, `website_reversal_receipts` and
+  `website_update_approvals` for Website sync. The
+  [full inventory](research/local-profiles-schema-redesign.md#full-table-and-view-list)
+  records the working naming plan and the migration conditions for the three
+  empty legacy tables.
