@@ -13,7 +13,7 @@ def source_found_on(first_discovered, reported_check_date):
             return date.fromisoformat(value).isoformat()
         except ValueError:
             try:
-                return datetime.fromisoformat(value).date().isoformat()
+                return datetime.fromisoformat(value.replace("Z", "+00:00")).date().isoformat()
             except ValueError:
                 continue
     return None
