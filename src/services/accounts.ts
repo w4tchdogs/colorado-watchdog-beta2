@@ -5,8 +5,8 @@ import {
   type AccountKind,
   type AccountRole,
   createAgentCredential,
-  isGrantableAgentCapability,
   isCurrentPrincipal,
+  isGrantableAgentCapability,
   newId,
   requireCapability,
   type TrustedPrincipal,
@@ -23,7 +23,8 @@ export interface AccountSummary {
   readonly id: string;
   readonly kind: AccountKind;
   readonly role: AccountRole;
-  readonly status: "active" | "disabled" | "archived";
+  readonly status: "active" | "disabled";
+  readonly archivedAt: string | null;
   readonly displayName: string;
   readonly version: number;
 }
@@ -32,7 +33,8 @@ export interface AccountFilter {
   readonly query?: string;
   readonly kind?: AccountKind;
   readonly role?: AccountRole;
-  readonly status?: "active" | "disabled" | "archived";
+  readonly status?: "active" | "disabled";
+  readonly includeArchived?: boolean;
   readonly limit?: number;
   readonly afterId?: string;
 }
@@ -69,7 +71,7 @@ export function getAccount(
   requireCapability(database, principal, "account.read");
   const row = database
     .prepare(
-      `SELECT id, kind, role, status, display_name, version
+      `SELECT id, kind, role, status, display_name, version, archived_at
        FROM accounts WHERE id = ?`,
     )
     .get(id);
@@ -80,9 +82,7 @@ export function getAccount(
     typeof row.id !== "string" ||
     (row.kind !== "human" && row.kind !== "agent") ||
     !isRole(row.role) ||
-    (row.status !== "active" &&
-      row.status !== "disabled" &&
-      row.status !== "archived") ||
+    (row.status !== "active" && row.status !== "disabled") ||
     typeof row.display_name !== "string" ||
     typeof row.version !== "number"
   ) {
@@ -93,6 +93,7 @@ export function getAccount(
     kind: row.kind,
     role: row.role,
     status: row.status,
+    archivedAt: row.archived_at === null ? null : String(row.archived_at),
     displayName: row.display_name,
     version: row.version,
   };
@@ -106,7 +107,7 @@ export function getAccountDetails(
   requireCapability(database, principal, "account.read");
   const row = database
     .prepare(
-      `SELECT id, kind, role, status, display_name, email, preferences, version FROM accounts WHERE id = ?`,
+      `SELECT id, kind, role, status, display_name, email, preferences, version, archived_at FROM accounts WHERE id = ?`,
     )
     .get(id);
   if (!row) return null;
@@ -165,15 +166,14 @@ export function listAccounts(
     (filter.role !== undefined && !isRole(filter.role)) ||
     (filter.status !== undefined &&
       filter.status !== "active" &&
-      filter.status !== "disabled" &&
-      filter.status !== "archived") ||
+      filter.status !== "disabled") ||
     (filter.afterId !== undefined &&
       (filter.afterId.length < 1 || filter.afterId.length > 128))
   )
     throw new InvalidInputError();
   const conditions: string[] = [];
   const args: (string | number)[] = [];
-  if (filter.status !== "archived") conditions.push("status <> 'archived'");
+  if (!filter.includeArchived) conditions.push("archived_at IS NULL");
   if (filter.query) {
     conditions.push(
       "(display_name LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')",
@@ -200,7 +200,7 @@ export function listAccounts(
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const rows = database
     .prepare(
-      `SELECT id, kind, role, status, display_name, version FROM accounts ${where} ORDER BY id LIMIT ?`,
+      `SELECT id, kind, role, status, display_name, version, archived_at FROM accounts ${where} ORDER BY id LIMIT ?`,
     )
     .all(...args, limit + 1);
   const hasMore = rows.length > limit;
@@ -213,7 +213,7 @@ export function listAccounts(
 function getAccountRow(database: WebsiteDatabase, id: string): AccountSummary {
   const row = database
     .prepare(
-      "SELECT id, kind, role, status, display_name, version FROM accounts WHERE id = ?",
+      "SELECT id, kind, role, status, display_name, version, archived_at FROM accounts WHERE id = ?",
     )
     .get(id);
   if (!row) throw new InvalidInputError();
@@ -225,9 +225,7 @@ function parseAccountSummary(row: Record<string, unknown>): AccountSummary {
     typeof row.id !== "string" ||
     (row.kind !== "human" && row.kind !== "agent") ||
     !isRole(row.role) ||
-    (row.status !== "active" &&
-      row.status !== "disabled" &&
-      row.status !== "archived") ||
+    (row.status !== "active" && row.status !== "disabled") ||
     typeof row.display_name !== "string" ||
     typeof row.version !== "number"
   )
@@ -237,6 +235,7 @@ function parseAccountSummary(row: Record<string, unknown>): AccountSummary {
     kind: row.kind,
     role: row.role,
     status: row.status,
+    archivedAt: row.archived_at === null ? null : String(row.archived_at),
     displayName: row.display_name,
     version: row.version,
   };
@@ -302,6 +301,7 @@ export function createAccount(
         kind: input.kind,
         role: input.role,
         status: "active",
+        archivedAt: null,
         displayName: input.displayName.trim(),
         version: 1,
       };
@@ -317,7 +317,7 @@ export function updateAccount(
   changes: {
     readonly displayName?: string;
     readonly email?: string | null;
-    readonly status?: "active" | "disabled" | "archived";
+    readonly status?: "active" | "disabled";
     readonly preferences?: Readonly<Record<string, unknown>>;
   },
   operationId?: string,
@@ -340,14 +340,9 @@ export function updateAccount(
     values.email = changes.email?.trim() ?? null;
   }
   if (changes.status !== undefined) {
-    if (
-      changes.status !== "active" &&
-      changes.status !== "disabled" &&
-      changes.status !== "archived"
-    ) {
+    if (changes.status !== "active" && changes.status !== "disabled") {
       throw new InvalidInputError();
     }
-    if (changes.status === "archived") throw new InvalidInputError();
     values.status = changes.status;
   }
   if (changes.preferences !== undefined) {
@@ -409,9 +404,9 @@ export function archiveAccount(
 ): number {
   requireCapability(database, principal, "account.change_role");
   const account = database
-    .prepare("SELECT kind,status FROM accounts WHERE id=?")
+    .prepare("SELECT kind,status,archived_at FROM accounts WHERE id=?")
     .get(id);
-  if (!account || account.kind !== "agent" || account.status === "archived")
+  if (account?.kind !== "agent" || account.archived_at !== null)
     throw new InvalidInputError();
   return runAuditedMutation(
     database,
@@ -434,7 +429,8 @@ export function archiveAccount(
         )
         .run(principal.accountId, id);
       return updateVersionedRow(database, "accounts", id, expectedVersion, {
-        status: "archived",
+        archived_at: new Date().toISOString(),
+        status: "disabled",
       });
     },
   );

@@ -19,8 +19,8 @@ import { StorageUnavailableError } from "../contracts/storage.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
 import {
   type AccountFilter,
+  archiveAccount,
   changeAccountRole,
-  archiveAccount as archiveLocalAccount,
   createAccount,
   createHumanIdentity,
   getAccount,
@@ -28,10 +28,10 @@ import {
   getOwnAccount,
   issueAgentCredential,
   listAccounts,
+  listAgentCapabilities,
   type NewAccount,
   revokeIdentity,
   setAgentCapability,
-  listAgentCapabilities,
   updateAccount,
 } from "./accounts.js";
 import { listAuditEvents } from "./audit.js";
@@ -294,7 +294,7 @@ export function createServices(
       );
     },
     archiveAccount(principal, id, expectedVersion, operationId) {
-      return archiveLocalAccount(
+      return archiveAccount(
         requireDatabase(),
         principal,
         id,

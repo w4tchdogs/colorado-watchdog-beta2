@@ -613,9 +613,10 @@ test("owner archives an unused agent without losing audit, grant or sync batch h
         },
       ),
     );
-    assert.equal(response.status, 200);
+    assert.equal(response.status, 200, await response.text());
     const archived = await fixture.services.getAccountDetails(owner, agent.id);
-    assert.equal(archived.status, "archived");
+    assert.equal(archived.status, "disabled");
+    assert.equal(typeof archived.archivedAt, "string");
     assert.equal(archived.version, account.version + 1);
     assert.deepEqual(
       fixture.services.listAgentCapabilities(owner, agent.id),
@@ -646,7 +647,7 @@ test("owner archives an unused agent without losing audit, grant or sync batch h
     assert.equal(
       fixture.services.listAccounts(owner, {
         query: "Synthetic archive rehearsal",
-        status: "archived",
+        includeArchived: true,
       }).accounts.length,
       1,
     );
@@ -659,7 +660,7 @@ test("owner archives an unused agent without losing audit, grant or sync batch h
     assert.deepEqual((await defaultList.json()).accounts, []);
     const archivedList = await app.fetch(
       new Request(
-        "https://watchdog.test/api/admin/accounts?query=Synthetic%20archive%20rehearsal&status=archived",
+        "https://watchdog.test/api/admin/accounts?query=Synthetic%20archive%20rehearsal&includeArchived=true",
         { headers: { "x-test-human-subject": "owner-login" } },
       ),
     );

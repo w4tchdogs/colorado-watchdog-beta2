@@ -657,6 +657,7 @@ async function main() {
     "0024_agent_capability_grants.sql",
     "0025_agent_inspect_grant.sql",
     "0026_agent_banner_publish_grant.sql",
+    "0027_archived_accounts.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(
