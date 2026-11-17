@@ -100,7 +100,7 @@ Several goals depend on the same hosted groundwork. These come first.
 
 | ID | Work | Unblocks | Status |
 | --- | --- | --- | --- |
-| DEPLOY-1 | Maintain existing Sites Alpha-1 during the Cloudflare transition | Every hosted goal | Sites v14 deployed. Cloudflare staging public reads and D1 verified. See [CURRENT](CURRENT.md#d-deployment-state-separate-from-source) for both environments |
+| DEPLOY-1 | Maintain existing Sites Alpha-1 during the Cloudflare transition | Every hosted goal | Sites v15 deployed. Cloudflare staging public reads and D1 verified. See [CURRENT](CURRENT.md#d-deployment-state-separate-from-source) for both environments |
 | D1-0015 | Apply and verify the Lake and La Plata correction during Alpha-1 initialization | Goal 2 | Hosted registry verified in v5 |
 | AUTH-3 | Verified hosted human identity for sign-in | Goals 3, 4 (staff), 5 | Pilot hosted checks recorded on #125. Cloudflare staging owner sign-in hosted-verified in #174 |
 | MCP-2 | Publish read-only MCP and verify authenticated inspection | Goal 1, hosted D1 administration | Endpoint published; authenticated verification open |
