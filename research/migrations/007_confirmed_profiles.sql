@@ -61,7 +61,8 @@ CREATE TABLE "profile_evidence_citation" (
     "Publisher type" TEXT NOT NULL CHECK("Publisher type" IN ('official', 'unofficial', 'unresolved')),
     "Page type" TEXT NOT NULL CHECK(length(trim("Page type")) > 0),
     "Verified on" TEXT NOT NULL CHECK(length(trim("Verified on")) > 0),
-    UNIQUE("Profile evidence ID", "Public URL")
+    UNIQUE("Profile evidence ID", "Public URL"),
+    UNIQUE("Citation ID", "Profile evidence ID")
 ) STRICT;
 
 CREATE TABLE "profile_position" (
@@ -111,11 +112,12 @@ CREATE TABLE "profile_evidence_role" (
     "Profile evidence ID" TEXT NOT NULL,
     "Profile ID" TEXT NOT NULL,
     "County code" TEXT NOT NULL,
-    "Citation ID" TEXT REFERENCES "profile_evidence_citation"("Citation ID"),
+    "Citation ID" TEXT,
     PRIMARY KEY("Role ID", "Role claim ID"),
     FOREIGN KEY("Role ID", "Profile ID", "County code") REFERENCES "profile_role"("Role ID", "Profile ID", "County code"),
     FOREIGN KEY("Role claim ID", "County code") REFERENCES "profile_research_role"("Role claim ID", "County code"),
-    FOREIGN KEY("Profile evidence ID", "Profile ID", "County code") REFERENCES "profile_evidence"("Profile evidence ID", "Profile ID", "County code")
+    FOREIGN KEY("Profile evidence ID", "Profile ID", "County code") REFERENCES "profile_evidence"("Profile evidence ID", "Profile ID", "County code"),
+    FOREIGN KEY("Citation ID", "Profile evidence ID") REFERENCES "profile_evidence_citation"("Citation ID", "Profile evidence ID")
 ) STRICT;
 
 CREATE TABLE "profile_revisions" (
@@ -153,6 +155,31 @@ WHEN NOT EXISTS (SELECT 1 FROM "profile_research"
                    AND "Identity review status" = 'evidence_supported')
 BEGIN SELECT RAISE(ABORT, 'Research identity must be evidence_supported'); END;
 
+CREATE TRIGGER profile_evidence_requires_supported_identity_update
+BEFORE UPDATE OF "Research profile ID", "County code" ON "profile_evidence"
+WHEN NOT EXISTS (SELECT 1 FROM "profile_research"
+                 WHERE "Profile ID" = NEW."Research profile ID" AND "County code" = NEW."County code"
+                   AND "Identity review status" = 'evidence_supported')
+BEGIN SELECT RAISE(ABORT, 'Research identity must be evidence_supported'); END;
+
+CREATE TRIGGER profile_evidence_preserves_observation_identity
+BEFORE UPDATE OF "Research profile ID" ON "profile_evidence"
+WHEN NEW."Research profile ID" IS NOT OLD."Research profile ID" AND EXISTS (
+    SELECT 1 FROM "profile_evidence_role" link
+    JOIN "profile_research_role" observation ON observation."Role claim ID" = link."Role claim ID"
+    WHERE link."Profile evidence ID" = OLD."Profile evidence ID"
+      AND observation."Linked profile" IS NOT NEW."Research profile ID")
+BEGIN SELECT RAISE(ABORT, 'Observation must be linked to the research identity of the evidence'); END;
+
+CREATE TRIGGER profile_evidence_preserves_citation_source
+BEFORE UPDATE OF "Evidence record ID" ON "profile_evidence"
+WHEN NEW."Evidence record ID" IS NOT OLD."Evidence record ID" AND EXISTS (
+    SELECT 1 FROM "profile_evidence_citation" citation
+    WHERE citation."Profile evidence ID" = OLD."Profile evidence ID" AND NOT EXISTS (
+        SELECT 1 FROM "research_evidence" evidence
+        WHERE evidence."Evidence record ID" = NEW."Evidence record ID" AND evidence."Source ID" = citation."Source ID"))
+BEGIN SELECT RAISE(ABORT, 'Citation source must match its evidence source'); END;
+
 -- A role's observation must belong to the research identity behind the evidence.
 CREATE TRIGGER profile_evidence_role_matches_identity BEFORE INSERT ON "profile_evidence_role"
 WHEN NOT EXISTS (
@@ -160,12 +187,12 @@ WHEN NOT EXISTS (
     WHERE e."Profile evidence ID" = NEW."Profile evidence ID" AND c."Linked profile" = e."Research profile ID")
 BEGIN SELECT RAISE(ABORT, 'Observation must be linked to the research identity of the evidence'); END;
 
--- A role's citation must support the same profile evidence.
-CREATE TRIGGER profile_evidence_role_citation_matches BEFORE INSERT ON "profile_evidence_role"
-WHEN NEW."Citation ID" IS NOT NULL AND NOT EXISTS (
-    SELECT 1 FROM "profile_evidence_citation" WHERE "Citation ID" = NEW."Citation ID"
-      AND "Profile evidence ID" = NEW."Profile evidence ID")
-BEGIN SELECT RAISE(ABORT, 'Citation must belong to the same profile evidence'); END;
+CREATE TRIGGER profile_evidence_role_matches_identity_update
+BEFORE UPDATE OF "Profile evidence ID", "Role claim ID" ON "profile_evidence_role"
+WHEN NOT EXISTS (
+    SELECT 1 FROM "profile_evidence" e JOIN "profile_research_role" c ON c."Role claim ID" = NEW."Role claim ID"
+    WHERE e."Profile evidence ID" = NEW."Profile evidence ID" AND c."Linked profile" = e."Research profile ID")
+BEGIN SELECT RAISE(ABORT, 'Observation must be linked to the research identity of the evidence'); END;
 
 -- A citation's private source must be the source of its supporting evidence.
 CREATE TRIGGER profile_citation_source_insert BEFORE INSERT ON "profile_evidence_citation"
@@ -195,21 +222,39 @@ WHEN NEW."Research unit ID" IS NOT NULL AND NEW."Parent county unit" IS NOT NULL
     WHERE s."Office or unit ID" = NEW."Research unit ID" AND s."Parent office or unit" = p."Research unit ID")
 BEGIN SELECT RAISE(ABORT, 'Parent must match the researched unit parent'); END;
 
--- The approved public revision is immutable. Only sending state and supersession may change.
+-- The approved public revision stays immutable after supersession.
 CREATE TRIGGER profile_revision_approved_immutable BEFORE UPDATE ON "profile_revisions"
-WHEN OLD."Revision status" = 'approved' AND (
-    NEW."Profile ID" IS NOT OLD."Profile ID" OR NEW."Revision number" IS NOT OLD."Revision number"
+WHEN OLD."Revision status" IN ('approved', 'superseded') AND (
+    NEW."Revision ID" IS NOT OLD."Revision ID" OR NEW."Profile ID" IS NOT OLD."Profile ID"
+    OR NEW."Revision number" IS NOT OLD."Revision number"
     OR NEW."Public revision" IS NOT OLD."Public revision" OR NEW."Revision fingerprint" IS NOT OLD."Revision fingerprint"
     OR NEW."Earlier revision" IS NOT OLD."Earlier revision" OR NEW."Proposed by" IS NOT OLD."Proposed by"
     OR NEW."Proposed on" IS NOT OLD."Proposed on" OR NEW."Reviewed by" IS NOT OLD."Reviewed by"
-    OR NEW."Reviewed on" IS NOT OLD."Reviewed on"
-    OR (NEW."Revision status" NOT IN ('approved', 'superseded'))
-    OR (OLD."Website request ID" IS NOT NULL AND NEW."Website request ID" IS NOT OLD."Website request ID"))
+    OR NEW."Reviewed on" IS NOT OLD."Reviewed on" OR NEW."Review reason" IS NOT OLD."Review reason"
+    OR (NEW."Revision status" IS NOT OLD."Revision status" AND NEW."Revision status" <> 'superseded')
+    OR (NEW."Website request ID" IS NOT OLD."Website request ID"
+        AND (OLD."Website request ID" IS NOT NULL OR NEW."Revision status" <> 'approved')))
 BEGIN SELECT RAISE(ABORT, 'Approved revision is immutable'); END;
 
 CREATE TRIGGER profile_revision_approved_no_delete BEFORE DELETE ON "profile_revisions"
-WHEN OLD."Revision status" = 'approved'
+WHEN OLD."Revision status" IN ('approved', 'superseded')
 BEGIN SELECT RAISE(ABORT, 'Approved revision cannot be deleted'); END;
+
+-- SQLite REPLACE can delete a conflicting row without running its delete trigger.
+CREATE TRIGGER profile_revision_approved_no_replace BEFORE INSERT ON "profile_revisions"
+WHEN EXISTS (SELECT 1 FROM "profile_revisions" r
+             WHERE r."Revision status" IN ('approved', 'superseded')
+               AND (r."Revision ID" = NEW."Revision ID" OR (r."Profile ID" = NEW."Profile ID"
+                    AND (r."Revision number" = NEW."Revision number" OR r."Revision fingerprint" = NEW."Revision fingerprint"))))
+BEGIN SELECT RAISE(ABORT, 'Approved revision is immutable'); END;
+
+CREATE TRIGGER profile_revision_approved_no_replace_update
+BEFORE UPDATE OF "Revision ID", "Profile ID", "Revision number", "Revision fingerprint" ON "profile_revisions"
+WHEN EXISTS (SELECT 1 FROM "profile_revisions" r
+             WHERE r."Revision ID" <> OLD."Revision ID" AND r."Revision status" IN ('approved', 'superseded')
+               AND (r."Revision ID" = NEW."Revision ID" OR (r."Profile ID" = NEW."Profile ID"
+                    AND (r."Revision number" = NEW."Revision number" OR r."Revision fingerprint" = NEW."Revision fingerprint"))))
+BEGIN SELECT RAISE(ABORT, 'Approved revision is immutable'); END;
 
 -- Observations in a selected intake batch, or without a batch, count as current findings.
 CREATE VIEW profile_research_conclusions AS
@@ -303,15 +348,21 @@ SELECT p."Profile ID",
        la."Website request ID",
        CASE
          WHEN lr."Revision status" = 'proposed' THEN 'Changes to review'
-         WHEN la."Revision ID" IS NULL THEN 'Confirmed'
+         WHEN la."Revision ID" IS NULL OR lr."Revision ID" IS NOT la."Revision ID" THEN 'Confirmed'
          WHEN la."Website request ID" IS NULL THEN 'Ready to sync'
          WHEN wr.state = 'pending' THEN 'Pending submission'
          WHEN wr.state = 'acknowledged'
               AND EXISTS (SELECT 1 FROM "website_request_receipts" rc
                           WHERE rc.submission_id = wr.id AND rc.state = 'committed'
                             AND rc.website_batch_id = wr.remote_batch_id)
-              AND NOT EXISTS (SELECT 1 FROM "website_change_receipts" ic
-                              WHERE ic.submission_id = wr.id AND ic.status <> 'committed')
+              AND EXISTS (SELECT 1 FROM "website_request_changes" planned WHERE planned.submission_id = wr.id)
+              AND NOT EXISTS (
+                  SELECT 1 FROM "website_request_changes" planned
+                  WHERE planned.submission_id = wr.id AND NOT EXISTS (
+                      SELECT 1 FROM "website_change_receipts" ic
+                      WHERE ic.submission_id = planned.submission_id AND ic.item_index = planned.item_index
+                        AND ic.client_ref = planned.client_ref AND ic.website_entity = planned.website_entity
+                        AND ic.status = 'committed'))
               AND NOT EXISTS (SELECT 1 FROM "website_reversal_receipts" rv
                               WHERE rv.site_key = wr.site_key AND rv.website_batch_id = wr.remote_batch_id
                                 AND rv.state IN ('reverted', 'already_reverted'))

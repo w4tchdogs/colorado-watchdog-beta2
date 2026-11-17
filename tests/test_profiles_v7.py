@@ -69,12 +69,12 @@ def seed_research(db):
         INSERT INTO website_request_receipts VALUES ('req-ok','committed','wb-ok','{{}}','{NOW}'),
             ('req-rev','committed','wb-rev','{{}}','{NOW}'),('req-bad','committed','wb-bad','{{}}','{NOW}');
         INSERT INTO website_request_changes(submission_id,item_index,client_ref,website_entity,request_item_json)
-            VALUES ('req-ok',0,'a','people','{{}}'),('req-bad',0,'a','people','{{}}');
+            VALUES ('req-ok',0,'a','people','{{}}'),('req-rev',0,'a','people','{{}}'),('req-bad',0,'a','people','{{}}');
         INSERT INTO website_reversal_receipts VALUES ('rv-1','site','wb-rev','{FP("rv")}','reverted','{{}}','{NOW}');
     """)
-    # req-ok has a committed item receipt and req-bad a rejected one.
-    db.execute("INSERT INTO website_change_receipts(submission_id,item_index,client_ref,website_entity,website_id,website_version,"
-               "outcome,status,result_json) VALUES ('req-ok',0,'a','people','w1',1,'created','committed','{}')")
+    db.executemany("INSERT INTO website_change_receipts(submission_id,item_index,client_ref,website_entity,website_id,website_version,"
+                   "outcome,status,result_json) VALUES (?,0,'a','people','w1',1,'created','committed','{}')",
+                   [("req-ok",), ("req-rev",)])
     db.execute("INSERT INTO website_change_receipts(submission_id,item_index,client_ref,website_entity,status,result_json) "
                "VALUES ('req-bad',0,'a','people','rejected','{}')")
     db.commit()
@@ -198,6 +198,8 @@ class ProfilesCase(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             promote(self.db, profile="p-3", county="08031")  # research identity belongs to Routt
         self.assertEqual(self.db.execute("SELECT count(*) FROM profile").fetchone()[0], 0)
+        promote(self.db)
+        self.fails('UPDATE profile_evidence SET "Research profile ID" = ?', ("rp-2",), "evidence_supported")
 
     def populate(self):
         promote(self.db)
@@ -249,11 +251,18 @@ class ProfilesCase(unittest.TestCase):
         self.fails('INSERT INTO profile_evidence_citation VALUES (?,?,?,?,?,?,?,?)',
                    ("cit-js", "pe-p-1", "src", "javascript:alert(1)", "T", "official", "page", "2026-11-17"), "CHECK")
         # An observation linked to a different research identity cannot support the role.
-        self.db.execute('UPDATE profile_research_role SET "Linked profile"=NULL WHERE "Role claim ID"=\'c-2\'')
+        with self.db:
+            self.db.execute('UPDATE profile_research_role SET "Linked profile"=NULL WHERE "Role claim ID"=\'c-2\'')
         self.fails('INSERT INTO profile_evidence_role VALUES (?,?,?,?,?,?)', ("r-2", "c-2", "pe-p-1", "p-1", "08107", None), "linked to the research identity")
+        self.fails('UPDATE profile_evidence_role SET "Role claim ID" = ? WHERE "Role claim ID" = ?',
+                   ("c-2", "c-1"), "linked to the research identity")
+        self.fails('UPDATE profile_evidence SET "Evidence record ID" = ?', ("ev-4",), "source must match")
         # Multiple supporting observations stay for one role.
         self.assertEqual(self.db.execute('SELECT count(*) FROM profile_evidence_role WHERE "Role ID"=\'r-1\'').fetchone()[0], 2)
         self.fails('INSERT INTO profile_evidence_role VALUES (?,?,?,?,?,?)', ("r-2", "c-3", "pe-p-1", "p-1", "08107", "cit-9"), "FOREIGN KEY|same profile evidence")
+        self.db.execute('INSERT INTO profile_evidence VALUES (?,?,?,?,?,?,?)',
+                        ("pe-other", "p-1", "08107", "rp-1", "ev-3", None, NOW))
+        self.fails('UPDATE profile_evidence_citation SET "Profile evidence ID" = ?', ("pe-other",), "FOREIGN KEY")
 
     def test_research_conclusion_views(self):
         self.populate()
@@ -301,20 +310,47 @@ class ProfilesCase(unittest.TestCase):
         self.assertEqual(self.overview()[4], "Changes to review")
         self.assertEqual(self.db.execute('SELECT "Approved revision" FROM profiles_overview').fetchone()[0], 5)
 
+    def test_overview_requires_current_revision_and_matching_item_receipts(self):
+        self.populate()
+        self.revision(1, "approved", "req-ok")
+        self.assertEqual(self.overview()[4], "Synced")
+        self.db.execute("UPDATE website_change_receipts SET client_ref='other' WHERE submission_id='req-ok'")
+        self.assertEqual(self.overview()[4], "Ready to sync")
+        self.db.execute("UPDATE website_change_receipts SET client_ref='a' WHERE submission_id='req-ok'")
+        self.db.execute("INSERT INTO website_request_changes(submission_id,item_index,client_ref,website_entity,request_item_json) "
+                        "VALUES ('req-ok',1,'b','people','{}')")
+        self.assertEqual(self.overview()[4], "Ready to sync")
+        self.db.execute("DELETE FROM website_request_changes WHERE submission_id='req-ok' AND item_index=1")
+        self.assertEqual(self.overview()[4], "Synced")
+        self.revision(2, "rejected")
+        self.assertEqual(self.overview()[4], "Confirmed")
+
     def test_approved_revision_is_immutable(self):
         self.populate()
         self.revision(1, "approved")
         for sql in ("UPDATE profile_revisions SET \"Public revision\"='{\"name\":\"y\"}'",
                     f"UPDATE profile_revisions SET \"Revision fingerprint\"='{FP('z')}'",
+                    "UPDATE profile_revisions SET \"Revision ID\"='other'",
+                    "UPDATE profile_revisions SET \"Review reason\"='other'",
                     "UPDATE profile_revisions SET \"Revision status\"='proposed'",
                     "DELETE FROM profile_revisions"):
             self.fails(sql, pattern="immutable|cannot be deleted")
         # The sending link may be recorded once, and supersession is allowed.
-        self.db.execute("UPDATE profile_revisions SET \"Website request ID\"='req-pending'")
+        with self.db:
+            self.db.execute("UPDATE profile_revisions SET \"Website request ID\"='req-pending'")
         self.fails("UPDATE profile_revisions SET \"Website request ID\"='req-ok'", pattern="immutable")
-        self.db.execute("UPDATE profile_revisions SET \"Revision status\"='superseded'")
-        self.fails("INSERT INTO profile_revisions(\"Revision ID\",\"Profile ID\",\"Revision number\",\"Public revision\",\"Revision fingerprint\","
-                   "\"Proposed by\",\"Proposed on\") VALUES ('dup','p-1',1,'{}',?, 'E', ?)", (FP("q"), NOW), "UNIQUE")
+        with self.db:
+            self.db.execute("UPDATE profile_revisions SET \"Revision status\"='superseded'")
+        for sql in ("UPDATE profile_revisions SET \"Public revision\"='{}'",
+                    "UPDATE profile_revisions SET \"Revision status\"='approved'",
+                    "DELETE FROM profile_revisions WHERE \"Revision ID\"='rev-1'"):
+            self.fails(sql, pattern="immutable|cannot be deleted")
+        self.fails("INSERT OR REPLACE INTO profile_revisions(\"Revision ID\",\"Profile ID\",\"Revision number\",\"Public revision\","
+                   "\"Revision fingerprint\",\"Proposed by\",\"Proposed on\") "
+                   "VALUES ('dup','p-1',1,'{}',?, 'E', ?)", (FP("q"), NOW), "immutable")
+        self.revision(2, "proposed")
+        self.fails("UPDATE OR REPLACE profile_revisions SET \"Revision number\"=1 WHERE \"Revision ID\"='rev-2'",
+                   pattern="immutable")
 
 
 if __name__ == "__main__":
