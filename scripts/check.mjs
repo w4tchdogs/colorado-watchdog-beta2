@@ -365,6 +365,7 @@ const allowed = new Set([
   "tests/test_batch_selection_cli.py",
   "tests/test_sync_county_scope.py",
   "tests/test_sync_unstructured_roles.py",
+  "tests/test_sync_hosted_batching.py",
   "docs/research/identity-backlog-triage.md",
   "docs/research/source-page-types.md",
   "docs/research/publisher-classification-and-private-export.md",

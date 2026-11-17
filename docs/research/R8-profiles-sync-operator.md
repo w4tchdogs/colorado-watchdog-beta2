@@ -26,6 +26,54 @@ sources and organizations are emitted once. Without the flag, statewide
 behavior is unchanged. County-scoped preview is an eligibility diagnostic;
 `sync-prepare` remains the existing explicitly reviewed statewide workflow.
 
+## Submitting to the hosted Website: batch size and order
+
+Local planning and previews keep no count cap. The hosted Website is bounded by the
+Cloudflare Worker's per-request limits, which the staging scale rehearsal measured
+([Issue #141](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/141)). One
+atomic commit fit about 260 self-contained operations (a changeset whose
+dependencies are all inside the request) and about 125 role operations that reference
+records already on the Website. A single 816 operation changeset did not fit. These are
+interim operator defaults and will change when planning and commit become set-based.
+
+Add `--hosted` to `sync-preview`, `sync-eligibility` and `sync-prepare` to apply them:
+
+```powershell
+python -m research sync-preview D:\private\profiles.sqlite --site-key colorado_watchdog_alpha1 --county-fips 08001 --hosted
+```
+
+- **260 operations** when the changeset is provably self-contained. Every operation
+  is a known create and none names an existing Website record.
+- **100 operations** when any operation names an existing record (a role that points
+  at a person, source, position or organization already on the Website) or the
+  workload cannot be classified, for example an update. The lower size always wins
+  when the builder is unsure.
+- `--hosted` cannot be combined with `--max-changes`. The preview reports the choice
+  under `batching`, including `more_batches_expected`.
+
+A hosted import is a sequence of changesets, and **each changeset is atomic but the
+import as a whole is not**. It can be partly complete between commits, with some
+organizations, people and roles already on the Website and the rest not. Reversal works
+per changeset, newest first.
+
+Submit sequentially and let each receipt drive the next batch:
+
+1. Preview with `--hosted`, review, then `sync-prepare ... --hosted` with the previewed
+   fingerprint.
+2. Send the prepared request. A timeout or server error leaves the submission
+   `pending` (outcome uncertain). Retry the exact stored request with the same
+   idempotency key until a receipt is stored. The Website replays the one batch and
+   never writes a second.
+3. `sync-reconcile` the stored receipt. This records the Website IDs.
+4. Only then preview again. The next changeset skips everything already mapped and
+   refers to existing records by Website ID, so nothing is planned twice.
+
+`sync-prepare` refuses a new changeset while an earlier submission for the same Site is
+pending or holds a receipt that is not reconciled. Repeating the same idempotency key
+stays allowed. A rejected submission mapped nothing and does not block. Never infer
+success from a timeout. Resolve it to the stored receipt or to the Website's batch state
+for that idempotency key first.
+
 ## Owner profile rule and implementation status
 
 The owner decision recorded in docs/decisions.md (November 16, 2026) is implemented in the identity planner, the R7 builder and the local Website reads. A Profile needs a county, a name, and at least one of an office, a position or a job description. Same-county claims with the same name merge only when an office, a position or a job description aligns, and the plan records which detail aligned. Same-name claims with no aligned detail stay distinct profiles, and the plan counts those groups. Unknown organization type or unresolved hierarchy never excludes a role. The live Adams batch remains unselected.
