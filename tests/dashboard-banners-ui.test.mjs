@@ -64,7 +64,10 @@ async function mountBanners({
         overview: overviewView,
         account: accountView,
         banners: createBannersView({
-          client: createBannerAdminClient(connection),
+          client: createBannerAdminClient({
+            fetch: connection.fetch,
+            headers: sandboxHeaders(connection),
+          }),
           createPreviewUrl: (_bytes, _mediaType) =>
             `blob:preview-${++previewCount}-${_mediaType}-${_bytes.byteLength}`,
           revokePreviewUrl: () => {},
@@ -703,8 +706,10 @@ test("banner access follows the live role matrix and stays private", async () =>
     const as = (account) =>
       createBannerAdminClient({
         fetch: sandboxFetch(d.sandbox),
-        token: d.sandbox.token,
-        account: () => account,
+        headers: sandboxHeaders({
+          token: d.sandbox.token,
+          account: () => account,
+        }),
       });
 
     await assert.rejects(
