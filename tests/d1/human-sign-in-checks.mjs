@@ -9,6 +9,7 @@ import {
   parseSetCookie,
   SESSION_COOKIE,
 } from "../auth-fixtures.mjs";
+import { runDraftChecks } from "./draft-checks.mjs";
 
 /** Synthetic tenant values shared by the seed SQL and the Worker settings. */
 export const SIGN_IN_ISSUER = "https://tenant-wrangler.example.test/";
@@ -397,6 +398,12 @@ export async function runHumanSignInChecks({
     assert.equal(response.status, 403, String(origin));
   }
   assert.equal(await status("/admin/reports", editor.jar), 200);
+  await runDraftChecks({
+    base,
+    send,
+    signIn,
+    editorJar: editor.jar,
+  });
   assert.equal((await send("/auth/logout", { jar: editor.jar })).status, 405);
   const out = await send("/auth/logout", {
     method: "POST",

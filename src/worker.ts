@@ -13,6 +13,7 @@ import { createReportApiModule, type ReportApiOptions } from "./report-api.js";
 import { D1BannerAdministration } from "./services/banner-admin-d1.js";
 import { D1BannerPublicService } from "./services/banner-public.js";
 import { R2BannerObjectStorage } from "./services/banner-storage.js";
+import { createD1ContentService } from "./services/content-d1.js";
 import { createContentPublicationService } from "./services/content-publication.js";
 import { createD1AccountServices } from "./services/d1-accounts.js";
 import { createD1WebsiteInspectionService } from "./services/d1-inspection.js";
@@ -37,8 +38,10 @@ import {
   isBannerAdminPath,
 } from "./transport/banner-admin-api.js";
 import {
+  CONTENT_API_PATHS,
   CONTENT_PUBLICATION_API_PATHS,
   createContentApiTransport,
+  createContentTransportOperations,
 } from "./transport/content-api.js";
 import {
   dashboardUnavailable,
@@ -280,6 +283,9 @@ const routes = {
     const publicationRoute =
       pathname === CONTENT_PUBLICATION_API_PATHS.publish ||
       pathname === CONTENT_PUBLICATION_API_PATHS.withdraw;
+    const draftRoute = (Object.values(CONTENT_API_PATHS) as string[]).includes(
+      pathname,
+    );
     const signIn = readHumanSignIn(environment);
     if (!environment.DB) {
       if (isAuthPath(pathname))
@@ -298,7 +304,8 @@ const routes = {
           },
         );
       if (isDashboardPath(pathname)) return dashboardUnavailable();
-      if (publicationRoute) return createContentApiTransport().fetch(request);
+      if (publicationRoute || draftRoute)
+        return createContentApiTransport().fetch(request);
       if (new URL(request.url).pathname === "/mcp") {
         return new Response(
           JSON.stringify({ error: "inspection_unavailable" }),
@@ -394,16 +401,30 @@ const routes = {
           service: createD1DashboardService(database, accounts),
         });
       }
-      if (publicationRoute) {
+      if (publicationRoute || draftRoute) {
         const authorize = (
           principal: NonNullable<
             Awaited<ReturnType<typeof accounts.resolvePrincipal>>
           >,
         ) => accounts.hasCapability(principal, "content.publish");
+        // Draft editing belongs to the signed-in dashboard, so it is limited to
+        // a current human account that also holds `content.publish`. An agent
+        // credential keeps the publication routes only.
+        const authorizeDrafts = async (
+          principal: Parameters<typeof authorize>[0],
+        ) => principal.kind === "human" && (await authorize(principal));
         return createContentApiTransport({
           resolvePrincipal: accounts.resolvePrincipal,
-          authorize,
-          operations: createContentPublicationService(database, authorize),
+          authorize: (principal, operation) =>
+            operation === "publish" || operation === "withdraw"
+              ? authorize(principal)
+              : authorizeDrafts(principal),
+          operations: {
+            ...createContentTransportOperations(
+              createD1ContentService(database, authorizeDrafts),
+            ),
+            ...createContentPublicationService(database, authorize),
+          },
         }).fetch(request);
       }
       if (isSyncApiPath(pathname)) {

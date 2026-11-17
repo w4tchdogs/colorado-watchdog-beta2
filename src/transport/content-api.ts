@@ -86,6 +86,13 @@ const MAX_CONTENT_RESPONSE_BYTES = 1_048_576;
 
 type MaybePromise<T> = T | Promise<T>;
 
+/** A content service whose methods may return their result or a promise of it. */
+type MaybeAsyncService<S> = {
+  [K in keyof S]: S[K] extends (...args: infer A) => infer R
+    ? (...args: A) => MaybePromise<Awaited<R>>
+    : S[K];
+};
+
 export interface ContentTransportOperations {
   readonly publish?: (
     principal: TrustedPrincipal,
@@ -162,7 +169,7 @@ export interface ContentTransportDependencies {
 
 /** Binds every operation to a content service. The service enforces its own policy. */
 export function createContentTransportOperations(
-  service: ContentService,
+  service: MaybeAsyncService<ContentService>,
 ): ContentTransportOperations {
   return {
     createDraft: (principal, input) => service.createDraft(principal, input),

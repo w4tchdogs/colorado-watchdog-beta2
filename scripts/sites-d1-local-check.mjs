@@ -119,7 +119,9 @@ async function verifyPublication(
     },
     body: "{}",
   });
-  assert.equal(privateDrafts.status, 404);
+  // Draft editing is for signed-in human accounts. An agent credential, even
+  // with the editor capability, is refused.
+  assert.equal(privateDrafts.status, 403);
   const read = (path) => fetch(`${base}${path}`);
   const reject = async (action, input, status, error, token) => {
     const response = await change(action, input, token);

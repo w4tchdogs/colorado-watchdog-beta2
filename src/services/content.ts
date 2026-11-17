@@ -130,14 +130,14 @@ export interface ContentServiceOptions {
   readonly authorize?: ContentAuthorizationPolicy;
 }
 
-type RelationshipKind = keyof ContentRelationships;
-const RELATIONSHIP_KINDS: readonly RelationshipKind[] = [
+export type RelationshipKind = keyof ContentRelationships;
+export const RELATIONSHIP_KINDS: readonly RelationshipKind[] = [
   "countyFips",
   "personIds",
   "organizationIds",
 ];
 
-const RELATIONSHIP_TABLES = {
+export const RELATIONSHIP_TABLES = {
   countyFips: { table: "content_item_counties", column: "county_fips" },
   personIds: { table: "content_item_people", column: "person_id" },
   organizationIds: {
@@ -146,7 +146,7 @@ const RELATIONSHIP_TABLES = {
   },
 } as const;
 
-const TARGET_TABLES = {
+export const TARGET_TABLES = {
   countyFips: { table: "counties", column: "fips", kind: "county" },
   personIds: { table: "people", column: "id", kind: "person" },
   organizationIds: {
@@ -608,7 +608,7 @@ function recordRevision(
   return item;
 }
 
-const REVISION_SUMMARY_COLUMNS = `content_id, version, change_kind, title,
+export const REVISION_SUMMARY_COLUMNS = `content_id, version, change_kind, title,
   summary, status, edited_by_account_id, restored_from_version, recorded_at`;
 
 function findRevision(
@@ -637,11 +637,10 @@ function findRevision(
   };
 }
 
-function listRevisionPage(
-  database: WebsiteDatabase,
-  id: string,
-  request: ContentRevisionListRequest,
-): ContentRevisionPage {
+export function planRevisionList(request: ContentRevisionListRequest): {
+  readonly limit: number;
+  readonly before: number | null;
+} {
   if (
     typeof request !== "object" ||
     request === null ||
@@ -661,21 +660,18 @@ function listRevisionPage(
   if (before !== null) {
     validateExpectedVersion(before);
   }
-  if (
-    !database
-      .prepare("SELECT 1 AS found FROM content_items WHERE id = ?")
-      .get(id)
-  ) {
-    throw new ContentNotFoundError();
-  }
-  const rows = database
-    .prepare(
-      `SELECT ${REVISION_SUMMARY_COLUMNS}
+  return { limit, before };
+}
+
+export const REVISION_LIST_SQL = `SELECT ${REVISION_SUMMARY_COLUMNS}
        FROM content_revisions
        WHERE content_id = ? AND (? IS NULL OR version < ?)
-       ORDER BY version DESC LIMIT ?`,
-    )
-    .all(id, before, before, limit + 1);
+       ORDER BY version DESC LIMIT ?`;
+
+export function revisionPageFromRows(
+  rows: readonly Record<string, unknown>[],
+  limit: number,
+): ContentRevisionPage {
   const hasMore = rows.length > limit;
   const items = rows.slice(0, limit).map(revisionSummaryFromRow);
   return {
@@ -685,7 +681,26 @@ function listRevisionPage(
   };
 }
 
-function revisionSummaryFromRow(
+function listRevisionPage(
+  database: WebsiteDatabase,
+  id: string,
+  request: ContentRevisionListRequest,
+): ContentRevisionPage {
+  const { limit, before } = planRevisionList(request);
+  if (
+    !database
+      .prepare("SELECT 1 AS found FROM content_items WHERE id = ?")
+      .get(id)
+  ) {
+    throw new ContentNotFoundError();
+  }
+  return revisionPageFromRows(
+    database.prepare(REVISION_LIST_SQL).all(id, before, before, limit + 1),
+    limit,
+  );
+}
+
+export function revisionSummaryFromRow(
   row: Record<string, unknown>,
 ): ContentRevisionSummary {
   if (
@@ -711,7 +726,7 @@ function revisionSummaryFromRow(
   };
 }
 
-function parseIdArray(value: unknown): string[] {
+export function parseIdArray(value: unknown): string[] {
   const parsed: unknown = JSON.parse(asString(value));
   if (
     !Array.isArray(parsed) ||
@@ -808,10 +823,15 @@ function parseModifiedCursor(value: string): {
   return { updatedAt, id };
 }
 
-function listItems(
-  database: WebsiteDatabase,
-  request: ContentListRequest,
-): ContentPage {
+export interface ContentListPlan {
+  readonly sql: string;
+  readonly params: readonly (string | number | null)[];
+  readonly limit: number;
+  readonly sort: string;
+}
+
+/** Validates a list request and builds its one bounded query. */
+export function planContentList(request: ContentListRequest): ContentListPlan {
   if (!request || typeof request !== "object") {
     throw new ContentInputError();
   }
@@ -879,16 +899,24 @@ function listItems(
     order = "id COLLATE BINARY";
   }
 
-  const rows = database
-    .prepare(
-      `SELECT id, content_type, title, summary, body_format, status, version,
+  return {
+    sql: `SELECT id, content_type, title, summary, body_format, status, version,
               created_by_account_id, last_edited_by_account_id,
               created_at, updated_at, archived_at
        FROM content_items
-       WHERE ${conditions.join("\n         AND ")}
+       WHERE ${conditions.join(" AND ")}
        ORDER BY ${order} LIMIT ?`,
-    )
-    .all(...params, limit + 1);
+    params: [...params, limit + 1],
+    limit,
+    sort,
+  };
+}
+
+export function contentPageFromRows(
+  plan: ContentListPlan,
+  rows: readonly Record<string, unknown>[],
+): ContentPage {
+  const { limit, sort } = plan;
   const hasMore = rows.length > limit;
   const items = rows.slice(0, limit).map(summaryFromRow);
   const last = items.at(-1);
@@ -902,7 +930,18 @@ function listItems(
   return { items, hasMore, nextCursor };
 }
 
-function summaryFromRow(row: Record<string, unknown>): ContentSummary {
+function listItems(
+  database: WebsiteDatabase,
+  request: ContentListRequest,
+): ContentPage {
+  const plan = planContentList(request);
+  return contentPageFromRows(
+    plan,
+    database.prepare(plan.sql).all(...plan.params),
+  );
+}
+
+export function summaryFromRow(row: Record<string, unknown>): ContentSummary {
   if (
     !CONTENT_TYPES.includes(row.content_type as ContentType) ||
     !CONTENT_STATUSES.includes(row.status as ContentStatus) ||
@@ -926,7 +965,7 @@ function summaryFromRow(row: Record<string, unknown>): ContentSummary {
   };
 }
 
-interface ValidatedDraft {
+export interface ValidatedDraft {
   readonly contentType: ContentType;
   readonly title: string;
   readonly summary: string | null;
@@ -934,7 +973,7 @@ interface ValidatedDraft {
   readonly relationships: ContentRelationshipsInput;
 }
 
-function validateNewDraft(input: NewContentDraft): ValidatedDraft {
+export function validateNewDraft(input: NewContentDraft): ValidatedDraft {
   if (!isRecord(input)) {
     throw new ContentInputError();
   }
@@ -957,7 +996,7 @@ function validateNewDraft(input: NewContentDraft): ValidatedDraft {
   };
 }
 
-function validateChanges(changes: ContentDraftChanges): {
+export function validateChanges(changes: ContentDraftChanges): {
   readonly fields: string[];
   readonly columns: [string, string | null][];
   readonly relationships: ContentRelationshipsInput;
@@ -1044,7 +1083,9 @@ function validateBody(value: unknown): string {
   return value;
 }
 
-function normalizeRelationships(value: unknown): ContentRelationshipsInput {
+export function normalizeRelationships(
+  value: unknown,
+): ContentRelationshipsInput {
   if (!isRecord(value)) {
     throw new ContentInputError();
   }
@@ -1076,17 +1117,19 @@ function normalizeRelationships(value: unknown): ContentRelationshipsInput {
   return normalized;
 }
 
-function hasAnyKind(relationships: ContentRelationshipsInput): boolean {
+export function hasAnyKind(relationships: ContentRelationshipsInput): boolean {
   return RELATIONSHIP_KINDS.some((kind) => relationships[kind] !== undefined);
 }
 
-function hasAnyRelationship(relationships: ContentRelationshipsInput): boolean {
+export function hasAnyRelationship(
+  relationships: ContentRelationshipsInput,
+): boolean {
   return RELATIONSHIP_KINDS.some(
     (kind) => (relationships[kind]?.length ?? 0) > 0,
   );
 }
 
-function validateId(value: unknown): string {
+export function validateId(value: unknown): string {
   if (
     typeof value !== "string" ||
     value.trim().length === 0 ||
@@ -1098,7 +1141,7 @@ function validateId(value: unknown): string {
   return value;
 }
 
-function validateExpectedVersion(value: unknown): number {
+export function validateExpectedVersion(value: unknown): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
     throw new ContentInputError();
   }
@@ -1118,7 +1161,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function asString(value: unknown): string {
+export function asString(value: unknown): string {
   if (typeof value !== "string") {
     throw new Error("Invalid content record");
   }
