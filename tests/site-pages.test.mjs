@@ -19,6 +19,7 @@ test("homepage renders navigation, discovery entry points and honest content", a
   await withPreview("fictional", async (preview) => {
     const page = await get(preview, "/");
     assert.equal(page.status, 200);
+    assert.ok(page.$("body.home-page"));
     assert.equal(page.$$("h1").length, 1);
     assert.deepEqual(
       page
@@ -99,6 +100,10 @@ test("homepage renders navigation, discovery entry points and honest content", a
     // Nothing unimplemented is advertised.
     assert.doesNotMatch(page.text, /submit a report|log in|sign up|grievance/i);
     assert.ok(page.$$(".article-card").length > 0);
+    for (const card of page.$$(".cv-pathway, .editorial-grid .article-card")) {
+      assert.equal(card.querySelectorAll("a[href]").length, 1);
+      assert.ok(card.querySelector(".cv-pathway-link, .article-card-title a"));
+    }
     assert.ok(
       page
         .$$(".article-card")
@@ -592,6 +597,7 @@ test("role citations show source, type, host and check date without implying dat
 test("editorial templates show only injected fixtures and never database drafts", async () => {
   await withPreview("fictional", async (preview) => {
     const stories = await get(preview, "/stories");
+    assert.equal(stories.$("body.home-page"), null);
     assert.equal(stories.$$(".article-card").length, 3);
     assert.ok(
       stories
