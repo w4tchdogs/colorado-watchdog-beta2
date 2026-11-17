@@ -291,7 +291,7 @@ class McpSyncDriverTests(unittest.TestCase):
         self.assertEqual([x["itemIndex"] for x in receipt["items"]], [0, 1, 2])
         self.assertEqual(sync.reconcile_submission(self.db, self.sid)["state"], "committed")
         self.assertEqual(self.db.execute(
-            "SELECT count(*) FROM sync_item_receipts WHERE submission_id=?", (self.sid,)
+            "SELECT count(*) FROM website_change_receipts WHERE submission_id=?", (self.sid,)
         ).fetchone()[0], 3)
 
     def test_bad_lookup_batch_leaves_r6_pending_instead_of_storing_partial_receipt(self):
@@ -373,7 +373,7 @@ class McpSyncDriverTests(unittest.TestCase):
         self.assertEqual(replay["state"], "complete")
         self.assertEqual(client.server.batch_create_count, 1)
         stored = self.db.execute(
-            "SELECT state,receipt_json FROM sync_reversal_receipts WHERE website_batch_id=?",
+            "SELECT state,receipt_json FROM website_reversal_receipts WHERE website_batch_id=?",
             (client.batch_id,),
         ).fetchone()
         self.assertEqual(stored["state"], "reverted")
@@ -383,7 +383,7 @@ class McpSyncDriverTests(unittest.TestCase):
     def test_roundtrip_mode_refuses_non_synthetic_request_before_network(self):
         client = FakeMcpClient(self.request_bytes)
         self.db.execute(
-            "UPDATE sync_submissions SET site_key='colorado_watchdog_alpha1' WHERE id=?",
+            "UPDATE website_requests SET site_key='colorado_watchdog_alpha1' WHERE id=?",
             (self.sid,),
         )
         with self.assertRaisesRegex(ValueError, "only at most five synthetic people"):

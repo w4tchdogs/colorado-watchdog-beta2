@@ -15,7 +15,7 @@ class IdentityFoundationTests(unittest.TestCase):
     def setUp(self):
         self.db = connect()
         migrate(self.db)
-        self.db.executemany("INSERT INTO counties VALUES (?,?)",
+        self.db.executemany("INSERT INTO county VALUES (?,?)",
                             [(fips, COUNTIES[fips]) for fips in ("08107", "08031")])
         self.db.commit()
 
@@ -30,16 +30,16 @@ class IdentityFoundationTests(unittest.TestCase):
                            return_result=False)
         claims = [dict(row) for row in self.db.execute(
             'SELECT c."Role claim ID" AS id,c."Evidence record ID" AS evidence_id,c."Name as published" AS published_name,c."Position as published" AS published_title,e."Source ID" AS source_id '
-            'FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+            'FROM profile_research_role c JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" '
             'WHERE e."Import batch ID"=? ORDER BY e."Evidence location"', (batch,))]
         return batch, claims
 
     def quote_evidence(self, source_id, quote, *, county="08107"):
-        source_url = self.db.execute('SELECT "Original source URL" AS original_url FROM sources WHERE "Source ID"=?', (source_id,)).fetchone()[0]
+        source_url = self.db.execute('SELECT "Original source URL" AS original_url FROM research_sources WHERE "Source ID"=?', (source_id,)).fetchone()[0]
         run_id, evidence_id, now = new_id("run"), new_id("evidence"), timestamp()
         self.db.execute("INSERT INTO research_runs(id,kind,provenance,recorded_at) VALUES (?,?,?,?)",
                         (run_id, "screening", "synthetic", now))
-        self.db.execute('INSERT INTO evidence_links("Evidence record ID","Source ID","Source URL as observed","Evidence location","Evidence excerpt","Research run ID","Recorded on") '
+        self.db.execute('INSERT INTO research_evidence("Evidence record ID","Source ID","Source URL as observed","Evidence location","Evidence excerpt","Research run ID","Recorded on") '
                         "VALUES (?,?,?,?,?,?,?)", (evidence_id, source_id, source_url,
                                                     "synthetic official connection", quote, run_id, now))
         self.db.commit()
@@ -47,7 +47,7 @@ class IdentityFoundationTests(unittest.TestCase):
 
     def test_supported_person_creation_source_classification_and_exact_preservation(self):
         _, [claim] = self.add_batch([{"full_name": "Synthetic Rowan Example", "nicknames": "Rowan, Ro"}])
-        before_raw = self.db.execute('SELECT "Original record" AS raw_record_json FROM evidence_links WHERE "Evidence record ID"=?',
+        before_raw = self.db.execute('SELECT "Original record" AS raw_record_json FROM research_evidence WHERE "Evidence record ID"=?',
                                      (claim["evidence_id"],)).fetchone()[0]
         plan = identity.build_identity_plan(self.db)
         self.assertEqual(plan["summary"]["counties_processed"], 1)
@@ -59,20 +59,20 @@ class IdentityFoundationTests(unittest.TestCase):
         result = identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
         self.assertEqual(result["status"], "applied")
         person = self.db.execute('SELECT "County code" AS county_fips,"Full name" AS display_name,"Identity review status" AS identity_state,"Evidence for identity" AS identity_evidence_id '
-                                 "FROM research_people").fetchone()
+                                 "FROM profile_research").fetchone()
         self.assertEqual(tuple(person), ("08107", "Synthetic Rowan Example", "evidence_supported", claim["evidence_id"]))
-        self.assertEqual(self.db.execute('SELECT "Previous source category" AS official_status FROM sources WHERE "Source ID"=?',
+        self.assertEqual(self.db.execute('SELECT "Previous source category" AS official_status FROM research_sources WHERE "Source ID"=?',
                                          (claim["source_id"],)).fetchone()[0], "official")
-        self.assertEqual(self.db.execute('SELECT "Linked profile" AS person_id FROM role_claims WHERE "Role claim ID"=?',
+        self.assertEqual(self.db.execute('SELECT "Linked profile" AS person_id FROM profile_research_role WHERE "Role claim ID"=?',
                                          (claim["id"],)).fetchone()[0], self.db.execute(
-                                             'SELECT "Profile ID" AS id FROM research_people').fetchone()[0])
-        self.assertEqual(self.db.execute('SELECT "Original record" AS raw_record_json FROM evidence_links WHERE "Evidence record ID"=?',
+                                             'SELECT "Profile ID" AS id FROM profile_research').fetchone()[0])
+        self.assertEqual(self.db.execute('SELECT "Original record" AS raw_record_json FROM research_evidence WHERE "Evidence record ID"=?',
                                          (claim["evidence_id"],)).fetchone()[0], before_raw)
         self.assertEqual(identity.verify_identity_application(self.db, plan)["integrity"], "ok")
 
     def test_name_variant_operation_accepts_only_literal_nicknames_field_links(self):
         _, [claim] = self.add_batch([{"full_name": "Synthetic Rowan Example", "nicknames": "Rowan"}])
-        self.db.execute("UPDATE sources SET \"Previous source category\"='official',\"Publisher type\"='official' WHERE \"Source ID\"=?", (claim["source_id"],))
+        self.db.execute("UPDATE research_sources SET \"Previous source category\"='official',\"Publisher type\"='official' WHERE \"Source ID\"=?", (claim["source_id"],))
         self.db.commit()
         created = operator.bootstrap_person(self.db, county_fips="08107", claim_id=claim["id"],
                                             published_name=claim["published_name"], evidence_id=claim["evidence_id"],
@@ -81,7 +81,7 @@ class IdentityFoundationTests(unittest.TestCase):
                                            kind="nickname", evidence_id=claim["evidence_id"], actor="fixture-operator",
                                            rationale="The official fixture row has an explicit Nicknames field")
         self.assertTrue(result["created"])
-        self.assertEqual(tuple(self.db.execute('SELECT "Name as published" AS published_name,"Name type" AS kind FROM name_variants WHERE "Name record ID"=?',
+        self.assertEqual(tuple(self.db.execute('SELECT "Name as published" AS published_name,"Name type" AS kind FROM profile_research_name WHERE "Name record ID"=?',
                                                (result["variant_id"],)).fetchone()), ("Rowan", "nickname"))
         with self.assertRaisesRegex(ValueError, "explicitly connect"):
             operator.add_name_variant(self.db, person_id=created["person_id"], published_name="Rowen",
@@ -93,7 +93,7 @@ class IdentityFoundationTests(unittest.TestCase):
             {"full_name": "Synthetic Rowan Example", "title": "Fixture Treasurer"},
             {"full_name": "Synthetic Rowan Example", "title": "Fixture Coordinator"},
         ])
-        self.db.execute("UPDATE sources SET \"Previous source category\"='official',\"Publisher type\"='official' WHERE \"Source ID\"=?", (claims[0]["source_id"],))
+        self.db.execute("UPDATE research_sources SET \"Previous source category\"='official',\"Publisher type\"='official' WHERE \"Source ID\"=?", (claims[0]["source_id"],))
         self.db.commit()
         created = operator.bootstrap_person(self.db, county_fips="08107", claim_id=claims[0]["id"],
                                             published_name=claims[0]["published_name"], evidence_id=claims[0]["evidence_id"],
@@ -104,7 +104,7 @@ class IdentityFoundationTests(unittest.TestCase):
             self.db, claim_id=claims[1]["id"], person_id=created["person_id"], evidence_id=link,
             actor="fixture-operator", rationale="One official record explicitly connects the person to the second role")
         self.assertEqual(associated["person_id"], created["person_id"])
-        self.assertEqual(self.db.execute('SELECT count(*) FROM role_claims WHERE "Linked profile"=?',
+        self.assertEqual(self.db.execute('SELECT count(*) FROM profile_research_role WHERE "Linked profile"=?',
                                          (created["person_id"],)).fetchone()[0], 2)
 
     def test_statewide_planner_uses_direct_official_role_connection(self):
@@ -112,7 +112,7 @@ class IdentityFoundationTests(unittest.TestCase):
             {"full_name": "Synthetic Rowan Example", "title": "Fixture Treasurer"},
             {"full_name": "Synthetic Rowan Example", "title": "Fixture Coordinator"},
         ])
-        self.db.execute("UPDATE sources SET \"Previous source category\"='official',\"Publisher type\"='official' WHERE \"Source ID\"=?", (claims[0]["source_id"],))
+        self.db.execute("UPDATE research_sources SET \"Previous source category\"='official',\"Publisher type\"='official' WHERE \"Source ID\"=?", (claims[0]["source_id"],))
         self.db.commit()
         self.quote_evidence(claims[0]["source_id"],
                             "Synthetic Rowan Example, Fixture Treasurer, also serves as fixture coordinator.")
@@ -122,8 +122,8 @@ class IdentityFoundationTests(unittest.TestCase):
         self.assertEqual({item["method"] for item in plan["counties"][0]["associations"]},
                          {"bootstrap", "official_connection"})
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        self.assertEqual(self.db.execute('SELECT count(DISTINCT "Linked profile") FROM role_claims WHERE "Linked profile" IS NOT NULL').fetchone()[0], 1)
-        self.assertEqual(self.db.execute('SELECT count(*) FROM role_claims WHERE "Linked profile" IS NOT NULL').fetchone()[0], 2)
+        self.assertEqual(self.db.execute('SELECT count(DISTINCT "Linked profile") FROM profile_research_role WHERE "Linked profile" IS NOT NULL').fetchone()[0], 1)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM profile_research_role WHERE "Linked profile" IS NOT NULL').fetchone()[0], 2)
 
     def test_generic_responsibility_never_counts_as_a_duty_for_alignment(self):
         _, claims = self.add_batch([
@@ -132,7 +132,7 @@ class IdentityFoundationTests(unittest.TestCase):
             {"full_name": "Synthetic Rowan Example", "title": "Fixture Coordinator",
              "responsibility": "Listed in official source"},
         ])
-        self.db.execute("UPDATE sources SET \"Previous source category\"='official',\"Publisher type\"='official' WHERE \"Source ID\"=?", (claims[0]["source_id"],))
+        self.db.execute("UPDATE research_sources SET \"Previous source category\"='official',\"Publisher type\"='official' WHERE \"Source ID\"=?", (claims[0]["source_id"],))
         self.db.commit()
         self.quote_evidence(claims[0]["source_id"],
                             "Synthetic Rowan Example, Fixture Treasurer, also listed as Listed in official source.")
@@ -145,7 +145,7 @@ class IdentityFoundationTests(unittest.TestCase):
                    if item["method"] == "same_name_detail_alignment"]
         self.assertEqual([item["aligned_details"] for item in aligned], [["office"]])
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_people").fetchone()[0], 1)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM profile_research").fetchone()[0], 1)
 
     def test_same_name_without_an_aligned_detail_stays_distinct(self):
         _, claims = self.add_batch([
@@ -161,8 +161,8 @@ class IdentityFoundationTests(unittest.TestCase):
         self.assertEqual(county["unresolved"], [])
         self.assertEqual(county["same_name_profile_groups_left_distinct"], 1)
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_people").fetchone()[0], 2)
-        self.assertEqual(self.db.execute("SELECT count(*) FROM possible_matches").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM profile_research").fetchone()[0], 2)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM profile_research_duplicates").fetchone()[0], 0)
         self.assertEqual(identity.verify_identity_application(self.db, plan)["integrity"], "ok")
         # A rerun after application is deterministic and changes nothing.
         again = identity.build_identity_plan(self.db)
@@ -209,9 +209,9 @@ class IdentityFoundationTests(unittest.TestCase):
         self.assertEqual(plan["summary"]["new_research_people"], 2)
         self.assertEqual(plan["summary"]["claims_associated"], 2)
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        people = list(self.db.execute('SELECT "Full name" AS display_name FROM research_people ORDER BY display_name'))
+        people = list(self.db.execute('SELECT "Full name" AS display_name FROM profile_research ORDER BY display_name'))
         self.assertEqual([row[0] for row in people], ["Synthetic Arden Example", "Synthetic Rowan Example"])
-        self.assertEqual(self.db.execute("SELECT count(*) FROM possible_matches").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM profile_research_duplicates").fetchone()[0], 0)
 
     def test_non_gov_hostname_and_csv_label_do_not_promote_source_authority(self):
         _, [claim] = self.add_batch([{"full_name": "Synthetic Rowan Example"}], url="https://fixture.invalid/directory")
@@ -220,7 +220,7 @@ class IdentityFoundationTests(unittest.TestCase):
         self.assertEqual(plan["summary"]["new_research_people"], 0)
         self.assertEqual(plan["counties"][0]["unresolved"][0]["reason"], "source_authority_not_established")
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        self.assertEqual(self.db.execute('SELECT "Previous source category" AS official_status FROM sources WHERE "Source ID"=?',
+        self.assertEqual(self.db.execute('SELECT "Previous source category" AS official_status FROM research_sources WHERE "Source ID"=?',
                                          (claim["source_id"],)).fetchone()[0], "unknown")
 
     def test_non_gov_source_requires_retained_exact_official_publication_evidence(self):
@@ -243,10 +243,10 @@ class IdentityFoundationTests(unittest.TestCase):
         self.assertIn("City of Sampleville", proposal["basis"])
         self.assertEqual(proposal["authority_evidence_type"], "retained_exact_page_official_statement")
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        self.assertEqual(self.db.execute('SELECT "Previous source category" AS official_status FROM sources WHERE "Source ID"=?',
+        self.assertEqual(self.db.execute('SELECT "Previous source category" AS official_status FROM research_sources WHERE "Source ID"=?',
                                          (claim["source_id"],)).fetchone()[0], "official")
         event = self.db.execute(
-            "SELECT detail_json FROM research_events WHERE kind='source_classified' AND entity_id=?",
+            "SELECT detail_json FROM research_history WHERE kind='source_classified' AND entity_id=?",
             (claim["source_id"],)).fetchone()
         self.assertIsNotNone(event)
         detail = json.loads(event[0])
@@ -261,10 +261,10 @@ class IdentityFoundationTests(unittest.TestCase):
                        url="https://directory.example.org/officials")
         plan = identity.build_identity_plan(self.db)
         before = (self.db.execute("SELECT count(*) FROM research_runs").fetchone()[0],
-                  self.db.execute("SELECT count(*) FROM research_events").fetchone()[0])
+                  self.db.execute("SELECT count(*) FROM research_history").fetchone()[0])
         result = identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
         after = (self.db.execute("SELECT count(*) FROM research_runs").fetchone()[0],
-                 self.db.execute("SELECT count(*) FROM research_events").fetchone()[0])
+                 self.db.execute("SELECT count(*) FROM research_history").fetchone()[0])
         self.assertEqual(result["status"], "no_changes")
         self.assertEqual(after, before)
         self.assertEqual(identity.verify_identity_application(self.db, plan)["status"], "no_changes_verified")
@@ -279,7 +279,7 @@ class IdentityFoundationTests(unittest.TestCase):
                                                 if key != "plan_sha256"})
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
         self.assertEqual(self.db.execute(
-            "SELECT count(*) FROM research_events WHERE kind='identity_unresolved_recorded'").fetchone()[0], 2)
+            "SELECT count(*) FROM research_history WHERE kind='identity_unresolved_recorded'").fetchone()[0], 2)
         self.assertEqual(identity.verify_identity_application(self.db, plan)["status"], "verified")
 
     def test_selected_correction_lineage_associates_one_observation_without_duplicate_person(self):
@@ -295,11 +295,11 @@ class IdentityFoundationTests(unittest.TestCase):
         self.assertEqual({item["method"] for item in plan["counties"][0]["associations"]},
                          {"bootstrap", "correction_lineage"})
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_people").fetchone()[0], 1)
-        self.assertEqual(self.db.execute('SELECT count(*) FROM role_claims WHERE "Linked profile" IS NOT NULL').fetchone()[0], 2)
-        self.assertEqual(self.db.execute('SELECT "Linked profile" AS person_id FROM role_claims WHERE "Role claim ID"=?',
+        self.assertEqual(self.db.execute("SELECT count(*) FROM profile_research").fetchone()[0], 1)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM profile_research_role WHERE "Linked profile" IS NOT NULL').fetchone()[0], 2)
+        self.assertEqual(self.db.execute('SELECT "Linked profile" AS person_id FROM profile_research_role WHERE "Role claim ID"=?',
                                          (parent_claim["id"],)).fetchone()[0], self.db.execute(
-                                             'SELECT "Linked profile" AS person_id FROM role_claims WHERE "Role claim ID"=?',
+                                             'SELECT "Linked profile" AS person_id FROM profile_research_role WHERE "Role claim ID"=?',
                                              (child_claim["id"],)).fetchone()[0])
 
     def test_alternative_batch_is_not_a_new_person_or_independent_support(self):
@@ -317,7 +317,7 @@ class IdentityFoundationTests(unittest.TestCase):
 
     def test_cross_county_connection_association_is_rejected(self):
         _, [home] = self.add_batch([{"full_name": "Synthetic Rowan Example"}])
-        self.db.execute("UPDATE sources SET \"Previous source category\"='official',\"Publisher type\"='official' WHERE \"Source ID\"=?", (home["source_id"],))
+        self.db.execute("UPDATE research_sources SET \"Previous source category\"='official',\"Publisher type\"='official' WHERE \"Source ID\"=?", (home["source_id"],))
         self.db.commit()
         created = operator.bootstrap_person(self.db, county_fips="08107", claim_id=home["id"],
                                             published_name=home["published_name"], evidence_id=home["evidence_id"],
@@ -336,53 +336,53 @@ class IdentityFoundationTests(unittest.TestCase):
     def test_stale_plan_rejected_before_source_or_identity_writes(self):
         _, [claim] = self.add_batch([{"full_name": "Synthetic Rowan Example"}])
         plan = identity.build_identity_plan(self.db)
-        self.db.execute("UPDATE role_claims SET \"Position as published\"='Changed after preview' WHERE \"Role claim ID\"=?", (claim["id"],))
+        self.db.execute("UPDATE profile_research_role SET \"Position as published\"='Changed after preview' WHERE \"Role claim ID\"=?", (claim["id"],))
         self.db.commit()
-        baseline_events = self.db.execute("SELECT count(*) FROM research_events").fetchone()[0]
+        baseline_events = self.db.execute("SELECT count(*) FROM research_history").fetchone()[0]
         with self.assertRaisesRegex(ValueError, "changed after the identity preview"):
             identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        self.assertEqual(self.db.execute('SELECT "Previous source category" AS official_status FROM sources WHERE "Source ID"=?',
+        self.assertEqual(self.db.execute('SELECT "Previous source category" AS official_status FROM research_sources WHERE "Source ID"=?',
                                          (claim["source_id"],)).fetchone()[0], "unknown")
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_people").fetchone()[0], 0)
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_events").fetchone()[0], baseline_events)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM profile_research").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM research_history").fetchone()[0], baseline_events)
 
     def test_county_transaction_rolls_back_and_same_plan_can_resume(self):
         _, [claim] = self.add_batch([{"full_name": "Synthetic Rowan Example"}])
         plan = identity.build_identity_plan(self.db)
-        self.db.execute("CREATE TRIGGER reject_identity_association BEFORE INSERT ON research_events "
+        self.db.execute("CREATE TRIGGER reject_identity_association BEFORE INSERT ON research_history "
                         "WHEN NEW.kind='claim_person_associated' BEGIN SELECT RAISE(ABORT,'fixture rollback'); END")
         self.db.commit()
         with self.assertRaises(Exception):
             identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_people").fetchone()[0], 0)
-        self.assertIsNone(self.db.execute('SELECT "Linked profile" AS person_id FROM role_claims WHERE "Role claim ID"=?', (claim["id"],)).fetchone()[0])
+        self.assertEqual(self.db.execute("SELECT count(*) FROM profile_research").fetchone()[0], 0)
+        self.assertIsNone(self.db.execute('SELECT "Linked profile" AS person_id FROM profile_research_role WHERE "Role claim ID"=?', (claim["id"],)).fetchone()[0])
         self.assertIsNotNone(self.db.execute("SELECT 1 FROM research_runs WHERE note LIKE '%:sources'").fetchone())
         self.db.execute("DROP TRIGGER reject_identity_association")
         self.db.commit()
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_people").fetchone()[0], 1)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM profile_research").fetchone()[0], 1)
 
     def test_replay_is_idempotent_and_organizational_links_are_preserved(self):
         _, [claim] = self.add_batch([{"full_name": "Synthetic Rowan Example"}])
         evidence_id = claim["evidence_id"]
-        self.db.execute("INSERT INTO org_units(\"Office or unit ID\",\"County code\",\"Office or unit label as published\",\"Organization type\") VALUES ('unit_fixture','08107','Fixture Services','department')")
-        self.db.execute('INSERT INTO role_targets("Position ID","Office or unit ID","County code","Documented position title","Evidence for position") '
+        self.db.execute("INSERT INTO county_research_unit_structure(\"Office or unit ID\",\"County code\",\"Office or unit label as published\",\"Organization type\") VALUES ('unit_fixture','08107','Fixture Services','department')")
+        self.db.execute('INSERT INTO county_research_positions("Position ID","Office or unit ID","County code","Documented position title","Evidence for position") '
                         "VALUES ('target_fixture','unit_fixture','08107','Fixture Coordinator',?)", (evidence_id,))
-        self.db.execute("UPDATE role_claims SET \"Linked office or unit\"='unit_fixture',\"Linked position\"='target_fixture' WHERE \"Role claim ID\"=?",
+        self.db.execute("UPDATE profile_research_role SET \"Linked office or unit\"='unit_fixture',\"Linked position\"='target_fixture' WHERE \"Role claim ID\"=?",
                         (claim["id"],))
         self.db.commit()
         plan = identity.build_identity_plan(self.db)
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        before = tuple(self.db.execute("SELECT count(*) FROM research_people").fetchone()) + tuple(
-            self.db.execute("SELECT count(*) FROM name_variants").fetchone()) + tuple(
-            self.db.execute("SELECT count(*) FROM research_events").fetchone())
+        before = tuple(self.db.execute("SELECT count(*) FROM profile_research").fetchone()) + tuple(
+            self.db.execute("SELECT count(*) FROM profile_research_name").fetchone()) + tuple(
+            self.db.execute("SELECT count(*) FROM research_history").fetchone())
         result = identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        after = tuple(self.db.execute("SELECT count(*) FROM research_people").fetchone()) + tuple(
-            self.db.execute("SELECT count(*) FROM name_variants").fetchone()) + tuple(
-            self.db.execute("SELECT count(*) FROM research_events").fetchone())
+        after = tuple(self.db.execute("SELECT count(*) FROM profile_research").fetchone()) + tuple(
+            self.db.execute("SELECT count(*) FROM profile_research_name").fetchone()) + tuple(
+            self.db.execute("SELECT count(*) FROM research_history").fetchone())
         self.assertEqual(result["status"], "already_applied")
         self.assertEqual(before, after)
-        self.assertEqual(tuple(self.db.execute('SELECT "Linked office or unit" AS unit_id,"Linked position" AS target_id FROM role_claims WHERE "Role claim ID"=?',
+        self.assertEqual(tuple(self.db.execute('SELECT "Linked office or unit" AS unit_id,"Linked position" AS target_id FROM profile_research_role WHERE "Role claim ID"=?',
                                                (claim["id"],)).fetchone()), ("unit_fixture", "target_fixture"))
         self.assertEqual(identity.verify_identity_application(self.db, plan)["foreign_key_violations"], 0)
 
@@ -403,7 +403,7 @@ class IdentityFoundationTests(unittest.TestCase):
         self.assertEqual(plan["summary"]["new_research_people"], 2000)
         result = identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
         self.assertEqual(result["claims_associated"], 2000)
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_people").fetchone()[0], 2000)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM profile_research").fetchone()[0], 2000)
 
 
 if __name__ == "__main__":

@@ -13,16 +13,16 @@ class LegacyContractTests(unittest.TestCase):
     def test_legacy_listing_status_preserved_and_explicitly_normalized(self):
         with closing(connect()) as db, db:
             migrate(db)
-            db.execute("INSERT INTO counties VALUES ('08107','Routt')")
+            db.execute("INSERT INTO county VALUES ('08107','Routt')")
             db.commit()
             raw = observation()
             ingest_csv(db, csv_bytes([raw]), file_name="synthetic.csv",
                        version_label="synthetic-v1")
-            evidence = db.execute('SELECT "Original record" AS raw_record_json FROM evidence_links').fetchone()[0]
+            evidence = db.execute('SELECT "Original record" AS raw_record_json FROM research_evidence').fetchone()[0]
             self.assertEqual(json.loads(evidence)["cells"][11], "Listed in official source")
-            self.assertEqual(db.execute('SELECT "Listing status" AS source_listing_status FROM role_claims').fetchone()[0],
+            self.assertEqual(db.execute('SELECT "Listing status" AS source_listing_status FROM profile_research_role').fetchone()[0],
                              "Listed")
-            self.assertEqual(db.execute("SELECT count(*) FROM research_people").fetchone()[0], 0)
+            self.assertEqual(db.execute("SELECT count(*) FROM profile_research").fetchone()[0], 0)
 
     def test_internal_short_status_is_not_legacy_input(self):
         with self.assertRaisesRegex(ValueError, "listing status"):
@@ -51,10 +51,10 @@ class LegacyContractTests(unittest.TestCase):
     def test_invalid_grouping_ingestion_writes_nothing(self):
         with closing(connect()) as db, db:
             migrate(db)
-            db.execute("INSERT INTO counties VALUES ('08107','Routt')")
+            db.execute("INSERT INTO county VALUES ('08107','Routt')")
             db.commit()
             with self.assertRaisesRegex(ValueError, "grouping basis"):
                 ingest_csv(db, csv_bytes([observation(grouping_basis="invalid")]),
                            file_name="synthetic.csv", version_label="synthetic-v1")
-            for table in ("scrape_batches", "role_claims", "evidence_links", "research_runs"):
+            for table in ("research_scrapes", "profile_research_role", "research_evidence", "research_runs"):
                 self.assertEqual(db.execute("SELECT count(*) FROM " + table).fetchone()[0], 0)

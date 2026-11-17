@@ -68,7 +68,7 @@ def prepare_submission(db, site_key, idempotency_key, original_payload, *, now=N
     with db:
         db.execute("BEGIN IMMEDIATE")
         existing = db.execute(
-            "SELECT id, request_fingerprint FROM sync_submissions "
+            "SELECT id, request_fingerprint FROM website_requests "
             "WHERE site_key=? AND idempotency_key=?",
             (site_key, idempotency_key),
         ).fetchone()
@@ -82,7 +82,7 @@ def prepare_submission(db, site_key, idempotency_key, original_payload, *, now=N
             before_insert(db)
         submission_id = str(uuid4())
         db.execute(
-            """INSERT INTO sync_submissions
+            """INSERT INTO website_requests
                (id, site_key, idempotency_key, contract_version,
                 request_fingerprint, request_json, created_at, updated_at)
                VALUES (?, ?, ?, 'm2-sync/v1', ?, ?, ?, ?)""",
@@ -114,14 +114,14 @@ def submit_prepared(db, submission_id, transport, *, now=None):
     with db:
         db.execute("BEGIN IMMEDIATE")
         row = db.execute(
-            "SELECT * FROM sync_submissions WHERE id=?", (submission_id,)
+            "SELECT * FROM website_requests WHERE id=?", (submission_id,)
         ).fetchone()
         if row is None:
             raise SubmissionError("The prepared submission was not found")
         if row["state"] != "pending":
             return _stored_result(row)
         db.execute(
-            """UPDATE sync_submissions
+            """UPDATE website_requests
                SET attempt_count=attempt_count+1, last_attempt_at=?, updated_at=?
                WHERE id=? AND state='pending'""",
             (timestamp, timestamp, submission_id),
@@ -163,7 +163,7 @@ def submit_prepared(db, submission_id, transport, *, now=None):
     with db:
         db.execute("BEGIN IMMEDIATE")
         db.execute(
-            """UPDATE sync_submissions
+            """UPDATE website_requests
                SET state=?, response_status=?, response_json=?, remote_batch_id=?,
                    updated_at=?
                WHERE id=? AND state='pending'""",
@@ -177,7 +177,7 @@ def submit_prepared(db, submission_id, transport, *, now=None):
             ),
         )
         saved = db.execute(
-            "SELECT * FROM sync_submissions WHERE id=?", (submission_id,)
+            "SELECT * FROM website_requests WHERE id=?", (submission_id,)
         ).fetchone()
     return _stored_result(saved)
 
@@ -188,7 +188,7 @@ def get_submission(db, submission_id):
         """SELECT id, site_key, idempotency_key, request_fingerprint, state,
                   attempt_count, created_at, updated_at, last_attempt_at,
                   response_status, remote_batch_id, response_json
-           FROM sync_submissions WHERE id=?""",
+           FROM website_requests WHERE id=?""",
         (submission_id,),
     ).fetchone()
     if row is None:
@@ -204,7 +204,7 @@ def get_submission(db, submission_id):
 def export_prepared_request(db, submission_id, destination):
     """Export exact stored UTF-8 request bytes to a new private file, never overwrite."""
     row = db.execute(
-        "SELECT request_json FROM sync_submissions WHERE id=?", (submission_id,)
+        "SELECT request_json FROM website_requests WHERE id=?", (submission_id,)
     ).fetchone()
     if row is None:
         raise SubmissionError("The prepared submission was not found")

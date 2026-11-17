@@ -29,14 +29,6 @@ _CHUNK_BYTES = 1024 * 1024
 _MAX_RECORD = _CHUNK_BYTES + 65536
 _CHUNK_ENTROPY = b"colorado-watchdog/r5a/backup/chunk/v1"
 _MANIFEST_ENTROPY = b"colorado-watchdog/r5a/backup/manifest/v1"
-_DOMAIN_TABLES = frozenset({
-    "counties", "org_units", "org_names", "role_targets", "unit_coverage", "source_unit_links",
-    "research_people", "name_variants", "role_claims", "possible_matches", "sources", "evidence_links",
-    "scrape_batches", "research_runs", "source_visits", "site_links", "sync_batches", "sync_items",
-    "sync_submissions", "research_events", "site_entity_links", "site_entity_lineage",
-    "sync_submission_items", "sync_submission_receipts", "sync_item_receipts", "sync_reversal_receipts",
-    "site_sync_update_approvals",
-})
 
 
 def _read_only(path):
@@ -81,8 +73,6 @@ def _database_snapshot(db):
     _validate_canonical_schema(db, version)
     tables = [row[0] for row in db.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
-    if set(tables) != _DOMAIN_TABLES | {"schema_migrations"}:
-        raise ValueError("Database does not contain the expected canonical research schema")
     row_counts = {}
     digest = hashlib.sha256()
     for table in tables:

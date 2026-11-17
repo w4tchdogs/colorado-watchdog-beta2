@@ -56,7 +56,7 @@ def _ref(entity_type, local_id):
 def _source_ok(db, evidence_id, *, allowed_publishers=("official",)):
     row = db.execute(
         'SELECT e."Evidence record ID" AS id,e."Source ID" AS source_id,e."Source title as observed" AS observed_title,e."Source URL as observed" AS observed_url,e."Recorded on" AS recorded_at,s."Original source URL" AS original_url,'
-        's."Previous source category" AS official_status,s."Publisher type" AS publisher_classification,s."Document type" AS page_type FROM evidence_links e JOIN sources s ON s."Source ID"=e."Source ID" '
+        's."Previous source category" AS official_status,s."Publisher type" AS publisher_classification,s."Document type" AS page_type FROM research_evidence e JOIN research_sources s ON s."Source ID"=e."Source ID" '
         'WHERE e."Evidence record ID"=?',
         (evidence_id,),
     ).fetchone()
@@ -109,7 +109,7 @@ def _source_ok(db, evidence_id, *, allowed_publishers=("official",)):
 
 def _linked(db, site_key, local_type, local_id):
     return db.execute(
-        "SELECT website_entity,website_id,website_version,link_state FROM site_entity_links "
+        "SELECT website_entity,website_id,website_version,link_state FROM website_ids "
         "WHERE site_key=? AND local_entity_type=? AND local_entity_id=?",
         (site_key, local_type, local_id),
     ).fetchone()
@@ -207,8 +207,8 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=None, county_f
 
     candidate_sql = (
         'SELECT c."Role claim ID" AS id,c."Linked profile" AS person_id,c."Linked office or unit" AS unit_id,c."Linked position" AS target_id,e."Source ID" AS source_id,b.selected '
-        'FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
-        'JOIN scrape_batches b ON b.id=e."Import batch ID" '
+        'FROM profile_research_role c JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" '
+        'JOIN research_scrapes b ON b.id=e."Import batch ID" '
     )
     candidate_params = []
     if county_fips is not None:
@@ -229,7 +229,7 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=None, county_f
         pending_ancestors = list(scoped_unit_ids)
         while pending_ancestors:
             unit_id = pending_ancestors.pop()
-            row = db.execute('SELECT "Parent office or unit" AS parent_id FROM org_units WHERE "Office or unit ID"=?', (unit_id,)).fetchone()
+            row = db.execute('SELECT "Parent office or unit" AS parent_id FROM county_research_unit_structure WHERE "Office or unit ID"=?', (unit_id,)).fetchone()
             if row and row["parent_id"] and row["parent_id"] not in scoped_unit_ids:
                 scoped_unit_ids.add(row["parent_id"])
                 pending_ancestors.append(row["parent_id"])
@@ -271,10 +271,10 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=None, county_f
     # refs are emitted before children; unsupported parentage is never guessed.
     unit_sql = (
             'SELECT u."Office or unit ID" AS id,u."County code" AS county_fips,u."Office or unit label as published" AS source_label,u."Organization type" AS kind,u."Parent office or unit" AS parent_id,u."Relationship to parent" AS parent_relation,'
-            'u."Evidence for parent relationship" AS parent_evidence_id,(SELECT n."Evidence for this name" AS evidence_id FROM org_names n JOIN evidence_links e ON e."Evidence record ID"=n."Evidence for this name" '
-            "JOIN sources s ON s.\"Source ID\"=e.\"Source ID\" WHERE n.\"Office or unit ID\"=u.\"Office or unit ID\" AND n.\"Name type\"='published' "
+            'u."Evidence for parent relationship" AS parent_evidence_id,(SELECT n."Evidence for this name" AS evidence_id FROM county_research_unit_names n JOIN research_evidence e ON e."Evidence record ID"=n."Evidence for this name" '
+            "JOIN research_sources s ON s.\"Source ID\"=e.\"Source ID\" WHERE n.\"Office or unit ID\"=u.\"Office or unit ID\" AND n.\"Name type\"='published' "
             "AND s.\"Publisher type\"='official' ORDER BY n.\"Evidence for this name\" LIMIT 1) evidence_id "
-            "FROM org_units u "
+            "FROM county_research_unit_structure u "
     )
     unit_params = []
     if scoped_unit_ids is not None:
@@ -454,8 +454,8 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=None, county_f
             continue
 
         affiliation_sql = (
-            'SELECT DISTINCT c."County code" AS county_fips,c."Affiliation" AS affiliation,c."Evidence record ID" AS evidence_id FROM role_claims c '
-            'JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" JOIN scrape_batches b ON b.id=e."Import batch ID" '
+            'SELECT DISTINCT c."County code" AS county_fips,c."Affiliation" AS affiliation,c."Evidence record ID" AS evidence_id FROM profile_research_role c '
+            'JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" JOIN research_scrapes b ON b.id=e."Import batch ID" '
             "WHERE c.\"Linked office or unit\"=? AND b.selected=1 AND c.\"Affiliation\" IS NOT NULL AND trim(c.\"Affiliation\")<>'' "
         )
         affiliation_params = [unit["id"]]
@@ -528,9 +528,9 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=None, county_f
             'c."Office or department as published" AS office_label,c."Division or unit as published" AS division_label,c."Job description or duties" AS responsibility,u."Office or unit label as published" AS unit_label,'
             'c."Employment start date" AS employment_start,c."Employment end date" AS employment_end,c."Listing status" AS source_listing_status,c."Evidence record ID" AS evidence_id,e."Source ID" AS source_id,e."Import batch ID" AS batch_id,'
             'b.selected,p."Full name" AS display_name,p."Identity review status" AS identity_state,p."Evidence for identity" AS identity_evidence_id,u."Organization type" unit_kind,t."Documented position title" AS documented_title '
-            'FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
-            'JOIN scrape_batches b ON b.id=e."Import batch ID" LEFT JOIN research_people p ON p."Profile ID"=c."Linked profile" '
-            'LEFT JOIN org_units u ON u."Office or unit ID"=c."Linked office or unit" LEFT JOIN role_targets t ON t."Position ID"=c."Linked position" '
+            'FROM profile_research_role c JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" '
+            'JOIN research_scrapes b ON b.id=e."Import batch ID" LEFT JOIN profile_research p ON p."Profile ID"=c."Linked profile" '
+            'LEFT JOIN county_research_unit_structure u ON u."Office or unit ID"=c."Linked office or unit" LEFT JOIN county_research_positions t ON t."Position ID"=c."Linked position" '
             + ('WHERE b.selected=1 AND c."County code"=? ' if county_fips is not None else "WHERE b.selected=1 ")
             + 'ORDER BY c."Role claim ID"',
             (county_fips,) if county_fips is not None else (),
@@ -893,7 +893,7 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=None, county_f
             "role_claim": {row["id"] for row in selected_candidates},
         }
     for approval in db.execute(
-        "SELECT * FROM site_sync_update_approvals WHERE site_key=? AND state='approved' ORDER BY id",
+        "SELECT * FROM website_update_approvals WHERE site_key=? AND state='approved' ORDER BY id",
         (site_key,),
     ):
         if scoped_ids is not None and approval["local_entity_type"] in scoped_ids and \
@@ -1033,12 +1033,12 @@ def require_previous_submission_resolved(db, site_key, idempotency_key):
     write transaction that inserts the new submission, so two connections cannot both
     pass it.
     """
-    if db.execute("SELECT 1 FROM sync_submissions WHERE site_key=? AND idempotency_key=?",
+    if db.execute("SELECT 1 FROM website_requests WHERE site_key=? AND idempotency_key=?",
                   (site_key, idempotency_key)).fetchone():
         return
     open_row = db.execute(
-        "SELECT s.id,s.state FROM sync_submissions s "
-        "LEFT JOIN sync_submission_receipts r ON r.submission_id=s.id "
+        "SELECT s.id,s.state FROM website_requests s "
+        "LEFT JOIN website_request_receipts r ON r.submission_id=s.id "
         "WHERE s.site_key=? AND s.idempotency_key<>? AND s.state IN ('pending','acknowledged') "
         "AND r.submission_id IS NULL ORDER BY s.created_at LIMIT 1",
         (site_key, idempotency_key)).fetchone()
@@ -1065,12 +1065,12 @@ def prepare_research_submission(db, site_key, idempotency_key, generated, *, now
     with db:
         db.execute("BEGIN IMMEDIATE")
         existing = db.execute(
-            "SELECT count(*) FROM sync_submission_items WHERE submission_id=?", (sid,)
+            "SELECT count(*) FROM website_request_changes WHERE submission_id=?", (sid,)
         ).fetchone()[0]
         if not existing:
             for item in generated["items"]:
                 db.execute(
-                    "INSERT INTO sync_submission_items(submission_id,item_index,client_ref,website_entity,local_entity_type,local_entity_id,evidence_id,claim_id,approval_id,request_item_json) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO website_request_changes(submission_id,item_index,client_ref,website_entity,local_entity_type,local_entity_id,evidence_id,claim_id,approval_id,request_item_json) VALUES(?,?,?,?,?,?,?,?,?,?)",
                     (
                         sid,
                         item["item_index"],
@@ -1087,7 +1087,7 @@ def prepare_research_submission(db, site_key, idempotency_key, generated, *, now
         else:
             saved = list(
                 db.execute(
-                    "SELECT item_index,client_ref,request_item_json FROM sync_submission_items WHERE submission_id=? ORDER BY item_index",
+                    "SELECT item_index,client_ref,request_item_json FROM website_request_changes WHERE submission_id=? ORDER BY item_index",
                     (sid,),
                 )
             )
@@ -1147,7 +1147,7 @@ def approve_site_update(
     ):
         raise ValueError("Update approval must pin the current mapped Website version")
     if (
-        db.execute('SELECT 1 FROM evidence_links WHERE "Evidence record ID"=?', (evidence_id,)).fetchone()
+        db.execute('SELECT 1 FROM research_evidence WHERE "Evidence record ID"=?', (evidence_id,)).fetchone()
         is None
     ):
         raise ValueError("Update approval requires retained research evidence")
@@ -1158,7 +1158,7 @@ def approve_site_update(
     with db:
         db.execute("BEGIN IMMEDIATE")
         db.execute(
-            "INSERT INTO site_sync_update_approvals(id,site_key,local_entity_type,local_entity_id,fields_json,expected_version,evidence_id,state,approved_at) VALUES(?,?,?,?,?,?,?,'approved',?)",
+            "INSERT INTO website_update_approvals(id,site_key,local_entity_type,local_entity_id,fields_json,expected_version,evidence_id,state,approved_at) VALUES(?,?,?,?,?,?,?,'approved',?)",
             (
                 approval_id,
                 site_key,
@@ -1177,7 +1177,7 @@ def reconcile_submission(db, submission_id, *, now=None):
     """Apply only a stored R6 committed receipt; timeouts and rejections map no IDs."""
     stamp = now or timestamp()
     sub = db.execute(
-        "SELECT state,response_status,response_json,remote_batch_id FROM sync_submissions WHERE id=?",
+        "SELECT state,response_status,response_json,remote_batch_id FROM website_requests WHERE id=?",
         (submission_id,),
     ).fetchone()
     if sub is None:
@@ -1190,7 +1190,7 @@ def reconcile_submission(db, submission_id, *, now=None):
         raise ValueError("Submission has no authoritative stored response")
     receipt = json.loads(sub["response_json"])
     prior = db.execute(
-        "SELECT state,website_batch_id,receipt_json FROM sync_submission_receipts WHERE submission_id=?",
+        "SELECT state,website_batch_id,receipt_json FROM website_request_receipts WHERE submission_id=?",
         (submission_id,),
     ).fetchone()
     encoded = canonical_json(receipt)
@@ -1211,15 +1211,15 @@ def reconcile_submission(db, submission_id, *, now=None):
         with db:
             db.execute("BEGIN IMMEDIATE")
             db.execute(
-                "INSERT INTO sync_submission_receipts VALUES(?,?,?,?,?)",
+                "INSERT INTO website_request_receipts VALUES(?,?,?,?,?)",
                 (submission_id, "rejected", None, encoded, stamp),
             )
             for item in db.execute(
-                "SELECT * FROM sync_submission_items WHERE submission_id=? ORDER BY item_index",
+                "SELECT * FROM website_request_changes WHERE submission_id=? ORDER BY item_index",
                 (submission_id,),
             ):
                 db.execute(
-                    "INSERT INTO sync_item_receipts VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO website_change_receipts VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         submission_id,
                         item["item_index"],
@@ -1236,7 +1236,7 @@ def reconcile_submission(db, submission_id, *, now=None):
                 )
                 if item["approval_id"]:
                     db.execute(
-                        "UPDATE site_sync_update_approvals SET state='rejected' WHERE id=? AND state='approved'",
+                        "UPDATE website_update_approvals SET state='rejected' WHERE id=? AND state='approved'",
                         (item["approval_id"],),
                     )
         return {"state": "rejected", "replayed": False, "batch_id": None}
@@ -1249,7 +1249,7 @@ def reconcile_submission(db, submission_id, *, now=None):
         raise ValueError("Stored response is not an authoritative committed receipt")
     expected = list(
         db.execute(
-            "SELECT * FROM sync_submission_items WHERE submission_id=? ORDER BY item_index",
+            "SELECT * FROM website_request_changes WHERE submission_id=? ORDER BY item_index",
             (submission_id,),
         )
     )
@@ -1297,12 +1297,12 @@ def reconcile_submission(db, submission_id, *, now=None):
     with db:
         db.execute("BEGIN IMMEDIATE")
         db.execute(
-            "INSERT INTO sync_submission_receipts VALUES(?,?,?,?,?)",
+            "INSERT INTO website_request_receipts VALUES(?,?,?,?,?)",
             (submission_id, "committed", sub["remote_batch_id"], encoded, stamp),
         )
         for meta, item in validated:
             db.execute(
-                "INSERT INTO sync_item_receipts VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO website_change_receipts VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     submission_id,
                     meta["item_index"],
@@ -1321,14 +1321,14 @@ def reconcile_submission(db, submission_id, *, now=None):
                 old = _linked(
                     db,
                     db.execute(
-                        "SELECT site_key FROM sync_submissions WHERE id=?",
+                        "SELECT site_key FROM website_requests WHERE id=?",
                         (submission_id,),
                     ).fetchone()[0],
                     meta["local_entity_type"],
                     meta["local_entity_id"],
                 )
                 site = db.execute(
-                    "SELECT site_key FROM sync_submissions WHERE id=?", (submission_id,)
+                    "SELECT site_key FROM website_requests WHERE id=?", (submission_id,)
                 ).fetchone()[0]
                 if old and (
                     old["website_entity"] != meta["website_entity"]
@@ -1343,7 +1343,7 @@ def reconcile_submission(db, submission_id, *, now=None):
                     )
                 if old:
                     db.execute(
-                        "UPDATE site_entity_links SET website_version=?,last_outcome=?,last_batch_id=?,updated_at=? WHERE site_key=? AND local_entity_type=? AND local_entity_id=?",
+                        "UPDATE website_ids SET website_version=?,last_outcome=?,last_batch_id=?,updated_at=? WHERE site_key=? AND local_entity_type=? AND local_entity_id=?",
                         (
                             item["version"],
                             item["outcome"],
@@ -1355,13 +1355,13 @@ def reconcile_submission(db, submission_id, *, now=None):
                         ),
                     )
                     link_id = db.execute(
-                        "SELECT id FROM site_entity_links WHERE site_key=? AND local_entity_type=? AND local_entity_id=?",
+                        "SELECT id FROM website_ids WHERE site_key=? AND local_entity_type=? AND local_entity_id=?",
                         (site, meta["local_entity_type"], meta["local_entity_id"]),
                     ).fetchone()[0]
                 else:
                     link_id = f"link_{uuid5(NAMESPACE_URL,site+'|'+meta['local_entity_type']+'|'+meta['local_entity_id'])}"
                     db.execute(
-                        "INSERT INTO site_entity_links VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                        "INSERT INTO website_ids VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             link_id,
                             site,
@@ -1378,17 +1378,17 @@ def reconcile_submission(db, submission_id, *, now=None):
                     )
                 if meta["evidence_id"]:
                     db.execute(
-                        "INSERT OR IGNORE INTO site_entity_lineage(link_id,evidence_id,claim_id) VALUES(?,?,?)",
+                        "INSERT OR IGNORE INTO website_id_evidence(link_id,evidence_id,claim_id) VALUES(?,?,?)",
                         (link_id, meta["evidence_id"], meta["claim_id"]),
                     )
                 if meta["approval_id"]:
                     updated = db.execute(
-                        "UPDATE site_sync_update_approvals SET state='consumed',consumed_submission_id=? WHERE id=? AND state='approved' AND expected_version=?",
+                        "UPDATE website_update_approvals SET state='consumed',consumed_submission_id=? WHERE id=? AND state='approved' AND expected_version=?",
                         (
                             submission_id,
                             meta["approval_id"],
                             db.execute(
-                                "SELECT expected_version FROM site_sync_update_approvals WHERE id=?",
+                                "SELECT expected_version FROM website_update_approvals WHERE id=?",
                                 (meta["approval_id"],),
                             ).fetchone()[0],
                         ),
@@ -1433,7 +1433,7 @@ def reconcile_reversal(db, site_key, website_batch_id, receipt, *, now=None):
     encoded = canonical_json(receipt)
     receipt_sha = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
     old = db.execute(
-        "SELECT state,receipt_json FROM sync_reversal_receipts WHERE site_key=? AND website_batch_id=? AND receipt_sha256=?",
+        "SELECT state,receipt_json FROM website_reversal_receipts WHERE site_key=? AND website_batch_id=? AND receipt_sha256=?",
         (site_key, website_batch_id, receipt_sha),
     ).fetchone()
     if old:
@@ -1446,7 +1446,7 @@ def reconcile_reversal(db, site_key, website_batch_id, receipt, *, now=None):
     with db:
         db.execute("BEGIN IMMEDIATE")
         db.execute(
-            "INSERT INTO sync_reversal_receipts VALUES(?,?,?,?,?,?,?)",
+            "INSERT INTO website_reversal_receipts VALUES(?,?,?,?,?,?,?)",
             (
                 f"reversal_{uuid5(NAMESPACE_URL,site_key+'|'+website_batch_id+'|'+receipt_sha)}",
                 site_key,
@@ -1460,8 +1460,8 @@ def reconcile_reversal(db, site_key, website_batch_id, receipt, *, now=None):
         if state in ("reverted", "already_reverted"):
             rows = list(
                 db.execute(
-                    "SELECT l.id,r.outcome FROM site_entity_links l JOIN sync_item_receipts r "
-                    "ON r.website_id=l.website_id JOIN sync_submission_receipts sr ON sr.submission_id=r.submission_id "
+                    "SELECT l.id,r.outcome FROM website_ids l JOIN website_change_receipts r "
+                    "ON r.website_id=l.website_id JOIN website_request_receipts sr ON sr.submission_id=r.submission_id "
                     "WHERE sr.website_batch_id=? AND l.site_key=? AND l.last_batch_id=? AND r.status='committed'",
                     (website_batch_id, site_key, website_batch_id),
                 )
@@ -1474,7 +1474,7 @@ def reconcile_reversal(db, site_key, website_batch_id, receipt, *, now=None):
                     else "needs_refresh" if row["outcome"] == "updated" else "active"
                 )
                 db.execute(
-                    "UPDATE site_entity_links SET link_state=?,updated_at=? WHERE id=?",
+                    "UPDATE website_ids SET link_state=?,updated_at=? WHERE id=?",
                     (link_state, now or timestamp(), row["id"]),
                 )
     return {"state": state, "replayed": False}

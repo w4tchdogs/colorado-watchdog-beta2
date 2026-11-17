@@ -23,7 +23,7 @@ class SourceTypeTests(unittest.TestCase):
         self.db = connect(self.database)
         migrate(self.db)
         self.db.executemany(
-            'INSERT INTO sources("Source ID","Original source URL","Document type","Previous source category","Publisher type","Recorded on") '
+            'INSERT INTO research_sources("Source ID","Original source URL","Document type","Previous source category","Publisher type","Recorded on") '
             "VALUES (?,?,?,?,?,?)",
             [("s_page", "https://example.invalid/staff", None, "official", "official", NOW),
              ("s_pdf", "https://example.invalid/files/Org%20Chart.PDF?v=2", None, "official", "official", NOW),
@@ -69,12 +69,12 @@ class SourceTypeTests(unittest.TestCase):
         code, applied = self.run_cli("apply-source-types", str(self.database),
                                      "--plan", str(plan_path), "--expect-plan-sha256", sha)
         self.assertEqual((code, applied["updated"]), (0, 3))
-        rows = dict(self.db.execute('SELECT "Source ID" AS id,"Document type" AS page_type FROM sources').fetchall())
+        rows = dict(self.db.execute('SELECT "Source ID" AS id,"Document type" AS page_type FROM research_sources').fetchall())
         self.assertEqual(rows["s_pdf"], "public_document")
         self.assertEqual(rows["s_set"], "other_public")
         self.assertIsNone(rows["s_unknown"])
         self.assertEqual(self.db.execute(
-            "SELECT COUNT(*) FROM research_events WHERE kind='source_page_type_set'").fetchone()[0], 3)
+            "SELECT COUNT(*) FROM research_history WHERE kind='source_page_type_set'").fetchone()[0], 3)
         code, verified = self.run_cli("verify-source-types", str(self.database),
                                       "--plan", str(plan_path), "--expect-plan-sha256", sha)
         self.assertEqual((code, verified["status"], verified["mismatched"]), (0, "verified", 0))
@@ -96,17 +96,17 @@ class SourceTypeTests(unittest.TestCase):
                                "--plan", str(plan_path), "--expect-plan-sha256", preview["plan_sha256"])
         self.assertEqual(code, 2)
         self.assertEqual(self.db.execute(
-            "SELECT COUNT(*) FROM sources WHERE \"Document type\" IS NULL AND \"Previous source category\"='official'").fetchone()[0], 3)
+            "SELECT COUNT(*) FROM research_sources WHERE \"Document type\" IS NULL AND \"Previous source category\"='official'").fetchone()[0], 3)
 
     def test_drift_rolls_back_everything(self):
         plan = source_types.build_page_type_plan(self.db)
-        self.db.execute("UPDATE sources SET \"Document type\"='other_public' WHERE \"Source ID\"='s_pdf'")
+        self.db.execute("UPDATE research_sources SET \"Document type\"='other_public' WHERE \"Source ID\"='s_pdf'")
         self.db.commit()
         with self.assertRaises(ValueError):
             source_types.apply_page_type_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
         self.assertIsNone(self.db.execute(
-            "SELECT \"Document type\" AS page_type FROM sources WHERE \"Source ID\"='s_page'").fetchone()[0])
-        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM research_events").fetchone()[0], 0)
+            "SELECT \"Document type\" AS page_type FROM research_sources WHERE \"Source ID\"='s_page'").fetchone()[0])
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM research_history").fetchone()[0], 0)
 
     def test_plan_inside_checkout_is_refused(self):
         with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):

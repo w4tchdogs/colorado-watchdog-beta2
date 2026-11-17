@@ -24,13 +24,13 @@ NOW = datetime.now(timezone.utc).isoformat(timespec="seconds")
 def setup(path):
     db = connect(path)
     migrate(db)
-    db.execute("INSERT INTO counties VALUES ('08001','Adams')")
+    db.execute("INSERT INTO county VALUES ('08001','Adams')")
     db.execute(
         "INSERT INTO research_runs VALUES ('run','mapping','synthetic','fixture',?,?,?,'synthetic fixture')",
         (NOW, NOW, NOW),
     )
     db.execute(
-        "INSERT INTO scrape_batches(id,county_fips,family_id,lineage_kind,selected,version_label,original_file_name,file_sha256,mapping_version,mapping_json,provenance_type,run_id,recorded_at) VALUES ('batch','08001','batch','original',1,'fixture','fixture.csv',?,'fixture/v1','{}','synthetic','run',?)",
+        "INSERT INTO research_scrapes(id,county_fips,family_id,lineage_kind,selected,version_label,original_file_name,file_sha256,mapping_version,mapping_json,provenance_type,run_id,recorded_at) VALUES ('batch','08001','batch','original',1,'fixture','fixture.csv',?,'fixture/v1','{}','synthetic','run',?)",
         (hashlib.sha256(b"fixture").hexdigest(), NOW),
     )
     sources = [
@@ -40,7 +40,7 @@ def setup(path):
     ]
     for i, (sid, url, kind) in enumerate(sources):
         db.execute(
-            'INSERT INTO sources("Source ID","Original source URL","Document type","Previous source category","Publisher type","Recorded on") '
+            'INSERT INTO research_sources("Source ID","Original source URL","Document type","Previous source category","Publisher type","Recorded on") '
             "VALUES(?,?,?,'official','official',?)",
             (sid, url, kind, NOW),
         )
@@ -51,7 +51,7 @@ def setup(path):
         url = dict((x[0], x[1]) for x in sources)[source]
         raw = json.dumps({"fixture": key})
         db.execute(
-            "INSERT INTO evidence_links(\"Evidence record ID\",\"Source ID\",\"Source title as observed\",\"Source URL as observed\",\"Evidence location\",\"Import batch ID\",\"Original record\",\"Original record fingerprint\",\"Where the record appeared\",\"Research run ID\",\"Recorded on\") VALUES(?,?,?,?,?,'batch',?,?,?,?,?)",
+            "INSERT INTO research_evidence(\"Evidence record ID\",\"Source ID\",\"Source title as observed\",\"Source URL as observed\",\"Evidence location\",\"Import batch ID\",\"Original record\",\"Original record fingerprint\",\"Where the record appeared\",\"Research run ID\",\"Recorded on\") VALUES(?,?,?,?,?,'batch',?,?,?,?,?)",
             (
                 eid,
                 source,
@@ -88,7 +88,7 @@ def setup(path):
     ]
     for uid, kind, parent in units:
         db.execute(
-            "INSERT INTO org_units(\"Office or unit ID\",\"County code\",\"Office or unit label as published\",\"Organization type\",\"Parent office or unit\",\"Relationship to parent\",\"Evidence for parent relationship\") VALUES(?,'08001',?,?,?, ?,?)",
+            "INSERT INTO county_research_unit_structure(\"Office or unit ID\",\"County code\",\"Office or unit label as published\",\"Organization type\",\"Parent office or unit\",\"Relationship to parent\",\"Evidence for parent relationship\") VALUES(?,'08001',?,?,?, ?,?)",
             (
                 uid,
                 kind.title()
@@ -109,7 +109,7 @@ def setup(path):
         )
         ev_key = {"department": "dept"}.get(uid, uid)
         db.execute(
-            "INSERT INTO org_names(\"Office name record ID\",\"Office or unit ID\",\"Name\",\"Name type\",\"Evidence for this name\") VALUES(?,?,?,'published',?)",
+            "INSERT INTO county_research_unit_names(\"Office name record ID\",\"Office or unit ID\",\"Name\",\"Name type\",\"Evidence for this name\") VALUES(?,?,?,'published',?)",
             ("name-" + uid, uid, uid, ev[ev_key]),
         )
     targets = [
@@ -121,7 +121,7 @@ def setup(path):
     ]
     for tid, unit, title in targets:
         db.execute(
-            "INSERT INTO role_targets(\"Position ID\",\"Office or unit ID\",\"County code\",\"Documented position title\",\"Evidence for position\") VALUES(?,?,'08001',?,?)",
+            "INSERT INTO county_research_positions(\"Position ID\",\"Office or unit ID\",\"County code\",\"Documented position title\",\"Evidence for position\") VALUES(?,?,'08001',?,?)",
             (
                 tid,
                 unit,
@@ -146,7 +146,7 @@ def setup(path):
     ]
     for pid, name, state, evidence_id in people:
         db.execute(
-            "INSERT INTO research_people(\"Profile ID\",\"County code\",\"Full name\",\"Identity review status\",\"Evidence for identity\") VALUES(?,'08001',?,?,?)",
+            "INSERT INTO profile_research(\"Profile ID\",\"County code\",\"Full name\",\"Identity review status\",\"Evidence for identity\") VALUES(?,'08001',?,?,?)",
             (pid, name, state, evidence_id),
         )
     claims = [
@@ -174,7 +174,7 @@ def setup(path):
     evidence("role-p", "src2")
     for cid, pid, unit, target, key, aff in claims:
         db.execute(
-            "INSERT INTO role_claims(\"Role claim ID\",\"County code\",\"Evidence record ID\",\"Linked profile\",\"Linked office or unit\",\"Linked position\",\"Name as published\",\"Position as published\",\"Listing status\",\"Affiliation\",\"Private review notes\") VALUES(?,'08001',?,?,?,?,?,?,'Listed',?,'PRIVATE FIXTURE NOTE MUST NOT LEAVE SQLITE')",
+            "INSERT INTO profile_research_role(\"Role claim ID\",\"County code\",\"Evidence record ID\",\"Linked profile\",\"Linked office or unit\",\"Linked position\",\"Name as published\",\"Position as published\",\"Listing status\",\"Affiliation\",\"Private review notes\") VALUES(?,'08001',?,?,?,?,?,?,'Listed',?,'PRIVATE FIXTURE NOTE MUST NOT LEAVE SQLITE')",
             (
                 cid,
                 ev[key],
@@ -216,7 +216,7 @@ def ack(path, receipt_text, submission_id):
         assert site == SITE and path.endswith("/commit") and headers["idempotency-key"]
         assert json.loads(body) == json.loads(
             db.execute(
-                "SELECT request_json FROM sync_submissions WHERE id=?", (submission_id,)
+                "SELECT request_json FROM website_requests WHERE id=?", (submission_id,)
             ).fetchone()[0]
         )
         return 201, json.dumps(receipt).encode()
@@ -225,7 +225,7 @@ def ack(path, receipt_text, submission_id):
         db, submission_id, lambda *args: (_ for _ in ()).throw(TimeoutError()), now=NOW
     )
     assert uncertain["state"] == "uncertain"
-    assert db.execute("SELECT count(*) FROM site_entity_links").fetchone()[0] == 0
+    assert db.execute("SELECT count(*) FROM website_ids").fetchone()[0] == 0
     first = submit_prepared(db, submission_id, transport, now=NOW)
     assert first["state"] == "acknowledged"
     result = reconcile_submission(db, submission_id, now=NOW)
@@ -239,7 +239,7 @@ def ack(path, receipt_text, submission_id):
                 "result": result,
                 "repeat": repeat,
                 "mapping_count": db.execute(
-                    "SELECT count(*) FROM site_entity_links WHERE site_key=?", (SITE,)
+                    "SELECT count(*) FROM website_ids WHERE site_key=?", (SITE,)
                 ).fetchone()[0],
                 "unresolved": sum(
                     x["reason"] == "identity_unresolved" for x in generated["excluded"]
@@ -253,7 +253,7 @@ def ack(path, receipt_text, submission_id):
 def prepare_update(path):
     db = connect(path)
     evidence = db.execute(
-        "SELECT \"Evidence for identity\" AS identity_evidence_id FROM research_people WHERE \"Profile ID\"='person-a'"
+        "SELECT \"Evidence for identity\" AS identity_evidence_id FROM profile_research WHERE \"Profile ID\"='person-a'"
     ).fetchone()[0]
     approval = approve_site_update(
         db,
@@ -294,11 +294,11 @@ def ack_update(path, receipt_text, submission_id):
     assert result["state"] == "acknowledged"
     reconciled = reconcile_submission(db, submission_id, now=NOW)
     version = db.execute(
-        "SELECT website_version FROM site_entity_links WHERE site_key=? AND local_entity_type='research_person' AND local_entity_id='person-a'",
+        "SELECT website_version FROM website_ids WHERE site_key=? AND local_entity_type='research_person' AND local_entity_id='person-a'",
         (SITE,),
     ).fetchone()[0]
     approval_state = db.execute(
-        "SELECT state FROM site_sync_update_approvals WHERE id=(SELECT approval_id FROM sync_submission_items WHERE submission_id=?)",
+        "SELECT state FROM website_update_approvals WHERE id=(SELECT approval_id FROM website_request_changes WHERE submission_id=?)",
         (submission_id,),
     ).fetchone()[0]
     assert version == 2 and approval_state == "consumed"
@@ -311,7 +311,7 @@ def ack_update(path, receipt_text, submission_id):
             {"display_name": "stale"},
             1,
             db.execute(
-                "SELECT \"Evidence for identity\" AS identity_evidence_id FROM research_people WHERE \"Profile ID\"='person-a'"
+                "SELECT \"Evidence for identity\" AS identity_evidence_id FROM profile_research WHERE \"Profile ID\"='person-a'"
             ).fetchone()[0],
             now=NOW,
         )
@@ -331,7 +331,7 @@ def reversal(path, batch_id, receipt_text):
     db = connect(path)
     result = reconcile_reversal(db, SITE, batch_id, json.loads(receipt_text), now=NOW)
     state = db.execute(
-        "SELECT link_state FROM site_entity_links WHERE site_key=? AND local_entity_type='research_person' AND local_entity_id='person-a'",
+        "SELECT link_state FROM website_ids WHERE site_key=? AND local_entity_type='research_person' AND local_entity_id='person-a'",
         (SITE,),
     ).fetchone()[0]
     assert state == "needs_refresh"

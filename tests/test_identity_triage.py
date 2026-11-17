@@ -21,7 +21,7 @@ class IdentityTriageTests(unittest.TestCase):
     def setUp(self):
         self.db = connect()
         migrate(self.db)
-        self.db.execute("INSERT INTO counties VALUES (?,?)", ("08051", COUNTIES["08051"]))
+        self.db.execute("INSERT INTO county VALUES (?,?)", ("08051", COUNTIES["08051"]))
         self.db.commit()
 
     def tearDown(self):
@@ -35,7 +35,7 @@ class IdentityTriageTests(unittest.TestCase):
                               parent_batch_id=parent, return_result=False)
         return [dict(row) for row in self.db.execute(
             'SELECT c."Role claim ID" AS id,c."County code" AS county_fips,c."Name as published" AS published_name,c."Evidence record ID" AS evidence_id,c."Linked profile" AS person_id,e."Source ID" AS source_id '
-            'FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+            'FROM profile_research_role c JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" '
             'WHERE e."Import batch ID"=? ORDER BY e."Evidence location"', (batch_id,))]
 
     def preview(self):
@@ -54,7 +54,7 @@ class IdentityTriageTests(unittest.TestCase):
         self.add_batch([{"full_name": "Synthetic Taylor Example", "title": "Fixture Manager"}],
                        url="https://example.gov/manager", name="original.csv")
         parent_batch = self.db.execute(
-            "SELECT id FROM scrape_batches WHERE original_file_name='original.csv'").fetchone()[0]
+            "SELECT id FROM research_scrapes WHERE original_file_name='original.csv'").fetchone()[0]
         self.add_batch([{"full_name": "Synthetic Taylor Example", "title": "Fixture Lead"}],
                        url="https://example.gov/manager", name="alternative.csv", kind="alternative",
                        parent=parent_batch)
@@ -89,7 +89,7 @@ class IdentityTriageTests(unittest.TestCase):
                                url="https://example.gov/treasurer")[0]
         plan = identity.build_identity_plan(self.db)
         identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
-        existing_person_id = self.db.execute('SELECT "Profile ID" AS id FROM research_people').fetchone()[0]
+        existing_person_id = self.db.execute('SELECT "Profile ID" AS id FROM profile_research').fetchone()[0]
         second = self.add_batch([{"full_name": "Synthetic Morgan Example", "title": "Fixture Clerk"}],
                                 url="https://example.gov/clerk")[0]
         plan, report = self.preview()
@@ -117,11 +117,11 @@ class IdentityTriageTests(unittest.TestCase):
             self.assertEqual(reread["triage_sha256"], report["triage_sha256"])
             self.assertEqual(len(file_hash), 64)
         before = (self.db.execute("SELECT count(*) FROM research_runs").fetchone()[0],
-                  self.db.execute("SELECT count(*) FROM research_events").fetchone()[0])
+                  self.db.execute("SELECT count(*) FROM research_history").fetchone()[0])
         first = identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
         second = identity.apply_identity_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
         after = (self.db.execute("SELECT count(*) FROM research_runs").fetchone()[0],
-                 self.db.execute("SELECT count(*) FROM research_events").fetchone()[0])
+                 self.db.execute("SELECT count(*) FROM research_history").fetchone()[0])
         self.assertEqual(first["status"], "no_changes")
         self.assertEqual(second["status"], "no_changes")
         self.assertEqual(after, before)

@@ -19,26 +19,26 @@ def _digest(value):
 
 def _state(db):
     sources = [tuple(row) for row in db.execute(
-        'SELECT "Source ID" AS id,"Original source URL" AS original_url,"Previous source category" AS official_status,"Publisher type" AS publisher_classification FROM sources ORDER BY id')]
+        'SELECT "Source ID" AS id,"Original source URL" AS original_url,"Previous source category" AS official_status,"Publisher type" AS publisher_classification FROM research_sources ORDER BY id')]
     evidence = [tuple(row) for row in db.execute(
         'SELECT "Evidence record ID" AS id,"Source ID" AS source_id,"Source title as observed" AS observed_title,"Source URL as observed" AS observed_url,"Source date" AS source_date,"How the source date was determined" AS source_date_basis,"Evidence location" AS locator,"Evidence excerpt" AS quotation,'
-        '"Original record fingerprint" AS raw_record_sha256,"Earlier evidence record this replaces" AS supersedes_id FROM evidence_links ORDER BY id')]
+        '"Original record fingerprint" AS raw_record_sha256,"Earlier evidence record this replaces" AS supersedes_id FROM research_evidence ORDER BY id')]
     events = [tuple(row) for row in db.execute(
-        "SELECT id,entity_id,detail_json FROM research_events WHERE entity_type='sources' "
+        "SELECT id,entity_id,detail_json FROM research_history WHERE entity_type='sources' "
         "AND kind='source_classified' ORDER BY id")]
     batches = [tuple(row) for row in db.execute(
-        "SELECT id,county_fips,family_id,lineage_kind,selected,parent_batch_id FROM scrape_batches ORDER BY id")]
+        "SELECT id,county_fips,family_id,lineage_kind,selected,parent_batch_id FROM research_scrapes ORDER BY id")]
     people = [tuple(row) for row in db.execute(
-        'SELECT "Profile ID" AS id,"County code" AS county_fips,"Identity review status" AS identity_state,"Evidence for identity" AS identity_evidence_id FROM research_people ORDER BY id')]
+        'SELECT "Profile ID" AS id,"County code" AS county_fips,"Identity review status" AS identity_state,"Evidence for identity" AS identity_evidence_id FROM profile_research ORDER BY id')]
     claims = [tuple(row) for row in db.execute(
         'SELECT "Role claim ID" AS id,"County code" AS county_fips,"Evidence record ID" AS evidence_id,"Linked profile" AS person_id,"Linked office or unit" AS unit_id,"Linked position" AS target_id,"Name as published" AS published_name,"Position as published" AS published_title,'
-        '"Job description or duties" AS responsibility,"Listing status" AS source_listing_status,"Earlier claim this replaces" AS supersedes_id FROM role_claims ORDER BY id')]
+        '"Job description or duties" AS responsibility,"Listing status" AS source_listing_status,"Earlier claim this replaces" AS supersedes_id FROM profile_research_role ORDER BY id')]
     units = [tuple(row) for row in db.execute(
-        'SELECT "Office or unit ID" AS id,"County code" AS county_fips,"Organization type" AS kind,"Parent office or unit" AS parent_id,"Relationship to parent" AS parent_relation,"Evidence for parent relationship" AS parent_evidence_id FROM org_units ORDER BY id')]
+        'SELECT "Office or unit ID" AS id,"County code" AS county_fips,"Organization type" AS kind,"Parent office or unit" AS parent_id,"Relationship to parent" AS parent_relation,"Evidence for parent relationship" AS parent_evidence_id FROM county_research_unit_structure ORDER BY id')]
     targets = [tuple(row) for row in db.execute(
-        'SELECT "Position ID" AS id,"Office or unit ID" AS unit_id,"County code" AS county_fips,"Evidence for position" AS evidence_id FROM role_targets ORDER BY id')]
+        'SELECT "Position ID" AS id,"Office or unit ID" AS unit_id,"County code" AS county_fips,"Evidence for position" AS evidence_id FROM county_research_positions ORDER BY id')]
     source_units = [tuple(row) for row in db.execute(
-        "SELECT source_id,unit_id,relation,evidence_id FROM source_unit_links ORDER BY source_id,unit_id,relation")]
+        "SELECT source_id,unit_id,relation,evidence_id FROM county_research_unit_sources ORDER BY source_id,unit_id,relation")]
     return {"source_count": len(sources), "evidence_count": len(evidence),
             "sources_sha256": _digest(sources), "evidence_sha256": _digest(evidence),
             "classification_history_sha256": _digest(events),
@@ -56,11 +56,11 @@ def build_plan(db):
     from research.db import validate_migration_history
     validate_migration_history(db)
     rows = {row["id"]: dict(row) for row in db.execute(
-        'SELECT "Source ID" AS id,"Original source URL" AS original_url,"Previous source category" AS official_status,"Publisher type" AS publisher_classification FROM sources ORDER BY id')}
-    evidence = {row["id"]: row["source_id"] for row in db.execute('SELECT "Evidence record ID" AS id,"Source ID" AS source_id FROM evidence_links')}
+        'SELECT "Source ID" AS id,"Original source URL" AS original_url,"Previous source category" AS official_status,"Publisher type" AS publisher_classification FROM research_sources ORDER BY id')}
+    evidence = {row["id"]: row["source_id"] for row in db.execute('SELECT "Evidence record ID" AS id,"Source ID" AS source_id FROM research_evidence')}
     prior = {}
     for row in db.execute(
-            "SELECT entity_id,detail_json FROM research_events WHERE entity_type='sources' "
+            "SELECT entity_id,detail_json FROM research_history WHERE entity_type='sources' "
             "AND kind='source_classified' ORDER BY id"):
         try:
             detail = json.loads(row["detail_json"])
@@ -143,7 +143,7 @@ def _event(db, run_id, item, actor, now):
              "official_status": item["to_official_status"]}
     detail = {"before": before, "after": after, "supporting_evidence_id": item["evidence_id"],
               "basis": item["basis"], "operator": actor}
-    db.execute("INSERT INTO research_events(id,run_id,kind,entity_type,entity_id,occurred_at,recorded_at,provenance,detail_json) "
+    db.execute("INSERT INTO research_history(id,run_id,kind,entity_type,entity_id,occurred_at,recorded_at,provenance,detail_json) "
                "VALUES (?,?,?,?,?,?,?,?,?)",
                (new_id("event"), run_id, "source_publisher_classified", "sources", item["source_id"],
                 now, now, "reconstructed", canonical_json(detail)))
@@ -159,7 +159,7 @@ def apply_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
     try:
         db.execute("BEGIN IMMEDIATE")
         audited = set()
-        for event in db.execute("SELECT entity_id,detail_json FROM research_events "
+        for event in db.execute("SELECT entity_id,detail_json FROM research_history "
                                 "WHERE kind='source_publisher_classified' AND entity_type='sources'"):
             try:
                 detail = json.loads(event["detail_json"])
@@ -169,7 +169,7 @@ def apply_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                          detail.get("after", {}).get("publisher_classification")))
         already_applied = bool(plan["entries"])
         for item in plan["entries"]:
-            row = db.execute('SELECT "Publisher type" AS publisher_classification,"Previous source category" AS official_status FROM sources WHERE "Source ID"=?',
+            row = db.execute('SELECT "Publisher type" AS publisher_classification,"Previous source category" AS official_status FROM research_sources WHERE "Source ID"=?',
                              (item["source_id"],)).fetchone()
             if (row is None or row["publisher_classification"] != item["to_classification"]
                     or row["official_status"] != item["to_official_status"]):
@@ -185,11 +185,11 @@ def apply_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
         if _state(db) != plan["input_state"]:
             raise ValueError("Source, evidence, or classification history changed after preview")
         for item in plan["entries"]:
-            row = db.execute('SELECT "Publisher type" AS publisher_classification,"Previous source category" AS official_status FROM sources WHERE "Source ID"=?', (item["source_id"],)).fetchone()
+            row = db.execute('SELECT "Publisher type" AS publisher_classification,"Previous source category" AS official_status FROM research_sources WHERE "Source ID"=?', (item["source_id"],)).fetchone()
             if (row is None or row["publisher_classification"] != item["from_classification"]
                     or row["official_status"] != item["from_official_status"]):
                 raise ValueError("A planned source classification is stale")
-            evidence = db.execute('SELECT "Source ID" AS source_id FROM evidence_links WHERE "Evidence record ID"=?', (item["evidence_id"],)).fetchone()
+            evidence = db.execute('SELECT "Source ID" AS source_id FROM research_evidence WHERE "Evidence record ID"=?', (item["evidence_id"],)).fetchone()
             if evidence is None or evidence[0] != item["source_id"]:
                 raise ValueError("Supporting evidence no longer belongs to the planned source")
         if not plan["entries"]:
@@ -200,7 +200,7 @@ def apply_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                    "VALUES (?,?,?,?,?,?,?,?)", (run_id, "screening", "reconstructed", actor, now, now, now,
                    "Evidence-led publisher classification"))
         for item in plan["entries"]:
-            changed = db.execute('UPDATE sources SET "Publisher type"=?,"Previous source category"=? '
+            changed = db.execute('UPDATE research_sources SET "Publisher type"=?,"Previous source category"=? '
                                  'WHERE "Source ID"=? AND "Publisher type"=? AND "Previous source category"=?',
                                  (item["to_classification"], item["to_official_status"], item["source_id"],
                                   item["from_classification"], item["from_official_status"])).rowcount
@@ -219,7 +219,7 @@ def verify_plan(db, plan):
     plan_sha256(plan)
     mismatches = 0
     for item in plan["entries"]:
-        row = db.execute('SELECT "Publisher type" AS publisher_classification,"Previous source category" AS official_status FROM sources WHERE "Source ID"=?', (item["source_id"],)).fetchone()
+        row = db.execute('SELECT "Publisher type" AS publisher_classification,"Previous source category" AS official_status FROM research_sources WHERE "Source ID"=?', (item["source_id"],)).fetchone()
         if (row is None or row["publisher_classification"] != item["to_classification"]
                 or row["official_status"] != item["to_official_status"]):
             mismatches += 1

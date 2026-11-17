@@ -69,16 +69,16 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
     with db:
         # Serialize replay and selection checks with the write transaction.
         db.execute("BEGIN IMMEDIATE")
-        county_record = db.execute('SELECT "County name" AS name FROM counties WHERE "County code"=?', (county,)).fetchone()
+        county_record = db.execute('SELECT "County name" AS name FROM county WHERE "County code"=?', (county,)).fetchone()
         if county_record is None:
             raise ValueError("County is missing from the target database registry")
         if county_record["name"] != COUNTIES[county]:
             raise ValueError("Registered county name conflicts with the canonical FIPS mapping")
         existing = db.execute(
-            "SELECT * FROM scrape_batches WHERE county_fips=? AND file_sha256=? AND mapping_version=?",
+            "SELECT * FROM research_scrapes WHERE county_fips=? AND file_sha256=? AND mapping_version=?",
             (county, parsed["file_sha256"], version),
         ).fetchone()
-        parent = db.execute("SELECT * FROM scrape_batches WHERE id=?", (parent_batch_id,)).fetchone()
+        parent = db.execute("SELECT * FROM research_scrapes WHERE id=?", (parent_batch_id,)).fetchone()
         if parent_batch_id and (not parent or parent["county_fips"] != county):
             raise ValueError("Parent batch missing or from another county")
         if existing:
@@ -90,7 +90,7 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
                 raise ValueError("Mapping definition changed without a version change")
             for digest in grouped:
                 prior = db.execute(
-                    'SELECT c."Earlier claim this replaces" AS supersedes_id FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+                    'SELECT c."Earlier claim this replaces" AS supersedes_id FROM profile_research_role c JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" '
                     'WHERE e."Import batch ID"=? AND e."Original record fingerprint"=?',
                     (existing["id"], digest),
                 ).fetchone()
@@ -99,7 +99,7 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
                 if prior[0] != correction_links[digest]:
                     raise ValueError("Replay correction links differ from recorded lineage")
             if return_result:
-                counts = db.execute('SELECT count(*) FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+                counts = db.execute('SELECT count(*) FROM profile_research_role c JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" '
                                     'WHERE e."Import batch ID"=?', (existing["id"],)).fetchone()[0]
                 return _delivery_result(existing["id"], created=False, version=version,
                                         file_sha256=parsed["file_sha256"], county=county,
@@ -114,9 +114,9 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
         db.execute("INSERT INTO research_runs(id,kind,provenance,recorded_at) VALUES (?,?,?,?)",
                    (run_id, "mapping", run_provenance, now))
         if selected:
-            db.execute("UPDATE scrape_batches SET selected=0 WHERE family_id=?", (family_id,))
+            db.execute("UPDATE research_scrapes SET selected=0 WHERE family_id=?", (family_id,))
         db.execute(
-            "INSERT INTO scrape_batches VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO research_scrapes VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (batch_id, county, family_id, parent_batch_id, lineage_kind, int(selected), version_label,
              file_name, parsed["file_sha256"], version,
              mapping_json, provenance, run_id, now),
@@ -124,10 +124,10 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
         for digest, occurrences in grouped.items():
             row = occurrences[0]
             v = row["values"]
-            source = db.execute('SELECT "Source ID" AS id FROM sources WHERE "Original source URL"=?', (v["source_url"],)).fetchone()
+            source = db.execute('SELECT "Source ID" AS id FROM research_sources WHERE "Original source URL"=?', (v["source_url"],)).fetchone()
             source_id = source[0] if source else new_id("source")
             if not source:
-                db.execute('INSERT INTO sources("Source ID","Original source URL","Recorded on") VALUES (?,?,?)',
+                db.execute('INSERT INTO research_sources("Source ID","Original source URL","Recorded on") VALUES (?,?,?)',
                            (source_id, v["source_url"], now))
             evidence_id = f"evidence_{uuid5(NAMESPACE_URL, batch_id + ':' + digest)}"
             claim_id = f"claim_{uuid5(NAMESPACE_URL, evidence_id)}"
@@ -135,7 +135,7 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
             parent_evidence_id = None
             if parent_claim_id:
                 prior = db.execute(
-                    'SELECT c."Evidence record ID" AS evidence_id FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+                    'SELECT c."Evidence record ID" AS evidence_id FROM profile_research_role c JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" '
                     'WHERE c."Role claim ID"=? AND e."Import batch ID"=? AND c."County code"=?',
                     (parent_claim_id, parent_batch_id, county),
                 ).fetchone()
@@ -143,7 +143,7 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
                     raise ValueError("Correction must reference a claim in the specified parent batch")
                 parent_evidence_id = prior[0]
             db.execute(
-                'INSERT INTO evidence_links("Evidence record ID","Source ID","Source version ID","Source title as observed","Source URL as observed",'
+                'INSERT INTO research_evidence("Evidence record ID","Source ID","Source version ID","Source title as observed","Source URL as observed",'
                 '"Source date","Source date precision","How the source date was determined","Reported check date","Evidence location",'
                 '"Import batch ID","Original record","Original record fingerprint","Where the record appeared","Earlier evidence record this replaces","Research run ID","Recorded on") '
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -155,14 +155,14 @@ def ingest_csv(db, payload, *, file_name, version_label, version="legacy-17/v1",
                                  for o in occurrences]), parent_evidence_id, run_id, now),
             )
             db.execute(
-                'INSERT INTO role_claims("Role claim ID","County code","Evidence record ID","Name as published","Position as published",'
+                'INSERT INTO profile_research_role("Role claim ID","County code","Evidence record ID","Name as published","Position as published",'
                 '"Job description or duties","Listing status","Original display group","Reason for grouping","Office or department as published",'
                 '"Division or unit as published","Program or location as published","Private review notes","Earlier claim this replaces") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                 (claim_id, county, evidence_id, v["full_name"], v["title"] or None, v["responsibility"] or None,
                  ("Listed" if v["listing_status"] == "Listed in official source" else v["listing_status"]), v["display_group"], v["grouping_basis"], v["department"], v["division"],
                  v["program_location"], v["private_note"], parent_claim_id),
             )
-        db.execute("INSERT INTO research_events VALUES (?,?,?,?,?,?,?,?,?)",
+        db.execute("INSERT INTO research_history VALUES (?,?,?,?,?,?,?,?,?)",
                    (new_id("event"), run_id, "delivery_mapped", "scrape_batches", batch_id, now, now,
                     run_provenance, canonical_json({"records": len(rows), "claims": len(grouped),
                                                    "duplicates": len(rows) - len(grouped)})))
@@ -187,14 +187,14 @@ def set_parent(db, *, unit_id, parent_id, relation, evidence_id, run_id):
     with db:
         db.execute("BEGIN IMMEDIATE")
         previous = db.execute(
-            'SELECT "Parent office or unit" AS parent_id,"Relationship to parent" AS parent_relation,"Evidence for parent relationship" AS parent_evidence_id FROM org_units WHERE "Office or unit ID"=?', (unit_id,),
+            'SELECT "Parent office or unit" AS parent_id,"Relationship to parent" AS parent_relation,"Evidence for parent relationship" AS parent_evidence_id FROM county_research_unit_structure WHERE "Office or unit ID"=?', (unit_id,),
         ).fetchone()
         if previous is None:
             raise ValueError("Unknown organization unit")
-        db.execute('UPDATE org_units SET "Parent office or unit"=?,"Relationship to parent"=?,"Evidence for parent relationship"=? WHERE "Office or unit ID"=?',
+        db.execute('UPDATE county_research_unit_structure SET "Parent office or unit"=?,"Relationship to parent"=?,"Evidence for parent relationship"=? WHERE "Office or unit ID"=?',
                    (parent_id, relation, evidence_id, unit_id))
         now = timestamp()
-        db.execute("INSERT INTO research_events VALUES (?,?,?,?,?,?,?,?,?)",
+        db.execute("INSERT INTO research_history VALUES (?,?,?,?,?,?,?,?,?)",
                    (new_id("event"), run_id, "parent_changed", "org_units", unit_id, now, now, "observed",
                     canonical_json({"before": dict(previous), "after": {
                         "parent_id": parent_id, "parent_relation": relation, "parent_evidence_id": evidence_id,

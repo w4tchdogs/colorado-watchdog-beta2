@@ -40,7 +40,7 @@ def _run(db, run_id):
 
 def _event(db, *, run, actor, kind, entity_type, entity_id, detail, provenance=None):
     now = timestamp()
-    db.execute("INSERT INTO research_events VALUES (?,?,?,?,?,?,?,?,?)",
+    db.execute("INSERT INTO research_history VALUES (?,?,?,?,?,?,?,?,?)",
                (new_id("event"), run["id"], kind, entity_type, entity_id, now, now,
                 provenance or run["provenance"], canonical_json({**detail, "operator": actor})))
 
@@ -48,7 +48,7 @@ def _event(db, *, run, actor, kind, entity_type, entity_id, detail, provenance=N
 def inspect_counties(db, *, county=None, limit=50):
     limit = _limit(limit)
     where, params = ('WHERE "County code"=?', [county]) if county else ("", [])
-    return _rows(db, f"SELECT \"County code\" AS fips,\"County name\" AS name FROM counties {where} ORDER BY fips LIMIT ?", (*params, limit))
+    return _rows(db, f"SELECT \"County code\" AS fips,\"County name\" AS name FROM county {where} ORDER BY fips LIMIT ?", (*params, limit))
 
 
 def inspect_units(db, *, county=None, unit_id=None, limit=50):
@@ -61,7 +61,7 @@ def inspect_units(db, *, county=None, unit_id=None, limit=50):
     where = "WHERE " + " AND ".join(clauses) if clauses else ""
     return _rows(db, f"SELECT u.\"Office or unit ID\" AS id,u.\"County code\" AS county_fips,c.\"County name\" AS county,u.\"Office or unit label as published\" AS source_label,u.\"Organization type\" AS kind,u.\"Parent office or unit\" AS parent_id,"
                       f"u.\"Relationship to parent\" AS parent_relation,u.\"Evidence for parent relationship\" AS parent_evidence_id,u.\"Applies from\" AS effective_from,u.\"Applies until\" AS effective_to "
-                      f"FROM org_units u JOIN counties c ON c.\"County code\"=u.\"County code\" {where} "
+                      f"FROM county_research_unit_structure u JOIN county c ON c.\"County code\"=u.\"County code\" {where} "
                       'ORDER BY u."County code",u."Office or unit ID" LIMIT ?', (*params, limit))
 
 
@@ -74,11 +74,11 @@ def inspect_people(db, *, county=None, person_id=None, limit=50):
         clauses.append('p."Profile ID"=?'); params.append(person_id)
     where = "WHERE " + " AND ".join(clauses) if clauses else ""
     people = _rows(db, f"SELECT p.\"Profile ID\" AS id,p.\"County code\" AS county_fips,c.\"County name\" AS county,p.\"Full name\" AS display_name,p.\"Identity review status\" AS identity_state,"
-                        f"p.\"Evidence for identity\" AS identity_evidence_id FROM research_people p JOIN counties c ON c.\"County code\"=p.\"County code\" "
+                        f"p.\"Evidence for identity\" AS identity_evidence_id FROM profile_research p JOIN county c ON c.\"County code\"=p.\"County code\" "
                         f"{where} ORDER BY p.\"County code\",p.\"Profile ID\" LIMIT ?", (*params, limit))
     for person in people:
         person["claims"] = _rows(db, 'SELECT "Role claim ID" AS id,"Evidence record ID" AS evidence_id,"Name as published" AS published_name,"Position as published" AS published_title,"Listing status" AS source_listing_status,'
-                                     '"Linked office or unit" AS unit_id,"Linked position" AS target_id,"Earlier claim this replaces" AS supersedes_id FROM role_claims WHERE "Linked profile"=? '
+                                     '"Linked office or unit" AS unit_id,"Linked position" AS target_id,"Earlier claim this replaces" AS supersedes_id FROM profile_research_role WHERE "Linked profile"=? '
                                      "ORDER BY id LIMIT ?", (person["id"], MAX_LIMIT))
     return people
 
@@ -99,8 +99,8 @@ def inspect_claims(db, *, county=None, status=None, unassigned=False, claim_id=N
                       f"c.\"Linked office or unit\" AS unit_id,c.\"Linked position\" AS target_id,c.\"Name as published\" AS published_name,c.\"Position as published\" AS published_title,c.\"Job description or duties\" AS responsibility,"
                       f"c.\"Listing status\" AS source_listing_status,c.\"Original display group\" AS legacy_display_group,c.\"Reason for grouping\" AS grouping_basis,c.\"Office or department as published\" AS department_label,"
                       f"c.\"Division or unit as published\" AS division_label,c.\"Program or location as published\" AS program_location,c.\"Earlier claim this replaces\" AS supersedes_id "
-                      f"FROM role_claims c JOIN counties co ON co.\"County code\"=c.\"County code\" "
-                      f"LEFT JOIN research_people p ON p.\"Profile ID\"=c.\"Linked profile\" {where} "
+                      f"FROM profile_research_role c JOIN county co ON co.\"County code\"=c.\"County code\" "
+                      f"LEFT JOIN profile_research p ON p.\"Profile ID\"=c.\"Linked profile\" {where} "
                       'ORDER BY c."County code",c."Role claim ID" LIMIT ?', (*params, limit))
 
 
@@ -110,20 +110,20 @@ def inspect_sources(db, *, source_id=None, county=None, limit=50):
     if source_id:
         clauses.append('s."Source ID"=?'); params.append(source_id)
     if county:
-        clauses.append('EXISTS (SELECT 1 FROM evidence_links e JOIN scrape_batches b ON b.id=e."Import batch ID" '
+        clauses.append('EXISTS (SELECT 1 FROM research_evidence e JOIN research_scrapes b ON b.id=e."Import batch ID" '
                        'WHERE e."Source ID"=s."Source ID" AND b.county_fips=?)'); params.append(county)
     where = "WHERE " + " AND ".join(clauses) if clauses else ""
     sources = _rows(db, f"SELECT s.\"Source ID\" AS id,s.\"Original source URL\" AS original_url,s.\"Document type\" AS page_type,s.\"Previous source category\" AS official_status,s.\"Publisher type\" AS publisher_classification,"
                         f"s.\"Source availability\" AS availability,s.\"How the source was useful\" AS usefulness,"
-                        f"s.\"Recorded on\" AS recorded_at FROM sources s {where} ORDER BY s.\"Source ID\" LIMIT ?", (*params, limit))
+                        f"s.\"Recorded on\" AS recorded_at FROM research_sources s {where} ORDER BY s.\"Source ID\" LIMIT ?", (*params, limit))
     for source in sources:
         source["evidence"] = _rows(db, 'SELECT "Evidence record ID" AS id,"Source version ID" AS source_version_key,"Source title as observed" AS observed_title,"Source URL as observed" AS observed_url,"Source date" AS source_date,'
                                         '"Source date precision" AS source_date_precision,"How the source date was determined" AS source_date_basis,"Reported check date" AS reported_checked_date,"Evidence location" AS locator,'
-                                        '"Import batch ID" AS batch_id,"Research run ID" AS run_id,"Recorded on" AS recorded_at FROM evidence_links WHERE "Source ID"=? '
+                                        '"Import batch ID" AS batch_id,"Research run ID" AS run_id,"Recorded on" AS recorded_at FROM research_evidence WHERE "Source ID"=? '
                                         "ORDER BY recorded_at,id LIMIT ?", (source["id"], MAX_LIMIT))
         source["visits"] = _rows(db, "SELECT id,run_id,provenance,evidence_id,reported_checked_date,attempted_at,"
                                      "actor,attempt,outcome,http_status,duration_ms,content_sha256,etag,last_modified,"
-                                     "result_count FROM source_visits WHERE source_id=? "
+                                     "result_count FROM research_source_visits WHERE source_id=? "
                                      "ORDER BY attempted_at DESC,id LIMIT ?", (source["id"], MAX_LIMIT))
     return sources
 
@@ -140,13 +140,13 @@ def classify_source(db, *, source_id, status, actor, basis, evidence_id=None):
         raise ValueError("Finish the current transaction before an operator update")
     try:
         db.execute("BEGIN IMMEDIATE")
-        source = db.execute('SELECT "Source ID" AS id,"Previous source category" AS official_status,"Publisher type" AS publisher_classification FROM sources WHERE "Source ID"=?', (source_id,)).fetchone()
+        source = db.execute('SELECT "Source ID" AS id,"Previous source category" AS official_status,"Publisher type" AS publisher_classification FROM research_sources WHERE "Source ID"=?', (source_id,)).fetchone()
         if source is None:
             raise ValueError("Unknown source")
         provenance = "reconstructed"
         if evidence_id is not None:
             evidence = db.execute(
-                'SELECT e."Source ID" AS source_id,r.provenance FROM evidence_links e '
+                'SELECT e."Source ID" AS source_id,r.provenance FROM research_evidence e '
                 'JOIN research_runs r ON r.id=e."Research run ID" WHERE e."Evidence record ID"=?', (evidence_id,)
             ).fetchone()
             if evidence is None or evidence["source_id"] != source_id:
@@ -160,7 +160,7 @@ def classify_source(db, *, source_id, status, actor, basis, evidence_id=None):
             raise ValueError("Official publisher classification requires source-specific evidence")
         if previous == status and previous_publisher == next_publisher:
             prior_event = db.execute(
-                "SELECT detail_json FROM research_events WHERE kind IN "
+                "SELECT detail_json FROM research_history WHERE kind IN "
                 "('source_classified','source_classification_confirmed') "
                 "AND entity_type='sources' AND entity_id=? ORDER BY rowid DESC LIMIT 1",
                 (source_id,),
@@ -181,7 +181,7 @@ def classify_source(db, *, source_id, status, actor, basis, evidence_id=None):
                                     note="R4-H1 source classification")
         changed = previous != status or previous_publisher != next_publisher
         if changed:
-            db.execute('UPDATE sources SET "Previous source category"=?,"Publisher type"=? WHERE "Source ID"=?',
+            db.execute('UPDATE research_sources SET "Previous source category"=?,"Publisher type"=? WHERE "Source ID"=?',
                        (status, next_publisher, source_id))
         _event(db, run=run, actor=actor,
                kind="source_classified" if previous != status else "source_classification_confirmed",
@@ -218,10 +218,10 @@ def classify_publisher(db, *, source_id, classification, actor, basis, evidence_
         raise ValueError("Finish the current transaction before an operator update")
     try:
         db.execute("BEGIN IMMEDIATE")
-        source = db.execute('SELECT "Publisher type" AS publisher_classification,"Previous source category" AS official_status FROM sources WHERE "Source ID"=?', (source_id,)).fetchone()
+        source = db.execute('SELECT "Publisher type" AS publisher_classification,"Previous source category" AS official_status FROM research_sources WHERE "Source ID"=?', (source_id,)).fetchone()
         if source is None:
             raise ValueError("Unknown source")
-        evidence = db.execute('SELECT "Source ID" AS source_id,"Research run ID" AS run_id FROM evidence_links WHERE "Evidence record ID"=?', (evidence_id,)).fetchone()
+        evidence = db.execute('SELECT "Source ID" AS source_id,"Research run ID" AS run_id FROM research_evidence WHERE "Evidence record ID"=?', (evidence_id,)).fetchone()
         if evidence is None or evidence["source_id"] != source_id:
             raise ValueError("Supporting evidence must belong to the selected source")
         previous = source["publisher_classification"]
@@ -232,7 +232,7 @@ def classify_publisher(db, *, source_id, classification, actor, basis, evidence_
         elif classification == "unofficial" and previous_legacy == "official":
             next_legacy = "unknown"
         prior_event = db.execute(
-            "SELECT detail_json FROM research_events WHERE kind='source_publisher_classified' "
+            "SELECT detail_json FROM research_history WHERE kind='source_publisher_classified' "
             "AND entity_type='sources' AND entity_id=? ORDER BY rowid DESC LIMIT 1", (source_id,)
         ).fetchone()
         if previous == classification and prior_event:
@@ -248,7 +248,7 @@ def classify_publisher(db, *, source_id, classification, actor, basis, evidence_
                                     note="Publisher classification")
         changed = previous != classification or previous_legacy != next_legacy
         if changed:
-            db.execute('UPDATE sources SET "Publisher type"=?,"Previous source category"=? WHERE "Source ID"=?',
+            db.execute('UPDATE research_sources SET "Publisher type"=?,"Previous source category"=? WHERE "Source ID"=?',
                        (classification, next_legacy, source_id))
         _event(db, run=run, actor=actor,
                kind="source_publisher_classified", entity_type="sources", entity_id=source_id,
@@ -277,8 +277,8 @@ def inspect_matches(db, *, county=None, status=None, person_id=None, limit=50):
     return _rows(db, f"SELECT m.id,m.county_fips,m.person_a,a.\"Full name\" AS person_a_name,"
                       f"m.person_b,b.\"Full name\" AS person_b_name,m.status,m.supporting_evidence_id,"
                       f"m.conflicting_evidence_id,m.rationale,m.decision_basis,m.resolution_evidence_id "
-                      f"FROM possible_matches m JOIN research_people a ON a.\"Profile ID\"=m.person_a "
-                      f"JOIN research_people b ON b.\"Profile ID\"=m.person_b {where} "
+                      f"FROM profile_research_duplicates m JOIN profile_research a ON a.\"Profile ID\"=m.person_a "
+                      f"JOIN profile_research b ON b.\"Profile ID\"=m.person_b {where} "
                       "ORDER BY m.county_fips,m.id LIMIT ?", (*params, limit))
 
 
@@ -291,8 +291,8 @@ def inspect_coverage(db, *, county=None, unit_id=None, axis=None, status=None, l
     where = "WHERE " + " AND ".join(clauses) if clauses else ""
     return _rows(db, f"SELECT c.unit_id,u.\"County code\" AS county_fips,co.\"County name\" AS county,u.\"Office or unit label as published\" AS unit,c.axis,"
                       f"c.status,c.evidence_id,c.run_id,c.assessed_at,c.limitations,c.next_task "
-                      f"FROM unit_coverage c JOIN org_units u ON u.\"Office or unit ID\"=c.unit_id "
-                      f"JOIN counties co ON co.\"County code\"=u.\"County code\" {where} "
+                      f"FROM county_research_coverage c JOIN county_research_unit_structure u ON u.\"Office or unit ID\"=c.unit_id "
+                      f"JOIN county co ON co.\"County code\"=u.\"County code\" {where} "
                       'ORDER BY u."County code",u."Office or unit ID",c.axis LIMIT ?', (*params, limit))
 
 
@@ -307,7 +307,7 @@ def inspect_events(db, *, run_id=None, entity_type=None, entity_id=None, kind=No
     rows = _rows(db, f"SELECT e.id,e.run_id,r.kind AS run_kind,r.provenance AS run_provenance,"
                      f"r.actor AS run_actor,r.recorded_at AS run_recorded_at,e.kind,e.entity_type,e.entity_id,"
                      f"e.occurred_at,e.recorded_at,e.provenance,e.detail_json "
-                     f"FROM research_events e JOIN research_runs r ON r.id=e.run_id {where} "
+                     f"FROM research_history e JOIN research_runs r ON r.id=e.run_id {where} "
                      f"ORDER BY e.recorded_at DESC,e.id LIMIT ?", (*params, limit))
     for row in rows:
         row["details"] = json.loads(row.pop("detail_json"))
@@ -315,21 +315,21 @@ def inspect_events(db, *, run_id=None, entity_type=None, entity_id=None, kind=No
 
 
 def _validate_claim_association(db, *, claim_id, person_id, evidence_id):
-    claim = db.execute('SELECT "Role claim ID" AS id,"County code" AS county_fips,"Evidence record ID" AS evidence_id,"Linked profile" AS person_id,"Name as published" AS published_name FROM role_claims WHERE "Role claim ID"=?',
+    claim = db.execute('SELECT "Role claim ID" AS id,"County code" AS county_fips,"Evidence record ID" AS evidence_id,"Linked profile" AS person_id,"Name as published" AS published_name FROM profile_research_role WHERE "Role claim ID"=?',
                        (claim_id,)).fetchone()
-    person = db.execute('SELECT "Profile ID" AS id,"County code" AS county_fips,"Full name" AS display_name FROM research_people WHERE "Profile ID"=?', (person_id,)).fetchone()
+    person = db.execute('SELECT "Profile ID" AS id,"County code" AS county_fips,"Full name" AS display_name FROM profile_research WHERE "Profile ID"=?', (person_id,)).fetchone()
     if claim is None or person is None:
         raise ValueError("Unknown claim or research person")
     if claim["county_fips"] != person["county_fips"]:
         raise ValueError("Claim and person must belong to the same county")
     if claim["person_id"] is not None:
         raise ValueError("Claim is already assigned; R1 does not reassign identities")
-    support = db.execute('SELECT e."Evidence record ID" AS id,e."Source ID" AS source_id,s."Publisher type" AS official_status,r.provenance FROM evidence_links e '
-                         'JOIN sources s ON s."Source ID"=e."Source ID" JOIN research_runs r ON r.id=e."Research run ID" '
-                         'JOIN name_variants n ON n."Evidence for this name"=e."Evidence record ID" '
+    support = db.execute('SELECT e."Evidence record ID" AS id,e."Source ID" AS source_id,s."Publisher type" AS official_status,r.provenance FROM research_evidence e '
+                         'JOIN research_sources s ON s."Source ID"=e."Source ID" JOIN research_runs r ON r.id=e."Research run ID" '
+                         'JOIN profile_research_name n ON n."Evidence for this name"=e."Evidence record ID" '
                          'WHERE e."Evidence record ID"=? AND n."Profile ID"=? AND n."Name as published"=? '
                          "AND s.\"Previous source category\"='official'", (evidence_id, person_id, claim["published_name"])).fetchone()
-    claim_source = db.execute('SELECT "Source ID" AS source_id FROM evidence_links WHERE "Evidence record ID"=?', (claim["evidence_id"],)).fetchone()
+    claim_source = db.execute('SELECT "Source ID" AS source_id FROM research_evidence WHERE "Evidence record ID"=?', (claim["evidence_id"],)).fetchone()
     if support is None or claim_source is None or support["source_id"] != claim_source["source_id"]:
         raise ValueError("Supporting evidence must document this person’s exact published name in the claim’s official source")
     return claim, person, support
@@ -344,7 +344,7 @@ def _create_screening_run(db, *, provenance, actor, note):
 
 def _associate_claim_in_transaction(db, *, claim_id, person_id, evidence_id, rationale, actor, run):
     _validate_claim_association(db, claim_id=claim_id, person_id=person_id, evidence_id=evidence_id)
-    db.execute('UPDATE role_claims SET "Linked profile"=? WHERE "Role claim ID"=? AND "Linked profile" IS NULL', (person_id, claim_id))
+    db.execute('UPDATE profile_research_role SET "Linked profile"=? WHERE "Role claim ID"=? AND "Linked profile" IS NULL', (person_id, claim_id))
     if db.execute("SELECT changes()").fetchone()[0] != 1:
         raise ValueError("Claim assignment changed during the operation")
     _event(db, run=run, actor=actor, kind="claim_person_associated", entity_type="role_claims",
@@ -362,8 +362,8 @@ def _correction_ancestry(db, claim_id):
         seen.add(current_id)
         row = db.execute(
             'SELECT c."Role claim ID" AS id,c."County code" AS county_fips,c."Evidence record ID" AS evidence_id,c."Earlier claim this replaces" AS supersedes_id,b.family_id,b.lineage_kind,b.selected '
-            'FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
-            'LEFT JOIN scrape_batches b ON b.id=e."Import batch ID" WHERE c."Role claim ID"=?', (current_id,)
+            'FROM profile_research_role c JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" '
+            'LEFT JOIN research_scrapes b ON b.id=e."Import batch ID" WHERE c."Role claim ID"=?', (current_id,)
         ).fetchone()
         if row is None:
             raise ValueError("Correction lineage references a missing claim")
@@ -373,8 +373,8 @@ def _correction_ancestry(db, claim_id):
         if row["lineage_kind"] != "corrected" or not row["selected"]:
             raise ValueError("Only selected corrected-batch lineage can support identity association")
         parent = db.execute(
-            'SELECT c."Role claim ID" AS id,c."County code" AS county_fips,b.family_id FROM role_claims c '
-            'JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" LEFT JOIN scrape_batches b ON b.id=e."Import batch ID" '
+            'SELECT c."Role claim ID" AS id,c."County code" AS county_fips,b.family_id FROM profile_research_role c '
+            'JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" LEFT JOIN research_scrapes b ON b.id=e."Import batch ID" '
             'WHERE c."Role claim ID"=?', (row["supersedes_id"],)
         ).fetchone()
         if (parent is None or parent["county_fips"] != row["county_fips"] or
@@ -386,9 +386,9 @@ def _correction_ancestry(db, claim_id):
 
 def validate_correction_lineage_association(db, *, claim_id, person_id, anchor_claim_id):
     """Validate that two same-county claims are one explicitly linked corrected observation."""
-    claim = db.execute('SELECT "Role claim ID" AS id,"County code" AS county_fips,"Linked profile" AS person_id FROM role_claims WHERE "Role claim ID"=?', (claim_id,)).fetchone()
-    anchor = db.execute('SELECT "Role claim ID" AS id,"County code" AS county_fips,"Linked profile" AS person_id FROM role_claims WHERE "Role claim ID"=?', (anchor_claim_id,)).fetchone()
-    person = db.execute('SELECT "Profile ID" AS id,"County code" AS county_fips FROM research_people WHERE "Profile ID"=?', (person_id,)).fetchone()
+    claim = db.execute('SELECT "Role claim ID" AS id,"County code" AS county_fips,"Linked profile" AS person_id FROM profile_research_role WHERE "Role claim ID"=?', (claim_id,)).fetchone()
+    anchor = db.execute('SELECT "Role claim ID" AS id,"County code" AS county_fips,"Linked profile" AS person_id FROM profile_research_role WHERE "Role claim ID"=?', (anchor_claim_id,)).fetchone()
+    person = db.execute('SELECT "Profile ID" AS id,"County code" AS county_fips FROM profile_research WHERE "Profile ID"=?', (person_id,)).fetchone()
     if claim is None or anchor is None or person is None:
         raise ValueError("Unknown correction-linked claim or research person")
     if claim["person_id"] is not None:
@@ -403,11 +403,11 @@ def validate_correction_lineage_association(db, *, claim_id, person_id, anchor_c
     if claim_id not in anchor_ids and anchor_claim_id not in claim_ids:
         raise ValueError("Claims are not joined by one directed correction lineage")
     support = _claim_evidence(db, county_fips=claim["county_fips"], claim_id=claim_id,
-                              published_name=db.execute('SELECT "Name as published" AS published_name FROM role_claims WHERE "Role claim ID"=?',
+                              published_name=db.execute('SELECT "Name as published" AS published_name FROM profile_research_role WHERE "Role claim ID"=?',
                                                          (claim_id,)).fetchone()[0],
-                              evidence_id=db.execute('SELECT "Evidence record ID" AS evidence_id FROM role_claims WHERE "Role claim ID"=?',
+                              evidence_id=db.execute('SELECT "Evidence record ID" AS evidence_id FROM profile_research_role WHERE "Role claim ID"=?',
                                                      (claim_id,)).fetchone()[0])
-    anchor_row = db.execute('SELECT "Name as published" AS published_name,"Evidence record ID" AS evidence_id FROM role_claims WHERE "Role claim ID"=?',
+    anchor_row = db.execute('SELECT "Name as published" AS published_name,"Evidence record ID" AS evidence_id FROM profile_research_role WHERE "Role claim ID"=?',
                             (anchor_claim_id,)).fetchone()
     _claim_evidence(db, county_fips=anchor["county_fips"], claim_id=anchor_claim_id,
                     published_name=anchor_row["published_name"], evidence_id=anchor_row["evidence_id"],
@@ -420,7 +420,7 @@ def _associate_claim_by_correction_lineage_in_transaction(db, *, claim_id, perso
                                                            anchor_claim_id, rationale, actor, run):
     validated = validate_correction_lineage_association(
         db, claim_id=claim_id, person_id=person_id, anchor_claim_id=anchor_claim_id)
-    db.execute('UPDATE role_claims SET "Linked profile"=? WHERE "Role claim ID"=? AND "Linked profile" IS NULL',
+    db.execute('UPDATE profile_research_role SET "Linked profile"=? WHERE "Role claim ID"=? AND "Linked profile" IS NULL',
                (person_id, claim_id))
     if db.execute("SELECT changes()").fetchone()[0] != 1:
         raise ValueError("Claim assignment changed during the operation")
@@ -504,12 +504,12 @@ def _documented_role_values(claim):
 def validate_claim_connection(db, *, claim_id, person_id, evidence_id):
     """Require one official record to name the person, claim role, and direct link between them."""
     claim = db.execute('SELECT "Role claim ID" AS id,"County code" AS county_fips,"Evidence record ID" AS evidence_id,"Linked profile" AS person_id,"Name as published" AS published_name,"Position as published" AS published_title,"Job description or duties" AS responsibility '
-                       'FROM role_claims WHERE "Role claim ID"=?', (claim_id,)).fetchone()
-    person = db.execute('SELECT "Profile ID" AS id,"County code" AS county_fips,"Full name" AS display_name FROM research_people WHERE "Profile ID"=?', (person_id,)).fetchone()
+                       'FROM profile_research_role WHERE "Role claim ID"=?', (claim_id,)).fetchone()
+    person = db.execute('SELECT "Profile ID" AS id,"County code" AS county_fips,"Full name" AS display_name FROM profile_research WHERE "Profile ID"=?', (person_id,)).fetchone()
     evidence = db.execute('SELECT e."Evidence record ID" AS id,e."Source ID" AS source_id,e."Original record" AS raw_record_json,e."Evidence excerpt" AS quotation,e."Source title as observed" AS observed_title,e."Import batch ID" AS batch_id,'
                           's."Publisher type" AS official_status,b.county_fips AS batch_county,r.provenance '
-                          'FROM evidence_links e JOIN sources s ON s."Source ID"=e."Source ID" '
-                          'JOIN research_runs r ON r.id=e."Research run ID" LEFT JOIN scrape_batches b ON b.id=e."Import batch ID" '
+                          'FROM research_evidence e JOIN research_sources s ON s."Source ID"=e."Source ID" '
+                          'JOIN research_runs r ON r.id=e."Research run ID" LEFT JOIN research_scrapes b ON b.id=e."Import batch ID" '
                           'WHERE e."Evidence record ID"=?', (evidence_id,)).fetchone()
     if claim is None or person is None or evidence is None:
         raise ValueError("Unknown claim, person, or identity-link evidence")
@@ -523,15 +523,15 @@ def validate_claim_connection(db, *, claim_id, person_id, evidence_id):
         raise ValueError("Identity-link evidence belongs to a different county")
     if evidence["batch_county"] is None:
         linked = db.execute(
-            'SELECT 1 FROM name_variants n JOIN evidence_links known ON known."Evidence record ID"=n."Evidence for this name" '
+            'SELECT 1 FROM profile_research_name n JOIN research_evidence known ON known."Evidence record ID"=n."Evidence for this name" '
             'WHERE n."Profile ID"=? AND known."Source ID"=? UNION ALL '
-            'SELECT 1 FROM source_unit_links l JOIN org_units u ON u."Office or unit ID"=l.unit_id '
+            'SELECT 1 FROM county_research_unit_sources l JOIN county_research_unit_structure u ON u."Office or unit ID"=l.unit_id '
             'WHERE l.evidence_id=? AND u."County code"=? LIMIT 1',
             (person_id, evidence["source_id"], evidence_id, person["county_fips"]),
         ).fetchone()
         if linked is None:
             linked = db.execute(
-                'SELECT 1 FROM role_claims c JOIN evidence_links known ON known."Evidence record ID"=c."Evidence record ID" '
+                'SELECT 1 FROM profile_research_role c JOIN research_evidence known ON known."Evidence record ID"=c."Evidence record ID" '
                 'WHERE known."Source ID"=? GROUP BY known."Source ID" '
                 'HAVING count(DISTINCT c."County code")=1 AND min(c."County code")=?',
                 (evidence["source_id"], person["county_fips"]),
@@ -539,7 +539,7 @@ def validate_claim_connection(db, *, claim_id, person_id, evidence_id):
         if linked is None:
             raise ValueError("Identity-link evidence is not established in this person’s county context")
     known_names = {person["display_name"]}
-    known_names.update(row[0] for row in db.execute('SELECT "Name as published" AS published_name FROM name_variants WHERE "Profile ID"=?',
+    known_names.update(row[0] for row in db.execute('SELECT "Name as published" AS published_name FROM profile_research_name WHERE "Profile ID"=?',
                                                     (person_id,)))
     text = _evidence_text(evidence)
     role_values = _documented_role_values(claim)
@@ -566,7 +566,7 @@ def associate_claim_by_connection(db, *, claim_id, person_id, evidence_id, ratio
             db, claim_id=claim_id, person_id=person_id, evidence_id=evidence_id)
         run = _create_screening_run(db, provenance=evidence["provenance"], actor=actor,
                                     note="R2 direct official role-connection association")
-        db.execute('UPDATE role_claims SET "Linked profile"=? WHERE "Role claim ID"=? AND "Linked profile" IS NULL',
+        db.execute('UPDATE profile_research_role SET "Linked profile"=? WHERE "Role claim ID"=? AND "Linked profile" IS NULL',
                    (person_id, claim_id))
         if db.execute("SELECT changes()").fetchone()[0] != 1:
             raise ValueError("Claim assignment changed during the operation")
@@ -607,16 +607,16 @@ def _claim_evidence(db, *, county_fips, claim_id, published_name, evidence_id,
                     allow_assigned_person_id=None):
     evidence = db.execute('SELECT e."Evidence record ID" AS id,e."Source ID" AS source_id,e."Original record" AS raw_record_json,e."Evidence excerpt" AS quotation,e."Source title as observed" AS observed_title,e."Research run ID" AS run_id,'
                           'e."Import batch ID" AS batch_id,s."Publisher type" AS official_status,r.provenance,b.county_fips AS batch_county '
-                          'FROM evidence_links e JOIN sources s ON s."Source ID"=e."Source ID" '
+                          'FROM research_evidence e JOIN research_sources s ON s."Source ID"=e."Source ID" '
                           'JOIN research_runs r ON r.id=e."Research run ID" '
-                          'LEFT JOIN scrape_batches b ON b.id=e."Import batch ID" WHERE e."Evidence record ID"=?', (evidence_id,)).fetchone()
+                          'LEFT JOIN research_scrapes b ON b.id=e."Import batch ID" WHERE e."Evidence record ID"=?', (evidence_id,)).fetchone()
     claim = db.execute('SELECT "Role claim ID" AS id,"County code" AS county_fips,"Evidence record ID" AS evidence_id,"Linked profile" AS person_id,"Name as published" AS published_name,"Position as published" AS published_title,"Job description or duties" AS responsibility,'
                        '"Office or department as published" AS office_label,"Division or unit as published" AS division_label,'
-                       '(SELECT u."Office or unit label as published" FROM org_units u WHERE u."Office or unit ID"=role_claims."Linked office or unit") AS unit_label '
-                       'FROM role_claims WHERE "Role claim ID"=?', (claim_id,)).fetchone()
+                       '(SELECT u."Office or unit label as published" FROM county_research_unit_structure u WHERE u."Office or unit ID"=profile_research_role."Linked office or unit") AS unit_label '
+                       'FROM profile_research_role WHERE "Role claim ID"=?', (claim_id,)).fetchone()
     if claim is None:
         raise ValueError("Unknown role claim")
-    if db.execute('SELECT 1 FROM counties WHERE "County code"=?', (county_fips,)).fetchone() is None:
+    if db.execute('SELECT 1 FROM county WHERE "County code"=?', (county_fips,)).fetchone() is None:
         raise ValueError("Unknown county FIPS")
     if claim["county_fips"] != county_fips:
         raise ValueError("Selected claim does not belong to the explicit county")
@@ -661,7 +661,7 @@ def bootstrap_person(db, *, county_fips, claim_id, published_name, evidence_id, 
         person_id, variant_id = new_id("person"), new_id("variant")
         run = _create_screening_run(db, provenance=evidence["provenance"], actor=actor,
                                     note="R2 evidence-led identity bootstrap")
-        db.execute('INSERT INTO research_people("Profile ID","County code","Full name","Identity review status","Evidence for identity") '
+        db.execute('INSERT INTO profile_research("Profile ID","County code","Full name","Identity review status","Evidence for identity") '
                    "VALUES (?,?,?,'evidence_supported',?)",
                    (person_id, claim["county_fips"], claim["published_name"], evidence_id))
         _event(db, run=run, actor=actor, kind="research_person_created", entity_type="research_people",
@@ -669,7 +669,7 @@ def bootstrap_person(db, *, county_fips, claim_id, published_name, evidence_id, 
                    "county_fips": claim["county_fips"], "display_name": claim["published_name"],
                    "identity_state": "evidence_supported", "identity_evidence_id": evidence_id},
                    "claim_id": claim_id, "supporting_evidence_id": evidence_id, "rationale": rationale})
-        db.execute('INSERT INTO name_variants("Name record ID","Profile ID","Name as published","Name type","Evidence for this name") '
+        db.execute('INSERT INTO profile_research_name("Name record ID","Profile ID","Name as published","Name type","Evidence for this name") '
                    "VALUES (?,?,?,'published',?)", (variant_id, person_id, claim["published_name"], evidence_id))
         _event(db, run=run, actor=actor, kind="name_variant_registered", entity_type="name_variants",
                entity_id=variant_id, detail={"before": None, "after": {"variant_id": variant_id,
@@ -712,22 +712,22 @@ def _nickname_field_link(evidence, known_names, candidate):
 
 def validate_nickname_field_variant(db, *, person_id, published_name, evidence_id):
     """Check a Nicknames-cell link without changing data; safe inside a caller transaction."""
-    person = db.execute('SELECT "Profile ID" AS id,"County code" AS county_fips,"Full name" AS display_name FROM research_people WHERE "Profile ID"=?', (person_id,)).fetchone()
+    person = db.execute('SELECT "Profile ID" AS id,"County code" AS county_fips,"Full name" AS display_name FROM profile_research WHERE "Profile ID"=?', (person_id,)).fetchone()
     if person is None:
         raise ValueError("Unknown research person")
     evidence = db.execute('SELECT e."Evidence record ID" AS id,e."Source ID" AS source_id,e."Original record" AS raw_record_json,e."Import batch ID" AS batch_id,s."Publisher type" AS official_status,'
-                          "b.county_fips AS batch_county FROM evidence_links e "
-                          'JOIN sources s ON s."Source ID"=e."Source ID" LEFT JOIN scrape_batches b ON b.id=e."Import batch ID" '
+                          "b.county_fips AS batch_county FROM research_evidence e "
+                          'JOIN research_sources s ON s."Source ID"=e."Source ID" LEFT JOIN research_scrapes b ON b.id=e."Import batch ID" '
                           'WHERE e."Evidence record ID"=?', (evidence_id,)).fetchone()
     if evidence is None or evidence["official_status"] != "official":
         raise ValueError("Name-variant evidence must come from a source classified as official")
     if evidence["batch_county"] is not None and evidence["batch_county"] != person["county_fips"]:
         raise ValueError("Name-variant evidence belongs to a different county")
     known_names = {person["display_name"]}
-    known_names.update(row[0] for row in db.execute('SELECT "Name as published" AS published_name FROM name_variants WHERE "Profile ID"=?',
+    known_names.update(row[0] for row in db.execute('SELECT "Name as published" AS published_name FROM profile_research_name WHERE "Profile ID"=?',
                                                     (person_id,)))
     if evidence["batch_county"] is None:
-        linked = db.execute('SELECT 1 FROM name_variants n JOIN evidence_links known ON known."Evidence record ID"=n."Evidence for this name" '
+        linked = db.execute('SELECT 1 FROM profile_research_name n JOIN research_evidence known ON known."Evidence record ID"=n."Evidence for this name" '
                             'WHERE n."Profile ID"=? AND known."Source ID"=? LIMIT 1',
                             (person_id, evidence["source_id"])).fetchone()
         if linked is None:
@@ -786,15 +786,15 @@ def add_name_variant(db, *, person_id, published_name, kind, evidence_id, actor,
         raise ValueError("Finish the current transaction before an operator update")
     try:
         db.execute("BEGIN IMMEDIATE")
-        person = db.execute('SELECT "Profile ID" AS id,"County code" AS county_fips,"Full name" AS display_name,"Evidence for identity" AS identity_evidence_id FROM research_people WHERE "Profile ID"=?',
+        person = db.execute('SELECT "Profile ID" AS id,"County code" AS county_fips,"Full name" AS display_name,"Evidence for identity" AS identity_evidence_id FROM profile_research WHERE "Profile ID"=?',
                             (person_id,)).fetchone()
         if person is None:
             raise ValueError("Unknown research person")
         evidence = db.execute('SELECT e."Evidence record ID" AS id,e."Source ID" AS source_id,e."Evidence excerpt" AS quotation,e."Original record" AS raw_record_json,e."Source title as observed" AS observed_title,'
                               'e."Research run ID" AS run_id,e."Import batch ID" AS batch_id,s."Publisher type" AS official_status,r.provenance,b.county_fips AS batch_county '
-                              'FROM evidence_links e JOIN sources s ON s."Source ID"=e."Source ID" '
+                              'FROM research_evidence e JOIN research_sources s ON s."Source ID"=e."Source ID" '
                               'JOIN research_runs r ON r.id=e."Research run ID" '
-                              'LEFT JOIN scrape_batches b ON b.id=e."Import batch ID" WHERE e."Evidence record ID"=?', (evidence_id,)).fetchone()
+                              'LEFT JOIN research_scrapes b ON b.id=e."Import batch ID" WHERE e."Evidence record ID"=?', (evidence_id,)).fetchone()
         if evidence is None:
             raise ValueError("Unknown supporting evidence")
         if evidence["official_status"] != "official":
@@ -802,22 +802,22 @@ def add_name_variant(db, *, person_id, published_name, kind, evidence_id, actor,
         if evidence["batch_county"] is not None and evidence["batch_county"] != person["county_fips"]:
             raise ValueError("Name-variant evidence belongs to a different county")
         if evidence["batch_county"] is None:
-            linked = db.execute('SELECT 1 FROM name_variants n JOIN evidence_links known ON known."Evidence record ID"=n."Evidence for this name" '
+            linked = db.execute('SELECT 1 FROM profile_research_name n JOIN research_evidence known ON known."Evidence record ID"=n."Evidence for this name" '
                                 'WHERE n."Profile ID"=? AND known."Source ID"=? UNION ALL '
-                                'SELECT 1 FROM source_unit_links l JOIN org_units u ON u."Office or unit ID"=l.unit_id '
+                                'SELECT 1 FROM county_research_unit_sources l JOIN county_research_unit_structure u ON u."Office or unit ID"=l.unit_id '
                                 'WHERE l.evidence_id=? AND u."County code"=? LIMIT 1',
                                 (person_id, evidence["source_id"], evidence_id, person["county_fips"])).fetchone()
             if linked is None:
                 raise ValueError("Evidence is not established in this person’s county context")
         text = _evidence_text(evidence)
         known_names = [person["display_name"]]
-        known_names.extend(row[0] for row in db.execute('SELECT "Name as published" AS published_name FROM name_variants WHERE "Profile ID"=?',
+        known_names.extend(row[0] for row in db.execute('SELECT "Name as published" AS published_name FROM profile_research_name WHERE "Profile ID"=?',
                                                          (person_id,)))
         nickname_field_link = (kind == "nickname" and
                                _nickname_field_link(evidence, set(known_names), published_name))
         if not _explicit_name_link(text, known_names, published_name) and not nickname_field_link:
             raise ValueError("Official evidence must explicitly connect the exact variant to an established name for this person")
-        duplicate = db.execute('SELECT "Name record ID" AS id FROM name_variants WHERE "Profile ID"=? AND "Name as published"=? AND "Name type"=? AND "Evidence for this name"=?',
+        duplicate = db.execute('SELECT "Name record ID" AS id FROM profile_research_name WHERE "Profile ID"=? AND "Name as published"=? AND "Name type"=? AND "Evidence for this name"=?',
                                (person_id, published_name, kind, evidence_id)).fetchone()
         if duplicate:
             db.commit()
@@ -825,7 +825,7 @@ def add_name_variant(db, *, person_id, published_name, kind, evidence_id, actor,
         variant_id = new_id("variant")
         run = _create_screening_run(db, provenance=evidence["provenance"], actor=actor,
                                     note="R2 evidence-supported name variant")
-        db.execute('INSERT INTO name_variants("Name record ID","Profile ID","Name as published","Name type","Evidence for this name") VALUES (?,?,?,?,?)',
+        db.execute('INSERT INTO profile_research_name("Name record ID","Profile ID","Name as published","Name type","Evidence for this name") VALUES (?,?,?,?,?)',
                    (variant_id, person_id, published_name, kind, evidence_id))
         _event(db, run=run, actor=actor, kind="name_variant_registered", entity_type="name_variants",
                entity_id=variant_id, detail={"before": None, "after": {"variant_id": variant_id,
@@ -851,13 +851,13 @@ def record_visit(db, *, source_id, run_id, provenance, outcome, actor, evidence_
     try:
         db.execute("BEGIN IMMEDIATE")
         run = _run(db, run_id)
-        source = db.execute('SELECT "Source ID" AS id FROM sources WHERE "Source ID"=?', (source_id,)).fetchone()
+        source = db.execute('SELECT "Source ID" AS id FROM research_sources WHERE "Source ID"=?', (source_id,)).fetchone()
         if source is None:
             raise ValueError("Unknown source")
         if provenance == "reconstructed" and not evidence_id:
             raise ValueError("Reconstructed visits require supporting evidence")
         if evidence_id:
-            evidence = db.execute('SELECT "Source ID" AS source_id FROM evidence_links WHERE "Evidence record ID"=?', (evidence_id,)).fetchone()
+            evidence = db.execute('SELECT "Source ID" AS source_id FROM research_evidence WHERE "Evidence record ID"=?', (evidence_id,)).fetchone()
             if evidence is None or evidence["source_id"] != source_id:
                 raise ValueError("Visit evidence must belong to the selected source")
         visit_id = new_id("visit")
@@ -865,7 +865,7 @@ def record_visit(db, *, source_id, run_id, provenance, outcome, actor, evidence_
                    "http_status,duration_ms,content_sha256,etag,last_modified,result_count,note")
         values = (visit_id, source_id, run_id, provenance, evidence_id, reported_checked_date, attempted_at, actor,
                   attempt, outcome, http_status, duration_ms, content_sha256, etag, last_modified, result_count, note)
-        db.execute(f"INSERT INTO source_visits({columns}) VALUES ({','.join('?' for _ in values)})", values)
+        db.execute(f"INSERT INTO research_source_visits({columns}) VALUES ({','.join('?' for _ in values)})", values)
         _event(db, run=run, actor=actor, kind="source_visit_recorded", entity_type="source_visits",
                entity_id=visit_id, detail={"before": None, "after": {
                    "source_id": source_id, "provenance": provenance, "evidence_id": evidence_id,
@@ -895,18 +895,18 @@ def update_coverage(db, *, unit_id, axis, status, evidence_id, run_id, actor, ra
         raise ValueError("Finish the current transaction before an operator update")
     try:
         db.execute("BEGIN IMMEDIATE")
-        unit = db.execute('SELECT "Office or unit ID" AS id FROM org_units WHERE "Office or unit ID"=?', (unit_id,)).fetchone()
+        unit = db.execute('SELECT "Office or unit ID" AS id FROM county_research_unit_structure WHERE "Office or unit ID"=?', (unit_id,)).fetchone()
         if unit is None:
             raise ValueError("Unknown organization unit")
-        if evidence_id and db.execute('SELECT 1 FROM evidence_links WHERE "Evidence record ID"=?', (evidence_id,)).fetchone() is None:
+        if evidence_id and db.execute('SELECT 1 FROM research_evidence WHERE "Evidence record ID"=?', (evidence_id,)).fetchone() is None:
             raise ValueError("Unknown supporting evidence")
         run = _run(db, run_id) if run_id else None
         previous = db.execute("SELECT status,evidence_id,run_id,assessed_at,limitations,next_task "
-                              "FROM unit_coverage WHERE unit_id=? AND axis=?", (unit_id, axis)).fetchone()
+                              "FROM county_research_coverage WHERE unit_id=? AND axis=?", (unit_id, axis)).fetchone()
         if previous is None:
             raise ValueError("Unknown coverage dimension")
         now = assessed_at or timestamp()
-        db.execute("UPDATE unit_coverage SET status=?,evidence_id=?,run_id=?,assessed_at=?,limitations=?,next_task=? "
+        db.execute("UPDATE county_research_coverage SET status=?,evidence_id=?,run_id=?,assessed_at=?,limitations=?,next_task=? "
                    "WHERE unit_id=? AND axis=?", (status, evidence_id, run_id, now, limitations, next_task, unit_id, axis))
         after = {"status": status, "evidence_id": evidence_id, "run_id": run_id, "assessed_at": now,
                  "limitations": limitations, "next_task": next_task}

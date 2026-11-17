@@ -18,14 +18,14 @@ def _digest(value):
 
 def _family_state(db, family_id):
     members = [dict(row) for row in db.execute(
-        "SELECT id,selected FROM scrape_batches WHERE family_id=? ORDER BY id", (family_id,))]
+        "SELECT id,selected FROM research_scrapes WHERE family_id=? ORDER BY id", (family_id,))]
     if not members:
         raise ValueError("Unknown batch family")
     selected = [row["id"] for row in members if row["selected"]]
     if len(selected) > 1:
         raise ValueError("Batch family has more than one selected member")
     latest = db.execute(
-        "SELECT id,detail_json FROM research_events WHERE entity_type='batch_family' AND entity_id=? "
+        "SELECT id,detail_json FROM research_history WHERE entity_type='batch_family' AND entity_id=? "
         "AND kind IN ('batch_selection_changed','batch_selection_reversed') ORDER BY rowid DESC LIMIT 1",
         (family_id,),
     ).fetchone()
@@ -41,11 +41,11 @@ def _make_plan(db, *, family_id, target_batch_id, action, actor, rationale, reve
         raise ValueError("A documented reason of at most 2,000 characters is required")
     state = _family_state(db, family_id)
     if target_batch_id is not None:
-        target = db.execute("SELECT family_id FROM scrape_batches WHERE id=?", (target_batch_id,)).fetchone()
+        target = db.execute("SELECT family_id FROM research_scrapes WHERE id=?", (target_batch_id,)).fetchone()
         if target is None or target["family_id"] != family_id:
             raise ValueError("Target batch does not belong to the selected family")
     plan = {"format": PLAN_FORMAT, "action": action, "family_id": family_id,
-            "county_fips": db.execute("SELECT county_fips FROM scrape_batches WHERE family_id=? LIMIT 1",
+            "county_fips": db.execute("SELECT county_fips FROM research_scrapes WHERE family_id=? LIMIT 1",
                                        (family_id,)).fetchone()[0],
             "before_batch_id": state["selected_batch_id"], "after_batch_id": target_batch_id,
             "input_state": state, "input_state_sha256": _digest(state),
@@ -59,7 +59,7 @@ def build_selection_plan(db, *, actor, rationale, batch_id=None, family_id=None)
     if (batch_id is None) == (family_id is None):
         raise ValueError("Select exactly one existing batch or family")
     if batch_id is not None:
-        row = db.execute("SELECT family_id FROM scrape_batches WHERE id=?", (batch_id,)).fetchone()
+        row = db.execute("SELECT family_id FROM research_scrapes WHERE id=?", (batch_id,)).fetchone()
         if row is None:
             raise ValueError("Unknown batch")
         family_id = row["family_id"]
@@ -72,13 +72,13 @@ def build_selection_plan(db, *, actor, rationale, batch_id=None, family_id=None)
 
 def build_reversal_plan(db, *, event_id, actor, rationale):
     event = db.execute(
-        "SELECT id,entity_id,detail_json FROM research_events WHERE id=? AND entity_type='batch_family' "
+        "SELECT id,entity_id,detail_json FROM research_history WHERE id=? AND entity_type='batch_family' "
         "AND kind IN ('batch_selection_changed','batch_selection_reversed')", (event_id,),
     ).fetchone()
     if event is None:
         raise ValueError("Unknown batch selection event")
     latest = db.execute(
-        "SELECT id FROM research_events WHERE entity_type='batch_family' AND entity_id=? "
+        "SELECT id FROM research_history WHERE entity_type='batch_family' AND entity_id=? "
         "AND kind IN ('batch_selection_changed','batch_selection_reversed') ORDER BY rowid DESC LIMIT 1",
         (event["entity_id"],),
     ).fetchone()
@@ -133,7 +133,7 @@ def apply_plan(db, plan, *, expected_sha256):
         state = _family_state(db, plan["family_id"])
         latest_plan = None
         if state["latest_event_id"]:
-            latest = db.execute("SELECT detail_json FROM research_events WHERE id=?",
+            latest = db.execute("SELECT detail_json FROM research_history WHERE id=?",
                                 (state["latest_event_id"],)).fetchone()
             latest_plan = json.loads(latest["detail_json"]).get("plan_sha256")
         if state["selected_batch_id"] == plan["after_batch_id"] and latest_plan == actual:
@@ -150,13 +150,13 @@ def apply_plan(db, plan, *, expected_sha256):
         if state["selected_batch_id"] != plan["before_batch_id"]:
             raise ValueError("Current family selection differs from the reviewed before state")
         if plan["action"] == "reverse":
-            current_event = db.execute("SELECT id FROM research_events WHERE id=?", (plan["reverses_event_id"],)).fetchone()
+            current_event = db.execute("SELECT id FROM research_history WHERE id=?", (plan["reverses_event_id"],)).fetchone()
             if current_event is None or state["latest_event_id"] != plan["reverses_event_id"]:
                 raise ValueError("Cannot reverse a selection after a later family decision")
-        db.execute("UPDATE scrape_batches SET selected=0 WHERE family_id=? AND selected=1",
+        db.execute("UPDATE research_scrapes SET selected=0 WHERE family_id=? AND selected=1",
                    (plan["family_id"],))
         if plan["after_batch_id"] is not None:
-            changed = db.execute("UPDATE scrape_batches SET selected=1 WHERE id=? AND family_id=? AND selected=0",
+            changed = db.execute("UPDATE research_scrapes SET selected=1 WHERE id=? AND family_id=? AND selected=0",
                                  (plan["after_batch_id"], plan["family_id"])).rowcount
             if changed != 1:
                 raise ValueError("Target batch changed during selection")
@@ -169,7 +169,7 @@ def apply_plan(db, plan, *, expected_sha256):
                   "operator": plan["actor"], "rationale": plan["rationale"], "plan_sha256": actual,
                   "reverses_event_id": plan["reverses_event_id"]}
         kind = "batch_selection_reversed" if plan["action"] == "reverse" else "batch_selection_changed"
-        db.execute("INSERT INTO research_events(id,run_id,kind,entity_type,entity_id,occurred_at,recorded_at,provenance,detail_json) "
+        db.execute("INSERT INTO research_history(id,run_id,kind,entity_type,entity_id,occurred_at,recorded_at,provenance,detail_json) "
                    "VALUES (?,?,?,?,?,?,?,?,?)",
                    (event_id, run_id, kind, "batch_family", plan["family_id"], now, now, "observed",
                     canonical_json(detail)))

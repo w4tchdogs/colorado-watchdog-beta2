@@ -16,7 +16,7 @@ class UnstructuredRoleTests(unittest.TestCase):
     def setUp(self):
         self.db = connect()
         migrate(self.db)
-        self.db.executemany("INSERT INTO counties VALUES (?,?)",
+        self.db.executemany("INSERT INTO county VALUES (?,?)",
                             [(fips, COUNTIES[fips]) for fips in ("08001", "08003")])
         self.db.commit()
 
@@ -31,31 +31,31 @@ class UnstructuredRoleTests(unittest.TestCase):
                            provenance="synthetic", selected=selected)
         claim = self.db.execute(
             'SELECT c."Role claim ID" AS id,c."Evidence record ID" AS evidence_id,e."Source ID" AS source_id '
-            'FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+            'FROM profile_research_role c JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" '
             'WHERE e."Import batch ID"=?', (batch,)).fetchone()
         if cite:
-            self.db.execute("UPDATE sources SET \"Previous source category\"=?,\"Publisher type\"=?,"
+            self.db.execute("UPDATE research_sources SET \"Previous source category\"=?,\"Publisher type\"=?,"
                             "\"Document type\"='official_page' WHERE \"Source ID\"=?",
                             ({"official": "official", "unofficial": "other", "unresolved": "unknown"}[publisher],
                              publisher, claim["source_id"]))
-            self.db.execute('UPDATE evidence_links SET "Source title as observed"=?,"Source URL as observed"=? WHERE "Evidence record ID"=?',
+            self.db.execute('UPDATE research_evidence SET "Source title as observed"=?,"Source URL as observed"=? WHERE "Evidence record ID"=?',
                             (f"Synthetic source {tag}", f"https://example.invalid/{county}/{tag}", claim["evidence_id"]))
         person_id = f"person-{tag}"
-        self.db.execute('INSERT INTO research_people("Profile ID","County code","Full name","Identity review status","Evidence for identity") '
+        self.db.execute('INSERT INTO profile_research("Profile ID","County code","Full name","Identity review status","Evidence for identity") '
                         "VALUES(?,?,?,'evidence_supported',?)",
                         (person_id, county, f"Synthetic Person {tag}", claim["evidence_id"]))
-        self.db.execute('UPDATE role_claims SET "Linked profile"=?,"Position as published"=?,"Job description or duties"=?,'
+        self.db.execute('UPDATE profile_research_role SET "Linked profile"=?,"Position as published"=?,"Job description or duties"=?,'
                         '"Office or department as published"=?,"Division or unit as published"=NULL WHERE "Role claim ID"=?',
                         (person_id, title, duties, office, claim["id"]))
         if structured:
             unit_id, target_id = f"unit-{tag}", f"target-{tag}"
-            self.db.execute('INSERT INTO org_units("Office or unit ID","County code","Office or unit label as published","Organization type") '
+            self.db.execute('INSERT INTO county_research_unit_structure("Office or unit ID","County code","Office or unit label as published","Organization type") '
                             "VALUES(?,?,?,'department')", (unit_id, county, f"Synthetic Unit {tag}"))
-            self.db.execute("INSERT INTO org_names(\"Office name record ID\",\"Office or unit ID\",\"Name\",\"Name type\",\"Evidence for this name\") VALUES(?,?,?,'published',?)",
+            self.db.execute("INSERT INTO county_research_unit_names(\"Office name record ID\",\"Office or unit ID\",\"Name\",\"Name type\",\"Evidence for this name\") VALUES(?,?,?,'published',?)",
                             (f"name-{tag}", unit_id, f"Synthetic Unit {tag}", claim["evidence_id"]))
-            self.db.execute('INSERT INTO role_targets("Position ID","Office or unit ID","County code","Documented position title","Evidence for position") VALUES(?,?,?,?,?)',
+            self.db.execute('INSERT INTO county_research_positions("Position ID","Office or unit ID","County code","Documented position title","Evidence for position") VALUES(?,?,?,?,?)',
                             (target_id, unit_id, county, title, claim["evidence_id"]))
-            self.db.execute('UPDATE role_claims SET "Linked office or unit"=?,"Linked position"=? WHERE "Role claim ID"=?',
+            self.db.execute('UPDATE profile_research_role SET "Linked office or unit"=?,"Linked position"=? WHERE "Role claim ID"=?',
                             (unit_id, target_id, claim["id"]))
         self.db.commit()
         return claim["id"]
@@ -101,7 +101,7 @@ class UnstructuredRoleTests(unittest.TestCase):
 
     def test_unknown_organization_type_does_not_block_the_role(self):
         claim = self.add_role("unknownkind", title="Synthetic Registrar", structured=True)
-        self.db.execute("UPDATE org_units SET \"Organization type\"='unknown' WHERE \"Office or unit ID\"='unit-unknownkind'")
+        self.db.execute("UPDATE county_research_unit_structure SET \"Organization type\"='unknown' WHERE \"Office or unit ID\"='unit-unknownkind'")
         self.db.commit()
         generated = build_changeset(self.db, SITE, county_fips=COUNTY)
         fields = self.role_fields(generated, claim)
@@ -121,7 +121,7 @@ class UnstructuredRoleTests(unittest.TestCase):
 
     def test_role_without_any_documented_detail_is_rejected(self):
         claim = self.add_role("nodetail")
-        self.db.execute('UPDATE role_claims SET "Position as published"=NULL,"Job description or duties"="Listed in official source",'
+        self.db.execute('UPDATE profile_research_role SET "Position as published"=NULL,"Job description or duties"="Listed in official source",'
                         '"Office or department as published"=NULL WHERE "Role claim ID"=?', (claim,))
         self.db.commit()
         generated = build_changeset(self.db, SITE, county_fips=COUNTY)
@@ -167,18 +167,18 @@ class UnstructuredRoleTests(unittest.TestCase):
                            provenance="synthetic", selected=True)
         claims = list(self.db.execute(
             'SELECT c."Role claim ID" AS id,c."Evidence record ID" AS evidence_id,e."Source ID" AS source_id '
-            'FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+            'FROM profile_research_role c JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" '
             'WHERE e."Import batch ID"=? ORDER BY c."Role claim ID"', (batch,)))
         for source_id in {claim["source_id"] for claim in claims}:
-            self.db.execute("UPDATE sources SET \"Previous source category\"='official',\"Publisher type\"='official',"
+            self.db.execute("UPDATE research_sources SET \"Previous source category\"='official',\"Publisher type\"='official',"
                             "\"Document type\"='official_page' WHERE \"Source ID\"=?", (source_id,))
         for index, claim in enumerate(claims):
-            self.db.execute('UPDATE evidence_links SET "Source title as observed"=? WHERE "Evidence record ID"=?',
+            self.db.execute('UPDATE research_evidence SET "Source title as observed"=? WHERE "Evidence record ID"=?',
                             (f"Synthetic source {claim['source_id']}", claim["evidence_id"]))
-            self.db.execute('INSERT INTO research_people("Profile ID","County code","Full name","Identity review status","Evidence for identity") '
+            self.db.execute('INSERT INTO profile_research("Profile ID","County code","Full name","Identity review status","Evidence for identity") '
                             "VALUES(?,?,?,'evidence_supported',?)",
                             (f"person-bulk-{index}", COUNTY, f"Synthetic Person {index}", claim["evidence_id"]))
-            self.db.execute('UPDATE role_claims SET "Linked profile"=?,"Office or department as published"=? WHERE "Role claim ID"=?',
+            self.db.execute('UPDATE profile_research_role SET "Linked profile"=?,"Office or department as published"=? WHERE "Role claim ID"=?',
                             (f"person-bulk-{index}", f"Synthetic Office {index}", claim["id"]))
         self.db.commit()
         generated = build_changeset(self.db, SITE, county_fips=COUNTY)

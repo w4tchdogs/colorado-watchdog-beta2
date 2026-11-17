@@ -33,7 +33,7 @@ class StructureFoundationTests(unittest.TestCase):
     def setUp(self):
         self.db = connect()
         migrate(self.db)
-        self.db.executemany("INSERT INTO counties VALUES (?,?)",
+        self.db.executemany("INSERT INTO county VALUES (?,?)",
                             [(fips, COUNTIES[fips]) for fips in ("08107", "08031", "08123")])
         self.db.commit()
 
@@ -108,24 +108,24 @@ class StructureFoundationTests(unittest.TestCase):
         self.assertEqual(sum(link["selected"] for link in plan["claim_links"]), 1)
         self.assertEqual(plan["summary"]["claims_evaluated"], 2)
         self.assertEqual(len(plan["targets"]), 1)
-        self.assertEqual(self.db.execute("SELECT count(*) FROM role_claims").fetchone()[0], 2)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM profile_research_role").fetchone()[0], 2)
 
     def test_apply_and_exact_rerun_are_idempotent_and_leave_coverage_and_identity_alone(self):
         self.ingest(self.fixture_rows())
         plan = build_structure_plan(self.db)
         digest = plan_sha256(plan)
         first = apply_structure_plan(self.db, plan, expected_sha256=digest, actor="synthetic-test")
-        event_count = self.db.execute("SELECT count(*) FROM research_events").fetchone()[0]
+        event_count = self.db.execute("SELECT count(*) FROM research_history").fetchone()[0]
         second = apply_structure_plan(self.db, plan, expected_sha256=digest, actor="synthetic-test")
         self.assertEqual(first["status"], "applied")
         self.assertEqual(second["status"], "already_applied")
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_events").fetchone()[0], event_count)
-        self.assertEqual(self.db.execute('SELECT count(*) FROM role_claims WHERE "Linked office or unit" IS NOT NULL').fetchone()[0], 9)
-        self.assertEqual(self.db.execute('SELECT count(*) FROM role_claims WHERE "Linked position" IS NOT NULL').fetchone()[0], 4)
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_people").fetchone()[0], 0)
-        self.assertEqual(self.db.execute("SELECT count(*) FROM possible_matches").fetchone()[0], 0)
-        self.assertEqual(self.db.execute("SELECT count(*) FROM source_visits").fetchone()[0], 0)
-        self.assertEqual(self.db.execute("SELECT count(*) FROM unit_coverage WHERE status<>'not_started'").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM research_history").fetchone()[0], event_count)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM profile_research_role WHERE "Linked office or unit" IS NOT NULL').fetchone()[0], 9)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM profile_research_role WHERE "Linked position" IS NOT NULL').fetchone()[0], 4)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM profile_research").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM profile_research_duplicates").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM research_source_visits").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM county_research_coverage WHERE status<>'not_started'").fetchone()[0], 0)
         self.assertEqual(self.db.execute("PRAGMA foreign_key_check").fetchall(), [])
 
     def test_incremental_application_audits_only_new_decisions(self):
@@ -138,7 +138,7 @@ class StructureFoundationTests(unittest.TestCase):
                                   title="Deputy Director", full_name="Synthetic Casey Example",
                                   source_url="https://example.invalid/08107/second-staff")],
                     version="incremental")
-        event_count_before = self.db.execute("SELECT count(*) FROM research_events").fetchone()[0]
+        event_count_before = self.db.execute("SELECT count(*) FROM research_history").fetchone()[0]
         incremental = build_structure_plan(self.db)
         self.assertEqual(len(incremental["event_changes"]["claims"]), 1)
         self.assertLess(incremental["summary"]["incremental_audit_events"],
@@ -146,17 +146,17 @@ class StructureFoundationTests(unittest.TestCase):
 
         applied = apply_structure_plan(self.db, incremental,
                                        expected_sha256=plan_sha256(incremental), actor="synthetic-test")
-        event_count_after = self.db.execute("SELECT count(*) FROM research_events").fetchone()[0]
+        event_count_after = self.db.execute("SELECT count(*) FROM research_history").fetchone()[0]
         self.assertEqual(applied["status"], "applied")
         self.assertEqual(event_count_after - event_count_before, applied["audit_events"])
         self.assertEqual(self.db.execute(
-            "SELECT count(*) FROM research_events WHERE run_id=? AND kind='role_claim_structure_linked'",
+            "SELECT count(*) FROM research_history WHERE run_id=? AND kind='role_claim_structure_linked'",
             (applied["run_id"],)).fetchone()[0], 1)
 
         repeated = apply_structure_plan(self.db, incremental,
                                         expected_sha256=plan_sha256(incremental), actor="synthetic-test")
         self.assertEqual(repeated["status"], "already_applied")
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_events").fetchone()[0], event_count_after)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM research_history").fetchone()[0], event_count_after)
         self.assertEqual(first["status"], "applied")
 
     def test_changed_preview_is_rejected_before_writes(self):
@@ -166,25 +166,25 @@ class StructureFoundationTests(unittest.TestCase):
                     version="added")
         with self.assertRaisesRegex(ValueError, "changed after the preview"):
             apply_structure_plan(self.db, plan, expected_sha256=plan_sha256(plan), actor="synthetic-test")
-        self.assertEqual(self.db.execute("SELECT count(*) FROM org_units").fetchone()[0], 0)
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_events").fetchone()[0], 2)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM county_research_unit_structure").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM research_history").fetchone()[0], 2)
 
     def test_application_rolls_back_on_conflicting_name_record(self):
         self.ingest(self.fixture_rows()[:1])
         plan = build_structure_plan(self.db)
         unit = plan["units"][0]
         name = plan["names"][0]
-        self.db.execute('INSERT INTO org_units("Office or unit ID","County code","Office or unit label as published","Organization type") VALUES (?,?,?,?)',
+        self.db.execute('INSERT INTO county_research_unit_structure("Office or unit ID","County code","Office or unit label as published","Organization type") VALUES (?,?,?,?)',
                         (unit["id"], unit["county_fips"], unit["source_label"], unit["kind"]))
-        self.db.execute("INSERT INTO org_names VALUES (?,?,?,?,?,?,?)",
+        self.db.execute("INSERT INTO county_research_unit_names VALUES (?,?,?,?,?,?,?)",
                         (name["id"], unit["id"], "Contradictory synthetic name", "published",
                          name["evidence_id"], None, None))
         self.db.commit()
         with self.assertRaisesRegex(ValueError, "Conflicting existing organization name"):
             apply_structure_plan(self.db, plan, expected_sha256=plan_sha256(plan), actor="synthetic-test")
         self.assertEqual(self.db.execute("SELECT count(*) FROM research_runs WHERE note LIKE 'org-position-foundation/%'").fetchone()[0], 0)
-        self.assertEqual(self.db.execute('SELECT count(*) FROM role_claims WHERE "Linked office or unit" IS NOT NULL').fetchone()[0], 0)
-        self.assertEqual(self.db.execute("SELECT count(*) FROM role_targets").fetchone()[0], 0)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM profile_research_role WHERE "Linked office or unit" IS NOT NULL').fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM county_research_positions").fetchone()[0], 0)
         self.assertEqual(self.db.execute("PRAGMA foreign_key_check").fetchall(), [])
 
     def test_cross_county_parent_is_rejected(self):
@@ -207,7 +207,7 @@ class StructureFoundationTests(unittest.TestCase):
             plan_path = Path(directory, "private-plan.json")
             db = connect(database)
             migrate(db)
-            db.execute("INSERT INTO counties VALUES (?,?)", ("08107", COUNTIES["08107"]))
+            db.execute("INSERT INTO county VALUES (?,?)", ("08107", COUNTIES["08107"]))
             db.commit()
             ingest_csv(db, csv_bytes(self.fixture_rows()), file_name="fictional.csv",
                        version_label="fictional-v1", provenance="synthetic")

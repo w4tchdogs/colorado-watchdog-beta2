@@ -66,14 +66,14 @@ class SyncCliTests(unittest.TestCase):
 
     def test_preview_is_read_only_deterministic_and_explains_exclusions(self):
         plan = generated()
-        before = self.db.execute("SELECT count(*) FROM sync_submissions").fetchone()[0]
+        before = self.db.execute("SELECT count(*) FROM website_requests").fetchone()[0]
         with patch.object(cli.sync, "build_changeset", return_value=plan):
             first, _ = self.run_command("sync-preview", site_key=SITE, max_changes=200)
             second, _ = self.run_command("sync-preview", site_key=SITE, max_changes=200)
         self.assertEqual(first["changeset_fingerprint"], second["changeset_fingerprint"])
         self.assertEqual(first["excluded"][0]["reason"], "identity_unresolved")
         self.assertEqual(first["safety"]["private_information"], "never_emitted")
-        self.assertEqual(self.db.execute("SELECT count(*) FROM sync_submissions").fetchone()[0], before)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM website_requests").fetchone()[0], before)
         encoded = json.dumps(first, sort_keys=True)
         self.assertNotIn("private_note", encoded)
         self.assertNotIn("raw_research", encoded)

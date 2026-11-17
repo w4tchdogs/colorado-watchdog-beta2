@@ -240,15 +240,15 @@ def _connection_evidence_rows(db, county_fips):
     """Load only direct evidence in this county's batches or established source context."""
     return [dict(row) for row in db.execute(
         'SELECT e."Evidence record ID" AS id,e."Source ID" AS source_id,e."Import batch ID" AS batch_id,e."Original record" AS raw_record_json,e."Evidence excerpt" AS quotation,e."Source title as observed" AS observed_title,'
-        's."Publisher type" AS official_status,b.county_fips AS batch_county FROM evidence_links e '
-        'JOIN sources s ON s."Source ID"=e."Source ID" LEFT JOIN scrape_batches b ON b.id=e."Import batch ID" '
-        'WHERE b.county_fips=? OR e."Evidence record ID" IN (SELECT n."Evidence for this name" AS evidence_id FROM name_variants n '
-        'JOIN research_people p ON p."Profile ID"=n."Profile ID" WHERE p."County code"=?) '
-        'OR e."Evidence record ID" IN (SELECT l.evidence_id FROM source_unit_links l JOIN org_units u ON u."Office or unit ID"=l.unit_id '
+        's."Publisher type" AS official_status,b.county_fips AS batch_county FROM research_evidence e '
+        'JOIN research_sources s ON s."Source ID"=e."Source ID" LEFT JOIN research_scrapes b ON b.id=e."Import batch ID" '
+        'WHERE b.county_fips=? OR e."Evidence record ID" IN (SELECT n."Evidence for this name" AS evidence_id FROM profile_research_name n '
+        'JOIN profile_research p ON p."Profile ID"=n."Profile ID" WHERE p."County code"=?) '
+        'OR e."Evidence record ID" IN (SELECT l.evidence_id FROM county_research_unit_sources l JOIN county_research_unit_structure u ON u."Office or unit ID"=l.unit_id '
         'WHERE u."County code"=?) '
-        'OR (e."Import batch ID" IS NULL AND e."Source ID" IN (SELECT e2."Source ID" AS source_id FROM role_claims c2 '
-        'JOIN evidence_links e2 ON e2."Evidence record ID"=c2."Evidence record ID" WHERE c2."County code"=?) '
-        'AND NOT EXISTS (SELECT 1 FROM role_claims cx JOIN evidence_links ex ON ex."Evidence record ID"=cx."Evidence record ID" '
+        'OR (e."Import batch ID" IS NULL AND e."Source ID" IN (SELECT e2."Source ID" AS source_id FROM profile_research_role c2 '
+        'JOIN research_evidence e2 ON e2."Evidence record ID"=c2."Evidence record ID" WHERE c2."County code"=?) '
+        'AND NOT EXISTS (SELECT 1 FROM profile_research_role cx JOIN research_evidence ex ON ex."Evidence record ID"=cx."Evidence record ID" '
         'WHERE ex."Source ID"=e."Source ID" AND cx."County code"<>?)) ORDER BY e."Evidence record ID"',
         (county_fips, county_fips, county_fips, county_fips, county_fips))]
 
@@ -315,7 +315,7 @@ def _identity_connection_edges(db, county_fips, rows, *, planned_sources, allow_
 
 
 def _source_proposals(db):
-    sources = list(db.execute('SELECT "Source ID" AS id,"Original source URL" AS original_url,"Previous source category" AS official_status,"Publisher type" AS publisher_classification FROM sources ORDER BY id'))
+    sources = list(db.execute('SELECT "Source ID" AS id,"Original source URL" AS original_url,"Previous source category" AS official_status,"Publisher type" AS publisher_classification FROM research_sources ORDER BY id'))
     eligible_sources = {source["id"] for source in sources
                         if source["publisher_classification"] == "unresolved"
                         and source["official_status"] == "unknown"}
@@ -325,8 +325,8 @@ def _source_proposals(db):
     direct_role_proof = {}
     for row in db.execute(
             'SELECT c."Role claim ID" AS id,c."County code" AS county_fips,c."Evidence record ID" AS evidence_id,c."Name as published" AS published_name,c."Position as published" AS published_title,c."Job description or duties" AS responsibility,'
-            'e."Source ID" AS source_id,e."Original record" AS raw_record_json,e."Evidence excerpt" AS quotation,e."Source title as observed" AS observed_title FROM role_claims c '
-            'JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" JOIN sources s ON s."Source ID"=e."Source ID" '
+            'e."Source ID" AS source_id,e."Original record" AS raw_record_json,e."Evidence excerpt" AS quotation,e."Source title as observed" AS observed_title FROM profile_research_role c '
+            'JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" JOIN research_sources s ON s."Source ID"=e."Source ID" '
             "WHERE s.\"Previous source category\"='unknown' AND s.\"Publisher type\"='unresolved' ORDER BY c.\"County code\",c.\"Role claim ID\""):
         source = sources_by_id[row["source_id"]]
         if _official_host(source["original_url"]) and row["source_id"] not in direct_role_proof \
@@ -339,10 +339,10 @@ def _source_proposals(db):
     documented_authority = {}
     for row in db.execute(
             'SELECT e."Evidence record ID" AS id,e."Source ID" AS source_id,e."Original record" AS raw_record_json,e."Evidence excerpt" AS quotation,e."Source title as observed" AS observed_title,'
-            'sc.county_fips,c."County name" AS county_name FROM evidence_links e '
-            'JOIN sources s ON s."Source ID"=e."Source ID" JOIN (SELECT DISTINCT ce."Source ID" AS source_id,rc."County code" AS county_fips '
-            'FROM role_claims rc JOIN evidence_links ce ON ce."Evidence record ID"=rc."Evidence record ID") sc '
-            'ON sc.source_id=e."Source ID" JOIN counties c ON c."County code"=sc.county_fips '
+            'sc.county_fips,c."County name" AS county_name FROM research_evidence e '
+            'JOIN research_sources s ON s."Source ID"=e."Source ID" JOIN (SELECT DISTINCT ce."Source ID" AS source_id,rc."County code" AS county_fips '
+            'FROM profile_research_role rc JOIN research_evidence ce ON ce."Evidence record ID"=rc."Evidence record ID") sc '
+            'ON sc.source_id=e."Source ID" JOIN county c ON c."County code"=sc.county_fips '
             "WHERE s.\"Previous source category\"='unknown' AND s.\"Publisher type\"='unresolved' ORDER BY e.\"Source ID\",e.\"Evidence record ID\",sc.county_fips"):
         source = sources_by_id[row["source_id"]]
         if _official_host(source["original_url"]) or row["source_id"] in documented_authority:
@@ -394,10 +394,10 @@ def _load_county_claims(db, county_fips):
         'c."Job description or duties" AS responsibility,c."Listing status" AS source_listing_status,c."Earlier claim this replaces" AS supersedes_id,c."Linked office or unit" AS unit_id,c."Linked position" AS target_id,'
         'e."Source ID" AS source_id,e."Original record" AS raw_record_json,e."Evidence excerpt" AS quotation,e."Source title as observed" AS observed_title,e."Import batch ID" AS batch_id,e."Source version ID" AS source_version_key,'
         's."Original source URL" AS original_url,s."Publisher type" AS official_status,b.family_id,b.lineage_kind,b.selected,b.parent_batch_id,'
-        "b.county_fips AS batch_county FROM role_claims c "
-        'JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" JOIN sources s ON s."Source ID"=e."Source ID" '
-        'LEFT JOIN org_units uu ON uu."Office or unit ID"=c."Linked office or unit" '
-        'LEFT JOIN scrape_batches b ON b.id=e."Import batch ID" WHERE c."County code"=? ORDER BY c."Role claim ID"',
+        "b.county_fips AS batch_county FROM profile_research_role c "
+        'JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" JOIN research_sources s ON s."Source ID"=e."Source ID" '
+        'LEFT JOIN county_research_unit_structure uu ON uu."Office or unit ID"=c."Linked office or unit" '
+        'LEFT JOIN research_scrapes b ON b.id=e."Import batch ID" WHERE c."County code"=? ORDER BY c."Role claim ID"',
         (county_fips,),
     )
     return [dict(row) for row in rows]
@@ -468,13 +468,13 @@ def _state_snapshot(db, county_fips, source_targets):
         claims.append(item)
     people = [dict(row) for row in db.execute(
         'SELECT "Profile ID" AS id,"County code" AS county_fips,"Full name" AS display_name,"Identity review status" AS identity_state,"Evidence for identity" AS identity_evidence_id '
-        'FROM research_people WHERE "County code"=? ORDER BY id', (county_fips,))]
+        'FROM profile_research WHERE "County code"=? ORDER BY id', (county_fips,))]
     variants = [dict(row) for row in db.execute(
-        'SELECT n."Name record ID" AS id,n."Profile ID" AS person_id,n."Name as published" AS published_name,n."Name type" AS kind,n."Evidence for this name" AS evidence_id FROM name_variants n '
-        'JOIN research_people p ON p."Profile ID"=n."Profile ID" WHERE p."County code"=? ORDER BY n."Name record ID"', (county_fips,))]
+        'SELECT n."Name record ID" AS id,n."Profile ID" AS person_id,n."Name as published" AS published_name,n."Name type" AS kind,n."Evidence for this name" AS evidence_id FROM profile_research_name n '
+        'JOIN profile_research p ON p."Profile ID"=n."Profile ID" WHERE p."County code"=? ORDER BY n."Name record ID"', (county_fips,))]
     matches = [dict(row) for row in db.execute(
         "SELECT id,county_fips,person_a,person_b,status,supporting_evidence_id,conflicting_evidence_id,"
-        "rationale,decision_basis,resolution_evidence_id FROM possible_matches "
+        "rationale,decision_basis,resolution_evidence_id FROM profile_research_duplicates "
         "WHERE county_fips=? ORDER BY id", (county_fips,))]
     identity_evidence = _connection_evidence_rows(db, county_fips)
     for evidence in identity_evidence:
@@ -486,11 +486,11 @@ def _state_snapshot(db, county_fips, source_targets):
 
 def _read_existing(db, county_fips):
     people = [dict(row) for row in db.execute(
-        'SELECT "Profile ID" AS id,"County code" AS county_fips,"Full name" AS display_name,"Identity review status" AS identity_state,"Evidence for identity" AS identity_evidence_id FROM research_people '
+        'SELECT "Profile ID" AS id,"County code" AS county_fips,"Full name" AS display_name,"Identity review status" AS identity_state,"Evidence for identity" AS identity_evidence_id FROM profile_research '
         'WHERE "County code"=? ORDER BY id', (county_fips,))]
     variants = [dict(row) for row in db.execute(
-        'SELECT n."Name record ID" AS id,n."Profile ID" AS person_id,n."Name as published" AS published_name,n."Name type" AS kind,n."Evidence for this name" AS evidence_id FROM name_variants n '
-        'JOIN research_people p ON p."Profile ID"=n."Profile ID" WHERE p."County code"=? ORDER BY n."Name record ID"', (county_fips,))]
+        'SELECT n."Name record ID" AS id,n."Profile ID" AS person_id,n."Name as published" AS published_name,n."Name type" AS kind,n."Evidence for this name" AS evidence_id FROM profile_research_name n '
+        'JOIN profile_research p ON p."Profile ID"=n."Profile ID" WHERE p."County code"=? ORDER BY n."Name record ID"', (county_fips,))]
     by_evidence = defaultdict(set)
     for person in people:
         if person["identity_evidence_id"]:
@@ -498,7 +498,7 @@ def _read_existing(db, county_fips):
     for variant in variants:
         by_evidence[variant["evidence_id"]].add(variant["person_id"])
     claim_people = defaultdict(set)
-    for row in db.execute('SELECT "Role claim ID" AS id,"Linked profile" AS person_id FROM role_claims WHERE "County code"=? AND "Linked profile" IS NOT NULL',
+    for row in db.execute('SELECT "Role claim ID" AS id,"Linked profile" AS person_id FROM profile_research_role WHERE "County code"=? AND "Linked profile" IS NOT NULL',
                           (county_fips,)):
         claim_people[row["id"]].add(row["person_id"])
     return people, variants, by_evidence, claim_people
@@ -625,7 +625,7 @@ def _county_decisions(db, county_fips, *, planned_sources, allow_planned_sources
             consumed.add(row["id"])
             variant_id = _stable_id("variant", person_id, row["published_name"], "published", row["evidence_id"])
             existing_variant = db.execute(
-                "SELECT \"Name record ID\" AS id FROM name_variants WHERE \"Profile ID\"=? AND \"Name as published\"=? AND \"Name type\"='published' AND \"Evidence for this name\"=?",
+                "SELECT \"Name record ID\" AS id FROM profile_research_name WHERE \"Profile ID\"=? AND \"Name as published\"=? AND \"Name type\"='published' AND \"Evidence for this name\"=?",
                 (person_id, row["published_name"], row["evidence_id"]),
             ).fetchone()
             if existing_variant is None:
@@ -638,7 +638,7 @@ def _county_decisions(db, county_fips, *, planned_sources, allow_planned_sources
                     if nickname == row["published_name"]:
                         continue
                     current = db.execute(
-                        "SELECT \"Name record ID\" AS id FROM name_variants WHERE \"Profile ID\"=? AND \"Name as published\"=? AND \"Name type\"='nickname' AND \"Evidence for this name\"=?",
+                        "SELECT \"Name record ID\" AS id FROM profile_research_name WHERE \"Profile ID\"=? AND \"Name as published\"=? AND \"Name type\"='nickname' AND \"Evidence for this name\"=?",
                         (person_id, nickname, row["evidence_id"]),
                     ).fetchone()
                     if current is None:
@@ -748,8 +748,8 @@ def build_identity_plan(db):
     source_classifications = _source_proposals(db)
     planned_sources = {item["source_id"] for item in source_classifications}
     source_targets = {source_id: "official" for source_id in planned_sources}
-    counties = [row[0] for row in db.execute('SELECT "County code" AS fips FROM counties WHERE EXISTS '
-                                               '(SELECT 1 FROM role_claims c WHERE c."County code"=counties."County code") ORDER BY fips')]
+    counties = [row[0] for row in db.execute('SELECT "County code" AS fips FROM county WHERE EXISTS '
+                                               '(SELECT 1 FROM profile_research_role c WHERE c."County code"=county."County code") ORDER BY fips')]
     county_plans = [_county_decisions(db, fips, planned_sources=planned_sources,
                                       allow_planned_sources=True, source_targets=source_targets)
                     for fips in counties]
@@ -760,18 +760,18 @@ def build_identity_plan(db):
         for key in ("new_people", "associations", "name_variants", "possible_matches", "unresolved", "rejected"):
             totals[key] += len(county[key])
     counts = {row[0]: row[1] for row in db.execute(
-        'SELECT "County code" AS county_fips,count(*) FROM role_claims GROUP BY "County code" ORDER BY county_fips')}
+        'SELECT "County code" AS county_fips,count(*) FROM profile_research_role GROUP BY "County code" ORDER BY county_fips')}
     totals["role_claims_assigned_before"] = db.execute(
-        'SELECT count(*) FROM role_claims WHERE "Linked profile" IS NOT NULL').fetchone()[0]
+        'SELECT count(*) FROM profile_research_role WHERE "Linked profile" IS NOT NULL').fetchone()[0]
     totals["role_claims_unassigned_before"] = totals["role_claims_evaluated"] - totals["role_claims_assigned_before"]
     payload = {"format": PLAN_FORMAT,
                "event_policy": DECISION_ONLY_EVENT_POLICY,
-               "input": {"county_registry_count": db.execute("SELECT count(*) FROM counties").fetchone()[0],
+               "input": {"county_registry_count": db.execute("SELECT count(*) FROM county").fetchone()[0],
                          "counties_with_claims": len(counties), "claims_by_county": counts,
-                         "source_count": db.execute("SELECT count(*) FROM sources").fetchone()[0],
-                         "batch_count": db.execute("SELECT count(*) FROM scrape_batches").fetchone()[0],
-                         "existing_people": db.execute("SELECT count(*) FROM research_people").fetchone()[0],
-                         "existing_open_possible_matches": db.execute("SELECT count(*) FROM possible_matches WHERE status='open'").fetchone()[0]},
+                         "source_count": db.execute("SELECT count(*) FROM research_sources").fetchone()[0],
+                         "batch_count": db.execute("SELECT count(*) FROM research_scrapes").fetchone()[0],
+                         "existing_people": db.execute("SELECT count(*) FROM profile_research").fetchone()[0],
+                         "existing_open_possible_matches": db.execute("SELECT count(*) FROM profile_research_duplicates WHERE status='open'").fetchone()[0]},
                "source_classifications": source_classifications,
                "counties": county_plans,
                "summary": {"counties_processed": len(counties),
@@ -787,8 +787,8 @@ def build_identity_plan(db):
                            "same_name_profile_groups_left_distinct": totals["same_name_profile_groups_left_distinct"],
                            "source_classifications_to_official": len(source_classifications),
                            "claims_assigned_after": totals["role_claims_assigned_before"] + totals["associations"],
-                           "unit_associations_preserved": db.execute('SELECT count(*) FROM role_claims WHERE "Linked office or unit" IS NOT NULL').fetchone()[0],
-                           "position_associations_preserved": db.execute('SELECT count(*) FROM role_claims WHERE "Linked position" IS NOT NULL').fetchone()[0]},
+                           "unit_associations_preserved": db.execute('SELECT count(*) FROM profile_research_role WHERE "Linked office or unit" IS NOT NULL').fetchone()[0],
+                           "position_associations_preserved": db.execute('SELECT count(*) FROM profile_research_role WHERE "Linked position" IS NOT NULL').fetchone()[0]},
                "rules": {"county_scope": True, "name_or_department_alone_establishes_identity": False,
                          "profile_requires": ["county", "name", "an office, position or job description"],
                          "same_county_same_name_merge_requires": "an aligned office, position or job description",
@@ -935,13 +935,13 @@ def _verify_run_and_events(db, run_id, note, expected_events):
     if run is None or run["provenance"] != "reconstructed" or run["note"] != note:
         raise ValueError("Identity application run is missing or conflicts with this plan")
     for event_id, kind, entity_type, entity_id, detail_json in expected_events:
-        row = db.execute("SELECT run_id,kind,entity_type,entity_id,detail_json,provenance FROM research_events WHERE id=?",
+        row = db.execute("SELECT run_id,kind,entity_type,entity_id,detail_json,provenance FROM research_history WHERE id=?",
                          (event_id,)).fetchone()
         if (row is None or row["run_id"] != run_id or row["kind"] != kind or
                 row["entity_type"] != entity_type or row["entity_id"] != entity_id or
                 row["detail_json"] != detail_json or row["provenance"] != "reconstructed"):
             raise ValueError("Identity application audit history is incomplete or changed")
-    count = db.execute("SELECT count(*) FROM research_events WHERE run_id=?", (run_id,)).fetchone()[0]
+    count = db.execute("SELECT count(*) FROM research_history WHERE run_id=?", (run_id,)).fetchone()[0]
     if count != len(expected_events):
         raise ValueError("Identity application run has an unexpected audit event count")
     return run["actor"]
@@ -949,17 +949,17 @@ def _verify_run_and_events(db, run_id, note, expected_events):
 
 def _verify_county_rows(db, county):
     for person in county["new_people"]:
-        row = db.execute('SELECT "County code" AS county_fips,"Full name" AS display_name,"Identity review status" AS identity_state,"Evidence for identity" AS identity_evidence_id FROM research_people WHERE "Profile ID"=?',
+        row = db.execute('SELECT "County code" AS county_fips,"Full name" AS display_name,"Identity review status" AS identity_state,"Evidence for identity" AS identity_evidence_id FROM profile_research WHERE "Profile ID"=?',
                          (person["person_id"],)).fetchone()
         expected = (person["county_fips"], person["display_name"], "evidence_supported", person["identity_evidence_id"])
         if row is None or tuple(row) != expected:
             raise ValueError("Planned research person is missing or changed")
     for association in county["associations"]:
-        row = db.execute('SELECT "County code" AS county_fips,"Linked profile" AS person_id FROM role_claims WHERE "Role claim ID"=?', (association["claim_id"],)).fetchone()
+        row = db.execute('SELECT "County code" AS county_fips,"Linked profile" AS person_id FROM profile_research_role WHERE "Role claim ID"=?', (association["claim_id"],)).fetchone()
         if row is None or tuple(row) != (association["county_fips"], association["person_id"]):
             raise ValueError("Planned role-claim association is missing or changed")
     for variant in county["name_variants"]:
-        row = db.execute('SELECT "Profile ID" AS person_id,"Name as published" AS published_name,"Name type" AS kind,"Evidence for this name" AS evidence_id FROM name_variants WHERE "Name record ID"=?',
+        row = db.execute('SELECT "Profile ID" AS person_id,"Name as published" AS published_name,"Name type" AS kind,"Evidence for this name" AS evidence_id FROM profile_research_name WHERE "Name record ID"=?',
                          (variant["variant_id"],)).fetchone()
         if row is None or tuple(row) != (variant["person_id"], variant["published_name"],
                                          variant["kind"], variant["evidence_id"]):
@@ -1008,7 +1008,7 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
         source_events = _expected_source_events(plan["source_classifications"], source_run_id, saved_actor)
         _verify_run_and_events(db, source_run_id, source_note, source_events)
         for proposal in plan["source_classifications"]:
-            status = db.execute('SELECT "Previous source category" AS official_status,"Publisher type" AS publisher_classification FROM sources WHERE "Source ID"=?',
+            status = db.execute('SELECT "Previous source category" AS official_status,"Publisher type" AS publisher_classification FROM research_sources WHERE "Source ID"=?',
                                 (proposal["source_id"],)).fetchone()
             if status is None or status[0] != proposal["to_status"] or status[1] != "official":
                 raise ValueError("A previously classified source changed after identity application")
@@ -1019,7 +1019,7 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
             if fresh_proposals != plan["source_classifications"]:
                 raise ValueError("Source evidence or classification state changed after the identity preview")
             for proposal in plan["source_classifications"]:
-                current = db.execute('SELECT "Previous source category" AS official_status,"Publisher type" AS publisher_classification FROM sources WHERE "Source ID"=?',
+                current = db.execute('SELECT "Previous source category" AS official_status,"Publisher type" AS publisher_classification FROM research_sources WHERE "Source ID"=?',
                                      (proposal["source_id"],)).fetchone()
                 if current is None or current[0] != proposal["from_status"] or current[1] != "unresolved":
                     raise ValueError("Source classification changed after the identity preview")
@@ -1027,13 +1027,13 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
             db.execute("INSERT INTO research_runs VALUES (?,?,?,?,?,?,?,?)",
                        (source_run_id, "screening", "reconstructed", actor, now, now, now, source_note))
             for proposal in plan["source_classifications"]:
-                updated = db.execute("UPDATE sources SET \"Previous source category\"='official',\"Publisher type\"='official' "
+                updated = db.execute("UPDATE research_sources SET \"Previous source category\"='official',\"Publisher type\"='official' "
                                      "WHERE \"Source ID\"=? AND \"Previous source category\"='unknown' AND \"Publisher type\"='unresolved'",
                                      (proposal["source_id"],))
                 if updated.rowcount != 1:
                     raise ValueError("Source classification changed during application")
             for event in _expected_source_events(plan["source_classifications"], source_run_id, actor):
-                db.execute("INSERT INTO research_events VALUES (?,?,?,?,?,?,?,?,?)",
+                db.execute("INSERT INTO research_history VALUES (?,?,?,?,?,?,?,?,?)",
                            (event[0], source_run_id, event[1], event[2], event[3], now, now,
                             "reconstructed", event[4]))
             db.commit()
@@ -1073,14 +1073,14 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
             db.execute("INSERT INTO research_runs VALUES (?,?,?,?,?,?,?,?)",
                        (run_id, "screening", "reconstructed", actor, now, now, now, note))
             for person in planned_county["new_people"]:
-                anchor = db.execute('SELECT "Name as published" AS published_name,"Evidence record ID" AS evidence_id FROM role_claims WHERE "Role claim ID"=?',
+                anchor = db.execute('SELECT "Name as published" AS published_name,"Evidence record ID" AS evidence_id FROM profile_research_role WHERE "Role claim ID"=?',
                                     (person["anchor_claim_id"],)).fetchone()
                 if anchor is None:
                     raise ValueError("The source-backed person anchor disappeared")
                 research_operator._claim_evidence(
                     db, county_fips=person["county_fips"], claim_id=person["anchor_claim_id"],
                     published_name=anchor["published_name"], evidence_id=person["identity_evidence_id"])
-                db.execute('INSERT INTO research_people("Profile ID","County code","Full name","Identity review status","Evidence for identity") '
+                db.execute('INSERT INTO profile_research("Profile ID","County code","Full name","Identity review status","Evidence for identity") '
                            "VALUES (?,?,?,'evidence_supported',?)",
                            (person["person_id"], person["county_fips"], person["display_name"], person["identity_evidence_id"]))
             for variant in planned_county["name_variants"]:
@@ -1088,7 +1088,7 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                     research_operator.validate_nickname_field_variant(
                         db, person_id=variant["person_id"], published_name=variant["published_name"],
                         evidence_id=variant["evidence_id"])
-                db.execute('INSERT INTO name_variants("Name record ID","Profile ID","Name as published","Name type","Evidence for this name") VALUES (?,?,?,?,?)',
+                db.execute('INSERT INTO profile_research_name("Name record ID","Profile ID","Name as published","Name type","Evidence for this name") VALUES (?,?,?,?,?)',
                            (variant["variant_id"], variant["person_id"], variant["published_name"],
                             variant["kind"], variant["evidence_id"]))
             association_order = {"bootstrap": 0, "correction_lineage": 1, "official_connection": 2}
@@ -1105,18 +1105,18 @@ def apply_identity_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
                         db, claim_id=association["claim_id"], person_id=association["person_id"],
                         evidence_id=association["evidence_id"])
                 else:
-                    claim = db.execute('SELECT "Name as published" AS published_name FROM role_claims WHERE "Role claim ID"=?',
+                    claim = db.execute('SELECT "Name as published" AS published_name FROM profile_research_role WHERE "Role claim ID"=?',
                                        (association["claim_id"],)).fetchone()
                     research_operator._claim_evidence(
                         db, county_fips=association["county_fips"], claim_id=association["claim_id"],
                         published_name=claim["published_name"], evidence_id=association["evidence_id"])
-                changed = db.execute('UPDATE role_claims SET "Linked profile"=? WHERE "Role claim ID"=? AND "County code"=? AND "Linked profile" IS NULL',
+                changed = db.execute('UPDATE profile_research_role SET "Linked profile"=? WHERE "Role claim ID"=? AND "County code"=? AND "Linked profile" IS NULL',
                                      (association["person_id"], association["claim_id"], county))
                 if changed.rowcount != 1:
                     raise ValueError("A role claim was assigned during identity application")
             for event in _county_events(planned_county, run_id, actor,
                                         include_triage=_include_triage_events(plan)):
-                db.execute("INSERT INTO research_events VALUES (?,?,?,?,?,?,?,?,?)",
+                db.execute("INSERT INTO research_history VALUES (?,?,?,?,?,?,?,?,?)",
                            (event[0], run_id, event[1], event[2], event[3], now, now,
                             "reconstructed", event[4]))
             db.commit()
@@ -1152,9 +1152,9 @@ def verify_identity_application(db, plan):
                 "name_variants": 0, "unresolved_claims": plan["summary"]["unresolved_claims"],
                 "possible_match_candidates": 0,
                 "role_claims_assigned_after": db.execute(
-                    'SELECT count(*) FROM role_claims WHERE "Linked profile" IS NOT NULL').fetchone()[0],
+                    'SELECT count(*) FROM profile_research_role WHERE "Linked profile" IS NOT NULL').fetchone()[0],
                 "role_claims_still_unassigned": db.execute(
-                    'SELECT count(*) FROM role_claims WHERE "Linked profile" IS NULL').fetchone()[0],
+                    'SELECT count(*) FROM profile_research_role WHERE "Linked profile" IS NULL').fetchone()[0],
                 "integrity": db.execute("PRAGMA integrity_check").fetchone()[0],
                 "foreign_key_violations": len(db.execute("PRAGMA foreign_key_check").fetchall())}
     if plan["source_classifications"]:
@@ -1166,7 +1166,7 @@ def verify_identity_application(db, plan):
         events = _expected_source_events(plan["source_classifications"], run_id, run[0])
         _verify_run_and_events(db, run_id, note, events)
         for proposal in plan["source_classifications"]:
-            status = db.execute('SELECT "Previous source category" AS official_status,"Publisher type" AS publisher_classification FROM sources WHERE "Source ID"=?',
+            status = db.execute('SELECT "Previous source category" AS official_status,"Publisher type" AS publisher_classification FROM research_sources WHERE "Source ID"=?',
                                 (proposal["source_id"],)).fetchone()
             if status is None or status[0] != proposal["to_status"] or status[1] != "official":
                 raise ValueError("Identity source classification differs from the plan")
@@ -1198,7 +1198,7 @@ def verify_identity_application(db, plan):
             "name_variants": plan["summary"]["evidence_supported_name_variants"],
             "unresolved_claims": plan["summary"]["unresolved_claims"],
             "possible_match_candidates": plan["summary"]["possible_match_candidates"],
-            "role_claims_assigned_after": db.execute('SELECT count(*) FROM role_claims WHERE "Linked profile" IS NOT NULL').fetchone()[0],
-            "role_claims_still_unassigned": db.execute('SELECT count(*) FROM role_claims WHERE "Linked profile" IS NULL').fetchone()[0],
+            "role_claims_assigned_after": db.execute('SELECT count(*) FROM profile_research_role WHERE "Linked profile" IS NOT NULL').fetchone()[0],
+            "role_claims_still_unassigned": db.execute('SELECT count(*) FROM profile_research_role WHERE "Linked profile" IS NULL').fetchone()[0],
             "integrity": db.execute("PRAGMA integrity_check").fetchone()[0],
             "foreign_key_violations": len(db.execute("PRAGMA foreign_key_check").fetchall())}

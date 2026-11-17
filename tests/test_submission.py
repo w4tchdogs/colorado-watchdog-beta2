@@ -5,6 +5,7 @@ import json
 import shutil
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from research.db import MIGRATIONS, connect, migrate
@@ -16,6 +17,7 @@ from research.submission import (
     prepare_submission,
     submit_prepared,
 )
+from research.sync import reconcile_reversal, reconcile_submission
 
 NOW = "2026-11-13T12:00:00+00:00"
 SITE = "synthetic-site"
@@ -60,7 +62,7 @@ class SubmissionCase(unittest.TestCase):
         self.path = Path(self.temporary.name, "synthetic-research.sqlite")
         self.db = connect(self.path)
         migrate(self.db)
-        self.db.execute("INSERT INTO counties VALUES ('08031', 'Denver')")
+        self.db.execute("INSERT INTO county VALUES ('08031', 'Denver')")
         self.db.commit()
 
     def tearDown(self):
@@ -82,6 +84,58 @@ class SubmissionCase(unittest.TestCase):
 
 
 class SubmissionMigrationTests(unittest.TestCase):
+    def test_v5_rename_preserves_pending_bytes_and_reconciled_receipts(self):
+        original = json.dumps(REQUEST, indent=2) + "\n"
+        canonical = json.dumps(REQUEST, sort_keys=True, separators=(",", ":"))
+        fingerprint = hashlib.sha256(canonical.encode()).hexdigest()
+        committed = json.dumps(json.loads(committed_response()), sort_keys=True, separators=(",", ":"))
+        reversal = {"status": "reverted", "batchId": "website-batch-synthetic-1",
+                    "reversalId": "synthetic-reversal", "reversedAt": NOW}
+        reversal_json = json.dumps(reversal, sort_keys=True, separators=(",", ":"))
+
+        with closing(connect()) as db:
+            migrate(db, through_version=5)
+            db.executemany(
+                "INSERT INTO sync_submissions "
+                "(id,site_key,idempotency_key,contract_version,request_fingerprint,request_json,created_at,updated_at) "
+                "VALUES (?,?,?,'m2-sync/v1',?,?,?,?)",
+                [("pending", SITE, KEY, fingerprint, original, NOW, NOW),
+                 ("finished", SITE, "synthetic-finished", fingerprint, original, NOW, NOW)],
+            )
+            batch_id = reversal["batchId"]
+            db.execute(
+                "UPDATE sync_submissions SET state='acknowledged',response_status=200,response_json=?,remote_batch_id=? "
+                "WHERE id='finished'", (committed, batch_id),
+            )
+            db.execute(
+                "INSERT INTO sync_submission_receipts VALUES ('finished','committed',?,?,?)",
+                (batch_id, committed, NOW),
+            )
+            db.execute(
+                "INSERT INTO sync_reversal_receipts VALUES ('reversal',?,?,?,'reverted',?,?)",
+                (SITE, batch_id, hashlib.sha256(reversal_json.encode()).hexdigest(), reversal_json, NOW),
+            )
+            db.commit()
+
+            migrate(db)
+            self.assertEqual(get_submission(db, "pending")["request_fingerprint"], fingerprint)
+            sent = []
+
+            def transport(site_key, path, headers, body):
+                sent.append((site_key, path, headers["idempotency-key"], body))
+                return 200, committed_response("still-pending-now-committed")
+
+            self.assertEqual(submit_prepared(db, "pending", transport, now=NOW)["state"], "acknowledged")
+            self.assertEqual(sent, [(SITE, COMMIT_PATH, KEY, original.encode())])
+            self.assertEqual(
+                reconcile_submission(db, "finished", now=NOW),
+                {"state": "committed", "replayed": True, "batch_id": batch_id},
+            )
+            self.assertEqual(
+                reconcile_reversal(db, SITE, batch_id, reversal, now=NOW),
+                {"state": "reverted", "replayed": True},
+            )
+
     def test_additive_migration_preserves_populated_synthetic_schema(self):
         with tempfile.TemporaryDirectory() as directory:
             migration_dir = Path(directory, "migrations")
@@ -133,7 +187,7 @@ class DurableSubmissionTests(SubmissionCase):
         staged = self.prepare(original)
         row = self.db.execute(
             "SELECT request_json, request_fingerprint, attempt_count, state "
-            "FROM sync_submissions WHERE id=?",
+            "FROM website_requests WHERE id=?",
             (staged["submission_id"],),
         ).fetchone()
         self.assertEqual(row["request_json"], original)
@@ -242,7 +296,7 @@ class DurableSubmissionTests(SubmissionCase):
         self.assertEqual(same_key["submission_id"], first["submission_id"])
         self.assertEqual(
             self.db.execute(
-                "SELECT request_json FROM sync_submissions WHERE id=?",
+                "SELECT request_json FROM website_requests WHERE id=?",
                 (first["submission_id"],),
             ).fetchone()[0],
             first_text,
@@ -270,7 +324,7 @@ class DurableSubmissionTests(SubmissionCase):
         for text in invalid:
             with self.subTest(text=text), self.assertRaises(SubmissionError):
                 self.prepare(text)
-        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM sync_submissions").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM website_requests").fetchone()[0], 0)
 
     def test_local_transactions_are_not_taken_over(self):
         self.db.execute("BEGIN")
