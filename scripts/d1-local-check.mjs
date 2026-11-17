@@ -1163,7 +1163,7 @@ async function main() {
       );
     }
     console.log(
-      `PASS local Wrangler D1: migrations 0001–0027; ${detail.checks.length} API checks; state persisted across requests`,
+      `PASS local Wrangler D1: migrations 0001–${migrations.at(-1).slice(0, 4)}; ${detail.checks.length} API checks; state persisted across requests`,
     );
   } finally {
     if (process.platform === "win32" && worker.pid) {
