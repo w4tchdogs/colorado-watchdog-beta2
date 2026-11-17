@@ -56,6 +56,10 @@ test("Website MCP exposes the bounded tool set and denies unauthenticated calls"
       "website_banner_publish",
       "website_banner_withdraw",
       "website_banner_restore",
+      "website_sync_dry_run",
+      "website_sync_commit",
+      "website_sync_lookup",
+      "website_sync_reverse",
     ]);
   } finally {
     fixture.database.close();

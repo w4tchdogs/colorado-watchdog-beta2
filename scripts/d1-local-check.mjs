@@ -1138,6 +1138,19 @@ async function main() {
       `PASS D1 banner MCP tools: ${bannerCheck.mcpChecks.length} checks for protected-API staging, MCP lookup, publish, same-key replay, stale and unverified refusal, readback, withdraw, recorded restore, audit, denied credentials and a grant revoked during the write`,
     );
 
+    const syncMcpResponse = await fetch(`${base}/sync/mcp-verify`, {
+      method: "POST",
+    });
+    const syncMcp = await syncMcpResponse.json();
+    if (!syncMcpResponse.ok || !syncMcp.success) {
+      throw new Error(
+        `Local D1 sync MCP verification failed: ${JSON.stringify(syncMcp)}`,
+      );
+    }
+    console.log(
+      `PASS D1 sync MCP tools: ${syncMcp.checks.length} checks for one atomic 816-operation batch, same-key replay, changed-payload rejection, paged readback, reversal, cross-account isolation, denied and revoked grants and the large-body gate`,
+    );
+
     const write = await fetch(`${base}/write`, { method: "POST" });
     const inserted = await write.json();
     const read = await fetch(`${base}/read`);
