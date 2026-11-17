@@ -6,7 +6,7 @@ place for present status and active assignments. This roadmap says where the
 project is going. CURRENT says where it is now. Status words use CURRENT's
 vocabulary.
 
-Revision: November 16, 2026. Based on `main` at `62bb7c5` (PR #176). The
+Revision: November 16, 2026. Based on `main` at `40b76e9f9245e9bf4660a6f2383c3463db4ece70` (PR #203). The
 owner approved these goals and lifted the development pause with this
 roadmap. The goals are recorded as an owner decision in
 [decisions.md](../decisions.md).
@@ -26,11 +26,8 @@ update and edit each of them.
   endpoint, can inspect and change Profiles, banners and editorial content
   through audited, capability-limited tools. Each domain has a written
   operator guide that any AI can follow.
-- **Today:** a read-only Website inspection MCP and a local Profiles
-  readiness MCP are merged (PR #95). Alpha-1 publishes the read-only
-  Website endpoint. Authenticated inspection and write tools remain open.
-- **Remaining:** authenticated hosted MCP verification (MCP-2), write tools for each domain
-  (MCP-3), and AI operator guides (MCP-4).
+- **Today:** see [CURRENT](CURRENT.md) for hosted inspection, banner and Profiles tools and client-specific evidence.
+- **Remaining:** the ChatGPT-operated Profiles bridge, editorial write tools, pilot work, and AI operator guides (MCP-4).
 
 ### Goal 2. A populated hosted database
 
@@ -100,10 +97,10 @@ Several goals depend on the same hosted groundwork. These come first.
 
 | ID | Work | Unblocks | Status |
 | --- | --- | --- | --- |
-| DEPLOY-1 | Maintain existing Sites Alpha-1 during the Cloudflare transition | Every hosted goal | Sites v16 deployed. Cloudflare staging public reads and D1 verified. See [CURRENT](CURRENT.md#d-deployment-state-separate-from-source) for both environments |
+| DEPLOY-1 | Maintain existing Sites Alpha-1 during the Cloudflare transition | Every hosted goal | See [CURRENT](CURRENT.md#d-deployment-state-separate-from-source). Owner deferred the public cutover. |
 | D1-0015 | Apply and verify the Lake and La Plata correction during Alpha-1 initialization | Goal 2 | Hosted registry verified in v5 |
 | AUTH-3 | Verified hosted human identity for sign-in | Goals 3, 4 (staff), 5 | Pilot hosted checks recorded on #125. Cloudflare staging owner sign-in hosted-verified in #174 |
-| MCP-2 | Publish read-only MCP and verify authenticated inspection | Goal 1, hosted D1 administration | Endpoint published; authenticated verification open |
+| MCP-2 | Publish read-only MCP and verify authenticated inspection | Goal 1, hosted D1 administration | Authenticated inspection verified on Cloudflare staging. See [CURRENT](CURRENT.md) for client-specific limits. |
 | R2-1 | Verify storage at the active deployment target | BANNERS-IMPORT-1 | Cloudflare staging storage round trip and protected banner API Hosted-verified with one synthetic PNG. [R2-1 staging receipt](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/137#issuecomment-6933294436). Sites R2 inventory remains open. |
 
 ## Ordered backlog
@@ -172,6 +169,11 @@ Settled on November 14, 2026:
   existing drafts, about 15, are the source.
 - The development pause is lifted with this roadmap.
 
+Settled on November 16, 2026:
+
+- Cloudflare is the staging priority. The separate Sites owner login assignment was withdrawn and public cutover preparation was deferred. See [decisions](../decisions.md#hosting-and-mcp-operator-priorities-november-16-2026).
+- The public report attribution choices and revision rules are recorded in [decisions](../decisions.md#public-report-attribution-november-16-2026).
+
 Still open:
 
 1. **Public hosting.** Choose the public Cloudflare hostname and cutover
@@ -179,9 +181,7 @@ Still open:
    retiring Sites. The [hosting decision](../decisions.md#cloudflare-hosting-transition-and-first-owner-target-november-16-2026)
    already selects the existing AUTH-3 application and GitHub connection for
    staging.
-2. **Original Sites sign-in.** Decide whether the original URL needs owner
-   sign-in during the transition. A separate bootstrap requires a verified
-   private operator path to that deployment's D1.
+2. **Report expansion.** Define grievance cards, event context and the employee picker before changing the intake contract. Draft workspace, private attachments, revision and withdrawal, and editorial release follow that model.
 
 ## Maintenance
 
