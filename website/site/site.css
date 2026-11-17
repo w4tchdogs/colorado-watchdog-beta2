@@ -1223,8 +1223,11 @@ img {
   margin-bottom: var(--space-3);
   color: #ffffff;
 }
+.hero-county .eyebrow {
+  margin-bottom: var(--space-4);
+}
 .hero-county h1 {
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-4);
 }
 .hero-home h1 {
   /* Homepage headline: two clean lines ("Community Voices." / "Government
@@ -1238,7 +1241,7 @@ img {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-4);
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-5);
   color: #e3e3e3;
   font-size: var(--step--1);
 }
@@ -1251,7 +1254,7 @@ img {
   font-size: var(--step-1);
 }
 .hero-county .hero-lede {
-  margin-bottom: 0;
+  margin-bottom: var(--space-5);
   font-size: var(--step-0);
 }
 .hero-actions {
@@ -1265,7 +1268,7 @@ img {
 }
 @media (min-width: 64rem) {
   .hero-content {
-    padding-block: var(--space-5);
+    padding-block: var(--space-6);
   }
   .hero-content .wrap {
     width: min(100% - 5rem, var(--wrap));
