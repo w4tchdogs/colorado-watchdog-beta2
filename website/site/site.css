@@ -1272,6 +1272,9 @@ img {
 .home-page :is(.cv-pathway, .editorial-grid .article-card) {
   position: relative;
 }
+.home-page :is(.cv-pathway-link, .editorial-grid .article-card-title a) {
+  text-decoration-line: none;
+}
 .home-page :is(.cv-pathway-link, .editorial-grid .article-card-title a)::after {
   position: absolute;
   inset: -3px -1px -1px;
@@ -1285,7 +1288,7 @@ img {
 /* Use the discovery cards' colors across the homepage. Draw the white line
    inward so adjacent menu rows and banner edges cannot cover it. */
 .home-page :is(
-  :is(.brand, .site-nav a, .header-login, a.button, .discovery-card):is(:hover, :focus-visible),
+  :is(.nav-toggle, .site-nav a, .header-login, a.button, .discovery-card):is(:hover, :focus-visible),
   .cv-pathway:has(.cv-pathway-link:is(:hover, :focus-visible)),
   .editorial-grid .article-card:has(.article-card-title a:is(:hover, :focus-visible))
 ) {
@@ -1296,7 +1299,7 @@ img {
   outline-offset: -2pt;
 }
 .home-page :is(
-  :is(.brand, .site-nav a, .header-login, a.button, .discovery-card):is(:hover, :focus-visible),
+  :is(.nav-toggle, .site-nav a, .header-login, a.button, .discovery-card):is(:hover, :focus-visible),
   .cv-pathway:has(.cv-pathway-link:is(:hover, :focus-visible)),
   .editorial-grid .article-card:has(.article-card-title a:is(:hover, :focus-visible))
 ) * {
@@ -1307,7 +1310,7 @@ img {
   border-color: currentColor;
 }
 .home-page :is(
-  :is(.brand, .site-nav a, .header-login, a.button, .discovery-card):focus-visible,
+  :is(.nav-toggle, .site-nav a, .header-login, a.button, .discovery-card):focus-visible,
   .cv-pathway:has(.cv-pathway-link:focus-visible),
   .editorial-grid .article-card:has(.article-card-title a:focus-visible)
 ) {
