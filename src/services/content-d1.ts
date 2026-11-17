@@ -1,4 +1,5 @@
 import type {
+  ContentCheckpoint,
   ContentDraftChanges,
   ContentItem,
   ContentListRequest,
@@ -38,6 +39,7 @@ import {
   summaryFromRow,
   TARGET_TABLES,
   validateChanges,
+  validateCheckpoints,
   validateExpectedVersion,
   validateId,
   validateNewDraft,
@@ -83,6 +85,13 @@ export interface AsyncContentService {
     principal: TrustedPrincipal,
     id: string,
     expectedVersion: number,
+  ): Promise<ContentItem>;
+  saveWithCheckpoints(
+    principal: TrustedPrincipal,
+    id: string,
+    expectedVersion: number,
+    checkpoints: readonly ContentCheckpoint[],
+    changes: ContentDraftChanges,
   ): Promise<ContentItem>;
   listRevisions(
     principal: TrustedPrincipal,
@@ -309,6 +318,7 @@ export function createD1ContentService(
     id: string,
     kind: ContentRevisionKind,
     restoredFromVersion: number | null,
+    checkpointLabel: string | null = null,
   ): D1BatchStatement {
     const ids = (table: string, column: string) =>
       `COALESCE((SELECT json_group_array(${column}) FROM (
@@ -318,14 +328,14 @@ export function createD1ContentService(
       `INSERT INTO content_revisions
          (content_id, version, change_kind, title, summary, body, status,
           county_fips_json, person_ids_json, organization_ids_json,
-          edited_by_account_id, restored_from_version)
+          edited_by_account_id, restored_from_version, checkpoint_label)
        SELECT i.id, i.version, ?, i.title, i.summary, i.body, i.status,
          ${ids("content_item_counties", "county_fips")},
          ${ids("content_item_people", "person_id")},
          ${ids("content_item_organizations", "organization_id")},
-         i.last_edited_by_account_id, ?
+         i.last_edited_by_account_id, ?, ?
        FROM content_items i WHERE i.id = ?`,
-      [kind, restoredFromVersion, id],
+      [kind, restoredFromVersion, checkpointLabel, id],
     );
   }
 
@@ -444,6 +454,67 @@ export function createD1ContentService(
           ),
           ...relationshipStatements(target, update.relationships),
         ],
+      });
+    },
+
+    async saveWithCheckpoints(
+      principal,
+      id,
+      expectedVersion,
+      checkpoints,
+      changes,
+    ) {
+      const target = validateId(id);
+      const version = validateExpectedVersion(expectedVersion);
+      const steps = validateCheckpoints(checkpoints);
+      const final = validateChanges(changes);
+      await require(principal);
+      return commit(principal, {
+        id: target,
+        kind: "update",
+        auditAction: "content.update",
+        summary: "Saved a content draft with AI checkpoints",
+        details: {
+          fields: final.fields.join(","),
+          checkpoints: steps.length,
+          version: version + steps.length + 1,
+        },
+        check: async () => {
+          await checkVersioned(target, version, "draft");
+          for (const step of steps) await checkTargets(step.relationships);
+          await checkTargets(final.relationships);
+        },
+        apply: () => {
+          const statements: D1BatchStatement[] = [];
+          let current = version;
+          for (const step of steps) {
+            statements.push(
+              ...versionedUpdate(
+                target,
+                current,
+                "draft",
+                "draft",
+                principal,
+                step.columns,
+              ),
+              ...relationshipStatements(target, step.relationships),
+              revisionStatement(target, "update", null, step.label),
+            );
+            current += 1;
+          }
+          statements.push(
+            ...versionedUpdate(
+              target,
+              current,
+              "draft",
+              "draft",
+              principal,
+              final.columns,
+            ),
+            ...relationshipStatements(target, final.relationships),
+          );
+          return statements;
+        },
       });
     },
 

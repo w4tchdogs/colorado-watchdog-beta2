@@ -11,6 +11,10 @@ import {
 } from "../database/sqlite.js";
 import { D1BannerAdministration } from "../services/banner-admin-d1.js";
 import { MemoryBannerObjectStorage } from "../services/banner-storage.js";
+import {
+  createAiProposalService,
+  createFixtureAiProvider,
+} from "../services/ai-proposals.js";
 import { createContentService } from "../services/content.js";
 import { createDashboardService } from "../services/dashboard.js";
 import {
@@ -98,6 +102,8 @@ export interface EditorSandboxOptions {
    * public site" link. Anything that is not a loopback http URL is ignored.
    */
   readonly publicSiteUrl?: string;
+  /** Provider timeout for AI proposals, in milliseconds. Tests shorten it. */
+  readonly aiTimeoutMs?: number;
 }
 
 export interface EditorSandbox {
@@ -192,6 +198,26 @@ const STATIC_FILES: Readonly<
   "/app/relationship-format.js": {
     directory: "script",
     file: "relationship-format.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/ai-contract.js": {
+    directory: "script",
+    file: "ai-contract.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/ai-panel.js": {
+    directory: "script",
+    file: "ai-panel.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/ai-blocks.js": {
+    directory: "script",
+    file: "ai-blocks.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/revision-compare.js": {
+    directory: "script",
+    file: "revision-compare.js",
     type: "text/javascript; charset=utf-8",
   },
   "/app/writer-chrome.js": {
@@ -300,10 +326,19 @@ export async function createEditorSandbox(
     options.allowedHosts.map((h) => h.toLowerCase()),
   );
 
+  // The local sandbox always uses the deterministic offline fixture provider.
+  const aiService = createAiProposalService({
+    provider: createFixtureAiProvider(),
+    timeoutMs: options.aiTimeoutMs ?? 5_000,
+  });
   const transport = createContentApiTransport({
     resolvePrincipal: (request) => resolvePrincipal(database, request, adapter),
     authorize: (principal) => sandboxPolicy(principal),
-    operations: createContentTransportOperations(service),
+    operations: {
+      ...createContentTransportOperations(service),
+      proposeAi: (_principal, request, signal) =>
+        aiService.propose(request, signal),
+    },
   });
   const dashboardTransport = createDashboardApiTransport({
     resolvePrincipal: (request) => resolvePrincipal(database, request, adapter),

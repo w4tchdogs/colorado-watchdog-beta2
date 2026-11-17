@@ -1,4 +1,5 @@
 import type {
+  ContentCheckpoint,
   ContentItem,
   ContentRevision,
   ContentRevisionKind,
@@ -18,6 +19,8 @@ import { diffLines, hasChanges } from "./diff.js";
 import { clear, el, replaceChildren } from "./dom.js";
 import { renderMarkdownInto } from "./preview.js";
 import { createRelationshipsPanel, type Rel } from "./relationships.js";
+import { buildRevisionCompare } from "./revision-compare.js";
+import { type AiPanel, createAiPanel } from "./ai-panel.js";
 import { createVisualCanvas } from "./visual-canvas.js";
 import { toVisual } from "./visual-model.js";
 import {
@@ -772,6 +775,9 @@ export function mountEditorApp(
     let saveFailed = false;
     let mode: "visual" | "source" = "visual";
     let previewing = false;
+    let aiPanel: AiPanel | null = null;
+    /** Working drafts captured just before accepted AI edits, saved with the next save. */
+    const pending: ContentCheckpoint[] = [];
     // Wide screens start with the settings open and keep the canvas central.
     let settingsOpen = win?.matchMedia
       ? win.matchMedia("(min-width: 80rem)").matches
@@ -801,6 +807,7 @@ export function mountEditorApp(
       confirmLeave("You have unsaved changes. Leave and discard them?");
     cleanupView = () => {
       doc.removeEventListener("keydown", onSaveShortcut);
+      aiPanel?.destroy();
       canvas.destroy();
       if (previewTimer) clearTimeout(previewTimer);
       onAccountChanged = null;
@@ -904,7 +911,54 @@ export function mountEditorApp(
         roundTripNote.hidden = !warn;
       },
       onNotice: (_kind, text) => announce(text),
+      onSelection: (info) => aiPanel?.selection(info),
       checkpointDelayMs: previewDelay <= 0 ? 0 : 500,
+    });
+    aiPanel = createAiPanel({
+      doc,
+      client,
+      canvas,
+      idPrefix,
+      host: {
+        state: () => ({
+          articleId: item?.id ?? null,
+          version: item?.version ?? null,
+          title: draft.title,
+          summary: draft.summary,
+          body: draft.body,
+          visual: mode === "visual" && !previewing,
+          locked: readOnly() || saving || working || conflict !== null,
+        }),
+        accept: (label, apply) => {
+          if (!item && (draft.title || draft.summary || draft.body.trim())) {
+            notice(
+              messages,
+              "error",
+              "Save the draft once before applying AI edits, so the version before the edit can be kept.",
+            );
+            return false;
+          }
+          // The exact working draft, including unsaved manual changes.
+          const before: ContentCheckpoint | null = item && {
+            label: `Before AI edit: ${label}`,
+            title: draft.title.trim() || item.title,
+            summary: draft.summary.trim() || null,
+            body: draft.body,
+            relationships: copyRel(draft.rel),
+          };
+          if (!apply()) return false;
+          if (before) pending.push(before);
+          return true;
+        },
+        setTitle: (title) => {
+          titleInput.value = title;
+          draft.title = title;
+          saveFailed = false;
+          updatePreview();
+          updateStatus();
+        },
+        announce,
+      },
     });
     const {
       visualButton,
@@ -954,6 +1008,7 @@ export function mountEditorApp(
       roundTripNote,
       previewTools,
       canvas.element,
+      aiPanel.selectionBar,
       sourcePane,
       preview,
     );
@@ -1009,6 +1064,7 @@ export function mountEditorApp(
           "Shown in lists and at the top of the article.",
         ),
       ),
+      aiPanel.element,
       outlineSlot,
       canvas.blockPanel,
       relationshipsSlot,
@@ -1073,6 +1129,7 @@ export function mountEditorApp(
     // --- status rendering
     function updateStatus(): void {
       const dirty = isDirty();
+      aiPanel?.refresh();
       replaceChildren(
         doc,
         typeBadgeSlot,
@@ -1313,6 +1370,7 @@ export function mountEditorApp(
     }
     function replaceDraftWith(result: ContentItem): void {
       item = result;
+      pending.length = 0;
       draft.title = result.title;
       draft.summary = result.summary ?? "";
       draft.body = result.body;
@@ -1385,17 +1443,32 @@ export function mountEditorApp(
           if (sent.body !== item.body) changes.body = sent.body;
           if (!sameRel(sent.rel, item.relationships))
             changes.relationships = sent.rel;
-          if (Object.keys(changes).length === 0) {
+          if (Object.keys(changes).length === 0 && pending.length === 0) {
             notice(messages, "info", "There are no changes to save.");
             return;
           }
-          const updated = await client.updateDraft(
-            item.id,
-            item.version,
-            changes,
-          );
+          const kept = pending.length;
+          const updated =
+            kept > 0
+              ? await client.saveWithCheckpoints(
+                  item.id,
+                  item.version,
+                  pending,
+                  {
+                    title: sent.title,
+                    summary: sent.summary.trim() === "" ? null : sent.summary,
+                    body: sent.body,
+                    relationships: sent.rel,
+                  },
+                )
+              : await client.updateDraft(item.id, item.version, changes);
+          pending.length = 0;
           syncFrom(updated, sent);
-          notice(messages, "success", `Saved as version ${updated.version}.`);
+          notice(
+            messages,
+            "success",
+            `Saved as version ${updated.version}.${kept > 0 ? ` ${kept} AI checkpoint${kept === 1 ? " is" : "s are"} in Revision history.` : ""}`,
+          );
         }
         await loadRevisions(true);
       } catch (error) {
@@ -1713,7 +1786,8 @@ export function mountEditorApp(
                 revision.changeKind === "restore_revision" &&
                   revision.restoredFromVersion
                   ? `Restored from v${revision.restoredFromVersion}`
-                  : CHANGE_LABELS[revision.changeKind],
+                  : (revision.checkpointLabel ??
+                      CHANGE_LABELS[revision.changeKind]),
               ),
               isCurrent
                 ? h("span", { class: "badge badge-current" }, "Current")
@@ -1845,7 +1919,7 @@ export function mountEditorApp(
               id: "historical-banner",
               role: "status",
             },
-            `Viewing historical revision v${revision.version} (${CHANGE_LABELS[revision.changeKind]}) - read only. You are not editing the current draft.`,
+            `Viewing historical revision v${revision.version} (${revision.checkpointLabel ?? CHANGE_LABELS[revision.changeKind]}) - read only. You are not editing the current draft.`,
           ),
           h("h2", { id: `${idPrefix}-hist-h` }, revision.title),
           revision.summary
@@ -1919,89 +1993,8 @@ export function mountEditorApp(
       updateStatus();
     }
 
-    function buildCompare(revision: ContentRevision): HTMLElement {
-      const wrap = h("div", { class: "compare", id: "compare-panel" });
-      const fields: [string, string, string][] = [
-        ["Title", revision.title, draft.title],
-        ["Summary", revision.summary ?? "", draft.summary],
-      ];
-      for (const [label, before, after] of fields) {
-        wrap.appendChild(
-          h(
-            "p",
-            { class: "compare-field" },
-            h("strong", {}, `${label}: `),
-            before === after
-              ? "same as the current draft"
-              : `changed (revision: "${before}" / current: "${after}")`,
-          ),
-        );
-      }
-      const describe = (
-        label: string,
-        before: readonly string[],
-        after: readonly string[],
-        names: ReadonlyMap<string, string>,
-      ) => {
-        const added = after.filter((value) => !before.includes(value));
-        const removed = before.filter((value) => !after.includes(value));
-        const name = (value: string) => names.get(value) ?? value;
-        return h(
-          "p",
-          { class: "compare-field" },
-          h("strong", {}, `${label}: `),
-          added.length === 0 && removed.length === 0
-            ? "same as the current draft"
-            : `current draft adds ${added.map(name).join(", ") || "nothing"} and removes ${removed.map(name).join(", ") || "nothing"}`,
-        );
-      };
-      wrap.appendChild(
-        describe(
-          "Counties",
-          revision.relationships.countyFips,
-          draft.rel.countyFips,
-          relationships.countyNames,
-        ),
-      );
-      wrap.appendChild(
-        describe(
-          "People",
-          revision.relationships.personIds,
-          draft.rel.personIds,
-          relationships.personNames,
-        ),
-      );
-      wrap.appendChild(
-        describe(
-          "Organizations",
-          revision.relationships.organizationIds,
-          draft.rel.organizationIds,
-          relationships.organizationNames,
-        ),
-      );
-      const diff = diffLines(revision.body, draft.body);
-      wrap.appendChild(
-        diff === null
-          ? h(
-              "p",
-              { class: "help" },
-              "The text is too long to compare line by line.",
-            )
-          : hasChanges(diff)
-            ? h(
-                "div",
-                {},
-                h("h3", {}, "Body: revision compared with the current draft"),
-                renderDiff(diff),
-              )
-            : h(
-                "p",
-                { class: "help" },
-                "The body is the same as the current draft.",
-              ),
-      );
-      return wrap;
-    }
+    const buildCompare = (revision: ContentRevision): HTMLElement =>
+      buildRevisionCompare(doc, revision, draft, relationships, renderDiff);
 
     async function performRestore(revision: ContentRevision): Promise<void> {
       if (!item || working || isDirty()) return;

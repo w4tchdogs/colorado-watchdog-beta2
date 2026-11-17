@@ -1,7 +1,9 @@
+import type { AiProposalResult } from "../contracts/ai-proposals.js";
 import {
   CONTENT_SORTS,
   CONTENT_STATUSES,
   CONTENT_TYPES,
+  type ContentCheckpoint,
   type ContentDraftChanges,
   type ContentItem,
   type ContentListRequest,
@@ -14,7 +16,9 @@ import {
   type ContentSort,
   type ContentStatus,
   type ContentType,
+  MAX_CHECKPOINT_LABEL_LENGTH,
   MAX_CONTENT_BODY_BYTES,
+  MAX_CONTENT_CHECKPOINTS,
   MAX_CONTENT_CURSOR_LENGTH,
   MAX_CONTENT_PAGE_SIZE,
   MAX_CONTENT_RELATIONSHIPS_PER_KIND,
@@ -66,6 +70,8 @@ export const CONTENT_API_PATHS = {
   getDraft: "/internal/content/drafts/get",
   listDrafts: "/internal/content/drafts/list",
   updateDraft: "/internal/content/drafts/update",
+  saveWithCheckpoints: "/internal/content/drafts/save",
+  proposeAi: "/internal/content/ai/propose",
   setRelationships: "/internal/content/drafts/relationships",
   archiveDraft: "/internal/content/drafts/archive",
   restoreDraft: "/internal/content/drafts/restore",
@@ -120,6 +126,19 @@ export interface ContentTransportOperations {
     expectedVersion: number,
     changes: ContentDraftChanges,
   ) => MaybePromise<ContentItem>;
+  readonly saveWithCheckpoints?: (
+    principal: TrustedPrincipal,
+    id: string,
+    expectedVersion: number,
+    checkpoints: readonly ContentCheckpoint[],
+    changes: ContentDraftChanges,
+  ) => MaybePromise<ContentItem>;
+  /** Server-side AI proposals. Absent means AI is not configured. */
+  readonly proposeAi?: (
+    principal: TrustedPrincipal,
+    request: unknown,
+    signal: AbortSignal,
+  ) => MaybePromise<AiProposalResult | null>;
   readonly setRelationships?: (
     principal: TrustedPrincipal,
     id: string,
@@ -177,6 +196,8 @@ export function createContentTransportOperations(
     listDrafts: (principal, request) => service.listDrafts(principal, request),
     updateDraft: (principal, id, version, changes) =>
       service.updateDraft(principal, id, version, changes),
+    saveWithCheckpoints: (principal, id, version, checkpoints, changes) =>
+      service.saveWithCheckpoints(principal, id, version, checkpoints, changes),
     setRelationships: (principal, id, version, relationships) =>
       service.setRelationships(principal, id, version, relationships),
     archiveDraft: (principal, id, version) =>
@@ -251,7 +272,13 @@ async function handleRequest(
   if (!input) return json(400, { error: "invalid_request" });
 
   try {
-    return await execute(operation, principal, input, dependencies.operations);
+    return await execute(
+      operation,
+      principal,
+      input,
+      dependencies.operations,
+      request.signal,
+    );
   } catch (error) {
     return failure(error);
   }
@@ -262,9 +289,25 @@ async function execute(
   principal: TrustedPrincipal,
   input: Record<string, unknown>,
   operations: ContentTransportOperations | undefined,
+  signal: AbortSignal,
 ): Promise<Response> {
   const ops = operations as ContentTransportOperations;
   switch (operation) {
+    case "proposeAi": {
+      const result = await ops.proposeAi?.(principal, input, signal);
+      if (result === null) return json(400, { error: "invalid_request" });
+      return result ? sanitized(result) : internal();
+    }
+    case "saveWithCheckpoints":
+      return item(
+        await ops.saveWithCheckpoints?.(
+          principal,
+          input.id as string,
+          input.expectedVersion as number,
+          input.checkpoints as ContentCheckpoint[],
+          input.changes as ContentDraftChanges,
+        ),
+      );
     case "publish":
     case "withdraw": {
       const receipt =
@@ -361,6 +404,30 @@ async function execute(
         ),
       );
   }
+}
+
+function validChanges(changes: unknown): boolean {
+  if (
+    !isRecord(changes) ||
+    !closed(changes, ["title", "summary", "body", "relationships"]) ||
+    Object.keys(changes).length === 0
+  )
+    return false;
+  if (
+    changes.title !== undefined &&
+    !isString(changes.title, MAX_CONTENT_TITLE_LENGTH * 6)
+  )
+    return false;
+  if (!optionalText(changes, "summary", true)) return false;
+  if (
+    changes.body !== undefined &&
+    !isString(changes.body, MAX_CONTENT_BODY_BYTES)
+  )
+    return false;
+  return !(
+    changes.relationships !== undefined &&
+    !isRelationshipsInput(changes.relationships)
+  );
 }
 
 function failure(error: unknown): Response {
@@ -470,33 +537,45 @@ function parseInput(
         return null;
       return value;
     }
+    case "proposeAi":
+      return value;
+    case "saveWithCheckpoints": {
+      if (!closed(value, ["id", "expectedVersion", "checkpoints", "changes"]))
+        return null;
+      if (!isId(value.id) || !isVersion(value.expectedVersion)) return null;
+      const list = value.checkpoints;
+      if (
+        !Array.isArray(list) ||
+        list.length === 0 ||
+        list.length > MAX_CONTENT_CHECKPOINTS
+      )
+        return null;
+      for (const entry of list) {
+        if (
+          !isRecord(entry) ||
+          !closed(entry, [
+            "label",
+            "title",
+            "summary",
+            "body",
+            "relationships",
+          ]) ||
+          !isString(entry.label, MAX_CHECKPOINT_LABEL_LENGTH * 2) ||
+          !validChanges({
+            title: entry.title,
+            summary: entry.summary,
+            body: entry.body,
+            relationships: entry.relationships,
+          })
+        )
+          return null;
+      }
+      return validChanges(value.changes) ? value : null;
+    }
     case "updateDraft": {
       if (!closed(value, ["id", "expectedVersion", "changes"])) return null;
       if (!isId(value.id) || !isVersion(value.expectedVersion)) return null;
-      const changes = value.changes;
-      if (
-        !isRecord(changes) ||
-        !closed(changes, ["title", "summary", "body", "relationships"]) ||
-        Object.keys(changes).length === 0
-      )
-        return null;
-      if (
-        changes.title !== undefined &&
-        !isString(changes.title, MAX_CONTENT_TITLE_LENGTH * 6)
-      )
-        return null;
-      if (!optionalText(changes, "summary", true)) return null;
-      if (
-        changes.body !== undefined &&
-        !isString(changes.body, MAX_CONTENT_BODY_BYTES)
-      )
-        return null;
-      if (
-        changes.relationships !== undefined &&
-        !isRelationshipsInput(changes.relationships)
-      )
-        return null;
-      return value;
+      return validChanges(value.changes) ? value : null;
     }
     case "setRelationships":
       return closed(value, ["id", "expectedVersion", "relationships"]) &&
@@ -717,6 +796,7 @@ function sanitizeRevisionFields(value: ContentRevision) {
     editedByAccountId: value.editedByAccountId,
     recordedAt: value.recordedAt,
     restoredFromVersion: value.restoredFromVersion,
+    checkpointLabel: value.checkpointLabel,
   };
 }
 

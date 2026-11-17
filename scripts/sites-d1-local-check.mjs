@@ -661,6 +661,7 @@ async function main() {
     "0026_agent_banner_publish_grant.sql",
     "0027_archived_accounts.sql",
     "0028_optional_role_source_found_date.sql",
+    "0029_content_revision_checkpoint_label.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(

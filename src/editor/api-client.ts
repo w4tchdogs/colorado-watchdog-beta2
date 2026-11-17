@@ -1,4 +1,6 @@
+import type { AiProposalRequest, AiProposalResult } from "./ai-contract.js";
 import type {
+  ContentCheckpoint,
   ContentDraftChanges,
   ContentItem,
   ContentListRequest,
@@ -26,6 +28,8 @@ export const EDITOR_API_PATHS = {
   getDraft: "/internal/content/drafts/get",
   listDrafts: "/internal/content/drafts/list",
   updateDraft: "/internal/content/drafts/update",
+  saveWithCheckpoints: "/internal/content/drafts/save",
+  proposeAi: "/internal/content/ai/propose",
   setRelationships: "/internal/content/drafts/relationships",
   archiveDraft: "/internal/content/drafts/archive",
   restoreDraft: "/internal/content/drafts/restore",
@@ -82,6 +86,7 @@ export type FetchLike = (
     method: string;
     headers: Record<string, string>;
     body?: string;
+    signal?: AbortSignal;
   },
 ) => Promise<Response>;
 
@@ -117,6 +122,21 @@ export interface EditorApiClient {
     expectedVersion: number,
     changes: ContentDraftChanges,
   ): Promise<ContentItem>;
+  /**
+   * Saves each checkpoint as a revision and then the working draft, in one
+   * guarded operation on the server.
+   */
+  saveWithCheckpoints(
+    id: string,
+    expectedVersion: number,
+    checkpoints: readonly ContentCheckpoint[],
+    changes: ContentDraftChanges,
+  ): Promise<ContentItem>;
+  /** Asks the server for an AI proposal. Aborting the signal cancels it. */
+  proposeAi(
+    request: AiProposalRequest,
+    signal?: AbortSignal,
+  ): Promise<AiProposalResult>;
   setRelationships(
     id: string,
     expectedVersion: number,
@@ -157,6 +177,7 @@ export function createEditorApiClient(
     path: string,
     method: "GET" | "POST",
     payload?: unknown,
+    signal?: AbortSignal,
   ): Promise<T> {
     let response: Response;
     try {
@@ -172,6 +193,7 @@ export function createEditorApiClient(
           ...(method === "POST" ? { "content-type": "application/json" } : {}),
         },
         ...(method === "POST" ? { body: JSON.stringify(payload ?? {}) } : {}),
+        ...(signal ? { signal } : {}),
       });
     } catch {
       throw new EditorApiError(0, "network_error");
@@ -223,6 +245,20 @@ export function createEditorApiClient(
     listDrafts: (request) => post(EDITOR_API_PATHS.listDrafts, request),
     updateDraft: (id, expectedVersion, changes) =>
       post(EDITOR_API_PATHS.updateDraft, { id, expectedVersion, changes }),
+    saveWithCheckpoints: (id, expectedVersion, checkpoints, changes) =>
+      post(EDITOR_API_PATHS.saveWithCheckpoints, {
+        id,
+        expectedVersion,
+        checkpoints,
+        changes,
+      }),
+    proposeAi: (request, signal) =>
+      send<AiProposalResult>(
+        EDITOR_API_PATHS.proposeAi,
+        "POST",
+        request,
+        signal,
+      ),
     setRelationships: (id, expectedVersion, relationships) =>
       post(EDITOR_API_PATHS.setRelationships, {
         id,

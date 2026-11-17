@@ -6,6 +6,7 @@ import {
   CONTENT_TYPES,
   type ContentAction,
   type ContentAuthorizationPolicy,
+  type ContentCheckpoint,
   type ContentDraftChanges,
   type ContentItem,
   type ContentListRequest,
@@ -22,6 +23,7 @@ import {
   type ContentType,
   DEFAULT_CONTENT_PAGE_SIZE,
   MAX_CONTENT_BODY_BYTES,
+  MAX_CONTENT_CHECKPOINTS,
   MAX_CONTENT_CURSOR_LENGTH,
   MAX_CONTENT_PAGE_SIZE,
   MAX_CONTENT_RELATIONSHIPS_PER_KIND,
@@ -100,6 +102,18 @@ export interface ContentService {
     principal: TrustedPrincipal,
     id: string,
     expectedVersion: number,
+  ): ContentItem;
+  /**
+   * Persists each checkpoint as its own revision, then the resulting draft,
+   * in one audited transaction guarded by the expected version. Requires
+   * `content.update`. Any failure leaves stored content unchanged.
+   */
+  saveWithCheckpoints(
+    principal: TrustedPrincipal,
+    id: string,
+    expectedVersion: number,
+    checkpoints: readonly ContentCheckpoint[],
+    changes: ContentDraftChanges,
   ): ContentItem;
   /** Newest first. Requires `content.revision.read`. */
   listRevisions(
@@ -216,6 +230,7 @@ export function createContentService(
           audit.targetId,
           audit.revisionKind,
           audit.restoredFromVersion ?? null,
+          null,
         );
       },
     );
@@ -297,6 +312,57 @@ export function createContentService(
             update.columns.map(([, value]) => value),
           );
           replaceRelationships(database, target, update.relationships);
+        },
+      );
+    },
+
+    saveWithCheckpoints(principal, id, expectedVersion, checkpoints, changes) {
+      const target = validateId(id);
+      const version = validateExpectedVersion(expectedVersion);
+      const steps = validateCheckpoints(checkpoints);
+      const final = validateChanges(changes);
+      return mutate(
+        principal,
+        "content.update",
+        {
+          revisionKind: "update",
+          auditAction: "content.update",
+          targetId: target,
+          summary: "Saved a content draft with AI checkpoints",
+          details: {
+            fields: final.fields.join(","),
+            checkpoints: steps.length,
+            version: version + steps.length + 1,
+          },
+        },
+        () => {
+          let current = version;
+          for (const step of steps) {
+            applyVersionedChange(
+              database,
+              target,
+              current,
+              "draft",
+              "draft",
+              principal,
+              step.columns.map(([column]) => column),
+              step.columns.map(([, value]) => value),
+            );
+            replaceRelationships(database, target, step.relationships);
+            recordRevision(database, target, "update", null, step.label);
+            current += 1;
+          }
+          applyVersionedChange(
+            database,
+            target,
+            current,
+            "draft",
+            "draft",
+            principal,
+            final.columns.map(([column]) => column),
+            final.columns.map(([, value]) => value),
+          );
+          replaceRelationships(database, target, final.relationships);
         },
       );
     },
@@ -581,6 +647,7 @@ function recordRevision(
   id: string,
   kind: ContentRevisionKind,
   restoredFromVersion: number | null,
+  checkpointLabel: string | null,
 ): ContentItem {
   const item = readItem(database, id);
   database
@@ -588,8 +655,8 @@ function recordRevision(
       `INSERT INTO content_revisions
          (content_id, version, change_kind, title, summary, body, status,
           county_fips_json, person_ids_json, organization_ids_json,
-          edited_by_account_id, restored_from_version)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          edited_by_account_id, restored_from_version, checkpoint_label)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       item.id,
@@ -604,12 +671,14 @@ function recordRevision(
       JSON.stringify(item.relationships.organizationIds),
       item.lastEditedByAccountId,
       restoredFromVersion,
+      checkpointLabel,
     );
   return item;
 }
 
 export const REVISION_SUMMARY_COLUMNS = `content_id, version, change_kind, title,
-  summary, status, edited_by_account_id, restored_from_version, recorded_at`;
+  summary, status, edited_by_account_id, restored_from_version, recorded_at,
+  checkpoint_label`;
 
 function findRevision(
   database: WebsiteDatabase,
@@ -723,6 +792,10 @@ export function revisionSummaryFromRow(
       row.restored_from_version === null
         ? null
         : asNumber(row.restored_from_version),
+    checkpointLabel:
+      row.checkpoint_label === null || row.checkpoint_label === undefined
+        ? null
+        : asString(row.checkpoint_label),
   };
 }
 
@@ -1081,6 +1154,58 @@ function validateBody(value: unknown): string {
     throw new ContentInputError();
   }
   return value;
+}
+
+export interface ValidatedCheckpoint {
+  readonly label: string;
+  readonly columns: [string, string | null][];
+  readonly relationships: ContentRelationshipsInput;
+}
+
+const CHECKPOINT_LABEL = /^[A-Za-z0-9 ,.:'()/-]{1,80}$/;
+
+/** Checks every checkpoint like a full draft update. Bounded and credential free. */
+export function validateCheckpoints(
+  value: unknown,
+): readonly ValidatedCheckpoint[] {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > MAX_CONTENT_CHECKPOINTS
+  ) {
+    throw new ContentInputError();
+  }
+  return value.map((entry): ValidatedCheckpoint => {
+    if (!isRecord(entry)) throw new ContentInputError();
+    rejectUnknownKeys(entry, [
+      "label",
+      "title",
+      "summary",
+      "body",
+      "relationships",
+    ]);
+    if (
+      typeof entry.label !== "string" ||
+      !CHECKPOINT_LABEL.test(entry.label.trim())
+    ) {
+      throw new ContentInputError();
+    }
+    if (!isRecord(entry.relationships)) throw new ContentInputError();
+    const relationships = normalizeRelationships(entry.relationships);
+    for (const kind of RELATIONSHIP_KINDS) {
+      if (relationships[kind] === undefined) throw new ContentInputError();
+    }
+    const checked = validateChanges({
+      title: entry.title as string,
+      summary: entry.summary as string | null,
+      body: entry.body as string,
+    });
+    return {
+      label: entry.label.trim(),
+      columns: checked.columns,
+      relationships,
+    };
+  });
 }
 
 export function normalizeRelationships(

@@ -41,8 +41,13 @@ import {
   CONTENT_API_PATHS,
   CONTENT_PUBLICATION_API_PATHS,
   createContentApiTransport,
+  type ContentTransportOperations,
   createContentTransportOperations,
 } from "./transport/content-api.js";
+import {
+  createAiProposalService,
+  createAiProviderFromEnv,
+} from "./services/ai-proposals.js";
 import {
   dashboardUnavailable,
   handleDashboardRequest,
@@ -278,6 +283,19 @@ function originRejected(): Response {
   });
 }
 
+/** AI proposals stay unavailable (503) until a provider is configured. */
+function aiOperations(
+  environment: RuntimeEnvironment,
+): Pick<ContentTransportOperations, "proposeAi"> {
+  const provider = createAiProviderFromEnv(environment);
+  if (!provider) return {};
+  const service = createAiProposalService({ provider });
+  return {
+    proposeAi: (_principal, request, signal) =>
+      service.propose(request, signal),
+  };
+}
+
 const routes = {
   async fetch(
     request: Request,
@@ -429,6 +447,7 @@ const routes = {
               createD1ContentService(database, authorizeDrafts),
             ),
             ...createContentPublicationService(database, authorize),
+            ...aiOperations(environment),
           },
         }).fetch(request);
       }
