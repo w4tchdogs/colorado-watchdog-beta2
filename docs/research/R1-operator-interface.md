@@ -71,6 +71,19 @@ evidence record linked to its source. Keep unsupported claims in the
 county review queue. Office-only and duties-only roles may leave the title
 blank. An unresolved unit path can stay blank.
 
+`Listed` and `Explicitly former` claims use the same reviewed promotion
+workflow. A former role can have an unknown employment end date. The
+confirmed role links to the original claim through `profile_evidence_role`,
+which retains access to the claim's `Listing status` and source evidence.
+Use the latest supported observation when a claim was superseded. Claims
+with unclear listing status remain in the research review queue.
+
+Omit the standalone word “County” in confirmed position titles. A reviewed
+role grouping can reuse all claims for the same role when their titles differ
+only by “County”, capitalization, or “and” versus “&”. Use the county,
+office and documented dates to distinguish genuinely different roles or terms.
+Keep original position and office wording in the linked research observations.
+
 The plan records the reviewer, review date, canonical county FIPS, exact
 research identities and claim groups, the reviewed role fields, and the
 source link for each claim. Preserve the source wording. The owner confirmed

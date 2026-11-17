@@ -49,6 +49,17 @@ and its operational configuration are ready.
 See the [SUB-3 provider assessment](sub-3-guest-intake-assessment.md) for
 compatibility evidence and the proposed implementation scope.
 
+## Account-only submissions
+
+With human sign-in enabled and a D1 binding, the Worker accepts signed-in
+account submissions even when guest intake is off (no Turnstile provider). The
+form sends `x-report-account-expectation`, and the API requires a live human
+session for exactly that account (401 otherwise, 409 on a changed account). A
+request without that header still needs the guest provider and returns 503
+`submission_unavailable` otherwise. The public form then shows the account path
+only, and `/submit-report?guest=1` shows the chooser with guest reporting
+unavailable.
+
 ## Turnstile abuse control (SUB-3)
 
 With `REPORTS_TURNSTILE=enabled` and complete configuration the Worker supplies

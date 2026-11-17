@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from research.__main__ import main
 from research.db import connect, migrate
@@ -153,6 +154,106 @@ class PromotionCase(unittest.TestCase):
         self.assertIn((None, None, "Maintains county election records"), [tuple(row) for row in roles])
         self.assertEqual(self.db.execute('SELECT count(*) FROM profile_revisions').fetchone()[0], 0)
         self.assertEqual(self.db.execute('SELECT count(*) FROM website_requests').fetchone()[0], 0)
+
+    def test_promotes_former_roles_with_documented_or_unknown_end_date(self):
+        db = self.db
+        db.execute('UPDATE profile_research_role SET "Listing status"=? WHERE "Role claim ID" IN (?,?)',
+                   ("Explicitly former", "claim-duties", "claim-office"))
+        db.execute('UPDATE profile_research_role SET "Employment end date"=? WHERE "Role claim ID"=?',
+                   ("2025-06-30", "claim-office"))
+        db.commit()
+        self.plan["profiles"][0]["roles"][0]["employment_end_date"] = "2025-06-30"
+
+        preview = build_preview(db, self.plan)
+        result = apply_reviewed_plan(db, self.plan, expected_sha256=preview["plan_sha256"])
+        self.assertEqual(result["status"], "applied")
+        rows = db.execute(
+            'SELECT c."Role claim ID", c."Listing status", r."Employment end date", '
+            'e."Source ID", citation."Verified on" '
+            'FROM profile_evidence_role link '
+            'JOIN profile_research_role c ON c."Role claim ID"=link."Role claim ID" '
+            'JOIN profile_role r ON r."Role ID"=link."Role ID" '
+            'JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" '
+            'JOIN profile_evidence_citation citation ON citation."Citation ID"=link."Citation ID" '
+            'ORDER BY c."Role claim ID"'
+        )
+        self.assertEqual([tuple(row) for row in rows], [
+            ("claim-duties", "Explicitly former", None, "role-source", "2026-11-16"),
+            ("claim-office", "Explicitly former", "2025-06-30", "role-source", "2026-11-16"),
+        ])
+        replay = apply_reviewed_plan(db, self.plan, expected_sha256=preview["plan_sha256"])
+        self.assertEqual(replay["status"], "replayed")
+
+    def test_unclear_and_superseded_former_observations_stay_in_research(self):
+        db = self.db
+        plan = make_plan(["claim-office"])
+        before = self.counts()
+        db.execute('UPDATE profile_research_role SET "Listing status"=? WHERE "Role claim ID"=?',
+                   ("Unclear", "claim-office"))
+        with self.assertRaisesRegex(ValueError, "unclear"):
+            build_preview(db, plan)
+        db.execute('UPDATE profile_research_role SET "Listing status"=? WHERE "Role claim ID"=?',
+                   ("Explicitly former", "claim-office"))
+        db.execute('UPDATE profile_research_role SET "Earlier claim this replaces"=? WHERE "Role claim ID"=?',
+                   ("claim-office", "claim-duties"))
+        with self.assertRaisesRegex(ValueError, "Superseded"):
+            build_preview(db, plan)
+        self.assertEqual(self.counts(), before)
+
+    def test_county_title_variants_can_support_one_role_without_changing_the_claims(self):
+        db = self.db
+        db.executemany(
+            'UPDATE profile_research_role SET "Linked profile"=?, "Name as published"=?, '
+            '"Position as published"=?, "Office or department as published"=NULL, '
+            '"Job description or duties"=NULL WHERE "Role claim ID"=?',
+            [("research-office", "Synthetic Office Person", "County Clerk and Recorder", "claim-office"),
+             ("research-office", "Synthetic Office Person", "Clerk & Recorder", "claim-duties")],
+        )
+        db.commit()
+        for requested_title in ("Clerk & Recorder", "County Clerk & Recorder"):
+            with self.subTest(title=requested_title):
+                plan = make_plan(["claim-office"])
+                role = plan["profiles"][0]["roles"][0]
+                role.update(office_or_department=None, position_title=requested_title)
+                role["role_claim_ids"].append("claim-duties")
+                role["citations"].append({"claim_id": "claim-duties", "verified_on": "2026-11-16"})
+                preview = build_preview(db, plan)
+                self.assertEqual((preview["role_count"], preview["role_claim_count"]), (1, 2))
+        apply_reviewed_plan(db, plan, expected_sha256=preview["plan_sha256"])
+        roles = db.execute(
+            'SELECT role."Position title", claim."Position as published" '
+            'FROM profile_role role JOIN profile_evidence_role link ON link."Role ID"=role."Role ID" '
+            'JOIN profile_research_role claim ON claim."Role claim ID"=link."Role claim ID" '
+            'ORDER BY claim."Role claim ID"'
+        )
+        self.assertEqual([tuple(row) for row in roles], [
+            ("Clerk & Recorder", "Clerk & Recorder"), ("Clerk & Recorder", "County Clerk and Recorder"),
+        ])
+
+    def test_new_titles_omit_county_and_legacy_batches_replay_exactly(self):
+        db = self.db
+        db.executemany('UPDATE profile_research_role SET "Position as published"=? WHERE "Role claim ID"=?',
+                       [("County Treasurer", "claim-office"), ("Assistant COUNTY Attorney", "claim-duties")])
+        db.commit()
+        prior_plan = make_plan(["claim-office"])
+        prior_plan["profiles"][0]["roles"][0]["position_title"] = "County Treasurer"
+        with patch("research.promotion._display_position_title", side_effect=lambda title: title):
+            prior = build_preview(db, prior_plan)
+            apply_reviewed_plan(db, prior_plan, expected_sha256=prior["plan_sha256"])
+        self.assertEqual(build_preview(db, prior_plan)["plan_sha256"], prior["plan_sha256"])
+        replay = apply_reviewed_plan(db, prior_plan, expected_sha256=prior["plan_sha256"])
+        self.assertEqual(replay["status"], "replayed")
+        plan = make_plan(["claim-duties"])
+        plan["manifest_sha256"] = "c" * 64
+        plan["profiles"][0]["roles"][0]["position_title"] = "Assistant COUNTY Attorney"
+        new = build_preview(db, plan)
+        apply_reviewed_plan(db, plan, expected_sha256=new["plan_sha256"])
+        self.assertCountEqual(
+            [row[0] for row in db.execute('SELECT "Position title" FROM profile_role')],
+            ["County Treasurer", "Assistant Attorney"],
+        )
+        replay = apply_reviewed_plan(db, plan, expected_sha256=new["plan_sha256"])
+        self.assertEqual(replay["status"], "replayed")
 
     def test_stale_source_and_tampered_plan_reject_without_writes(self):
         preview = build_preview(self.db, self.plan)

@@ -63,7 +63,10 @@ if (root) {
     submissionsEnabled:
       enabled &&
       (mode === "guest" || (mode === "account" && Boolean(accountId))),
-    ...(enabled && mode !== "track" && !challenge
+    ...(enabled &&
+    mode !== "track" &&
+    !challenge &&
+    root.getAttribute("data-report-demo") === "true"
       ? {
           demoNotice:
             "Local fictional-data test only. Do not enter real information.",
