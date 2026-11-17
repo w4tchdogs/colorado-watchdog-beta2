@@ -13,6 +13,8 @@ This is the dashboard author’s contract for `/api/admin/banners/*`. The protec
 - Every write needs an `idempotencyKey` (1 to 200 characters, not blank) and, except stage of a new banner, an `expectedRowVersion` (an integer of 1 or more) taken from the last read. Generate a key once per attempt and reuse it on a retry.
 - JSON bodies are `application/json` and at most 64 KiB. Query strings are refused except on the county list.
 
+MCP agents publish, withdraw and restore through the Website MCP banner tools, which call the same service under the separate `banner.publish` agent grant. That grant does not open any route here. See [mcp-administration.md](mcp-administration.md#banner-tools-mcp-3).
+
 ## Routes
 
 | Method and path | Purpose |

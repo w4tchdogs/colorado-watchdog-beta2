@@ -87,6 +87,9 @@ const RETRYABLE_OPERATION = [
 const BANNER_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 const VERSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const MAX_ATTEMPTS = 3;
+/** `publish` also admits an agent holding an active `banner.publish` grant. */
+type BannerAuthority = "manage" | "publish";
+const PUBLISH_ACTIONS = new Set(["publish", "withdraw", "restore"]);
 
 function hasSignature(body: Uint8Array, mediaType: string): boolean {
   return mediaType === "image/png"
@@ -249,21 +252,37 @@ export class D1BannerAdministration implements BannerAdministration {
 
   // ---------------------------------------------------------------- authority
 
-  /** Capability from the claimed role, then the live account and identity rows. */
-  private async authorize(principal: TrustedPrincipal): Promise<void> {
-    if (!roleHasCapability(principal.role, "banner.manage"))
-      throw new AuthorizationError();
+  /**
+   * Capability from the claimed role, then the live account and identity rows.
+   * `publish` authority also accepts an agent whose live account holds an
+   * active, owner-issued `banner.publish` grant. That grant covers county and
+   * history reads, publish, withdraw and restore only. Staging, private preview,
+   * reconcile, metadata edits and reordering always need `banner.manage`.
+   */
+  private async authorize(
+    principal: TrustedPrincipal,
+    authority: BannerAuthority = "manage",
+  ): Promise<void> {
+    const byRole = roleHasCapability(principal.role, "banner.manage");
+    const byGrant =
+      !byRole && authority === "publish" && principal.kind === "agent";
+    if (!byRole && !byGrant) throw new AuthorizationError();
     const live = await this.database.first(
       `SELECT 1 AS ok FROM identities i JOIN accounts a ON a.id = i.account_id
        WHERE a.id = ? AND i.id = ? AND i.provider = ? AND a.kind = ? AND a.role = ?
          AND a.status = 'active' AND i.revoked_at IS NULL
-         AND (i.expires_at IS NULL OR i.expires_at > ${NOW})`,
+         AND (i.expires_at IS NULL OR i.expires_at > ${NOW})
+         AND (? = 0 OR EXISTS (
+           SELECT 1 FROM agent_capability_grants g
+           WHERE g.account_id = a.id AND g.capability = 'banner.publish'
+             AND g.revoked_at IS NULL))`,
       [
         principal.accountId,
         principal.identityId,
         principal.provider,
         principal.kind,
         principal.role,
+        byGrant ? 1 : 0,
       ],
     );
     if (!live) throw new AuthorizationError();
@@ -278,13 +297,32 @@ export class D1BannerAdministration implements BannerAdministration {
   private async guarded(
     principal: TrustedPrincipal,
     build: () => D1BatchStatement[],
+    authority: BannerAuthority = "manage",
   ): Promise<void> {
     let last: unknown;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-      await this.authorize(principal);
+      await this.authorize(principal, authority);
       const generation = await this.database.readDependencyGeneration();
+      // The batch reasserts the account, identity and role. A grant-based
+      // writer also has its banner.publish grant reasserted inside the batch,
+      // so a grant revoked after the check above cannot finish the write.
+      const grantCheck =
+        authority === "publish" &&
+        !roleHasCapability(principal.role, "banner.manage")
+          ? [
+              this.assertion(
+                `EXISTS (SELECT 1 FROM agent_capability_grants
+                   WHERE account_id = ? AND capability = 'banner.publish'
+                     AND revoked_at IS NULL)`,
+                [principal.accountId],
+              ),
+            ]
+          : [];
       try {
-        await this.database.guardedBatch(generation, principal, build());
+        await this.database.guardedBatch(generation, principal, [
+          ...grantCheck,
+          ...build(),
+        ]);
         return;
       } catch (error) {
         last = error;
@@ -344,7 +382,7 @@ export class D1BannerAdministration implements BannerAdministration {
     principal: TrustedPrincipal,
     request: ListCountiesRequest = {},
   ): Promise<CountyBannerPage> {
-    await this.authorize(principal);
+    await this.authorize(principal, "publish");
     const limit = request.limit ?? BANNER_ADMIN_LIMITS.countyPageDefault;
     if (
       !Number.isInteger(limit) ||
@@ -395,7 +433,7 @@ export class D1BannerAdministration implements BannerAdministration {
     principal: TrustedPrincipal,
     countyFips: string,
   ): Promise<CountyBannerDetail | null> {
-    await this.authorize(principal);
+    await this.authorize(principal, "publish");
     if (!/^08\d{3}$/.test(countyFips))
       throw new BannerValidationError(
         "County FIPS must be five Colorado digits",
@@ -1133,7 +1171,7 @@ export class D1BannerAdministration implements BannerAdministration {
     principal: TrustedPrincipal,
     bannerId: string,
   ): Promise<readonly BannerPublicationRecord[]> {
-    await this.authorize(principal);
+    await this.authorize(principal, "publish");
     this.validateBannerId(bannerId);
     const rows = await this.database.all<Row>(
       "SELECT * FROM banner_publications WHERE banner_id = ? ORDER BY sequence DESC",
@@ -1147,7 +1185,7 @@ export class D1BannerAdministration implements BannerAdministration {
     principal: TrustedPrincipal,
     request: PublishRequest,
   ): Promise<BannerChangeResult> {
-    await this.authorize(principal);
+    await this.authorize(principal, "publish");
     this.validateKey(request.idempotencyKey);
     this.validateBannerId(request.bannerId);
     validText(request.versionId, "version ID", 128);
@@ -1200,7 +1238,7 @@ export class D1BannerAdministration implements BannerAdministration {
     principal: TrustedPrincipal,
     request: RestoreRequest,
   ): Promise<BannerChangeResult> {
-    await this.authorize(principal);
+    await this.authorize(principal, "publish");
     this.validateKey(request.idempotencyKey);
     this.validateBannerId(request.bannerId);
     validText(request.versionId, "version ID", 128);
@@ -1277,7 +1315,7 @@ export class D1BannerAdministration implements BannerAdministration {
     principal: TrustedPrincipal,
     request: WithdrawRequest,
   ): Promise<BannerChangeResult> {
-    await this.authorize(principal);
+    await this.authorize(principal, "publish");
     this.validateKey(request.idempotencyKey);
     this.validateBannerId(request.bannerId);
     this.validateRowVersion(request.expectedRowVersion);
@@ -1886,27 +1924,34 @@ export class D1BannerAdministration implements BannerAdministration {
     statements: () => D1BatchStatement[];
     audit: D1BatchStatement;
   }): Promise<T> {
+    const authority: BannerAuthority = PUBLISH_ACTIONS.has(spec.action)
+      ? "publish"
+      : "manage";
     try {
-      await this.guarded(spec.principal, () => [
-        ...spec.statements(),
-        this.database.prepare(
-          `INSERT INTO banner_admin_operations (id, idempotency_key, request_sha256, action, target_type, target_id, result_json, account_id)
+      await this.guarded(
+        spec.principal,
+        () => [
+          ...spec.statements(),
+          this.database.prepare(
+            `INSERT INTO banner_admin_operations (id, idempotency_key, request_sha256, action, target_type, target_id, result_json, account_id)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            this.newIdentifier(),
-            spec.key,
-            spec.fingerprint,
-            spec.action,
-            spec.targetType,
-            spec.targetId,
-            JSON.stringify(spec.result),
-            spec.principal.accountId,
-          ],
-        ),
-        spec.audit,
-      ]);
+            [
+              this.newIdentifier(),
+              spec.key,
+              spec.fingerprint,
+              spec.action,
+              spec.targetType,
+              spec.targetId,
+              JSON.stringify(spec.result),
+              spec.principal.accountId,
+            ],
+          ),
+          spec.audit,
+        ],
+        authority,
+      );
     } catch (error) {
-      await this.authorize(spec.principal);
+      await this.authorize(spec.principal, authority);
       const replay = await this.replayOf<T>(spec.key, spec.fingerprint);
       if (replay) return replay;
       await spec.expect();
