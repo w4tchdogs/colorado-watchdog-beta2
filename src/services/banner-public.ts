@@ -44,6 +44,10 @@ const SELECT_BANNER = `SELECT a.id, a.county_fips, a.caption, a.alt_text,
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_BANNER_BYTES = 25 * 1024 * 1024;
+/** Banners shown in a homepage carousel. */
+const HOMEPAGE_BANNER_COUNT = 5;
+/** Random candidates read from R2 at most, so a failed object can be replaced. */
+const HOMEPAGE_CANDIDATES = 10;
 
 function integer(value: unknown, minimum = 1): number | null {
   return typeof value === "number" &&
@@ -179,12 +183,19 @@ export class D1BannerPublicService implements BannerSource {
     return this.verifyRows(rows);
   }
 
+  /**
+   * Random homepage selection. Every active banner with a selected, verified
+   * version is in the pool, whatever its homepage_order or county primary
+   * flag. The pool is shuffled in SQL before the limit is applied, so any
+   * banner can be drawn. Only a small candidate sample is read from R2, in
+   * random order, and drawing stops at five verified banners.
+   */
   async resolveHomepage(): Promise<readonly ResolvedBanner[]> {
     const rows = await this.database.all<PublicBannerRow>(
-      `${SELECT_BANNER} AND a.homepage_order IS NOT NULL ORDER BY a.homepage_order, a.id`,
-      100,
+      `${SELECT_BANNER} ORDER BY RANDOM() LIMIT ${HOMEPAGE_CANDIDATES}`,
+      HOMEPAGE_CANDIDATES,
     );
-    return this.verifyRows(rows);
+    return this.verifyRows(rows, HOMEPAGE_BANNER_COUNT);
   }
 
   async forCounty(fips: string): Promise<readonly BannerPresentation[]> {
@@ -194,8 +205,8 @@ export class D1BannerPublicService implements BannerSource {
   async forHome(): Promise<readonly BannerPresentation[]> {
     return (await this.resolveHomepage()).map((banner, index) => ({
       ...toPresentation(banner),
-      // Homepage curation has its own explicit order; county primary/order do
-      // not silently promote an image into the statewide sequence.
+      // The homepage sequence is the random draw order. County primary and
+      // county order do not promote an image into it.
       order: index,
       primary: false,
     }));
@@ -246,9 +257,11 @@ export class D1BannerPublicService implements BannerSource {
 
   private async verifyRows(
     rows: readonly PublicBannerRow[],
+    maximum = Number.POSITIVE_INFINITY,
   ): Promise<readonly ResolvedBanner[]> {
     const results: ResolvedBanner[] = [];
     for (const row of rows) {
+      if (results.length >= maximum) break;
       const banner = validRow(row);
       if (!banner) continue;
       try {

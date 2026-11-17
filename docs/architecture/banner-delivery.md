@@ -17,10 +17,23 @@ The version UUID is the only public lookup input; object keys never come from a
 request. Unknown, stale, withdrawn, draft, malformed and unselected versions
 return 404. Unsupported methods retain the site's `GET, HEAD` 405 behavior.
 
-Homepage display is opt-in: `homepage_order` is null by default. Only an
-explicitly curated active/verified record may appear there. County order and
-primary selection remain independent. The public hero renders the first eligible
-record and enhances it with carousel controls when more records are available.
+**Automatic homepage selection.** The homepage hero draws from the whole pool of
+county banners that are `active` with a selected version in state `verified`. A
+county banner enters the pool automatically when it is published, whatever its
+`homepage_order` or county primary flag. Withdrawn banners, drafts, staged or
+unverified versions and superseded (unselected) versions are never in the pool.
+On each homepage request `D1BannerPublicService.resolveHomepage` orders the
+pool randomly in SQL (`ORDER BY RANDOM()`) before any limit is applied, so a
+banner outside the first page of results can be chosen. It reads at most 10
+random candidates from R2, runs the same byte, size, SHA-256 and signature
+checks as the image route, and stops at five verified banners, so a missing
+object is replaced by the next candidate. The draw order becomes the carousel
+order, with no primary flag. The existing carousel renders the draw with its
+current controls, captions, alt text, crop, focal point and branded fallback:
+no banner shows the fallback, one has no controls and several show them. County
+pages are unchanged and keep their primary-first, then `display_order`
+sequence. `homepage_order` is no longer consulted. The homepage response sets no
+cache headers, so each fresh load can differ.
 
 Until R2-1 is deployed and verified, the checked-in Sites hosting manifest on `main` retains `r2: null`. The R2-1 branch declares `"r2": "BUCKET"` as the Sites storage documentation describes, and hosted provisioning is unverified. The earlier reason was that the platform
 documentation does not specify a deployable R2 binding declaration and the

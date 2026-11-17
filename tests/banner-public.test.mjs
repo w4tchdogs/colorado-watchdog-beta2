@@ -58,12 +58,22 @@ function row({
   };
 }
 
+function shuffled(items) {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 function fixture(
   rows,
   objectEntries = [
     [`banner-assets/${VERSION_A}`, PNG],
     [`banner-assets/${VERSION_B}`, PNG],
   ],
+  randomOrder = shuffled,
 ) {
   const expectedDigest = createHash("sha256").update(PNG).digest("hex");
   const allRows = rows.map((item) => ({
@@ -122,15 +132,13 @@ function fixture(
         );
         if (sql.includes("a.county_fips = ?"))
           selected = selected.filter((item) => item.county_fips === values[0]);
-        if (sql.includes("a.homepage_order IS NOT NULL"))
-          selected = selected.filter((item) => item.homepage_order !== null);
         if (sql.includes("v.id = ?"))
           selected = selected.filter((item) => item.version_id === values[0]);
-        selected.sort((a, b) =>
-          sql.includes("a.homepage_order IS NOT NULL")
-            ? a.homepage_order - b.homepage_order
-            : Number(b.is_primary) - Number(a.is_primary) ||
-              a.display_order - b.display_order,
+        if (sql.includes("ORDER BY RANDOM()")) return randomOrder(selected);
+        selected.sort(
+          (a, b) =>
+            Number(b.is_primary) - Number(a.is_primary) ||
+            a.display_order - b.display_order,
         );
         return selected;
       };
@@ -207,14 +215,14 @@ test("public resolver filters lifecycle, county, verification, selection, and cu
     ["wrong-county"],
   );
   assert.deepEqual(await service.resolveCounty("99999"), []);
-  assert.deepEqual(
-    (await service.resolveHomepage()).map((b) => b.bannerId),
-    ["homepage-first", "primary"],
-  );
-  assert.deepEqual(
-    (await service.forHome()).map((b) => b.bannerId),
-    ["homepage-first", "primary"],
-  );
+  // The homepage draws from every active verified banner, not only curated ones.
+  const drawn = (await service.resolveHomepage()).map((b) => b.bannerId).sort();
+  assert.deepEqual(drawn, [
+    "homepage-first",
+    "other",
+    "primary",
+    "wrong-county",
+  ]);
 });
 
 test("missing and corrupted objects are omitted and delivery is rechecked against active selection", async () => {
@@ -265,7 +273,7 @@ test("synthetic D1/R2 service renders county and curated homepage banners withou
     const home = await preview.fetch(new Request(`${ORIGIN}/`));
     const homeMarkup = await home.text();
     assert.equal(home.status, 200);
-    assert.match(homeMarkup, /data-banner-id="home-first"/);
+    assert.match(homeMarkup, /data-banner-id="(home-first|county-primary)"/);
     assert.match(homeMarkup, /data-banner-count="2"/);
     assert.match(homeMarkup, /class="banner-frame has-image mode-cover"/);
     const county = await preview.fetch(new Request(`${ORIGIN}/counties/08001`));
@@ -280,6 +288,124 @@ test("synthetic D1/R2 service renders county and curated homepage banners withou
   } finally {
     preview.close();
   }
+});
+
+const versionId = (n) =>
+  `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, "0")}`;
+const pool = (count, extra = {}) =>
+  Array.from({ length: count }, (_, i) =>
+    row({
+      id: `county-${String(i).padStart(2, "0")}`,
+      county: `08${String(1 + 2 * (i % 60)).padStart(3, "0")}`,
+      version: versionId(i + 1),
+      order: i,
+      ...extra,
+    }),
+  );
+
+test("homepage draws up to five distinct banners from the whole pool, shuffled before the limit", async () => {
+  const rows = pool(12);
+  // Reverse the pool so the last banners in id order come first. A limit applied
+  // before shuffling would only ever see the first page of results.
+  const { service } = fixture(rows, [], (selected) => [...selected].reverse());
+  const ids = (await service.resolveHomepage()).map((b) => b.bannerId);
+  assert.equal(ids.length, 5);
+  assert.equal(new Set(ids).size, 5);
+  assert.deepEqual(ids, [
+    "county-11",
+    "county-10",
+    "county-09",
+    "county-08",
+    "county-07",
+  ]);
+  const home = (await service.forHome()).map((b) => [b.bannerId, b.order]);
+  assert.deepEqual(
+    home.map(([, order]) => order),
+    [0, 1, 2, 3, 4],
+  );
+  const seen = new Set();
+  const randomised = fixture(rows, []);
+  for (let draw = 0; draw < 200; draw += 1)
+    for (const b of await randomised.service.resolveHomepage())
+      seen.add(b.bannerId);
+  assert.equal(seen.size, 12);
+});
+
+test("a published county banner with no homepage order or primary flag is eligible, ineligible versions are not", async () => {
+  const { service } = fixture(
+    [
+      row({
+        id: "plain",
+        version: versionId(1),
+        homepageOrder: null,
+        primary: 0,
+      }),
+      row({ id: "withdrawn", version: versionId(2), status: "withdrawn" }),
+      row({ id: "draft", version: versionId(3), status: "draft" }),
+      row({ id: "staged", version: versionId(4), versionState: "staged" }),
+      row({
+        id: "superseded",
+        version: versionId(5),
+        selected: versionId(6),
+      }),
+    ],
+    [],
+  );
+  for (let draw = 0; draw < 20; draw += 1)
+    assert.deepEqual(
+      (await service.resolveHomepage()).map((b) => b.bannerId),
+      ["plain"],
+    );
+});
+
+test("homepage renders zero, one and several eligible banners with the existing carousel", async () => {
+  const render = async (rows) => {
+    const { service } = fixture(rows, []);
+    const preview = await createSitePreview({
+      staticDirectory: fileURLToPath(
+        new URL("../website/site/", import.meta.url),
+      ),
+      data: "empty",
+      banners: service,
+      bannerDelivery: service,
+    });
+    try {
+      const response = await preview.fetch(new Request(`${ORIGIN}/`));
+      assert.equal(response.status, 200);
+      return await response.text();
+    } finally {
+      preview.close();
+    }
+  };
+  const none = await render([]);
+  assert.doesNotMatch(none, /data-banner-id=/);
+  assert.doesNotMatch(none, /data-banner-slides=/);
+  assert.match(none, /banner-frame/);
+  const one = await render(pool(1));
+  assert.match(one, /data-banner-id="county-00"/);
+  assert.match(one, /data-banner-count="1"/);
+  assert.doesNotMatch(one, /data-banner-slides=/);
+  assert.match(one, /Alt county-00/);
+  assert.match(one, /Caption county-00/);
+  const many = await render(pool(8));
+  assert.match(many, /data-banner-count="5"/);
+  assert.match(many, /data-banner-slides=/);
+  assert.match(many, /data-banner-controls/);
+});
+
+test("county pages keep their own banner order", async () => {
+  const { service } = fixture(
+    [
+      row({ id: "second", version: versionId(1), order: 1 }),
+      row({ id: "first", version: versionId(2), order: 0 }),
+      row({ id: "primary", version: versionId(3), order: 5, primary: 1 }),
+    ],
+    [],
+  );
+  assert.deepEqual(
+    (await service.resolveCounty("08001")).map((b) => b.bannerId),
+    ["primary", "first", "second"],
+  );
 });
 
 test("image delivery denies invalid, unknown, private and unsupported requests", async () => {
