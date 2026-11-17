@@ -181,7 +181,10 @@ test("a missing or failing image falls back to the placeholder", async () => {
 
 const enhancement = readFileSync(`${STATIC_DIRECTORY}site.js`, "utf8");
 
-function carouselPage(markup, { reduced = false, deferred = [], mutate } = {}) {
+function carouselPage(
+  markup,
+  { reduced = false, autoplay = false, deferred = [], mutate } = {},
+) {
   const { window } = new JSDOM(
     `<section class="hero"><div class="hero-banner">${markup}</div></section>`,
     { runScripts: "outside-only", pretendToBeVisual: true, url: ORIGIN },
@@ -208,7 +211,9 @@ function carouselPage(markup, { reduced = false, deferred = [], mutate } = {}) {
   });
   Object.defineProperty(window.performance, "now", { value: () => now });
   const motion = new window.EventTarget();
-  motion.matches = reduced;
+  // Most tests drive playback by hand, so the first load runs as if motion
+  // were reduced (no automatic start) unless `autoplay` is requested.
+  motion.matches = reduced || !autoplay;
   window.matchMedia = () => motion;
   window.setTimeout = (callback, delay) => {
     timers.set(++nextTimer, { callback, delay });
@@ -219,6 +224,7 @@ function carouselPage(markup, { reduced = false, deferred = [], mutate } = {}) {
   const frame = document.querySelector("[data-banner-frame]");
   mutate?.(frame);
   window.eval(enhancement);
+  motion.matches = reduced;
   const control = (name) => document.querySelector(`[data-banner-${name}]`);
   return {
     window,
@@ -393,11 +399,6 @@ test("play is intentional and pauses the dwell and in-flight fade", () => {
     assert.equal(frame.dataset.bannerId, "b1");
 
     for (const interrupt of [
-      () => control("next").focus(),
-      () =>
-        frame.closest(".hero").dispatchEvent(new window.Event("pointerenter")),
-      () =>
-        frame.dispatchEvent(new window.Event("pointerdown", { bubbles: true })),
       () => page.changeVisibility(true),
       () => window.dispatchEvent(new window.Event("pagehide")),
     ]) {
@@ -786,6 +787,39 @@ test("owner logo and mascot artwork are used sparingly", async () => {
   });
 });
 
+test("rotation starts by itself and hover or focus does not stop it", () => {
+  const page = carouselPage(bannerFrame(carouselSlides, "08001").value, {
+    autoplay: true,
+  });
+  const { control, frame, timers, window } = page;
+  try {
+    assert.ok(frame.hasAttribute("data-banner-playing"));
+    assert.ok(control("image").hasAttribute("data-banner-zoom"));
+    assert.equal(timers.values().next().value.delay, 7000);
+    control("next").focus();
+    frame.closest(".hero").dispatchEvent(new window.Event("pointerenter"));
+    assert.equal(timers.size, 1);
+    page.tick();
+    assert.ok(control("incoming"));
+    page.finishFade();
+    assert.equal(frame.dataset.bannerId, "b2");
+    assert.ok(frame.hasAttribute("data-banner-playing"));
+    assert.equal(timers.values().next().value.delay, 7000);
+  } finally {
+    window.close();
+  }
+  const reduced = carouselPage(bannerFrame(carouselSlides, "08001").value, {
+    autoplay: true,
+    reduced: true,
+  });
+  try {
+    assert.equal(reduced.frame.hasAttribute("data-banner-playing"), false);
+    assert.equal(reduced.timers.size, 0);
+  } finally {
+    reduced.window.close();
+  }
+});
+
 test("explicit play and pause are announced once, and nothing else is", () => {
   const page = carouselPage(bannerFrame(carouselSlides, "08001").value);
   const { control, window, timers, motion } = page;
@@ -816,24 +850,16 @@ test("explicit play and pause are announced once, and nothing else is", () => {
     control("pause").click();
     assert.equal(said(), "Banner rotation paused");
 
-    // Focus entering the carousel stops running rotation and says so once.
-    // A later Play is announced again.
+    // Hovering or focusing the controls never stops rotation. A hidden page
+    // stops it silently and clears the text so Play is heard again.
     control("play").click();
     assert.equal(said(), "Banner rotation playing");
     control("next").focus();
-    assert.equal(said(), "Banner rotation paused");
-    assert.equal(timers.size, 0);
-    control("pause").click();
-    assert.equal(said(), "Banner rotation paused");
-    control("play").click();
-    assert.equal(said(), "Banner rotation playing");
-    assert.equal(window.document.activeElement, control("next"));
-    // Pointer interaction is spoken the same way, while automatic stops
-    // (hidden page) are silent and clear the text so Play is heard again.
     control("frame")
       .closest(".hero")
       .dispatchEvent(new window.Event("pointerenter"));
-    assert.equal(said(), "Banner rotation paused");
+    assert.equal(said(), "Banner rotation playing");
+    assert.equal(timers.size, 1);
     control("play").click();
     page.changeVisibility(true);
     assert.equal(said(), "");
@@ -873,15 +899,15 @@ test("full-width heroes overlay unshaded copy and keep the 3:1 baseline at every
   assert.match(shared, /\.hero::before \{[^}]*aspect-ratio: 3 \/ 1;/);
   assert.match(
     shared,
-    /\.hero-banner \{[^}]*grid-area: 1 \/ 1 \/ 4;[^}]*width: 100%;/,
+    /\.hero-banner \{[^}]*grid-area: 1 \/ 1;[^}]*width: 100%;/,
   );
   assert.match(
     shared,
-    /\.hero \.banner-frame \{[^}]*grid-row: 1 \/ 3;[^}]*aspect-ratio: auto;/,
+    /\.hero \.banner-frame \{[^}]*aspect-ratio: auto;/,
   );
   assert.match(
     shared,
-    /\.hero-content \{[^}]*grid-area: 1 \/ 1 \/ 3;[^}]*z-index: 1;/,
+    /\.hero-content \{[^}]*grid-area: 1 \/ 1;[^}]*z-index: 1;[^}]*align-items: center;/,
   );
   const textRules = css.matchAll(
     /(?:^|\n)\s*((?:\.hero )?\.banner-caption|\.hero-content) \{([^}]+)\}/g,
@@ -889,8 +915,9 @@ test("full-width heroes overlay unshaded copy and keep the 3:1 baseline at every
   for (const [, selector, declarations] of textRules) {
     assert.doesNotMatch(declarations, /\bbackground(?:-[\w-]+)?\s*:/, selector);
   }
-  assert.match(shared, /\.hero \.banner-caption \{[^}]*grid-row: 2;/);
-  assert.match(shared, /\.hero \.banner-controls \{\s*grid-row: 3;/);
+  // Caption sits bottom right and the controls overlay the top right.
+  assert.match(css, /\.banner-caption \{[^}]*right: 0\.75rem;[^}]*bottom: 0\.25rem;/);
+  assert.match(css, /\.banner-controls \{[^}]*position: absolute;[^}]*top: 0\.75rem;[^}]*right: 0\.75rem;/);
   assert.match(/\.hero-content \.wrap \{[^}]*\}/.exec(css)[0], /var\(--wrap\)/);
 });
 

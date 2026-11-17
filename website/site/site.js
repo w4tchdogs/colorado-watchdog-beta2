@@ -511,21 +511,17 @@ function enhanceBanner(frame) {
     .querySelector("[data-banner-next]")
     .addEventListener("click", () => move(1));
   pause.addEventListener("click", () => stop(true));
-  play.addEventListener("click", () => {
+  function start(spoken) {
     if (playing || !canPlay()) return;
     playing = true;
     image.setAttribute("data-banner-zoom", "");
     updatePlayback();
-    say("Banner rotation playing");
+    if (spoken) say("Banner rotation playing");
     preloadNext();
     scheduleDwell();
-  });
+  }
+  play.addEventListener("click", () => start(true));
 
-  const carousel = frame.parentElement;
-  const hero = carousel.closest(".hero") ?? carousel;
-  carousel.addEventListener("focusin", () => stop(true));
-  hero.addEventListener("pointerenter", () => stop(true));
-  hero.addEventListener("pointerdown", () => stop(true));
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) stop();
     else updatePlayback();
@@ -545,8 +541,10 @@ function enhanceBanner(frame) {
   watchImage(initial, (available) => {
     if (initial !== image) return;
     setImageAvailability(available);
-    if (available) preloadNext();
-    else {
+    if (available) {
+      preloadNext();
+      start(false);
+    } else {
       failed.add(index);
       stop();
     }
