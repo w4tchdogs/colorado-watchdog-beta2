@@ -6,7 +6,7 @@ place for present status and active assignments. This roadmap says where the
 project is going. CURRENT says where it is now. Status words use CURRENT's
 vocabulary.
 
-Revision: November 16, 2026. Based on `main` at `58b8ee3` (PR #175). The
+Revision: November 16, 2026. Based on `main` at `62bb7c5` (PR #176). The
 owner approved these goals and lifted the development pause with this
 roadmap. The goals are recorded as an owner decision in
 [decisions.md](../decisions.md).
@@ -42,17 +42,17 @@ that show the state of profiles, departments and grievances.
   counts for profiles, departments and grievances. Grievance counts include
   reviewed submissions only.
 - **Today:** the local research database covers 64 counties (3,256 research
-  people, 2,692 organizational units). Nothing has been imported to hosted
-  D1. 152 approved banner originals are in the local `banners\approved\`
-  folder. Cloudflare staging passed the R2 storage round trip. Protected
-  application upload and publication remain open, along with the separate
-  [Sites R2 attachment and object inventory](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/122).
-  Public pages show no counts.
+  people, 2,692 organizational units). Real Profiles and banner imports
+  remain pending. 152 approved banner originals are in the local `banners\approved\`
+  folder. Cloudflare staging passed the R2 storage round trip and the
+  [protected banner API exercise with one synthetic PNG](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/137#issuecomment-6933294436). The separate
+  [Sites R2 attachment and object inventory](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/122)
+  remains open. Public pages show no counts.
 - **Remaining:** finish the campaign-2 validation and resolve the intake
   decision in DATA-1. Research migration 003 and the post-003 restore test
   are complete. Screen and run the first hosted sync (SYNC-1), then sync all
-  counties (SYNC-2), verify R2 (R2-1), import banners (BANNERS-IMPORT-1) and
-  add public county counts (STATS-1).
+  counties (SYNC-2), pilot one approved banner before bulk import
+  (BANNERS-IMPORT-1), and add public county counts (STATS-1).
 
 ### Goal 3. Universal sign-in and sign-up for admins and editors
 
@@ -104,7 +104,7 @@ Several goals depend on the same hosted groundwork. These come first.
 | D1-0015 | Apply and verify the Lake and La Plata correction during Alpha-1 initialization | Goal 2 | Hosted registry verified in v5 |
 | AUTH-3 | Verified hosted human identity for sign-in | Goals 3, 4 (staff), 5 | Pilot hosted checks recorded on #125. Cloudflare staging owner sign-in hosted-verified in #174 |
 | MCP-2 | Publish read-only MCP and verify authenticated inspection | Goal 1, hosted D1 administration | Endpoint published; authenticated verification open |
-| R2-1 | Verify storage at the active deployment target | BANNERS-IMPORT-1 | Cloudflare staging storage round trip verified. App-level banner upload and Sites R2 inventory remain open |
+| R2-1 | Verify storage at the active deployment target | BANNERS-IMPORT-1 | Cloudflare staging storage round trip and protected banner API Hosted-verified with one synthetic PNG. [R2-1 staging receipt](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/137#issuecomment-6933294436). Sites R2 inventory remains open. |
 
 ## Ordered backlog
 
@@ -138,7 +138,7 @@ is lifted.
 | 10 | DATA-1 | Research migration 003, the campaign-2 Routt code fix, and a restore test of one backup | None (local) | 2 |
 | 11 | SYNC-1 | Screen one county and run the first hosted sync | DATA-1, MCP-3 | 2 |
 | 12 | SYNC-2 | Sync the remaining counties | SYNC-1 | 2 |
-| 13 | BANNERS-IMPORT-1 | Import the approved banners to R2 and D1 | R2-1, MCP-3 | 2 |
+| 13 | BANNERS-IMPORT-1 | Pilot one approved banner on staging, then import the approved banners to R2 and D1 | R2-1, MCP-3 | 2 |
 | 14 | STATS-1 | Public per-county counts for profiles, departments and reviewed grievances | SYNC-1 | 2 |
 
 ### Phase 4. Public features
