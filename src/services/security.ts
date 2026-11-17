@@ -114,6 +114,7 @@ export const GRANTABLE_AGENT_CAPABILITIES = [
   "sync.read",
   "sync.apply",
   "sync.revert",
+  "d1.inspect",
 ] as const;
 export type GrantableAgentCapability =
   (typeof GRANTABLE_AGENT_CAPABILITIES)[number];
