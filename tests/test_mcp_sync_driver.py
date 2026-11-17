@@ -394,5 +394,36 @@ class McpSyncDriverTests(unittest.TestCase):
         self.assertEqual(client.commit_calls, [])
 
 
+
+class UnreadableResponseDiagnosticsTest(unittest.TestCase):
+    def test_unreadable_response_reports_only_sanitized_metadata(self):
+        class Response:
+            status = 200
+            headers = {"content-type": "text/event-stream; charset=utf-8"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self, _n):
+                return b"data: SECRET-BODY-TEXT"
+
+        class Opener:
+            def open(self, request, timeout=None):
+                return Response()
+
+        client = mcp_sync_driver.McpHttpClient("https://synthetic.invalid/mcp", "synthetic-secret")
+        client._opener = Opener()
+        with self.assertRaises(mcp_sync_driver.McpDriverError) as caught:
+            client._post(b"{}")
+        message = str(caught.exception)
+        self.assertIn("HTTP 200", message)
+        self.assertIn("text/event-stream", message)
+        self.assertIn("event-stream", message)
+        self.assertNotIn("SECRET", message)
+        self.assertNotIn("synthetic-secret", message)
+
 if __name__ == "__main__":
     unittest.main()

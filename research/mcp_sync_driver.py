@@ -89,6 +89,31 @@ def build_tool_call_body(request_id, name, arguments_json, *, item_meta=True):
     )
 
 
+def _response_shape(raw):
+    text = raw[:64].lstrip(bytes([0xEF, 0xBB, 0xBF, 32, 9, 13, 10]))
+    if not text:
+        return "empty"
+    first = text[:1]
+    if first == b"{":
+        return "json-object-invalid"
+    if first == b"[":
+        return "json-array"
+    if text.startswith((b"event:", b"data:", b":")):
+        return "event-stream"
+    if text.startswith((b"<", b"<!")):
+        return "markup"
+    return "other-text"
+
+
+def _unreadable(status, content_type, raw):
+    kind = (content_type or "none").split(";")[0].strip().lower()[:60]
+    kind = "".join(c for c in kind if c.isalnum() or c in "/+.-") or "none"
+    return McpDriverError(
+        "MCP endpoint returned an unreadable response "
+        f"(HTTP {status}, content-type {kind}, {len(raw)} bytes, shape {_response_shape(raw)})"
+    )
+
+
 class McpHttpClient:
     """Small standard-library client for the endpoint's supported HTTP protocol."""
 
@@ -113,7 +138,6 @@ class McpHttpClient:
         self._opener = urllib.request.build_opener(_NoRedirect())
         self._default_opener = self._opener
         self._use_powershell = sys.platform == "win32"
-        self._use_powershell = sys.platform == "win32"
 
     def close(self):
         self._credential = ""
@@ -135,9 +159,11 @@ class McpHttpClient:
         try:
             with self._opener.open(request, timeout=self.timeout) as response:
                 status = response.status
+                content_type = getattr(getattr(response, "headers", None), "get", lambda _k: None)("content-type")
                 raw = response.read(MCP_MAX_BYTES + 1)
         except urllib.error.HTTPError as error:
             status = error.code
+            content_type = getattr(getattr(error, "headers", None), "get", lambda _k: None)("content-type")
             raw = error.read(MCP_MAX_BYTES + 1)
         except Exception as error:
             raise McpDriverError("MCP transport outcome is uncertain") from error
@@ -146,9 +172,9 @@ class McpHttpClient:
         try:
             value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
         except (UnicodeError, json.JSONDecodeError) as error:
-            raise McpDriverError("MCP endpoint returned an unreadable response") from error
+            raise _unreadable(status, content_type, raw) from None
         if not isinstance(value, dict):
-            raise McpDriverError("MCP endpoint returned an invalid response")
+            raise _unreadable(status, content_type, raw)
         return status, value
 
     def _post_with_powershell(self, body):
@@ -165,7 +191,8 @@ try {
     -ContentType 'application/json' -Headers @{ Authorization = $inputValue.authorization } `
     -Body $bodyBytes -SkipHttpErrorCheck -TimeoutSec $inputValue.timeout
   $responseBytes = [Text.Encoding]::UTF8.GetBytes([string]$response.Content)
-  [Console]::Out.Write((@{ status = [int]$response.StatusCode; body = [Convert]::ToBase64String($responseBytes) } | ConvertTo-Json -Compress))
+  $ct = [string]($response.Headers['Content-Type'] | Select-Object -First 1)
+  [Console]::Out.Write((@{ status = [int]$response.StatusCode; contentType = $ct; body = [Convert]::ToBase64String($responseBytes) } | ConvertTo-Json -Compress))
 } catch {
   [Console]::Out.Write('{"error":"transport"}')
   exit 2
@@ -197,12 +224,18 @@ try {
             if envelope.get("error") == "transport":
                 raise McpDriverError("MCP transport outcome is uncertain")
             status = envelope["status"]
+            content_type = envelope.get("contentType")
             raw = __import__("base64").b64decode(envelope["body"], validate=True)
+        except (KeyError, TypeError, ValueError, UnicodeError, json.JSONDecodeError):
+            raise McpDriverError("MCP transport envelope was unreadable") from None
+        if len(raw) > MCP_MAX_BYTES:
+            raise McpDriverError("MCP response exceeds the endpoint byte limit")
+        try:
             value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
-        except (KeyError, TypeError, ValueError, UnicodeError, json.JSONDecodeError) as error:
-            raise McpDriverError("MCP endpoint returned an unreadable response") from error
-        if len(raw) > MCP_MAX_BYTES or not isinstance(value, dict):
-            raise McpDriverError("MCP endpoint returned an invalid response")
+        except (UnicodeError, json.JSONDecodeError):
+            raise _unreadable(status, content_type, raw) from None
+        if not isinstance(value, dict):
+            raise _unreadable(status, content_type, raw)
         return status, value
 
     def _rpc(self, method, params):
