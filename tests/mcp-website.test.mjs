@@ -322,3 +322,64 @@ function fingerprint(database) {
   });
   return createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
 }
+
+test("Website MCP accepts the protocol 2026-07-28 request _meta envelope without trusting it", async () => {
+  const fixture = await createFixture();
+  try {
+    // Shape observed from Claude Code 2.1.325 (synthetic values).
+    const meta = {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientInfo": {
+        name: "synthetic-client",
+        version: "0.0.0",
+      },
+      "io.modelcontextprotocol/clientCapabilities": { roots: {} },
+    };
+    const call = (params, authenticated = true) =>
+      fixture
+        .request(
+          { jsonrpc: "2.0", id: 9, method: "tools/call", params },
+          authenticated,
+        )
+        .then((response) => response.json());
+
+    const ok = await call({
+      name: "website_inspection_status",
+      arguments: {},
+      _meta: meta,
+    });
+    assert.equal(ok.result.isError, undefined);
+    assert.equal(ok.result.structuredContent.result.state, "ready");
+
+    const counts = await call({
+      name: "website_county_reference_counts",
+      arguments: { countyFips: ["08065"] },
+      _meta: meta,
+    });
+    assert.equal(counts.result.isError, undefined);
+
+    // The envelope never authenticates: without a bearer the call is refused.
+    const anonymous = await call(
+      {
+        name: "website_inspection_status",
+        _meta: { ...meta, actor: "synthetic-agent-admin" },
+      },
+      false,
+    );
+    assert.equal(anonymous.result.isError, true);
+    assert.match(anonymous.result.content[0].text, /authentication_required/);
+
+    // A non-object envelope and unknown extra keys are still invalid.
+    for (const params of [
+      { name: "website_inspection_status", _meta: "x" },
+      { name: "website_inspection_status", _meta: null },
+      { name: "website_inspection_status", _meta: [] },
+      { name: "website_inspection_status", _meta: meta, sql: "SELECT 1" },
+    ]) {
+      const rejected = await call(params);
+      assert.equal(rejected.error?.message, "invalid_params");
+    }
+  } finally {
+    fixture.database.close();
+  }
+});
