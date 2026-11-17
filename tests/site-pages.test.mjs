@@ -597,33 +597,17 @@ test("county roles paginate with bounded pages and stable links", async () => {
   });
 });
 
-test("role citations show source, type, host and check date without implying dates", async () => {
+test("county role cards retain dates without publishing citations", async () => {
   await withPreview("fictional", async (preview) => {
     const page = await get(preview, "/counties/08001");
     const entry = page
       .$$(".role-entry")
       .find((e) => /Fictional Clerk and Recorder,/.test(e.textContent));
-    const link = entry.querySelector(".citation cite a");
-    assert.equal(
-      link.getAttribute("href"),
-      "https://example.invalid/fictional-adams/staff-directory",
-    );
-    assert.match(link.getAttribute("rel"), /noopener/);
-    assert.match(link.getAttribute("rel"), /noreferrer/);
-    assert.equal(link.textContent, "Fictional Adams County staff directory");
-    assert.match(
-      entry.querySelector(".citation-meta").textContent,
-      /Official webpage/,
-    );
-    assert.match(
-      entry.querySelector(".citation-meta").textContent,
-      /example\.invalid/,
-    );
-    assert.match(
-      entry.querySelector(".citation-meta").textContent,
-      /Source checked October 2, 2026/,
-    );
+    assert.equal(page.$$(".citation").length, 0);
+    assert.doesNotMatch(page.text, /fictional-adams\/staff-directory/);
+    assert.doesNotMatch(page.main(), /Fictional Adams County staff directory/);
     const dates = entry.querySelector(".role-dates").textContent;
+    assert.match(dates, /Source checked\s*October 2, 2026/);
     assert.match(
       dates,
       /Role start\s*January 10, 2023\s*Role end\s*Not recorded/,

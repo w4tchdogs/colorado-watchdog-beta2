@@ -253,12 +253,8 @@ test("search covers names, titles and organizations, and same names stay separat
       rows(riley)[0].querySelector('[data-label="Source checked"]').textContent,
       /October 20, 2026/,
     );
-    const source = rows(riley)[0].querySelector(".checked-source a");
-    assert.equal(
-      source.getAttribute("href"),
-      "https://example.invalid/fictional-larimer/community-development",
-    );
-    assert.match(source.getAttribute("rel"), /noopener/);
+    assert.equal(rows(riley)[0].querySelector(".checked-source"), null);
+    assert.doesNotMatch(riley.text, /fictional-larimer\/community-development/);
 
     const none = await get(preview, "/officials?q=zzzz");
     assert.equal(rows(none).length, 0);

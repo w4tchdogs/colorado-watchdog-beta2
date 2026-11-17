@@ -25,14 +25,7 @@ import {
   parentRelationshipLabel,
   plural,
 } from "../format.js";
-import {
-  html,
-  path,
-  type SafeHtml,
-  safeExternalUrl,
-  trusted,
-  withQuery,
-} from "../html.js";
+import { html, path, type SafeHtml, trusted, withQuery } from "../html.js";
 import { BadRequest, type Page, type SiteContext } from "../types.js";
 
 const PAGE_SIZE = 25;
@@ -313,16 +306,10 @@ function countyCell(
   })}</ul>`;
 }
 
-function sourceCell(entry: OfficialsDirectoryEntry): SafeHtml {
+function sourceCheckedCell(entry: OfficialsDirectoryEntry): SafeHtml {
   const role = entry.role;
   if (!role) return html`<span class="quiet">No source-backed role</span>`;
-  const href = safeExternalUrl(role.source.url);
-  return html`<span class="checked-date">${formatStoredDate(role.sourceCheckedAt)}</span>
-    <span class="checked-source">Source: ${
-      href
-        ? html`<a href="${href}" rel="external noopener noreferrer">${role.source.title}</a>`
-        : role.source.title
-    }</span>`;
+  return html`<span class="checked-date">${formatStoredDate(role.sourceCheckedAt)}</span>`;
 }
 
 function profileRow(
@@ -340,7 +327,7 @@ function profileRow(
         <a class="person-name" href="${profile}">${entry.person.displayName}</a>
         <span class="person-title">${role ? (role.position?.title ?? role.publishedTitle ?? role.publishedOffice ?? "Duties as published below") : "No documented role"}</span>
         ${role?.jobDescription ? html`<span class="row-note">Duties as published: ${role.jobDescription}</span>` : ""}
-        ${role ? html`<span class="status-chip">Source-cited role</span>` : ""}
+        ${role ? html`<span class="status-chip">Documented role</span>` : ""}
         ${role?.endDate ? html`<span class="row-note">Role end recorded: ${formatStoredDate(role.endDate)}</span>` : ""}
         ${others > 0 ? html`<span class="row-note">${plural(others, "other matching role", "other matching roles")} on the profile</span>` : ""}
       </div>
@@ -353,7 +340,7 @@ function profileRow(
           ? html`${role.publishedOffice} <span class="quiet">(as published)</span>`
           : html`<span class="quiet">None recorded</span>`
     }</div></td>
-    <td data-label="Source checked"><div class="cell-value">${sourceCell(entry)}</div></td>
+    <td data-label="Source checked"><div class="cell-value">${sourceCheckedCell(entry)}</div></td>
     <td class="cell-open"><a class="open-profile" href="${profile}">Open profile<span class="visually-hidden">: ${entry.person.displayName}</span></a></td>
   </tr>`;
 }
@@ -692,7 +679,7 @@ export async function officialsPage(
   return {
     title,
     description:
-      "Browse documented county officials and employees by county, office and name, with source citations.",
+      "Browse documented county officials and employees by county, office and name.",
     section: "officials",
     breadcrumbs: [
       { label: "Home", href: "/" },

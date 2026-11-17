@@ -31,7 +31,6 @@ export interface PickerRole {
   readonly startDate: string | null;
   readonly endDate: string | null;
   readonly sourceCheckedAt: string;
-  readonly sourceTitle: string;
   readonly group: "latest" | "prior" | "unrecorded";
 }
 export interface PickerPerson {

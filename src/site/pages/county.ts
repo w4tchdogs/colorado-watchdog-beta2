@@ -4,7 +4,6 @@ import type {
 } from "../../contracts/directory.js";
 import { bannerHero } from "../banner.js";
 import {
-  citation,
   END_DATE_NOTE,
   emptyState,
   notice,
@@ -79,7 +78,6 @@ function roleRow(entry: CountyRoleEntry): SafeHtml {
     ${role.publishedOffice ? html`<p class="role-office"><span class="quiet">Office as published:</span> ${role.publishedOffice}</p>` : ""}
     ${role.jobDescription ? html`<p class="role-duties"><span class="quiet">Duties as published:</span> ${role.jobDescription}</p>` : ""}
     ${roleDates(role)}
-    ${citation({ ...entry.source, checkedAt: role.sourceCheckedAt })}
   </li>`;
 }
 
@@ -150,7 +148,7 @@ export async function countyPage(
     eyebrow: `Colorado Watchdog \u00b7 ${title}`,
     title,
     meta: html`<span class="fips">FIPS ${overview.county.fips}</span> <span>Colorado</span>`,
-    lede: "County organizations, affiliated bodies and documented public roles, with sources.",
+    lede: "County organizations, affiliated bodies and documented public roles.",
     actions: html`<a class="button" href="${officialsHref(countyFips)}">Find an official</a> <a class="button button-light" href="${officialsHref(countyFips, "structure")}">County structure</a>`,
   });
 

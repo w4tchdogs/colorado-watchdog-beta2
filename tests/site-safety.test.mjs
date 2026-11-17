@@ -127,12 +127,8 @@ test("hostile stored content is rendered as inert text", async () => {
     const profile = await get(preview, "/people/evil-person");
     assert.equal(profile.$("h1").textContent, `Evil ${script} Person`);
     assert.match(profile.main(), /<b>soon<\/b>/);
-    // A stored address with credentials is never rendered as a link.
-    assert.match(profile.main(), /link withheld/);
+    assert.equal(profile.$$(".citation").length, 0);
     assert.equal(profile.$$('a[href*="secret"]').length, 0);
-    for (const link of profile.$$(".citation a")) {
-      assert.match(link.getAttribute("href"), /^https:\/\/example\.invalid\//);
-    }
   });
 });
 

@@ -19,7 +19,6 @@ export interface PickerRole {
   readonly endDate: string | null;
   /** When the cited source was checked. Not an employment date. */
   readonly sourceCheckedAt: string;
-  readonly sourceTitle: string;
   readonly group: PickerRoleGroup;
 }
 
@@ -130,7 +129,6 @@ export async function reportDirectoryResponse(
             startDate: item.role.startDate,
             endDate: item.role.endDate,
             sourceCheckedAt: item.role.sourceCheckedAt,
-            sourceTitle: item.source.title,
             group: classifyRole(item.role, now),
           });
         }
@@ -197,7 +195,6 @@ export async function reportDirectoryResponse(
             startDate: entry.role.startDate,
             endDate: entry.role.endDate,
             sourceCheckedAt: entry.role.sourceCheckedAt,
-            sourceTitle: entry.role.source.title,
             group: classifyRole(entry.role, now),
           }
         : null,

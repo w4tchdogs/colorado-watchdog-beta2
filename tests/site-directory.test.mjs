@@ -91,7 +91,7 @@ test("identically named people remain distinct records", async () => {
   });
 });
 
-test("person profile shows role history, counties, dates and citations", async () => {
+test("person profile shows role history, counties and dates without citations", async () => {
   await withPreview("fictional", async (preview) => {
     const page = await get(preview, "/people/demo-person-jordan-a");
     assert.equal(page.status, 200);
@@ -113,9 +113,11 @@ test("person profile shows role history, counties, dates and citations", async (
       /Role end\s*Not recorded/,
     );
     assert.match(
-      clerk.querySelector(".citation").textContent,
-      /Source checked October 2, 2026/,
+      clerk.querySelector(".role-dates").textContent,
+      /Source checked\s*October 2, 2026/,
     );
+    assert.equal(page.$$(".citation").length, 0);
+    assert.doesNotMatch(page.text, /fictional-adams\/staff-directory/);
     const deputy = entries.find(
       (e) => e.querySelector("h3").textContent === "Fictional Deputy Clerk",
     );
@@ -211,10 +213,9 @@ test("organization directory and profiles distinguish types and relationships", 
       /not a statement that it is\s+filled or vacant/,
     );
     assert.ok(works.$('#roles a[href="/people/demo-person-riley"]'));
-    assert.equal(works.$$("#roles .citation").length, 1);
-    assert.ok(
-      works.$(".source-list .citation a[href^='https://example.invalid/']"),
-    );
+    assert.equal(works.$$("#roles .citation").length, 0);
+    assert.equal(works.$("#sources-heading"), null);
+    assert.doesNotMatch(works.text, /https:\/\/example\.invalid\//);
 
     const clerk = await get(preview, "/organizations/demo-adams-clerk");
     assert.match(

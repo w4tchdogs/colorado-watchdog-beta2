@@ -2421,7 +2421,6 @@ th[aria-sort] .sort-mark {
   font-weight: 700;
 }
 .row-note,
-.checked-source,
 .affiliation-note {
   font-size: 0.8125rem;
   color: var(--ink-soft);
@@ -2429,9 +2428,6 @@ th[aria-sort] .sort-mark {
 .checked-date {
   display: block;
   font-weight: 800;
-}
-.checked-source {
-  display: block;
 }
 .cell-list {
   margin: 0;

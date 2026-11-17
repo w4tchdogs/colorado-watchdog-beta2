@@ -266,7 +266,10 @@ test("organization HTTP endpoints validate route and method behavior", async () 
       "https://watchdog.test/api/organizations/county-office/roles?limit=1",
     );
     assert.equal(roles.status, 200);
-    assert.deepEqual((await roles.json()).items.length, 1);
+    const rolesPage = await roles.json();
+    assert.equal(rolesPage.items.length, 1);
+    assert.equal(rolesPage.items[0].role.id, "role-a");
+    assert.equal(Object.hasOwn(rolesPage.items[0], "source"), false);
 
     const unknown = await request(
       "https://watchdog.test/api/organizations/missing-org",

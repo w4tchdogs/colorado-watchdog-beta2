@@ -1,6 +1,5 @@
 import type { OrganizationRoleEntry } from "../../contracts/organization-profile.js";
 import {
-  citation,
   END_DATE_NOTE,
   emptyState,
   organizationLink,
@@ -29,7 +28,6 @@ function roleRow(entry: OrganizationRoleEntry): SafeHtml {
       <p class="role-position">${entry.position.title}</p>
     </div>
     ${roleDates(entry.role)}
-    ${citation({ ...entry.source, checkedAt: entry.role.sourceCheckedAt })}
   </li>`;
 }
 
@@ -64,11 +62,6 @@ export async function organizationPage(
   if (!profile || !roles) throw new NotFound("organization");
 
   const { organization, parentOrganization: parent } = profile;
-  const sources = new Map<string, OrganizationRoleEntry>();
-  for (const entry of roles.items) {
-    if (!sources.has(entry.source.id)) sources.set(entry.source.id, entry);
-  }
-
   const body = html`
   <header class="page-header profile-header type-edge edge-${organizationTypeClass(organization.type)}">
     <p class="eyebrow">${organizationTypeLabel(organization.type)}</p>
@@ -156,20 +149,11 @@ export async function organizationPage(
           )
         : null,
     })}
-  </section>
-
-  ${
-    sources.size === 0
-      ? ""
-      : html`<section class="section" aria-labelledby="sources-heading">
-          <h2 id="sources-heading">Public sources on this page</h2>
-          <ul class="source-list">${[...sources.values()].map((entry) => html`<li>${citation(entry.source)}</li>`)}</ul>
-        </section>`
-  }`;
+  </section>`;
 
   return {
     title: organization.name,
-    description: `Documented positions, roles and public sources for ${organization.name}.`,
+    description: `Documented positions and roles for ${organization.name}.`,
     section: "organizations",
     breadcrumbs: [
       { label: "Home", href: "/" },

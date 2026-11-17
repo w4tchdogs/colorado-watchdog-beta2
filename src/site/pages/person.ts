@@ -1,6 +1,5 @@
 import type { PersonProfileRole } from "../../contracts/person-profile.js";
 import {
-  citation,
   countyLink,
   END_DATE_NOTE,
   emptyState,
@@ -51,7 +50,6 @@ function roleCard(entry: PersonProfileRole): SafeHtml {
     ${role.county ? html`<p class="role-county"><span class="quiet">County:</span> ${countyLink(role.county.fips, role.county.name)}</p>` : ""}
     ${organization ? countyAssociations(organization.counties) : ""}
     ${roleDates(entry.role)}
-    ${citation({ ...entry.source, checkedAt: entry.role.sourceCheckedAt })}
   </li>`;
 }
 
@@ -89,7 +87,7 @@ export async function personPage(
   </header>
   <section class="section" aria-labelledby="roles-heading">
     <h2 id="roles-heading">Documented role history</h2>
-    ${notice(`${END_DATE_NOTE} The source-checked date is when the cited source was last reviewed. It is not when the role began.`)}
+    ${notice(`${END_DATE_NOTE} The source-checked date is when the supporting source was last reviewed. It is not when the role began.`)}
     ${
       profile.items.length === 0
         ? emptyState(
@@ -111,7 +109,7 @@ export async function personPage(
 
   return {
     title: name,
-    description: `Documented public roles and source citations for ${name}.`,
+    description: `Documented public roles for ${name}.`,
     section: "officials",
     breadcrumbs: [
       { label: "Home", href: "/" },
