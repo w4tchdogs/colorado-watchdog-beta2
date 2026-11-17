@@ -1026,12 +1026,15 @@ img {
   pointer-events: none;
   background: linear-gradient(90deg, #000c 0%, #0007 48%, #0002 100%);
 }
+/* The 3D transform form is the Beta-1 fix for stepping while the artwork
+   zooms: it keeps the image on its own compositor layer, so each frame is
+   scaled on the GPU instead of being re-rasterized at a new size. */
 @keyframes banner-zoom {
   from {
-    transform: scale(1.01);
+    transform: translate3d(0, 0, 0.01px) scale3d(1.01, 1.01, 1);
   }
   to {
-    transform: scale(1.05);
+    transform: translate3d(0, 0, 0.01px) scale3d(1.05, 1.05, 1);
   }
 }
 @keyframes banner-crossfade {
