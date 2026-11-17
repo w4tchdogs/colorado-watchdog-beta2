@@ -11,8 +11,8 @@ import { reverseSyncBatchD1 } from "../../src/services/sync-revert-d1.ts";
 import { runBannerAdminChecks } from "./banner-admin-checks.mjs";
 import { runBannerApiChecks } from "./banner-api-checks.mjs";
 import { runBannerMcpChecks } from "./banner-mcp-checks.mjs";
-import { runSyncMcpChecks } from "./sync-mcp-checks.mjs";
 import { runBannerPublishChecks } from "./banner-publish-checks.mjs";
+import { runSyncMcpChecks } from "./sync-mcp-checks.mjs";
 
 const json = (value, status = 200) =>
   new Response(JSON.stringify(value), {
