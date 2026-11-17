@@ -12,6 +12,7 @@ from research import operator
 from research import identity
 from research import identity_triage, source_types, publisher, export as profiles_export
 from research import batch_selection
+from research import promotion
 from research import submission, sync, mcp_sync_driver
 from research.backup import backup_database, restore_database
 from research.db import connect, migrate, seed_counties, validate_database, validate_migration_history
@@ -251,6 +252,15 @@ def parser_for():
     publisher_classify.add_argument("--evidence-id", required=True)
     publisher_classify.add_argument("--actor", required=True)
     publisher_classify.add_argument("--basis", required=True)
+
+    profile_preview = database_command("preview-profile-promotion", "validate and fingerprint one county Profiles promotion batch")
+    profile_preview.add_argument("--plan", type=Path, required=True,
+                                 help="Private reviewed batch plan outside the source checkout")
+    profile_apply = database_command("apply-profile-promotion", "apply one exact reviewed county Profiles promotion batch")
+    profile_apply.add_argument("--plan", type=Path, required=True)
+    profile_apply.add_argument("--expect-plan-sha256", required=True)
+    profile_apply.add_argument("--apply", action="store_true", required=True,
+                               help="Required explicit confirmation to write confirmed local Profiles")
 
     selection_preview = database_command("preview-batch-selection", "write a private hash-checked batch selection plan")
     selection_target = selection_preview.add_mutually_exclusive_group(required=True)
@@ -798,6 +808,9 @@ def main(argv=None):
     if args.command in {"apply-identity", "verify-identity"}:
         _absolute_external_path(args.database, parser, "Research database")
         _absolute_external_path(args.plan, parser, "Private identity plan")
+    if args.command in {"preview-profile-promotion", "apply-profile-promotion"}:
+        _absolute_external_path(args.database, parser, "Research database")
+        _absolute_external_path(args.plan, parser, "Private Profile promotion plan")
     if args.command in {"sync-export-prepared", "sync-mcp-send", "sync-mcp-reverse", "sync-mcp-roundtrip"}:
         _absolute_external_path(args.database, parser, "Research database")
     if args.command == "sync-export-prepared":
@@ -1194,6 +1207,30 @@ def main(argv=None):
             return 0
         except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
             print(json.dumps(_json_error(args.command, "identity_operation_failed", str(error)),
+                             ensure_ascii=False, sort_keys=True))
+            return 2
+    if args.command in {"preview-profile-promotion", "apply-profile-promotion"}:
+        try:
+            plan = promotion.read_plan(args.plan, repository_root=Path(__file__).resolve().parents[1])
+            if args.command == "preview-profile-promotion":
+                db = _read_only(path)
+            else:
+                if not re.fullmatch(r"[0-9a-fA-F]{64}", args.expect_plan_sha256):
+                    raise ValueError("--expect-plan-sha256 must be a 64-character SHA-256 value")
+                db = connect(path)
+            try:
+                if args.command == "preview-profile-promotion":
+                    preview = promotion.build_preview(db, plan)
+                    result = {key: value for key, value in preview.items() if not key.startswith("_")}
+                else:
+                    result = promotion.apply_reviewed_plan(
+                        db, plan, expected_sha256=args.expect_plan_sha256.lower())
+            finally:
+                db.close()
+            print(json.dumps({"mode": args.command, **result}, ensure_ascii=False, sort_keys=True))
+            return 0
+        except (OSError, sqlite3.Error, ValueError, RuntimeError, json.JSONDecodeError) as error:
+            print(json.dumps(_json_error(args.command, "profile_promotion_failed", str(error)),
                              ensure_ascii=False, sort_keys=True))
             return 2
     try:
