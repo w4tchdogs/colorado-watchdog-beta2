@@ -181,7 +181,7 @@ test("a missing or failing image falls back to the placeholder", async () => {
 
 const enhancement = readFileSync(`${STATIC_DIRECTORY}site.js`, "utf8");
 
-function carouselPage(markup, { reduced = false, interval, mutate } = {}) {
+function carouselPage(markup, { reduced = false, deferred = [], mutate } = {}) {
   const { window } = new JSDOM(
     `<section class="hero"><div class="hero-banner">${markup}</div></section>`,
     { runScripts: "outside-only", pretendToBeVisual: true, url: ORIGIN },
@@ -189,18 +189,34 @@ function carouselPage(markup, { reduced = false, interval, mutate } = {}) {
   const { document } = window;
   const timers = new Map();
   let nextTimer = 0;
+  let now = 0;
   let hidden = false;
+  const images = [];
+  const createElement = document.createElement.bind(document);
+  document.createElement = (name, options) => {
+    const element = createElement(name, options);
+    if (name === "img") images.push(element);
+    return element;
+  };
+  Object.defineProperties(window.HTMLImageElement.prototype, {
+    complete: {
+      get() {
+        return !deferred.includes(this.getAttribute("src"));
+      },
+    },
+    naturalWidth: { get: () => 800 },
+  });
+  Object.defineProperty(window.performance, "now", { value: () => now });
   const motion = new window.EventTarget();
   motion.matches = reduced;
   window.matchMedia = () => motion;
-  window.setInterval = (callback, delay) => {
+  window.setTimeout = (callback, delay) => {
     timers.set(++nextTimer, { callback, delay });
     return nextTimer;
   };
-  window.clearInterval = (id) => timers.delete(id);
+  window.clearTimeout = (id) => timers.delete(id);
   Object.defineProperty(document, "hidden", { get: () => hidden });
   const frame = document.querySelector("[data-banner-frame]");
-  if (interval !== undefined) frame.dataset.bannerInterval = interval;
   mutate?.(frame);
   window.eval(enhancement);
   const control = (name) => document.querySelector(`[data-banner-${name}]`);
@@ -208,15 +224,29 @@ function carouselPage(markup, { reduced = false, interval, mutate } = {}) {
     window,
     frame,
     timers,
+    images,
     motion,
     control,
     changeVisibility(value) {
       hidden = value;
       document.dispatchEvent(new window.Event("visibilitychange"));
     },
+    advanceTime(milliseconds) {
+      now += milliseconds;
+    },
     tick() {
       assert.equal(timers.size, 1);
-      timers.values().next().value.callback();
+      const [id, { callback, delay }] = timers.entries().next().value;
+      timers.delete(id);
+      now += delay;
+      callback();
+    },
+    finishFade() {
+      const event = new window.Event("animationend");
+      Object.defineProperty(event, "animationName", {
+        value: "banner-crossfade",
+      });
+      control("incoming").dispatchEvent(event);
     },
   };
 }
@@ -309,8 +339,7 @@ test("carousel keeps a no-script fallback and synchronizes manual navigation", a
     );
     assert.equal(control("status").textContent, "Banner 2 of 2");
     firstImage.dispatchEvent(new window.Event("error"));
-    assert.equal(frame.dataset.bannerState, "loading");
-    control("image").dispatchEvent(new window.Event("load"));
+    assert.equal(frame.dataset.bannerState, "ready");
     assert.equal(control("image").hidden, false);
     control("next").click();
     assert.equal(frame.dataset.bannerId, "b1");
@@ -321,7 +350,7 @@ test("carousel keeps a no-script fallback and synchronizes manual navigation", a
   }
 });
 
-test("play is intentional and each interruption clears its only timer", () => {
+test("play is intentional and pauses the dwell and in-flight fade", () => {
   const page = carouselPage(bannerFrame(carouselSlides, "08001").value);
   const { control, window, frame, timers, motion } = page;
   const play = control("play");
@@ -332,10 +361,31 @@ test("play is intentional and each interruption clears its only timer", () => {
     play.click();
     play.click();
     assert.equal(timers.size, 1);
-    assert.equal(timers.values().next().value.delay, 8000);
+    assert.equal(timers.values().next().value.delay, 7000);
     assert.equal(play.getAttribute("aria-disabled"), "true");
+    page.advanceTime(1700);
+    pause.click();
+    assert.equal(timers.size, 0);
+    play.click();
+    assert.equal(timers.values().next().value.delay, 5300);
     page.tick();
+    const incoming = control("incoming");
+    assert.equal(frame.dataset.bannerId, "b1");
+    assert.ok(incoming);
+    assert.equal(incoming.getAttribute("aria-hidden"), "true");
+    assert.ok(frame.hasAttribute("data-banner-playing"));
+    pause.click();
+    assert.equal(frame.hasAttribute("data-banner-playing"), false);
+    assert.equal(control("incoming"), incoming);
+    assert.equal(timers.size, 0);
+    play.click();
+    assert.ok(frame.hasAttribute("data-banner-playing"));
+    page.finishFade();
     assert.equal(frame.dataset.bannerId, "b2");
+    assert.equal(control("image"), incoming);
+    assert.ok(incoming.hasAttribute("data-banner-zoom"));
+    assert.equal(incoming.hasAttribute("data-banner-incoming"), false);
+    assert.equal(timers.values().next().value.delay, 7000);
     pause.click();
     assert.equal(timers.size, 0);
     control("next").click();
@@ -373,43 +423,62 @@ test("play is intentional and each interruption clears its only timer", () => {
   }
 });
 
-test("reduced motion, bounded intervals and failed images retain manual navigation", () => {
-  const markup = bannerFrame(carouselSlides, null).value;
-  for (const [interval, expected] of [
-    ["20", 3000],
-    ["90000", 20000],
-    ["bad", 8000],
-  ]) {
-    const page = carouselPage(markup, { reduced: true, interval });
-    const { control, window, frame, timers, motion } = page;
-    try {
-      assert.equal(control("play").getAttribute("aria-disabled"), "true");
-      control("play").click();
-      assert.equal(timers.size, 0);
-      control("previous").click();
-      assert.equal(frame.dataset.bannerId, "b3");
-      motion.matches = false;
-      motion.dispatchEvent(new window.Event("change"));
-      control("play").click();
-      assert.equal(timers.values().next().value.delay, expected);
-      const failed = control("image");
-      failed.dispatchEvent(new window.Event("error"));
-      assert.equal(failed.hidden, true);
-      assert.ok(frame.querySelector(".banner-placeholder"));
-      assert.equal(frame.dataset.bannerState, "unavailable");
-      assert.equal(
-        control("status").textContent,
-        "Banner 3 of 3 · Image unavailable",
-      );
-      assert.equal(timers.size, 0);
-      control("play").click();
-      assert.equal(timers.size, 0);
-      control("next").click();
-      assert.equal(frame.dataset.bannerId, "b1");
-      assert.equal(timers.size, 0);
-    } finally {
-      window.close();
-    }
+test("reduced motion is immediate and a failed replacement keeps the current artwork", () => {
+  const page = carouselPage(bannerFrame(carouselSlides, null).value, {
+    reduced: true,
+    deferred: [carouselSlides[2].src],
+  });
+  const { control, window, frame, timers, images } = page;
+  try {
+    assert.equal(control("play").getAttribute("aria-disabled"), "true");
+    control("play").click();
+    assert.equal(timers.size, 0);
+    const first = control("image");
+    control("previous").click();
+    assert.equal(frame.dataset.bannerId, "b1");
+    assert.equal(control("image"), first);
+    images.at(-1).dispatchEvent(new window.Event("error"));
+    assert.equal(control("image"), first);
+    assert.equal(frame.dataset.bannerState, "ready");
+    assert.equal(
+      control("status").textContent,
+      "Banner 1 of 3 · Image unavailable",
+    );
+    control("previous").click();
+    assert.equal(frame.dataset.bannerId, "b2");
+    assert.equal(control("incoming"), null);
+    assert.equal(control("image").hasAttribute("data-banner-zoom"), false);
+    assert.equal(timers.size, 0);
+  } finally {
+    window.close();
+  }
+});
+
+test("a slow replacement starts the dwell only when ready", () => {
+  const page = carouselPage(bannerFrame(carouselSlides, "08001").value, {
+    deferred: [carouselSlides[1].src],
+  });
+  const { control, window, frame, timers, images } = page;
+  try {
+    const first = control("image");
+    control("play").click();
+    assert.equal(timers.size, 0);
+    assert.equal(control("image"), first);
+    page.advanceTime(8000);
+    images[0].dispatchEvent(new window.Event("load"));
+    assert.equal(timers.values().next().value.delay, 7000);
+    page.tick();
+    const incoming = control("incoming");
+    assert.equal(frame.dataset.bannerId, "b1");
+    assert.equal(control("image"), first);
+    page.motion.matches = true;
+    page.motion.dispatchEvent(new window.Event("change"));
+    assert.equal(frame.dataset.bannerId, "b2");
+    assert.equal(control("image"), incoming);
+    assert.equal(control("incoming"), null);
+    assert.equal(timers.size, 0);
+  } finally {
+    window.close();
   }
 });
 
@@ -735,6 +804,7 @@ test("explicit play and pause are announced once, and nothing else is", () => {
     // The position status is untouched by Play and keeps one message per move.
     assert.equal(control("status").textContent, "Banner 2 of 2");
     page.tick();
+    page.finishFade();
     assert.equal(control("status").textContent, "Banner 1 of 2");
     assert.equal(said(), "Banner rotation playing");
     control("play").click();
@@ -782,7 +852,7 @@ test("explicit play and pause are announced once, and nothing else is", () => {
     motion.matches = false;
     motion.dispatchEvent(new window.Event("change"));
     control("play").click();
-    control("image").dispatchEvent(new window.Event("error"));
+    page.changeVisibility(true);
     assert.equal(said(), "");
     control("play").click();
     assert.equal(said(), "");

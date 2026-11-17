@@ -61,7 +61,9 @@ preloading beyond the current and next eligible image.
 
 `bannerFrame` emits the first image and stores the ordered public presentation
 data in an escaped HTML attribute. `/assets/site.js` validates that data,
-reveals the controls, and requests images only when their slide is selected.
+reveals the controls, and preloads the next eligible image while keeping the
+current artwork visible. The incoming image becomes the current item after the
+fade and keeps its zoom position through that handoff.
 
 **Controls and accessibility.** With two or more images, expose native Previous,
 Next, Pause and Play buttons with accessible names, visible keyboard focus and
@@ -69,8 +71,8 @@ logical tab order. Announce the current item through a concise polite status.
 Do not auto-rotate when `prefers-reduced-motion: reduce` is active. Pause on
 focus, hover, pointer interaction, page visibility loss and explicit Pause; do
 not resume after a visitor explicitly paused. Play starts rotation only on
-explicit request. A reasonable default is 8 seconds, configurable through a
-bounded data attribute.
+explicit request. Reduced-motion navigation swaps to the loaded image without
+zoom or fade.
 
 **Playback speech and full width (BANNERS-4B).** A second polite, visually
 hidden region (`data-banner-announce`) says "Banner rotation playing" after a
@@ -86,17 +88,19 @@ two synthetic homepage banners, and adding `-- --no-home-banners` (or running
 `node scripts/site-dev.mjs --banner-fixtures --no-home-banners`) restores the
 homepage fallback. Evidence: [banner-screen-reader-verification.md](banner-screen-reader-verification.md).
 
-The carousel starts paused. The `data-banner-interval` value is clamped to
-3–20 seconds and defaults to 8 seconds. Each interruption clears the timer.
-Visitors can still choose Previous or Next while rotation is paused, an image
-is unavailable, or reduced motion is active.
+The carousel starts paused. During playback it dwells for seven seconds after
+the next image is ready, then crossfades for four seconds with ease-in-out.
+Each image zooms from 1.01 to 1.05 over 15 seconds, linearly from the center.
+Pause freezes the artwork and any active fade and preserves the remaining
+dwell time. Previous and Next still work while paused without starting playback.
 
 **Layout and failure behavior.** Preserve the 3:1 frame, reserved caption area,
-current cover/contain and focal classes, responsive overlays and branded
-placeholder. Keep the frame dimensions stable. If an image fails, show the
-placeholder and advance only through the explicit controls; never expose an
-unverified or withdrawn URL. Zero images retain the current placeholder and no
-controls; one image has no cycling controls; multiple images expose controls.
+focal positions and branded placeholder. Galleries cover the frame and keep
+the gradient, copy and controls fixed. Single images retain their configured
+fit and stay static. A failed replacement leaves the current artwork in place
+and is skipped for the rest of the page visit. A failed initial image shows the
+placeholder until a successful manual selection. Zero images show the
+placeholder without controls.
 
 **Verification.** Automated DOM tests should cover data synchronization,
 button names and focus, zero/one/many images, explicit and automatic movement,
