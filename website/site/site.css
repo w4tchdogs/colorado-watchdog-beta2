@@ -992,7 +992,6 @@ img {
   margin: 0;
   max-width: 100%;
   padding: 0.2rem 0.75rem;
-  background: rgb(0 0 0 / 0.72);
   color: #ffffff;
   font-size: 0.75rem;
   font-weight: 600;
@@ -1215,7 +1214,6 @@ img {
   display: flex;
   align-items: center;
   padding-block: var(--space-5) var(--space-6);
-  background: linear-gradient(90deg, rgb(0 0 0 / 0.86), rgb(0 0 0 / 0.68));
 }
 .hero h1 {
   max-width: 20ch;
@@ -1265,12 +1263,6 @@ img {
 @media (min-width: 64rem) {
   .hero-content {
     padding-block: var(--space-5);
-    background: linear-gradient(
-      90deg,
-      rgb(0 0 0 / 0.82) 0%,
-      rgb(0 0 0 / 0.6) 38%,
-      rgb(0 0 0 / 0) 68%
-    );
   }
   .hero-content .wrap {
     width: min(100% - 5rem, var(--wrap));
