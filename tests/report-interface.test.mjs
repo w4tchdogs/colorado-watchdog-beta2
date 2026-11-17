@@ -1074,3 +1074,34 @@ test("widget loader: a blocked script rejects and is requested again on the next
     0,
   );
 });
+
+test("account-only hosts offer the signed-in form, hide guest intake and show no local-preview notice", async () => {
+  await withPreview("empty", async (preview) => {
+    const services = createServices({ database: preview.database });
+    const site = createPublicSite({
+      services,
+      assets: siteAssets(),
+      reportSubmissionsEnabled: true,
+      reportGuestEnabled: false,
+      accountEntry: async (request) =>
+        request.headers.get("cookie") === "fixture=authenticated"
+          ? "signed-in"
+          : "signed-out",
+      reportAccountId: async () => "synthetic-account",
+    });
+    const init = { headers: { cookie: "fixture=authenticated" } };
+    const chooser = await get(site, "/submit-report", init);
+    assert.ok(chooser.$('a[href="/submit-report?account=1"]'));
+    assert.equal(chooser.$('a[href="/submit-report?guest=1"]'), null);
+    assert.match(chooser.text, /Guest reporting is unavailable/);
+    assert.doesNotMatch(chooser.text, /Local preview/);
+    const guest = await get(site, "/submit-report?guest=1", init);
+    assert.equal(guest.$("#report-interface-root"), null);
+    const account = await get(site, "/submit-report?account=1", init);
+    const root = account.$("[data-report-mode=account]");
+    assert.ok(root);
+    assert.equal(root.getAttribute("data-report-demo"), null);
+    const signedOut = await get(site, "/submit-report?account=1");
+    assert.equal(signedOut.$("#report-interface-root"), null);
+  });
+});

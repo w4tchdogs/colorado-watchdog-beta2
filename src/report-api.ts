@@ -50,6 +50,12 @@ export interface ReportApiOptions {
   /** Builds a request-bound store so its D1 authorization can re-resolve identity. */
   readonly storeForRequest?: (request: Request) => ReportIntakeStore;
   /** Production must provide a shared, durable abuse-control implementation. */
+  /**
+   * Signed-in account submissions without guest intake. Only a live human
+   * session bound to the account the form was rendered for is accepted, so no
+   * guest or anonymous submission is possible through this switch.
+   */
+  readonly accountSubmissions?: { readonly enabled: boolean };
   readonly guestSubmissions?: {
     readonly enabled: boolean;
     readonly abuseControl?: {
@@ -149,12 +155,14 @@ async function submission(
   if (!sameOrigin(request)) return json(403, { error: "origin_rejected" });
   if (!isJson(request)) return json(415, { error: "unsupported_media_type" });
   const config = options.guestSubmissions;
-  if (!config?.enabled || !config.abuseControl)
+  const guestOpen = Boolean(config?.enabled && config.abuseControl);
+  const expected = request.headers.get(REPORT_ACCOUNT_EXPECTATION_HEADER);
+  // Without guest intake, only an account form with a live session may submit.
+  if (!guestOpen && !(options.accountSubmissions?.enabled && expected !== null))
     return json(503, { error: "submission_unavailable" });
   // An account form states which account it was rendered for. Compare it with
   // the live session before the abuse check or any read of the body, and never
   // fall back to a guest submission when the session is gone or has changed.
-  const expected = request.headers.get(REPORT_ACCOUNT_EXPECTATION_HEADER);
   let principal: TrustedPrincipal | null = null;
   if (expected !== null) {
     if (!REPORT_ACCOUNT_EXPECTATION_PATTERN.test(expected))
@@ -167,7 +175,11 @@ async function submission(
     if (principal.accountId !== expected)
       return json(409, { error: "account_changed" });
   }
-  const abuse = await config.abuseControl.check(request);
+  // The abuse check guards anonymous intake. An authenticated account
+  // submission on a host with no guest provider relies on the live session.
+  const abuse = config?.abuseControl
+    ? await config.abuseControl.check(request)
+    : { allowed: true as const };
   if (!abuse.allowed) {
     const retry = Math.max(1, Math.min(3600, abuse.retryAfterSeconds ?? 60));
     return json(

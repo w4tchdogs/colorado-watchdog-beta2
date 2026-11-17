@@ -13,8 +13,10 @@ export async function reportPage(
 ): Promise<Page> {
   const tracking = mode === "track";
   const available = context.reportSubmissionsEnabled === true;
+  const guestAvailable = available && context.reportGuestEnabled === true;
   const showForm =
-    available && (mode === "guest" || (mode === "account" && accountId));
+    (guestAvailable && mode === "guest") ||
+    (available && mode === "account" && Boolean(accountId));
   const accountAvailable = available && entry !== null;
   const accountHref =
     entry === "signed-in" && mode === "choose" ? ACCOUNT_REPORT : ACCOUNT_LOGIN;
@@ -25,7 +27,7 @@ export async function reportPage(
       description: "Choose how to send a report for private editorial review.",
       head: html`<link rel="stylesheet" href="/assets/report-interface.css">`,
       body: html`<section class="report-interface report-entry" data-report-enabled="${available ? "true" : "false"}" aria-labelledby="report-entry-heading">
-        <p class="eyebrow">${available && !context.reportChallenge ? "Local preview · Fictional reports only" : "Private editorial review"}</p>
+        <p class="eyebrow">${guestAvailable && !context.reportChallenge ? "Local preview · Fictional reports only" : "Private editorial review"}</p>
         <h1 class="report-heading" id="report-entry-heading">Submit a report</h1>
         <p class="report-intro">Choose to use an account or continue as a guest. Both paths ask you to certify your report for private editorial review. Signing in does not establish an allegation as fact.</p>
         ${!available ? html`<p class="report-disabled-notice" role="note"><strong>Report submission is currently unavailable.</strong> Tracking remains available.</p>` : ""}
@@ -43,7 +45,7 @@ export async function reportPage(
             <h2 id="report-guest-heading">Continue as a guest</h2>
             <p>No account, legal name or email is required. Keep the private reference and recovery key shown after submission.</p>
             ${
-              available
+              guestAvailable
                 ? html`<a class="report-button report-button-quiet" href="/submit-report?guest=1">Start a guest report →</a>`
                 : html`<p class="report-field-hint">Guest reporting is unavailable.</p>`
             }
@@ -68,6 +70,7 @@ export async function reportPage(
       data-report-counties="${JSON.stringify(counties)}"
       data-report-mode="${mode}"
       data-report-enabled="${available ? "true" : "false"}"
+      ${guestAvailable && !context.reportChallenge ? html`data-report-demo="true"` : ""}
       ${!tracking && accountId ? html`data-report-account-id="${accountId}"` : ""}
       ${sitekey ? html`data-report-challenge-sitekey="${sitekey}"` : ""}></div>`,
   };

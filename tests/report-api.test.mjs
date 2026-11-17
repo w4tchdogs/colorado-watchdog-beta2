@@ -430,3 +430,57 @@ test("an agent principal is refused when the account expectation is present and 
     201,
   );
 });
+
+function accountOnly(role, store = new MemoryReportIntakeStore()) {
+  const principal = role
+    ? {
+        accountId: `synthetic-${role}`,
+        role,
+        kind: role === "agent" ? "agent" : "human",
+      }
+    : null;
+  return createReportApiModule({
+    store,
+    services: {
+      async listCounties() {
+        return [];
+      },
+      async resolvePrincipal() {
+        return principal;
+      },
+      async hasCapability() {
+        return false;
+      },
+    },
+    accountSubmissions: { enabled: true },
+  });
+}
+
+test("account-only mode accepts a matching human session and refuses guests, agents and mismatches", async () => {
+  const store = new MemoryReportIntakeStore();
+  const ok = await post(accountOnly("reporter", store), submission, {
+    [EXPECT]: "synthetic-reporter",
+  });
+  assert.equal(ok.status, 201);
+  // Retrying the same key replays: one report only.
+  const retry = await post(accountOnly("reporter", store), submission, {
+    [EXPECT]: "synthetic-reporter",
+  });
+  assert.equal(retry.status, 200);
+  assert.equal((await retry.json()).recoveryKey, undefined);
+  const guest = await post(accountOnly(null, store), submission);
+  assert.equal(guest.status, 503);
+  assert.deepEqual(await guest.json(), { error: "submission_unavailable" });
+  const signedOutForm = await post(accountOnly(null, store), submission, {
+    [EXPECT]: "synthetic-reporter",
+  });
+  assert.equal(signedOutForm.status, 401);
+  const agent = await post(accountOnly("agent", store), submission, {
+    [EXPECT]: "synthetic-agent",
+  });
+  assert.equal(agent.status, 401);
+  const other = await post(accountOnly("other", store), submission, {
+    [EXPECT]: "synthetic-reporter",
+  });
+  assert.equal(other.status, 409);
+});
