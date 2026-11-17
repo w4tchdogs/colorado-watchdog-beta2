@@ -811,7 +811,7 @@ test("full-width heroes overlay unshaded copy and keep the 3:1 baseline at every
   );
   assert.match(
     shared,
-    /\.hero-content \{[^}]*grid-area: 1 \/ 1;[^}]*z-index: 1;/,
+    /\.hero-content \{[^}]*grid-area: 1 \/ 1 \/ 3;[^}]*z-index: 1;/,
   );
   const textRules = css.matchAll(
     /(?:^|\n)\s*((?:\.hero )?\.banner-caption|\.hero-content) \{([^}]+)\}/g,

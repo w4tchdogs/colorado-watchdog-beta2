@@ -1234,11 +1234,15 @@ img {
   grid-row: 3;
 }
 .hero-content {
-  grid-area: 1 / 1;
+  /* Span the artwork rows (copy row plus caption row) so the copy centers on
+     the midpoint of the visible banner, not on the copy row alone. The block
+     padding is symmetric so the copy stays centered; it also keeps tall copy
+     clear of the caption at the bottom edge. */
+  grid-area: 1 / 1 / 3;
   z-index: 1;
   display: flex;
   align-items: center;
-  padding-block: var(--space-5) var(--space-6);
+  padding-block: var(--space-6);
 }
 .hero h1 {
   max-width: 20ch;
