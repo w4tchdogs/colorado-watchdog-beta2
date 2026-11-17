@@ -124,6 +124,13 @@ export interface BannerStageRequest {
   readonly target: BannerStageTarget;
   /** Optional client digest. If present it must equal the digest computed here. */
   readonly expectedSha256?: string;
+  /**
+   * The owner's approved JPEG already passed a full local decode (the BANNERS-1
+   * inventory). Asks the Worker to skip its own pixel decode. Needs
+   * `expectedSha256`, which must equal the digest computed here, and a JPEG.
+   * The version is then `verified` with decode `attested_local`.
+   */
+  readonly decodeAttestation?: "owner_local_full_decode";
 }
 
 export interface BannerStageResult {
@@ -133,8 +140,8 @@ export interface BannerStageResult {
   readonly bannerRowVersion: number;
   /** True when this exact request had already completed. */
   readonly replayed: boolean;
-  /** "full" only when the server decoded every pixel row. */
-  readonly decode: "full" | "not_performed";
+  /** "full" when the server decoded every pixel row, "attested_local" when it skipped the decode on the owner's digest attestation. */
+  readonly decode: "full" | "attested_local" | "not_performed";
   /** True only for a version in state `verified`. */
   readonly verified: boolean;
   readonly note?: string;

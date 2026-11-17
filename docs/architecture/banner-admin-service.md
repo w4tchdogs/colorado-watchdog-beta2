@@ -6,7 +6,7 @@ This is the first implementation slice of the banner administration design in dr
 
 - `src/contracts/banner-administration.ts` is the `BannerAdministration` interface. No input carries an actor. The trusted principal is passed separately. No result carries an object key.
 - `src/services/banner-admin-d1.ts` is `D1BannerAdministration`. It implements `listCounties`, `getCounty`, `stage` and a read-only `reconcileBanner` over `AsyncD1Database` and the existing `ImmutableObjectStorage` interface.
-- `src/services/banner-image-inspector.ts` checks byte, type and pixel limits, derives dimensions and SHA-256 from the supplied bytes and decodes PNG and JPEG files completely.
+- `src/services/banner-image-inspector.ts` checks byte, type and pixel limits, derives dimensions and SHA-256 from the supplied bytes and decodes PNG and JPEG files completely. One exception: a JPEG staged with `decodeAttestation: "owner_local_full_decode"` and a matching `expectedSha256` skips only the pixel decode, passes the same header, limit and digest checks, and is recorded as `attested_local` (see the [API contract](banner-admin-api.md#stage)).
 
 ## Staging rules
 

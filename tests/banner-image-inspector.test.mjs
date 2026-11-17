@@ -37,6 +37,36 @@ test("a JPEG is fully decoded and its facts come from the bytes", async () => {
   assert.equal(result.sha256, fixtures.jpegA.sha256);
 });
 
+test("skipJpegDecode keeps header facts and digest and reports attested_local", async () => {
+  const result = await inspectBannerImage(bytes("jpegA"), BANNER_IMAGE_LIMITS, {
+    skipJpegDecode: true,
+  });
+  assert.equal(result.mediaType, "image/jpeg");
+  assert.equal(result.width, 64);
+  assert.equal(result.height, 24);
+  assert.equal(result.sha256, fixtures.jpegA.sha256);
+  assert.equal(result.decode, "attested_local");
+  assert.match(result.decodeNote, /skipped/);
+});
+
+test("skipJpegDecode never skips a PNG decode and still enforces limits and headers", async () => {
+  const png = await inspectBannerImage(bytes("pngA"), BANNER_IMAGE_LIMITS, {
+    skipJpegDecode: true,
+  });
+  assert.equal(png.decode, "full");
+  for (const [name, code] of [
+    ["oversizedClaimJpeg", "dimensions_exceeded"],
+    ["truncatedJpeg", "malformed"],
+  ]) {
+    await assert.rejects(
+      inspectBannerImage(bytes(name), BANNER_IMAGE_LIMITS, {
+        skipJpegDecode: true,
+      }),
+      (error) => error instanceof BannerImageError && error.code === code,
+    );
+  }
+});
+
 test("limits are enforced before any decoding", async () => {
   // This fixture has no image data, so any attempt to decode it would report
   // decode_failed. Seeing dimensions_exceeded proves the limit ran first.
