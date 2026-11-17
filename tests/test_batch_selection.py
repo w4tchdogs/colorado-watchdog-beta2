@@ -16,7 +16,7 @@ class BatchSelectionTests(unittest.TestCase):
     def setUp(self):
         self.db = connect()
         migrate(self.db)
-        self.db.executemany("INSERT INTO counties VALUES (?,?)",
+        self.db.executemany("INSERT INTO county VALUES (?,?)",
                             [(fips, COUNTIES[fips]) for fips in ("08001", "08003")])
         self.db.commit()
 
@@ -31,18 +31,18 @@ class BatchSelectionTests(unittest.TestCase):
 
     def selections(self, family_id):
         return [row[0] for row in self.db.execute(
-            "SELECT id FROM scrape_batches WHERE family_id=? AND selected=1", (family_id,))]
+            "SELECT id FROM research_scrapes WHERE family_id=? AND selected=1", (family_id,))]
 
     def test_unselected_family_selects_and_reversal_restores_no_selection(self):
         batch = self.batch()
-        family = self.db.execute("SELECT family_id FROM scrape_batches WHERE id=?", (batch,)).fetchone()[0]
+        family = self.db.execute("SELECT family_id FROM research_scrapes WHERE id=?", (batch,)).fetchone()[0]
         plan = build_selection_plan(self.db, batch_id=batch, actor="synthetic operator",
                                     rationale="Synthetic review selected this version")
         self.assertIsNone(plan["before_batch_id"])
         self.assertEqual(plan["after_batch_id"], batch)
         result = apply_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
         self.assertEqual(self.selections(family), [batch])
-        audit = self.db.execute("SELECT detail_json FROM research_events WHERE id=?", (result["event_id"],)).fetchone()
+        audit = self.db.execute("SELECT detail_json FROM research_history WHERE id=?", (result["event_id"],)).fetchone()
         detail = json.loads(audit[0])
         self.assertIsNone(detail["before_batch_id"])
         self.assertEqual(detail["after_batch_id"], batch)
@@ -50,7 +50,7 @@ class BatchSelectionTests(unittest.TestCase):
         self.assertIn("Synthetic review", detail["rationale"])
         repeated = apply_plan(self.db, plan, expected_sha256=plan["plan_sha256"])
         self.assertEqual(repeated["status"], "already_applied")
-        self.assertEqual(self.db.execute("SELECT count(*) FROM research_events WHERE kind='batch_selection_changed'").fetchone()[0], 1)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM research_history WHERE kind='batch_selection_changed'").fetchone()[0], 1)
 
         reversal = build_reversal_plan(self.db, event_id=result["event_id"], actor="synthetic operator",
                                        rationale="Undo the synthetic selection")
@@ -58,7 +58,7 @@ class BatchSelectionTests(unittest.TestCase):
         undone = apply_plan(self.db, reversal, expected_sha256=reversal["plan_sha256"])
         self.assertEqual(undone["status"], "applied")
         self.assertEqual(self.selections(family), [])
-        self.assertEqual(self.db.execute("SELECT kind FROM research_events WHERE id=?",
+        self.assertEqual(self.db.execute("SELECT kind FROM research_history WHERE id=?",
                                          (undone["event_id"],)).fetchone()[0], "batch_selection_reversed")
         self.assertEqual(apply_plan(self.db, reversal, expected_sha256=reversal["plan_sha256"])["status"],
                          "already_applied")
@@ -66,7 +66,7 @@ class BatchSelectionTests(unittest.TestCase):
     def test_replacement_and_reversal_restore_previous_batch(self):
         original = self.batch(selected=True)
         replacement = self.batch(parent=original, lineage="alternative", name="Synthetic Replacement Example")
-        family = self.db.execute("SELECT family_id FROM scrape_batches WHERE id=?", (original,)).fetchone()[0]
+        family = self.db.execute("SELECT family_id FROM research_scrapes WHERE id=?", (original,)).fetchone()[0]
         plan = build_selection_plan(self.db, batch_id=replacement, actor="synthetic operator",
                                     rationale="Synthetic alternate version approved")
         self.assertEqual(plan["before_batch_id"], original)

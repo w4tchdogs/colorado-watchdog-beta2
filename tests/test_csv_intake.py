@@ -50,7 +50,7 @@ class CsvIntakeCase(unittest.TestCase):
         self.csv_path = self.root / "fixture.csv"
         db = connect(self.database)
         migrate(db)
-        db.executemany("INSERT INTO counties VALUES (?,?)",
+        db.executemany("INSERT INTO county VALUES (?,?)",
                        [(fips, COUNTIES[fips]) for fips in ("08107", "08031", "08123")])
         db.commit()
         db.close()
@@ -83,8 +83,8 @@ class CsvIntakeCase(unittest.TestCase):
         db = connect(self.database)
         try:
             return {table: db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
-                    for table in ("scrape_batches", "research_runs", "sources", "evidence_links",
-                                  "role_claims", "research_events", "source_visits", "research_people")}
+                    for table in ("research_scrapes", "research_runs", "research_sources", "research_evidence",
+                                  "profile_research_role", "research_history", "research_source_visits", "profile_research")}
         finally:
             db.close()
 
@@ -125,7 +125,7 @@ class CsvIntakeCase(unittest.TestCase):
         self.assertEqual(sorted(item.name for item in self.root.iterdir()), before_files)
 
         db = connect(self.database)
-        db.execute("INSERT INTO counties VALUES ('08037','Eagle')")
+        db.execute("INSERT INTO county VALUES ('08037','Eagle')")
         db.commit()
         db.close()
         registered = self.result(self.call_cli(*self.preview_args()))
@@ -134,7 +134,7 @@ class CsvIntakeCase(unittest.TestCase):
 
     def test_preview_and_commit_fail_closed_on_conflicting_county_name(self):
         db = connect(self.database)
-        db.execute("INSERT INTO counties VALUES ('08037','Synthetic Wrong County')")
+        db.execute("INSERT INTO county VALUES ('08037','Synthetic Wrong County')")
         db.commit()
         db.close()
         self.write_csv(fixture_csv(rows=[fixture_row(fips="08037")]))
@@ -240,7 +240,7 @@ class CsvIntakeCase(unittest.TestCase):
         self.write_csv(fixture_csv())
         self.assertEqual(self.call_cli(*self.intake_args()).returncode, 0)
         db = connect(self.database)
-        db.execute("DELETE FROM role_claims")
+        db.execute("DELETE FROM profile_research_role")
         db.commit()
         before = self.counts()
         with self.assertRaisesRegex(ValueError, "missing a claim"):
@@ -308,7 +308,7 @@ class CsvIntakeCase(unittest.TestCase):
         self.assertEqual(result["distinct_claims"], 1)
         db = connect(self.database)
         try:
-            evidence = db.execute('SELECT "Evidence record ID" AS id, "Source ID" AS source_id, "Source version ID" AS source_version_key, "Source title as observed" AS observed_title, "Source URL as observed" AS observed_url, "Source date" AS source_date, "Source date precision" AS source_date_precision, "How the source date was determined" AS source_date_basis, "Reported check date" AS reported_checked_date, "Evidence location" AS locator, "Evidence excerpt" AS quotation, "Import batch ID" AS batch_id, "Original record" AS raw_record_json, "Original record fingerprint" AS raw_record_sha256, "Where the record appeared" AS occurrences_json, "Earlier evidence record this replaces" AS supersedes_id, "Research run ID" AS run_id, "Recorded on" AS recorded_at FROM evidence_links').fetchone()
+            evidence = db.execute('SELECT "Evidence record ID" AS id, "Source ID" AS source_id, "Source version ID" AS source_version_key, "Source title as observed" AS observed_title, "Source URL as observed" AS observed_url, "Source date" AS source_date, "Source date precision" AS source_date_precision, "How the source date was determined" AS source_date_basis, "Reported check date" AS reported_checked_date, "Evidence location" AS locator, "Evidence excerpt" AS quotation, "Import batch ID" AS batch_id, "Original record" AS raw_record_json, "Original record fingerprint" AS raw_record_sha256, "Where the record appeared" AS occurrences_json, "Earlier evidence record this replaces" AS supersedes_id, "Research run ID" AS run_id, "Recorded on" AS recorded_at FROM research_evidence').fetchone()
             raw = json.loads(evidence["raw_record_json"])
             self.assertEqual(raw["cells"][2], row["full_name"])
             occurrence = json.loads(evidence["occurrences_json"])[0]
@@ -316,15 +316,15 @@ class CsvIntakeCase(unittest.TestCase):
             self.assertEqual((occurrence["line_start"], occurrence["line_end"]), (2, 3))
             self.assertEqual(evidence["raw_record_sha256"],
                              hashlib.sha256(canonical_json(raw["cells"]).encode()).hexdigest())
-            batch = db.execute("SELECT file_sha256,mapping_version,original_file_name,lineage_kind FROM scrape_batches").fetchone()
+            batch = db.execute("SELECT file_sha256,mapping_version,original_file_name,lineage_kind FROM research_scrapes").fetchone()
             self.assertEqual(tuple(batch), (hashlib.sha256(payload).hexdigest(), "legacy-17/v1",
                                              "fixture.csv", "original"))
-            source = db.execute('SELECT "Original source URL" AS original_url FROM sources WHERE "Source ID"=?', (evidence["source_id"],)).fetchone()
+            source = db.execute('SELECT "Original source URL" AS original_url FROM research_sources WHERE "Source ID"=?', (evidence["source_id"],)).fetchone()
             self.assertEqual(source[0], row["source_url"])
-            claim = db.execute('SELECT "Linked profile" AS person_id,"Linked office or unit" AS unit_id,"Employment start date" AS employment_start,"Employment end date" AS employment_end FROM role_claims').fetchone()
+            claim = db.execute('SELECT "Linked profile" AS person_id,"Linked office or unit" AS unit_id,"Employment start date" AS employment_start,"Employment end date" AS employment_end FROM profile_research_role').fetchone()
             self.assertEqual(tuple(claim), (None, None, None, None))
-            self.assertEqual(db.execute("SELECT count(*) FROM source_visits").fetchone()[0], 0)
-            self.assertEqual(db.execute("SELECT count(*) FROM research_people").fetchone()[0], 0)
+            self.assertEqual(db.execute("SELECT count(*) FROM research_source_visits").fetchone()[0], 0)
+            self.assertEqual(db.execute("SELECT count(*) FROM profile_research").fetchone()[0], 0)
         finally:
             db.close()
 
@@ -332,7 +332,7 @@ class CsvIntakeCase(unittest.TestCase):
         self.write_csv(fixture_csv())
         original = self.result(self.call_cli(*self.intake_args(extra=("--select",))))
         db = connect(self.database)
-        claim_id = db.execute('SELECT "Role claim ID" AS id FROM role_claims').fetchone()[0]
+        claim_id = db.execute('SELECT "Role claim ID" AS id FROM profile_research_role').fetchone()[0]
         db.close()
 
         complementary_path = self.root / "complementary.csv"
@@ -363,12 +363,12 @@ class CsvIntakeCase(unittest.TestCase):
         self.assertFalse(alternative_result["selected"])
         db = connect(self.database)
         try:
-            selected = db.execute('SELECT "Role claim ID" AS id,"Earlier claim this replaces" AS supersedes_id FROM selected_role_claims ORDER BY id').fetchall()
+            selected = db.execute('SELECT "Role claim ID" AS id,"Earlier claim this replaces" AS supersedes_id FROM profile_research_role_selected ORDER BY id').fetchall()
             self.assertEqual(len(selected), 2)
             self.assertEqual({row["supersedes_id"] for row in selected}, {None, claim_id})
-            family = db.execute("SELECT selected FROM scrape_batches WHERE id=?", (original["batch_id"],)).fetchone()
+            family = db.execute("SELECT selected FROM research_scrapes WHERE id=?", (original["batch_id"],)).fetchone()
             self.assertEqual(family[0], 0)
-            alternative_batch = db.execute("SELECT selected,family_id FROM scrape_batches WHERE id=?",
+            alternative_batch = db.execute("SELECT selected,family_id FROM research_scrapes WHERE id=?",
                                            (alternative_result["batch_id"],)).fetchone()
             self.assertEqual(alternative_batch["selected"], 0)
             self.assertEqual(alternative_batch["family_id"], original["family_id"])
@@ -419,7 +419,7 @@ class CsvIntakeCase(unittest.TestCase):
     def test_late_transaction_failure_rolls_back_every_table_and_selection(self):
         self.write_csv(fixture_csv())
         db = connect(self.database)
-        db.execute("CREATE TRIGGER fail_intake_event BEFORE INSERT ON research_events "
+        db.execute("CREATE TRIGGER fail_intake_event BEFORE INSERT ON research_history "
                    "WHEN NEW.kind='delivery_mapped' BEGIN SELECT RAISE(ABORT,'synthetic event failure'); END")
         db.commit()
         db.close()
@@ -456,7 +456,7 @@ class CsvIntakeCase(unittest.TestCase):
                                                    fixture_row(title="Parent role two")]))
         original = self.result(self.call_cli(*self.intake_args(path=parent_path, label="parent-v1")))
         db = connect(self.database)
-        valid_claims = [row[0] for row in db.execute('SELECT "Role claim ID" AS id FROM role_claims ORDER BY id')]
+        valid_claims = [row[0] for row in db.execute('SELECT "Role claim ID" AS id FROM profile_research_role ORDER BY id')]
         db.close()
 
         duplicate_path = self.root / "duplicate.csv"
@@ -482,9 +482,9 @@ class CsvIntakeCase(unittest.TestCase):
         self.assertEqual(conflicting.returncode, 1)
         self.assertTrue(any(error["category"] == "duplicate_correction_conflict"
                             for error in self.result(conflicting)["errors"]))
-        self.assertEqual(self.counts(), {"scrape_batches": 1, "research_runs": 1, "sources": 1,
-                                         "evidence_links": 2, "role_claims": 2, "research_events": 1,
-                                         "source_visits": 0, "research_people": 0})
+        self.assertEqual(self.counts(), {"research_scrapes": 1, "research_runs": 1, "research_sources": 1,
+                                         "research_evidence": 2, "profile_research_role": 2, "research_history": 1,
+                                         "research_source_visits": 0, "profile_research": 0})
 
     def test_read_only_migration_history_validation_rejects_incomplete_db(self):
         bad_path = self.root / "unmanaged.sqlite"
@@ -501,7 +501,7 @@ class CsvIntakeCase(unittest.TestCase):
         wal_database = self.root / "wal.sqlite"
         db = connect(wal_database)
         migrate(db)
-        db.execute("INSERT INTO counties VALUES ('08107','Routt')")
+        db.execute("INSERT INTO county VALUES ('08107','Routt')")
         db.commit()
         self.assertEqual(db.execute("PRAGMA journal_mode=WAL").fetchone()[0].lower(), "wal")
         db.close()

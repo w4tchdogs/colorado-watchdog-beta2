@@ -32,7 +32,7 @@ COUNTY = "08001"
 
 def seed(db, claims=12, people=8, sources=3, county=COUNTY):
     """Claims beyond `people` reuse an earlier person, so later batches reference existing records."""
-    db.executemany("INSERT OR IGNORE INTO counties VALUES (?,?)", [(county, COUNTIES[county])])
+    db.executemany("INSERT OR IGNORE INTO county VALUES (?,?)", [(county, COUNTIES[county])])
     db.commit()
     payload = csv_bytes([observation(county, full_name=f"Synthetic Person {county} {i % people}",
                                      source_url=f"https://example.invalid/{county}/source-{i % sources}")
@@ -41,22 +41,22 @@ def seed(db, claims=12, people=8, sources=3, county=COUNTY):
                        provenance="synthetic", selected=True)
     rows = list(db.execute(
         'SELECT c."Role claim ID" AS id,c."Evidence record ID" AS evidence_id,e."Source ID" AS source_id '
-        'FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+        'FROM profile_research_role c JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" '
         'WHERE e."Import batch ID"=? ORDER BY c."Role claim ID"', (batch,)))
     for source_id in {row["source_id"] for row in rows}:
-        db.execute("UPDATE sources SET \"Previous source category\"='official',\"Publisher type\"='official',"
+        db.execute("UPDATE research_sources SET \"Previous source category\"='official',\"Publisher type\"='official',"
                    "\"Document type\"='official_page' WHERE \"Source ID\"=?", (source_id,))
     seen = set()
     for index, row in enumerate(rows):
-        db.execute('UPDATE evidence_links SET "Source title as observed"=? WHERE "Evidence record ID"=?',
+        db.execute('UPDATE research_evidence SET "Source title as observed"=? WHERE "Evidence record ID"=?',
                    (f"Synthetic source {row['source_id']}", row["evidence_id"]))
         profile = f"person-hosted-{county}-{index % people}"
         if profile not in seen:
             seen.add(profile)
-            db.execute('INSERT INTO research_people("Profile ID","County code","Full name","Identity review status",'
+            db.execute('INSERT INTO profile_research("Profile ID","County code","Full name","Identity review status",'
                        '"Evidence for identity") VALUES(?,?,?,\'evidence_supported\',?)',
                        (profile, county, f"Synthetic Person {county} {index % people}", row["evidence_id"]))
-        db.execute('UPDATE role_claims SET "Linked profile"=?,"Office or department as published"=? '
+        db.execute('UPDATE profile_research_role SET "Linked profile"=?,"Office or department as published"=? '
                    'WHERE "Role claim ID"=?', (profile, f"Synthetic Office {index}", row["id"]))
     db.commit()
 
@@ -347,10 +347,10 @@ class CountyScopedCliTests(unittest.TestCase):
         self.assertEqual(prepared["change_count"], county["planned_operations"])
         db = connect(self.path)
         try:
-            stored = db.execute("SELECT request_json FROM sync_submissions WHERE id=?",
+            stored = db.execute("SELECT request_json FROM website_requests WHERE id=?",
                                 (prepared["submission_id"],)).fetchone()[0]
             claim_counties = {row[0] for row in db.execute(
-                'SELECT c."County code" FROM sync_submission_items i JOIN role_claims c '
+                'SELECT c."County code" FROM website_request_changes i JOIN profile_research_role c '
                 'ON c."Role claim ID"=i.claim_id WHERE i.submission_id=?', (prepared["submission_id"],))}
         finally:
             db.close()
@@ -423,7 +423,7 @@ class ConcurrentPrepareTests(unittest.TestCase):
             self.assertTrue(errors[0].startswith("ValueError"), errors)
             self.assertIn("uncertain outcome", errors[0])
             unresolved = first.execute(
-                "SELECT count(*) FROM sync_submissions WHERE site_key=? AND state IN ('pending','acknowledged')",
+                "SELECT count(*) FROM website_requests WHERE site_key=? AND state IN ('pending','acknowledged')",
                 (SITE,)).fetchone()[0]
             self.assertEqual(unresolved, 1)
             again = prepare_research_submission(first, SITE, "key-a", self.generated)

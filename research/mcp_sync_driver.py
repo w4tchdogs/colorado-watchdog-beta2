@@ -440,7 +440,7 @@ try {
 def _stored_request(db, submission_id, request_file):
     row = db.execute(
         "SELECT id,site_key,idempotency_key,request_json,state,attempt_count "
-        "FROM sync_submissions WHERE id=?",
+        "FROM website_requests WHERE id=?",
         (submission_id,),
     ).fetchone()
     if row is None:
@@ -502,7 +502,7 @@ def send_prepared(db, submission_id, request_file, client):
 def reverse_and_reconcile(db, site_key, batch_id, idempotency_key, client):
     """Reverse one owned batch, verify its readback, and record its R7 receipt."""
     local = db.execute(
-        "SELECT s.id FROM sync_submissions s JOIN sync_submission_receipts r "
+        "SELECT s.id FROM website_requests s JOIN website_request_receipts r "
         "ON r.submission_id=s.id WHERE s.site_key=? AND s.remote_batch_id=? "
         "AND r.state='committed' LIMIT 1",
         (site_key, batch_id),

@@ -351,6 +351,7 @@ const allowed = new Set([
   "research/migrations/003_site_entity_reconciliation.sql",
   "research/migrations/004_publisher_classification.sql",
   "research/migrations/005_plain_language_profile_columns.sql",
+  "research/migrations/006_local_profiles_table_names.sql",
   "tests/__init__.py",
   "tests/research_fixtures.py",
   "tests/test_research.py",

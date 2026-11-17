@@ -24,7 +24,7 @@ class QuarantineCase(unittest.TestCase):
         self.database = self.root / "research.sqlite"
         db = connect(self.database)
         migrate(db)
-        db.execute("INSERT INTO counties VALUES (?,?)", ("08107", COUNTIES["08107"]))
+        db.execute("INSERT INTO county VALUES (?,?)", ("08107", COUNTIES["08107"]))
         db.commit()
         db.close()
         self.csv_path = self.root / "rejected-original.csv"
@@ -50,8 +50,8 @@ class QuarantineCase(unittest.TestCase):
         db = connect(self.database)
         try:
             return {table: db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
-                    for table in ("scrape_batches", "research_runs", "sources", "evidence_links",
-                                  "role_claims", "research_events", "research_people")}
+                    for table in ("research_scrapes", "research_runs", "research_sources", "research_evidence",
+                                  "profile_research_role", "research_history", "profile_research")}
         finally:
             db.close()
 

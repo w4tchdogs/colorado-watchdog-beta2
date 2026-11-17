@@ -191,6 +191,8 @@ website_update_approvals
   reconciliation and reversal with synthetic records before a real send
   from the redesigned workflow.
 
-Schema implementation, private migration rehearsal and live upgrade follow
-this design in separate assignments. The current local database and hosted
-receipts are the source of truth for any actual pilot already in progress.
+Migration 006 implements the existing-object names and conditional retirement
+of the three legacy tables. See the [Windows rehearsal and upgrade guide](R0-foundation.md#upgrade-the-working-database-from-v5-to-v6).
+The new confirmed Profile tables, new browse and conclusion views, and
+editing workflow remain part of the design. The current local database and
+hosted receipts are the source of truth for any actual pilot already in progress.

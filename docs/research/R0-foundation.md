@@ -40,19 +40,30 @@ County FIPS is the stable geographic key. The mapper includes the 64 public Colo
 [Migration 005](../../research/migrations/005_plain_language_profile_columns.sql)
 renames all 89 columns across People, Roles, Sources and supporting records.
 The table names, row values, relationships, CSV headers, and CLI/export keys stay
-the same. Open **Browse Data** and choose `research_people` for **Full name**
-or `role_claims` for **Office or department as published**, **Position as
+the same in migration 005. On schema v6, open **Browse Data** and choose
+`profile_research` for **Full name** or `profile_research_role` for
+**Office or department as published**, **Position as
 published**, and **Job description or duties**. Quote the new column names in
-queries, for example `SELECT "Full name" FROM research_people`.
+queries, for example `SELECT "Full name" FROM profile_research`.
 
-Use the same checkout for the migration and the updated Profiles commands.
-Close DB Browser and other clients before upgrading the working database. Run
-from the repository root in Windows PowerShell, with fresh private destinations.
+### Upgrade the working database from v5 to v6
+
+[Migration 006](../../research/migrations/006_local_profiles_table_names.sql)
+applies the [existing-object naming map](local-profiles-schema-redesign.md#existing-v5-tables-and-view).
+It stops if any of the three legacy sync tables has data. The error includes the
+counts for `site_links`, `sync_batches`, and `sync_items`. A successful upgrade
+keeps the existing column names and the durable Website requests and receipts.
+
+Close DB Browser and other database writers and pause any local submission
+jobs. From a checkout containing the merged migration and tools, use Windows
+PowerShell to create a private encrypted backup and rehearse on a fresh restore.
 
 ```powershell
 $db = 'D:/ChatGPT/Watchdog/profiles/database/research.sqlite'
-$backup = 'D:/ChatGPT/Watchdog/profiles/backups/profiles-before-column-rename.cwbackup'
-$copy = 'D:/ChatGPT/Watchdog/profiles/scratch/profiles-column-rename-rehearsal.sqlite'
+$backupDir = 'D:/ChatGPT/Watchdog/profiles/backups'
+$tag = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+$backup = Join-Path $backupDir "profiles-before-v6-$tag.cwbackup"
+$copy = Join-Path $backupDir "profiles-v6-rehearsal-$tag.sqlite"
 
 python -B -m research backup $db $backup
 if ($LASTEXITCODE -ne 0) { throw 'Backup failed.' }
@@ -62,17 +73,31 @@ python -B -m research migrate $copy
 if ($LASTEXITCODE -ne 0) { throw 'Migration rehearsal failed.' }
 python -B -m research check $copy
 if ($LASTEXITCODE -ne 0) { throw 'Rehearsal check failed.' }
+```
 
+The backup and restore commands report the source schema version and table
+counts. Verify the source is schema v5 and the legacy tables are empty. On
+the copy, expect schema version 6, integrity `ok`, and no foreign-key violations.
+Compare retained counts under the [new names](local-profiles-schema-redesign.md#existing-v5-tables-and-view),
+inspect `profile_research_role_selected`, and check the pending request and
+receipt records if present. Use `profiles-export` with a private output path
+to verify the current exporter. After verifying the rehearsal, upgrade the
+working file with the same checkout.
+
+```powershell
 python -B -m research migrate $db
 if ($LASTEXITCODE -ne 0) { throw 'Working database migration failed.' }
 python -B -m research check $db
 if ($LASTEXITCODE -ne 0) { throw 'Working database check failed.' }
 ```
 
-For both checks, expect schema version 5, integrity `ok`, and no foreign-key
-violations. Then reopen the working file in DB Browser. The pre-migration
-encrypted backup can be restored to a fresh path as schema version 4. Use
-the matching checkout if you need to run the original tools on that restore.
+Repeat the rehearsal checks on the working file before resuming writes.
+If the upgrade fails, keep clients closed. A failed migration 006 rolls back
+to v5. If the working file needs recovery, restore the encrypted backup to a
+fresh private path with `python -B -m research restore`. Verify the restored
+v5 file using the pre-006 checkout, set the failed file and any SQLite
+sidecars aside together, then move the verified restore into the working
+path. Use the pre-006 checkout with the restored working file.
 
 ## Mapping and provenance
 
@@ -87,9 +112,9 @@ Claims start unassigned to people/units for later evidence-led screening; labels
 ## Structure, lineage and identity
 
 - A source represents its exact original URL; evidence preserves the observed title, URL, source date/precision/basis and optional source-version key. URL identity, source version and delivery version are separate. Redirect/alias reconciliation is future work.
-- Original and complementary deliveries have independent families. Corrected/alternative deliveries reference a same-county parent in the same family. Only one family member can be selected. `selected_role_claims` avoids additive counting of alternate versions while keeping historical claims. Selection changes are transactional; replay does not reselect an old version.
+- Original and complementary deliveries have independent families. Corrected/alternative deliveries reference a same-county parent in the same family. Only one family member can be selected. `profile_research_role_selected` avoids additive counting of alternate versions while keeping historical claims. Selection changes are transactional; replay does not reselect an old version.
 - Corrections use explicit record-to-parent-claim mappings. The tool never guesses that row N in another version is the same observation. Replay cannot silently change lineage.
-- Units have one current evidenced parent edge: administrative, statutory or navigation. Cross-county parents, cycles and reporting authority through navigation containers are rejected. `set_parent` transactionally records old/new edges and evidence in research_events. This is an initial tree model, not a complete temporal organizational graph.
+- Units have one current evidenced parent edge: administrative, statutory or navigation. Cross-county parents, cycles and reporting authority through navigation containers are rejected. `set_parent` transactionally records old/new edges and evidence in `research_history`. This is an initial tree model, not a complete temporal organizational graph.
 - Structure, leadership, named_staff and positions have independent coverage rows. Reviewed does not mean exhaustive. Position occupancy defaults to unknown; explicit vacancy requires evidence.
 - People can hold several roles. Possible-match pairs are unique and county-scoped. Resolution needs evidence and a supported decision basis; recording it never merges/deletes people. R0 records decisions, but does not perform AI screening or verify a citation's truth. Direct SQL changes are not automatically audited; use the provided transactional operations where available.
 - Site tables are forward-compatible scaffolding, empty after mapping. They represent external IDs, expected/result versions, client batch IDs and future receipts, with basic update preconditions. The durable local submission client stores an exact prepared Website request, canonical fingerprint and idempotency key before transport; only an injected transport is supported. See [R6 durable submission client](R6-durable-submission-client.md). No production transport or remote-version verification is enabled.

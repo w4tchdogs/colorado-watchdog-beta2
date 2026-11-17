@@ -23,7 +23,7 @@ class BatchSelectionCliTests(unittest.TestCase):
             reverse_path = root / "reversal-plan.json"
             db = connect(database)
             migrate(db)
-            db.execute("INSERT INTO counties VALUES ('08001',?)", (COUNTIES["08001"],))
+            db.execute("INSERT INTO county VALUES ('08001',?)", (COUNTIES["08001"],))
             db.commit()
             batch_id = ingest_csv(db, csv_bytes([observation("08001")]), file_name="synthetic.csv",
                                   version_label="synthetic-unselected", provenance="synthetic")
@@ -52,8 +52,8 @@ class BatchSelectionCliTests(unittest.TestCase):
                               "--expect-plan-sha256", reverse["plan_sha256"])
             self.assertEqual(restored["status"], "applied")
             db = connect(database)
-            self.assertEqual(db.execute("SELECT count(*) FROM scrape_batches WHERE selected=1").fetchone()[0], 0)
-            self.assertEqual(db.execute("SELECT count(*) FROM research_events WHERE kind LIKE 'batch_selection_%'").fetchone()[0], 2)
+            self.assertEqual(db.execute("SELECT count(*) FROM research_scrapes WHERE selected=1").fetchone()[0], 0)
+            self.assertEqual(db.execute("SELECT count(*) FROM research_history WHERE kind LIKE 'batch_selection_%'").fetchone()[0], 2)
             db.close()
 
 

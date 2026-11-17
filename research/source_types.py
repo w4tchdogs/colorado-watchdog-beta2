@@ -39,7 +39,7 @@ def classify_url(url):
 
 def build_page_type_plan(db):
     rows = db.execute(
-        'SELECT "Source ID" AS id,"Original source URL" AS original_url,"Document type" AS page_type,"Previous source category" AS official_status FROM sources ORDER BY id'
+        'SELECT "Source ID" AS id,"Original source URL" AS original_url,"Document type" AS page_type,"Previous source category" AS official_status FROM research_sources ORDER BY id'
     ).fetchall()
     entries, skipped = [], Counter()
     for row in rows:
@@ -121,7 +121,7 @@ def apply_page_type_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
         )
         for entry in plan["entries"]:
             row = db.execute(
-                'SELECT "Original source URL" AS original_url,"Document type" AS page_type,"Previous source category" AS official_status FROM sources WHERE "Source ID"=?',
+                'SELECT "Original source URL" AS original_url,"Document type" AS page_type,"Previous source category" AS official_status FROM research_sources WHERE "Source ID"=?',
                 (entry["source_id"],),
             ).fetchone()
             if (
@@ -132,13 +132,13 @@ def apply_page_type_plan(db, plan, *, expected_sha256, actor=ACTOR_DEFAULT):
             ):
                 raise ValueError("Database changed since the plan; create a new preview")
             db.execute(
-                'UPDATE sources SET "Document type"=? WHERE "Source ID"=? AND "Document type" IS NULL',
+                'UPDATE research_sources SET "Document type"=? WHERE "Source ID"=? AND "Document type" IS NULL',
                 (entry["page_type"], entry["source_id"]),
             )
             if db.execute("SELECT changes()").fetchone()[0] != 1:
                 raise ValueError("Source page type was not updated")
             db.execute(
-                "INSERT INTO research_events VALUES (?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO research_history VALUES (?,?,?,?,?,?,?,?,?)",
                 (new_id("event"), run_id, "source_page_type_set", "sources", entry["source_id"],
                  now, now, "reconstructed",
                  canonical_json({"before": {"page_type": None},
@@ -158,7 +158,7 @@ def verify_page_type_plan(db, plan):
     mismatched = 0
     for entry in plan["entries"]:
         row = db.execute(
-            'SELECT "Document type" AS page_type FROM sources WHERE "Source ID"=?', (entry["source_id"],)
+            'SELECT "Document type" AS page_type FROM research_sources WHERE "Source ID"=?', (entry["source_id"],)
         ).fetchone()
         if row is None or row["page_type"] != entry["page_type"]:
             mismatched += 1

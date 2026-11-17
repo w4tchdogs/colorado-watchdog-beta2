@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -57,22 +58,43 @@ class ReadinessCase(unittest.TestCase):
     def seed(self):
         return seed_counties(self.db)
 
+    def test_backup_and_restore_verify_both_v5_and_v6_schema(self):
+        # These payloads are synthetic. Stub only DPAPI, whose real Windows
+        # authentication is covered independently on Windows.
+        with patch.object(backup_module, "_protect", side_effect=lambda payload, _: payload), \
+                patch.object(backup_module, "_unprotect", side_effect=lambda payload, _: payload):
+            for version, table in ((5, "counties"), (6, "county")):
+                with self.subTest(version=version):
+                    source = self.root / f"v{version}.sqlite"
+                    with closing(connect(source)) as db:
+                        migrate(db, through_version=version)
+                        db.execute(f"INSERT INTO {table} VALUES ('08037', 'Eagle')")
+                        db.commit()
+                    artifact = self.root / f"synthetic-v{version}.cwbackup"
+                    backed_up = backup_database(source, artifact)
+                    restored = restore_database(artifact, self.root / f"restored-v{version}.sqlite")
+                    self.assertEqual(backed_up["schema_version"], version)
+                    self.assertEqual(restored["schema_version"], version)
+                    self.assertEqual(restored["logical_sha256"], backed_up["logical_sha256"])
+                    self.assertEqual(restored["table_counts"], backed_up["table_counts"])
+                    self.assertEqual(restored["table_counts"][table], 1)
+
     def test_backup_snapshot_requires_exact_migration_derived_schema(self):
-        self.assertEqual(backup_module._database_snapshot(self.db)["schema_version"], 5)
+        self.assertEqual(backup_module._database_snapshot(self.db)["schema_version"], 6)
         alterations = {
             "missing county index": "DROP INDEX claims_county_person",
             "missing lineage trigger": "DROP TRIGGER batch_lineage_update",
             "altered same-name index": "DROP INDEX claims_county_person; "
-                'CREATE INDEX claims_county_person ON role_claims("Linked profile", "County code")',
+                'CREATE INDEX claims_county_person ON profile_research_role("Linked profile", "County code")',
             "altered same-name trigger": "DROP TRIGGER batch_lineage_update; "
-                "CREATE TRIGGER batch_lineage_update BEFORE UPDATE ON role_claims "
+                "CREATE TRIGGER batch_lineage_update BEFORE UPDATE ON profile_research_role "
                 "BEGIN SELECT RAISE(ABORT, 'altered'); END",
-            "altered same-name view": "DROP VIEW selected_role_claims; "
-                'CREATE VIEW selected_role_claims AS SELECT c."Role claim ID" FROM role_claims c',
-            "unexpected index": 'CREATE INDEX unexpected_managed_index ON role_claims("County code")',
-            "unexpected trigger": "CREATE TRIGGER unexpected_managed_trigger AFTER INSERT ON role_claims "
+            "altered same-name view": "DROP VIEW profile_research_role_selected; "
+                'CREATE VIEW profile_research_role_selected AS SELECT c."Role claim ID" FROM profile_research_role c',
+            "unexpected index": 'CREATE INDEX unexpected_managed_index ON profile_research_role("County code")',
+            "unexpected trigger": "CREATE TRIGGER unexpected_managed_trigger AFTER INSERT ON profile_research_role "
                 "BEGIN SELECT 1; END",
-            "unexpected view": 'CREATE VIEW unexpected_managed_view AS SELECT "Role claim ID" FROM role_claims',
+            "unexpected view": 'CREATE VIEW unexpected_managed_view AS SELECT "Role claim ID" FROM profile_research_role',
         }
         for label, sql in alterations.items():
             with self.subTest(schema_change=label):
@@ -125,18 +147,18 @@ class ReadinessCase(unittest.TestCase):
         self.assertFalse(destination.exists())
 
     def test_fresh_seed_produces_all_public_counties_and_is_idempotent(self):
-        self.assertEqual(self.db.execute("SELECT count(*) FROM counties").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM county").fetchone()[0], 0)
         first = self.seed()
         self.assertEqual(first["status"], "seeded")
         self.assertEqual(len(first["inserted"]), 64)
         self.assertEqual(first["already_present"], [])
         self.assertEqual(first["conflicts"], [])
-        self.assertEqual(dict(self.db.execute('SELECT "County code" AS fips,"County name" AS name FROM counties')), COUNTIES)
-        self.assertEqual(self.db.execute("SELECT \"County name\" AS name FROM counties WHERE \"County code\"='08014'").fetchone()[0],
+        self.assertEqual(dict(self.db.execute('SELECT "County code" AS fips,"County name" AS name FROM county')), COUNTIES)
+        self.assertEqual(self.db.execute("SELECT \"County name\" AS name FROM county WHERE \"County code\"='08014'").fetchone()[0],
                          "Broomfield")
-        self.assertEqual(self.db.execute("SELECT \"County name\" AS name FROM counties WHERE \"County code\"='08039'").fetchone()[0],
+        self.assertEqual(self.db.execute("SELECT \"County name\" AS name FROM county WHERE \"County code\"='08039'").fetchone()[0],
                          "Elbert")
-        self.assertEqual(self.db.execute("SELECT \"County name\" AS name FROM counties WHERE \"County code\"='08041'").fetchone()[0],
+        self.assertEqual(self.db.execute("SELECT \"County name\" AS name FROM county WHERE \"County code\"='08041'").fetchone()[0],
                          "El Paso")
         second = self.seed()
         self.assertEqual(second["status"], "already_present")
@@ -144,34 +166,34 @@ class ReadinessCase(unittest.TestCase):
         self.assertEqual(len(second["already_present"]), 64)
 
     def test_correct_rows_and_existing_research_are_preserved(self):
-        self.db.execute("INSERT INTO counties VALUES ('08037','Eagle')")
+        self.db.execute("INSERT INTO county VALUES ('08037','Eagle')")
         self.db.execute("INSERT INTO research_runs(id,kind,provenance,recorded_at) VALUES (?,?,?,?)",
                         ("run_synthetic", "mapping", "synthetic", NOW))
         self.db.commit()
         result = self.seed()
         self.assertEqual(result["status"], "seeded")
         self.assertEqual(result["already_present"], [{"fips": "08037", "name": "Eagle"}])
-        self.assertEqual(self.db.execute("SELECT count(*) FROM counties").fetchone()[0], 64)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM county").fetchone()[0], 64)
         self.assertEqual(self.db.execute("SELECT count(*) FROM research_runs WHERE id='run_synthetic'").fetchone()[0], 1)
 
     def test_wrong_existing_mapping_returns_conflict_without_partial_writes(self):
-        self.db.execute("INSERT INTO counties VALUES ('08037','Not Eagle')")
+        self.db.execute("INSERT INTO county VALUES ('08037','Not Eagle')")
         self.db.commit()
-        before = list(map(tuple, self.db.execute('SELECT "County code" AS fips,"County name" AS name FROM counties ORDER BY fips')))
+        before = list(map(tuple, self.db.execute('SELECT "County code" AS fips,"County name" AS name FROM county ORDER BY fips')))
         result = self.seed()
-        after = list(map(tuple, self.db.execute('SELECT "County code" AS fips,"County name" AS name FROM counties ORDER BY fips')))
+        after = list(map(tuple, self.db.execute('SELECT "County code" AS fips,"County name" AS name FROM county ORDER BY fips')))
         self.assertEqual(result["status"], "conflict")
         self.assertEqual(result["inserted"], [])
         self.assertEqual(result["conflicts"][0]["reason"], "name_mismatch")
         self.assertEqual(after, before)
 
     def test_seed_insert_failure_rolls_back_the_entire_registry(self):
-        self.db.execute("CREATE TRIGGER fail_registry_insert BEFORE INSERT ON counties "
+        self.db.execute("CREATE TRIGGER fail_registry_insert BEFORE INSERT ON county "
                         "WHEN NEW.\"County code\"='08041' BEGIN SELECT RAISE(ABORT,'synthetic seed failure'); END")
         self.db.commit()
         with self.assertRaisesRegex(sqlite3.IntegrityError, "synthetic seed failure"):
             seed_counties(self.db)
-        self.assertEqual(self.db.execute("SELECT count(*) FROM counties").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM county").fetchone()[0], 0)
 
     def test_county_change_after_preview_is_rejected_before_any_ingestion_write(self):
         self.seed()
@@ -179,11 +201,11 @@ class ReadinessCase(unittest.TestCase):
         report = preview_csv(self.db, payload, file_name="synthetic.csv", version="legacy-17/v1",
                              version_label="r5a-race-v1", provenance="synthetic")
         self.assertTrue(report["eligible"])
-        self.db.execute("UPDATE counties SET \"County name\"='Synthetic Changed County' WHERE \"County code\"='08037'")
+        self.db.execute("UPDATE county SET \"County name\"='Synthetic Changed County' WHERE \"County code\"='08037'")
         self.db.commit()
         before = {table: self.db.execute(f'SELECT count(*) FROM "{table}"').fetchone()[0]
-                  for table in ("scrape_batches", "research_runs", "sources", "evidence_links", "role_claims",
-                                "research_events")}
+                  for table in ("research_scrapes", "research_runs", "research_sources", "research_evidence", "profile_research_role",
+                                "research_history")}
         with self.assertRaisesRegex(ValueError, "canonical FIPS mapping"):
             ingest_csv(self.db, payload, file_name="synthetic.csv", version_label="r5a-race-v1",
                        version="legacy-17/v1", provenance="synthetic")
@@ -192,22 +214,22 @@ class ReadinessCase(unittest.TestCase):
         self.assertEqual(after, before)
 
     def test_wrong_name_fips_assignment_is_detected_without_writes(self):
-        self.db.execute("INSERT INTO counties VALUES ('08001','Eagle')")
+        self.db.execute("INSERT INTO county VALUES ('08001','Eagle')")
         self.db.commit()
         result = self.seed()
         self.assertEqual(result["status"], "conflict")
         self.assertTrue(any(item["reason"] in ("name_mismatch", "name_assigned_to_different_fips")
                             for item in result["conflicts"]))
-        self.assertEqual(self.db.execute("SELECT count(*) FROM counties").fetchone()[0], 1)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM county").fetchone()[0], 1)
 
     def test_unexpected_fips_is_refused_without_partial_seeding(self):
-        self.db.execute("INSERT INTO counties VALUES ('08999','Synthetic Unknown County')")
+        self.db.execute("INSERT INTO county VALUES ('08999','Synthetic Unknown County')")
         self.db.commit()
         result = self.seed()
         self.assertEqual(result["status"], "conflict")
         self.assertEqual(result["inserted"], [])
         self.assertEqual(result["conflicts"], [{"fips": "08999", "reason": "unexpected_fips"}])
-        self.assertEqual(self.db.execute("SELECT count(*) FROM counties").fetchone()[0], 1)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM county").fetchone()[0], 1)
 
     def test_seed_rejects_unmanaged_database_and_unchanged_migration_checksums(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -227,7 +249,7 @@ class ReadinessCase(unittest.TestCase):
         baseline = connect(":memory:")
         migrate(baseline)
         validate_migration_history(baseline)
-        self.assertEqual(baseline.execute("SELECT count(*) FROM counties").fetchone()[0], 0)
+        self.assertEqual(baseline.execute("SELECT count(*) FROM county").fetchone()[0], 0)
         baseline.close()
 
     def test_seed_rejects_incorrect_migration_history_without_changes(self):
@@ -235,7 +257,7 @@ class ReadinessCase(unittest.TestCase):
         self.db.commit()
         with self.assertRaisesRegex(ValueError, "Applied migration changed"):
             self.seed()
-        self.assertEqual(self.db.execute("SELECT count(*) FROM counties").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM county").fetchone()[0], 0)
 
     def test_safe_path_check_rejects_database_inside_checkout(self):
         inside = Path(__file__).resolve().parents[1] / "must-not-be-created.sqlite"
@@ -319,8 +341,8 @@ class ReadinessCase(unittest.TestCase):
         self.assertIn("example.invalid", inspection.stdout)
         restored_db = connect(restored)
         try:
-            self.assertEqual(restored_db.execute("SELECT count(*) FROM research_people").fetchone()[0], 0)
-            self.assertEqual(restored_db.execute("SELECT count(*) FROM role_claims").fetchone()[0], 2)
+            self.assertEqual(restored_db.execute("SELECT count(*) FROM profile_research").fetchone()[0], 0)
+            self.assertEqual(restored_db.execute("SELECT count(*) FROM profile_research_role").fetchone()[0], 2)
         finally:
             restored_db.close()
 
@@ -349,9 +371,9 @@ class ReadinessCase(unittest.TestCase):
         self.assertEqual(after, before)
         self.db.execute("INSERT INTO research_runs(id,kind,provenance,actor,recorded_at) VALUES (?,?,?,?,?)",
                         ("run_classification_fixture", "mapping", "synthetic", "fixture", NOW))
-        self.db.execute('INSERT INTO sources("Source ID","Original source URL","Recorded on") VALUES (?,?,?)',
+        self.db.execute('INSERT INTO research_sources("Source ID","Original source URL","Recorded on") VALUES (?,?,?)',
                         ("source_classification_fixture", "https://example.invalid/classification", NOW))
-        self.db.execute('INSERT INTO evidence_links("Evidence record ID","Source ID","Source title as observed","Source URL as observed","Evidence location","Research run ID","Recorded on") '
+        self.db.execute('INSERT INTO research_evidence("Evidence record ID","Source ID","Source title as observed","Source URL as observed","Evidence location","Research run ID","Recorded on") '
                         "VALUES (?,?,?,?,?,?,?)",
                         ("evidence_classification_fixture", "source_classification_fixture", "Synthetic source",
                          "https://example.invalid/classification", "synthetic fixture", "run_classification_fixture", NOW))
@@ -361,10 +383,10 @@ class ReadinessCase(unittest.TestCase):
             basis="Synthetic exercise; the source status is explicitly assigned for the fixture.",
             evidence_id="evidence_classification_fixture")
         self.assertTrue(classified["changed"])
-        self.assertEqual(self.db.execute('SELECT "Previous source category" AS official_status FROM sources WHERE "Source ID"=?',
+        self.assertEqual(self.db.execute('SELECT "Previous source category" AS official_status FROM research_sources WHERE "Source ID"=?',
                                          ("source_classification_fixture",)).fetchone()[0], "partner")
-        self.assertEqual(self.db.execute("SELECT count(*) FROM source_visits").fetchone()[0], 0)
-        self.assertEqual(self.db.execute("SELECT kind FROM research_events WHERE entity_id=?",
+        self.assertEqual(self.db.execute("SELECT count(*) FROM research_source_visits").fetchone()[0], 0)
+        self.assertEqual(self.db.execute("SELECT kind FROM research_history WHERE entity_id=?",
                                          ("source_classification_fixture",)).fetchone()[0], "source_classified")
 
     @staticmethod
@@ -372,8 +394,8 @@ class ReadinessCase(unittest.TestCase):
         db = connect(path)
         try:
             return {table: db.execute(f'SELECT count(*) FROM "{table}"').fetchone()[0]
-                    for table in ("scrape_batches", "research_runs", "sources", "evidence_links",
-                                  "role_claims", "research_events", "research_people")}
+                    for table in ("research_scrapes", "research_runs", "research_sources", "research_evidence",
+                                  "profile_research_role", "research_history", "profile_research")}
         finally:
             db.close()
 
@@ -389,18 +411,18 @@ class ReadinessCase(unittest.TestCase):
                               provenance="synthetic", return_result=True)
         self.assertEqual((replayed["batch_id"], replayed["status"]), (batch_id, "replayed"))
         counts_before = {table: self.db.execute(f'SELECT count(*) FROM "{table}"').fetchone()[0]
-                         for table in ("counties", "scrape_batches", "sources", "evidence_links", "role_claims",
-                                       "research_runs", "research_events", "research_people")}
+                         for table in ("county", "research_scrapes", "research_sources", "research_evidence", "profile_research_role",
+                                       "research_runs", "research_history", "profile_research")}
         source_row = self.db.execute(
             'SELECT e."Original record" AS raw_record_json,e."Original record fingerprint" AS raw_record_sha256,e."Source ID" AS source_id,b.id,b.family_id,b.mapping_version '
-            'FROM evidence_links e JOIN scrape_batches b ON b.id=e."Import batch ID" WHERE b.id=?', (batch_id,)
+            'FROM research_evidence e JOIN research_scrapes b ON b.id=e."Import batch ID" WHERE b.id=?', (batch_id,)
         ).fetchone()
         backup = self.root / "backups" / "synthetic-backup.sqlite"
         backup.parent.mkdir()
         created = backup_database(self.database, backup)
         self.assertEqual(created["status"], "completed")
-        self.assertEqual(created["table_counts"]["counties"], 64)
-        self.assertEqual(created["table_counts"]["role_claims"], 2)
+        self.assertEqual(created["table_counts"]["county"], 64)
+        self.assertEqual(created["table_counts"]["profile_research_role"], 2)
         self.assertEqual(len(created["sha256"]), 64)
         restored = self.root / "restore" / "restored.sqlite"
         restored.parent.mkdir()
@@ -416,10 +438,10 @@ class ReadinessCase(unittest.TestCase):
             self.assertEqual(counts_after, counts_before)
             restored_row = reopened.execute(
                 'SELECT e."Original record" AS raw_record_json,e."Original record fingerprint" AS raw_record_sha256,e."Source ID" AS source_id,b.id,b.family_id,b.mapping_version '
-                'FROM evidence_links e JOIN scrape_batches b ON b.id=e."Import batch ID" WHERE b.id=?', (batch_id,)
+                'FROM research_evidence e JOIN research_scrapes b ON b.id=e."Import batch ID" WHERE b.id=?', (batch_id,)
             ).fetchone()
             self.assertEqual(tuple(restored_row), tuple(source_row))
-            self.assertEqual(reopened.execute("SELECT count(*) FROM research_people").fetchone()[0], 0)
+            self.assertEqual(reopened.execute("SELECT count(*) FROM profile_research").fetchone()[0], 0)
         finally:
             reopened.close()
 
@@ -428,7 +450,7 @@ class ReadinessCase(unittest.TestCase):
         self.seed()
         self.db.execute("INSERT INTO research_runs(id,kind,provenance,recorded_at) VALUES (?,?,?,?)",
                         ("run_private_fixture", "mapping", "synthetic", NOW))
-        self.db.execute('INSERT INTO sources("Source ID","Original source URL","Recorded on") VALUES (?,?,?)',
+        self.db.execute('INSERT INTO research_sources("Source ID","Original source URL","Recorded on") VALUES (?,?,?)',
                         ("source_private_fixture", "https://example.invalid/private-fixture", NOW))
         self.db.commit()
         artifact = self.root / "encrypted.cwdb"
@@ -441,7 +463,7 @@ class ReadinessCase(unittest.TestCase):
         self.assertNotIn(b"run_private_fixture", payload)
         self.assertEqual(created["status"], "completed")
         self.assertTrue(created["backup_id"])
-        self.assertEqual(created["table_counts"]["sources"], 1)
+        self.assertEqual(created["table_counts"]["research_sources"], 1)
         self.db.close()
         self.db = None
         self.database.unlink()
@@ -453,8 +475,8 @@ class ReadinessCase(unittest.TestCase):
         self.assertEqual(list(self.root.glob("cw-r5a-*/")), [])
         independent = connect(restored_path)
         try:
-            self.assertEqual(independent.execute("SELECT count(*) FROM sources").fetchone()[0], 1)
-            self.assertEqual(independent.execute("SELECT count(*) FROM counties").fetchone()[0], 64)
+            self.assertEqual(independent.execute("SELECT count(*) FROM research_sources").fetchone()[0], 1)
+            self.assertEqual(independent.execute("SELECT count(*) FROM county").fetchone()[0], 64)
         finally:
             independent.close()
 
@@ -654,7 +676,7 @@ class ReadinessCase(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         restored_result = json.loads(result.stdout)
         self.assertEqual(restored_result["status"], "restored_and_verified")
-        self.assertEqual(restored_result["table_counts"]["counties"], 64)
+        self.assertEqual(restored_result["table_counts"]["county"], 64)
 
     @unittest.skipUnless(os.name == "nt", "authenticated backup uses Windows DPAPI")
     def test_cli_refuses_restore_destination_inside_checkout(self):

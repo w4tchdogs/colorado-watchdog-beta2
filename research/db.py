@@ -60,8 +60,21 @@ def migrate(db, directory=MIGRATIONS, *, through_version=None):
         )
         try:
             db.executescript(script)
-        except Exception:
-            db.rollback()
+        except Exception as error:
+            try:
+                if (path.name == "006_local_profiles_table_names.sql"
+                        and isinstance(error, sqlite3.IntegrityError)
+                        and str(error) == "CHECK constraint failed: profiles_legacy_tables_empty"):
+                    counts = db.execute(
+                        "SELECT (SELECT count(*) FROM site_links), "
+                        "(SELECT count(*) FROM sync_batches), (SELECT count(*) FROM sync_items)"
+                    ).fetchone()
+                    raise ValueError(
+                        "Legacy Website sync tables contain records and need a preservation plan: "
+                        f"site_links={counts[0]}, sync_batches={counts[1]}, sync_items={counts[2]}"
+                    ) from error
+            finally:
+                db.rollback()
             raise
     if db.execute("PRAGMA foreign_key_check").fetchall():
         raise ValueError("Foreign-key violations present")
@@ -124,7 +137,7 @@ def seed_counties(db):
     with db:
         db.execute("BEGIN IMMEDIATE")
         validate_migration_history(db)
-        rows = list(db.execute('SELECT "County code" AS fips,"County name" AS name FROM counties ORDER BY fips'))
+        rows = list(db.execute('SELECT "County code" AS fips,"County name" AS name FROM county ORDER BY fips'))
         existing = {row["fips"]: row["name"] for row in rows}
         names = {row["name"]: row["fips"] for row in rows}
         present = [{"fips": fips, "name": name} for fips, name in sorted(existing.items())
@@ -146,7 +159,7 @@ def seed_counties(db):
             return {"status": "conflict", "inserted": [], "already_present": present,
                     "conflicts": conflicts}
         missing = [(fips, name) for fips, name in sorted(COUNTIES.items()) if fips not in existing]
-        db.executemany('INSERT INTO counties("County code","County name") VALUES (?,?)', missing)
+        db.executemany('INSERT INTO county("County code","County name") VALUES (?,?)', missing)
         return {"status": "seeded" if missing else "already_present",
                 "inserted": [{"fips": fips, "name": name} for fips, name in missing],
                 "already_present": present, "conflicts": []}

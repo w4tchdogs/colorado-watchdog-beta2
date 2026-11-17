@@ -38,7 +38,7 @@ def preview_csv(db, payload, *, file_name, version, version_label=None,
     if county_fips is None and rows and len(counties) == 0:
         add_error("county_unavailable", "No valid county identifier is available for lineage checks")
     if county_fips is not None:
-        registered = db.execute('SELECT "County name" AS name FROM counties WHERE "County code"=?', (county_fips,)).fetchone()
+        registered = db.execute('SELECT "County name" AS name FROM county WHERE "County code"=?', (county_fips,)).fetchone()
         if registered is None:
             add_error("county_not_registered", "County is missing from the target database registry",
                       field="county_fips")
@@ -66,7 +66,7 @@ def preview_csv(db, payload, *, file_name, version, version_label=None,
 
     parent = None
     if parent_batch_id is not None:
-        parent = db.execute("SELECT id,county_fips,family_id,selected FROM scrape_batches WHERE id=?",
+        parent = db.execute("SELECT id,county_fips,family_id,selected FROM research_scrapes WHERE id=?",
                             (parent_batch_id,)).fetchone()
         if parent is None:
             add_error("missing_parent", "Parent delivery does not exist")
@@ -80,7 +80,7 @@ def preview_csv(db, payload, *, file_name, version, version_label=None,
             if record_number not in record_numbers:
                 continue
             claim = db.execute(
-                'SELECT 1 FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+                'SELECT 1 FROM profile_research_role c JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" '
                 'WHERE c."Role claim ID"=? AND c."County code"=? AND e."Import batch ID"=?',
                 (claim_id, county_fips, parent_batch_id),
             ).fetchone()
@@ -106,7 +106,7 @@ def preview_csv(db, payload, *, file_name, version, version_label=None,
     replay = {"status": "new", "batch_id": None, "selected": None, "conflicts": []}
     if county_fips is not None:
         existing = db.execute(
-            "SELECT * FROM scrape_batches WHERE county_fips=? AND file_sha256=? AND mapping_version=?",
+            "SELECT * FROM research_scrapes WHERE county_fips=? AND file_sha256=? AND mapping_version=?",
             (county_fips, parsed["file_sha256"], version),
         ).fetchone()
         if existing:
@@ -122,7 +122,7 @@ def preview_csv(db, payload, *, file_name, version, version_label=None,
                 conflicts.append("mapping definition differs")
             for digest in grouped:
                 old = db.execute(
-                    'SELECT c."Earlier claim this replaces" AS supersedes_id FROM role_claims c JOIN evidence_links e ON e."Evidence record ID"=c."Evidence record ID" '
+                    'SELECT c."Earlier claim this replaces" AS supersedes_id FROM profile_research_role c JOIN research_evidence e ON e."Evidence record ID"=c."Evidence record ID" '
                     'WHERE e."Import batch ID"=? AND e."Original record fingerprint"=?',
                     (existing["id"], digest),
                 ).fetchone()

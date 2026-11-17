@@ -417,7 +417,7 @@ def _profiles_readiness_summary(db):
     selected_counties = [
         row["county_fips"]
         for row in db.execute(
-            "SELECT DISTINCT county_fips FROM scrape_batches WHERE selected = 1 "
+            "SELECT DISTINCT county_fips FROM research_scrapes WHERE selected = 1 "
             "ORDER BY county_fips LIMIT 64"
         )
         if isinstance(row["county_fips"], str)
@@ -425,7 +425,7 @@ def _profiles_readiness_summary(db):
         and row["county_fips"].isdigit()
     ]
     mapped_count = db.execute(
-        "SELECT COUNT(*) FROM site_entity_links "
+        "SELECT COUNT(*) FROM website_ids "
         "WHERE site_key = ? AND link_state = 'active'",
         ("colorado_watchdog_alpha1",),
     ).fetchone()[0]
