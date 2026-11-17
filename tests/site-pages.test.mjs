@@ -118,6 +118,53 @@ test("homepage renders navigation, discovery entry points and honest content", a
   });
 });
 
+test("Home and Stories share navigation, MENU and footer hover styles", async () => {
+  await withPreview("fictional", async (preview) => {
+    const css = await get(preview, "/assets/site.css");
+    assert.equal(css.status, 200);
+
+    for (const path of ["/", "/stories"]) {
+      const page = await get(preview, path);
+      assert.equal(page.status, 200);
+      const { document } = page;
+      const { getComputedStyle } = document.defaultView;
+      const style = document.createElement("style");
+      // jsdom has no pointer input. Activate the stylesheet's hover rules
+      // with an attribute on the same elements that receive pointer hover.
+      style.textContent = css.text.replaceAll(":hover", "[data-test-hover]");
+      document.head.append(style);
+
+      const menu = page.$(".nav-toggle");
+      menu.setAttribute("data-test-hover", "");
+      assert.equal(
+        getComputedStyle(menu).backgroundColor,
+        "rgb(17, 17, 17)",
+        path,
+      );
+
+      for (const link of page.$$(".site-nav a")) {
+        link.setAttribute("data-test-hover", "");
+        const hovered = getComputedStyle(link);
+        assert.equal(hovered.backgroundColor, "rgba(0, 0, 0, 0)", path);
+        assert.equal(hovered.borderBottomColor, "rgb(255, 255, 255)", path);
+      }
+
+      const footerLink = page.$(".site-footer nav a");
+      assert.equal(
+        getComputedStyle(footerLink).textDecorationLine,
+        "none",
+        path,
+      );
+      footerLink.setAttribute("data-test-hover", "");
+      assert.equal(
+        getComputedStyle(footerLink).textDecorationLine,
+        "underline",
+        path,
+      );
+    }
+  });
+});
+
 test("homepage on an empty database stays useful and claims nothing", async () => {
   await withPreview("empty", async (preview) => {
     const page = await get(preview, "/");
