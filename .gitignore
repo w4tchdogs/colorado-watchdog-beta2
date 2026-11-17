@@ -13,6 +13,7 @@
 *.sql
 !research/migrations/001_foundation.sql
 !research/migrations/006_local_profiles_table_names.sql
+!research/migrations/007_confirmed_profiles.sql
 !website/migrations/*.sql
 __pycache__/
 *.pyc

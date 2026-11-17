@@ -58,12 +58,12 @@ class ReadinessCase(unittest.TestCase):
     def seed(self):
         return seed_counties(self.db)
 
-    def test_backup_and_restore_verify_both_v5_and_v6_schema(self):
+    def test_backup_and_restore_verify_v5_v6_and_v7_schema(self):
         # These payloads are synthetic. Stub only DPAPI, whose real Windows
         # authentication is covered independently on Windows.
         with patch.object(backup_module, "_protect", side_effect=lambda payload, _: payload), \
                 patch.object(backup_module, "_unprotect", side_effect=lambda payload, _: payload):
-            for version, table in ((5, "counties"), (6, "county")):
+            for version, table in ((5, "counties"), (6, "county"), (7, "county")):
                 with self.subTest(version=version):
                     source = self.root / f"v{version}.sqlite"
                     with closing(connect(source)) as db:
@@ -80,7 +80,7 @@ class ReadinessCase(unittest.TestCase):
                     self.assertEqual(restored["table_counts"][table], 1)
 
     def test_backup_snapshot_requires_exact_migration_derived_schema(self):
-        self.assertEqual(backup_module._database_snapshot(self.db)["schema_version"], 6)
+        self.assertEqual(backup_module._database_snapshot(self.db)["schema_version"], 7)
         alterations = {
             "missing county index": "DROP INDEX claims_county_person",
             "missing lineage trigger": "DROP TRIGGER batch_lineage_update",

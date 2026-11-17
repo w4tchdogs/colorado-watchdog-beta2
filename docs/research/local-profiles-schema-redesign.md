@@ -1,7 +1,7 @@
 # Local Profiles database redesign
 
-Design proposal, November 17, 2026. Baseline: Profiles SQLite schema v5,
-migrations 001–005. The owner distinguishes People Research, County Research
+Design record, November 17, 2026. Baseline: Profiles SQLite schema v5,
+migrations 001–005. Migrations 006 and 007 implement the names and tables. The owner distinguishes People Research, County Research
 and Profiles prepared for the Website. Use the [human operation decision](../decisions.md#human-operation-of-profiles-november-17-2026)
 as the editing and sync requirement.
 
@@ -20,6 +20,20 @@ and evidence registry so one observation can support both kinds of research.
 Within this database, County Research means county government structure,
 positions and coverage. The county lookup supplies names and FIPS codes.
 
+## County decision and v7 scope
+
+The owner decided on November 17, 2026 that every confirmed Profile has exactly one required county. `profile_county` holds that relationship, with one row per Profile ID that references the canonical code in `county`. The row is the single authoritative profile-to-county link. A profile and its county row are inserted in one transaction through mutually deferred foreign keys, so neither can exist or be removed alone. Roles, evidence and revisions reference the profile’s county row, so a role cannot belong to a different county than its profile.
+
+Migration 007 creates the nine confirmed tables and the three views. It adds no rows and does not read or change existing research or Website sync rows. The tables start empty and are filled only by reviewed promotion. The editor, the promotion workflow and Website sync integration are separate work.
+
+- `county_research_unit_structure` remains the source of a researched unit’s county and parent. `profile_county_unit` links to the reviewed research unit when one exists. Its county comes from that unit through a composite foreign key, and a confirmed parent must match the researched parent. Source evidence is required for every confirmed unit.
+- A role is valid when it has a confirmed unit, a position title, an office or department, or a documented job description. A structured unit does not need to be resolved first. `profile_position` ties a title to a confirmed unit and to a researched position where evidence supports one.
+- A separately documented affiliation is stored on the role and needs its own evidence record. It never changes the profile’s county.
+- `profile_evidence_role` retains every supporting observation for a role. An observation must be linked to the research identity behind the evidence, and a citation must come from the same source as its evidence.
+- `profile_revisions` records proposed and approved public revisions with the reviewer, time and fingerprint. An approved revision stays immutable after supersession. Its Website request link can be recorded once while it is approved.
+- `profiles_overview` reports Confirmed, Changes to review, Ready to sync, Pending submission and Synced. Synced requires the latest revision to be approved with an acknowledged request, a committed receipt for the same Website batch, a matching committed receipt for every requested change and no reversal. A newer proposed edit shows Changes to review. A newer rejected revision shows Confirmed.
+- `profile_research_conclusions` lists evidence-supported identities with their current role observations (selected intake batches, or no batch) and promotion state. `county_research_conclusions` lists each researched unit with its parent, documented positions, coverage and confirmed units.
+
 ## Table order in DB Browser
 
 The alphabetical picker groups County Research under `county_research_*`
@@ -33,12 +47,12 @@ of evidence-supported identities and county structure.
 under its new name. It filters observations by the selected intake batches.
 Review findings before preparing a confirmed profile or a Website revision.
 
-## Profiles tables to add
+## Profiles tables added in migration 007
 
 | Table | Contents and key relationships |
 | --- | --- |
 | `profile` | One confirmed local person per stable Profile ID. Human-facing fields start with Full name. |
-| `profile_county` | Approved county relationships used by confirmed Profiles. The row identity and location of organization-to-county affiliations need a schema decision. |
+| `profile_county` | The one required county for each confirmed Profile, keyed by Profile ID and referencing `county`. |
 | `profile_county_unit` | Approved county organization or unit details used by confirmed roles. |
 | `profile_evidence` | Private evidence supporting a confirmed profile. The schema must represent the link to its research identity and supporting evidence. |
 | `profile_evidence_citation` | Public URL, title, publisher classification, page type and verification date for a role citation, with a link to the private source. |
@@ -193,6 +207,8 @@ website_update_approvals
 
 Migration 006 implements the existing-object names and conditional retirement
 of the three legacy tables. See the [Windows rehearsal and upgrade guide](R0-foundation.md#upgrade-the-working-database-from-v5-to-v6).
-The new confirmed Profile tables, new browse and conclusion views, and
-editing workflow remain part of the design. The current local database and
+Migration 007 adds the confirmed Profile tables and the conclusion and overview
+views. See the [v6 to v7 guide](R0-foundation.md#upgrade-the-working-database-from-v6-to-v7).
+The editing workflow, reviewed promotion and Website sync integration remain
+part of the design. The current local database and
 hosted receipts are the source of truth for any actual pilot already in progress.
