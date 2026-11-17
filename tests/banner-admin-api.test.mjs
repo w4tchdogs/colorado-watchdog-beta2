@@ -688,6 +688,37 @@ test("image upload is bounded on actual bytes and needs a closed metadata header
   assert.equal(calls[0].args[1].expectedSha256, "b".repeat(64));
 });
 
+test("a decode attestation needs the digest and is passed through unchanged", async () => {
+  const { transport, calls } = wire();
+  const digest = "c".repeat(64);
+  const ok = await stageRequest(
+    transport,
+    {
+      ...NEW_STAGE,
+      expectedSha256: digest,
+      decodeAttestation: "owner_local_full_decode",
+    },
+    new Uint8Array([1, 2]),
+  );
+  assert.equal(ok.status, 201);
+  assert.equal(calls[0].args[1].decodeAttestation, "owner_local_full_decode");
+  assert.equal(calls[0].args[1].expectedSha256, digest);
+  calls.length = 0;
+  for (const bad of [
+    { ...NEW_STAGE, decodeAttestation: "owner_local_full_decode" },
+    {
+      ...NEW_STAGE,
+      expectedSha256: digest,
+      decodeAttestation: "anything_else",
+    },
+    { ...NEW_STAGE, expectedSha256: digest, decodeAttestation: true },
+  ]) {
+    const refused = await stageRequest(transport, bad, new Uint8Array([1, 2]));
+    assert.equal(refused.status, 400);
+  }
+  assert.equal(calls.length, 0);
+});
+
 test("service failures map to stable codes without internals", async () => {
   const cases = [
     [new AuthorizationError(), 403, "forbidden"],

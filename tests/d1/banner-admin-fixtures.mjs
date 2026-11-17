@@ -99,6 +99,9 @@ export function bannerAdminFixtures() {
   const jpegA = new Uint8Array(
     jpeg.encode({ width: 64, height: 24, data: pixels(64, 24, 7) }, 80).data,
   );
+  const jpegB = new Uint8Array(
+    jpeg.encode({ width: 56, height: 24, data: pixels(56, 24, 41) }, 80).data,
+  );
 
   const truncatedPng = pngA.slice(0, 90);
   const badCrcPng = pngA.slice();
@@ -160,6 +163,7 @@ export function bannerAdminFixtures() {
     pngE: describe(pngE, 40, 20),
     pngF: describe(pngF, 24, 24),
     jpegA: describe(jpegA, 64, 24),
+    jpegB: describe(jpegB, 56, 24),
     ...Object.fromEntries(
       publishPngs.map((bytes, i) => [
         `publishPng${i + 1}`,

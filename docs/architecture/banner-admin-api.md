@@ -44,11 +44,14 @@ A change result is `{ bannerId, status, selectedVersionId, rowVersion, publicati
   "sourceFilename": "provenance only, never a path",
   "idempotencyKey": "string",
   "expectedSha256": "optional 64 hex characters, must match the bytes",
+  "decodeAttestation": "optional, only \"owner_local_full_decode\", needs expectedSha256",
   "target": { "kind": "new", "metadata": { "caption": "", "altText": "required", "displayOrder": 0, "isPrimary": true, "homepageOrder": null, "displayMode": "cover", "focalX": 0.5, "focalY": 0.5 } }
 }
 ```
 
 For a new version of an existing banner use `"target": { "kind": "existing", "expectedRowVersion": 3 }`. That never changes the live caption or alt text. Staging never selects the image and never makes it public. Success is `201` with `{ bannerId, version, bannerRowVersion, replayed, decode, verified, note? }`, or `200` with `replayed: true` for an identical retry. A failed stage can be retried with the same key.
+
+**Decode attestation (BANNERS-IMPORT-1).** The Worker normally decodes every pixel of a JPEG or PNG before it will mark a version `verified`. On the Workers Free plan that pure JavaScript JPEG decode can exceed the 10 ms CPU limit, so the stage call fails with a Cloudflare 503. For the owner’s approved import, where the BANNERS-1 inventory already recorded `full_decode_passed`, a JPEG stage may send `decodeAttestation: "owner_local_full_decode"` together with `expectedSha256`, the manifest digest. The Worker then still checks the byte limit, the JPEG signature and header, the pixel limits and the end marker, and still computes the SHA-256. It refuses the request with `422 validation_failed` unless that digest equals `expectedSha256`, and it refuses an attestation on a PNG. Only the pixel decode is skipped. The version is `verified` and carries `decode: "attested_local"` in the response and in its stored verification record, which also holds a note that the Worker decode was skipped, so the skip is auditable. The normal publish, withdraw and restore workflow is unchanged. Without the field the behavior is exactly as before. The field needs `banner.manage` like every stage call and an attestation is part of the idempotency fingerprint.
 
 ### Private preview
 

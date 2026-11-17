@@ -631,6 +631,14 @@ export class D1BannerAdministration implements BannerAdministration {
       !/^[0-9a-f]{64}$/.test(request.expectedSha256)
     )
       throw new BannerValidationError("Invalid expected digest");
+    if (request.decodeAttestation !== undefined) {
+      if (request.decodeAttestation !== "owner_local_full_decode")
+        throw new BannerValidationError("Unsupported decode attestation");
+      if (request.expectedSha256 === undefined)
+        throw new BannerValidationError(
+          "A decode attestation needs the expected digest",
+        );
+    }
     const target = request.target;
     if (target.kind === "existing") {
       if (
@@ -676,10 +684,21 @@ export class D1BannerAdministration implements BannerAdministration {
     await this.authorize(principal);
     this.validate(request);
     // Limits are checked before decoding. Dimensions and digest come from the bytes.
-    const image = await inspectBannerImage(request.bytes);
+    // A digest-attested JPEG skips only the pixel decode. Header, limits and
+    // the digest comparison below still run before anything is stored.
+    const image = await inspectBannerImage(request.bytes, BANNER_IMAGE_LIMITS, {
+      skipJpegDecode: request.decodeAttestation === "owner_local_full_decode",
+    });
     if (request.expectedSha256 && request.expectedSha256 !== image.sha256)
       throw new BannerValidationError(
         "Supplied digest does not match the image bytes",
+      );
+    if (
+      request.decodeAttestation !== undefined &&
+      image.mediaType !== "image/jpeg"
+    )
+      throw new BannerValidationError(
+        "A decode attestation applies to JPEG images only",
       );
     const fingerprint = await sha256Hex(
       new TextEncoder().encode(
@@ -690,6 +709,9 @@ export class D1BannerAdministration implements BannerAdministration {
           sourceFilename: request.sourceFilename,
           target: request.target,
           sha256: image.sha256,
+          ...(request.decodeAttestation
+            ? { decodeAttestation: request.decodeAttestation }
+            : {}),
         }),
       ),
     );
@@ -1039,7 +1061,8 @@ export class D1BannerAdministration implements BannerAdministration {
       );
     }
 
-    const verified = image.decode === "full";
+    const verified =
+      image.decode === "full" || image.decode === "attested_local";
     const verification = JSON.stringify({
       inspector: "banner-image-inspector/v1",
       decode: image.decode,
@@ -1159,7 +1182,8 @@ export class D1BannerAdministration implements BannerAdministration {
       replayed,
       decode: image.decode,
       verified: version.state === "verified",
-      ...(image.decodeNote && version.state !== "verified"
+      ...(image.decodeNote &&
+      (version.state !== "verified" || image.decode === "attested_local")
         ? { note: image.decodeNote }
         : {}),
     };

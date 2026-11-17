@@ -21,7 +21,18 @@ export const BANNER_IMAGE_LIMITS = Object.freeze({
   maxDecodedBytes: 96 * 1024 * 1024,
 });
 
-export type BannerImageDecode = "full" | "not_performed";
+/**
+ * "full": every pixel row was decoded here. "attested_local": a JPEG whose
+ * header and limits were checked here and whose digest matched a caller digest
+ * the owner produced after a full local decode, so the Worker skipped its own
+ * pixel decode. "not_performed": no decode and no attestation.
+ */
+export type BannerImageDecode = "full" | "attested_local" | "not_performed";
+
+export interface BannerImageInspectOptions {
+  /** Skip the pixel decode of a JPEG. The caller must then verify the digest. */
+  readonly skipJpegDecode?: boolean;
+}
 
 export interface BannerImageInspection {
   readonly mediaType: "image/png" | "image/jpeg";
@@ -56,6 +67,7 @@ const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10] as const;
 export async function inspectBannerImage(
   bytes: Uint8Array,
   limits: typeof BANNER_IMAGE_LIMITS = BANNER_IMAGE_LIMITS,
+  options: BannerImageInspectOptions = {},
 ): Promise<BannerImageInspection> {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0)
     throw new BannerImageError("empty", "Image has no bytes");
@@ -81,9 +93,10 @@ export async function inspectBannerImage(
       "dimensions_exceeded",
       "Image dimensions exceed the pixel limits",
     );
+  const skipped = isJpeg && options.skipJpegDecode === true;
   // Limits are satisfied, so decoding may begin.
   if (isPng) await decodePng(bytes, facts as PngFacts, limits);
-  else decodeJpeg(bytes, facts, limits);
+  else if (!skipped) decodeJpeg(bytes, facts, limits);
   const sha256 = await sha256Hex(bytes);
   return {
     mediaType: isPng ? "image/png" : "image/jpeg",
@@ -91,7 +104,13 @@ export async function inspectBannerImage(
     height: facts.height,
     byteSize: bytes.byteLength,
     sha256,
-    decode: "full",
+    decode: skipped ? "attested_local" : "full",
+    ...(skipped
+      ? {
+          decodeNote:
+            "Worker pixel decode skipped. Header and limits checked here. Digest must match the owner's full local decode.",
+        }
+      : {}),
   };
 }
 

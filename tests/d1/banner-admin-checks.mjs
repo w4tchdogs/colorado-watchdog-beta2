@@ -712,6 +712,73 @@ export async function runBannerAdminChecks(env, fixtures) {
     jpegReplay.replayed && jpegReplay.version.state === "verified",
   );
 
+  // ---- Digest-attested JPEG: the pixel decode is skipped, the digest still gates
+  const attestedStage = (key, file, extra = {}) =>
+    stageNew(
+      "ba-alamosa-attested",
+      "08003",
+      file,
+      key,
+      {},
+      {
+        expectedSha256: file.sha256,
+        decodeAttestation: "owner_local_full_decode",
+        ...extra,
+      },
+    );
+  const AT = await service.stage(
+    admin,
+    stageNew(
+      "ba-alamosa-attested",
+      "08003",
+      files.jpegB,
+      "k-at-ok",
+      { displayOrder: 7, isPrimary: false },
+      {
+        expectedSha256: files.jpegB.sha256,
+        decodeAttestation: "owner_local_full_decode",
+      },
+    ),
+  );
+  const atVersion = await sql(
+    "SELECT * FROM banner_asset_versions WHERE id = ?",
+    AT.version.id,
+  );
+  const atVerification = JSON.parse(atVersion.verification_json);
+  check(
+    "an attested JPEG is verified without a Worker pixel decode and the skip is recorded",
+    AT.verified &&
+      AT.decode === "attested_local" &&
+      AT.version.state === "verified" &&
+      atVerification.decode === "attested_local" &&
+      typeof atVerification.note === "string" &&
+      atVerification.note.includes("skipped") &&
+      typeof AT.note === "string",
+  );
+  await rejects(
+    "an attestation needs the expected digest",
+    service.stage(admin, {
+      ...attestedStage("k-at-nodigest", files.jpegA),
+      expectedSha256: undefined,
+    }),
+    BannerValidationError,
+  );
+  await rejects(
+    "an attestation with a wrong digest is refused before storage",
+    service.stage(
+      admin,
+      attestedStage("k-at-wrong", files.jpegA, {
+        expectedSha256: "0".repeat(64),
+      }),
+    ),
+    BannerValidationError,
+  );
+  await rejects(
+    "an attestation applies to JPEG images only",
+    service.stage(admin, attestedStage("k-at-png", files.pngA)),
+    BannerValidationError,
+  );
+
   // ---- Storage failure, then retry with the same key
   storage.failNextPut = true;
   await rejects(

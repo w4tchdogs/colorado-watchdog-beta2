@@ -316,6 +316,9 @@ async function stage(
     idempotencyKey: meta.idempotencyKey,
     target: meta.target,
     ...(meta.expectedSha256 ? { expectedSha256: meta.expectedSha256 } : {}),
+    ...(meta.decodeAttestation
+      ? { decodeAttestation: meta.decodeAttestation }
+      : {}),
   });
   return json(result.replayed ? 200 : 201, { ...result });
 }
@@ -466,6 +469,7 @@ interface StageMeta {
   readonly sourceFilename: string;
   readonly idempotencyKey: string;
   readonly expectedSha256?: string;
+  readonly decodeAttestation?: "owner_local_full_decode";
   readonly target:
     | { readonly kind: "new"; readonly metadata: NewBannerMetadata }
     | { readonly kind: "existing"; readonly expectedRowVersion: number };
@@ -493,6 +497,7 @@ function parseStageHeader(header: string): StageMeta | null {
       "sourceFilename",
       "idempotencyKey",
       "expectedSha256",
+      "decodeAttestation",
       "target",
     ]) ||
     !isBannerId(value.bannerId) ||
@@ -504,10 +509,17 @@ function parseStageHeader(header: string): StageMeta | null {
         typeof value.expectedSha256 === "string" &&
         DIGEST.test(value.expectedSha256)
       )) ||
+    (value.decodeAttestation !== undefined &&
+      (value.decodeAttestation !== "owner_local_full_decode" ||
+        typeof value.expectedSha256 !== "string")) ||
     !isRecord(value.target)
   )
     return null;
   const target = value.target;
+  const attest =
+    value.decodeAttestation === "owner_local_full_decode"
+      ? { decodeAttestation: "owner_local_full_decode" as const }
+      : {};
   if (
     target.kind === "existing" &&
     closed(target, ["kind", "expectedRowVersion"]) &&
@@ -519,6 +531,7 @@ function parseStageHeader(header: string): StageMeta | null {
       sourceFilename: value.sourceFilename,
       idempotencyKey: value.idempotencyKey,
       ...(value.expectedSha256 ? { expectedSha256: value.expectedSha256 } : {}),
+      ...attest,
       target: {
         kind: "existing",
         expectedRowVersion: target.expectedRowVersion,
@@ -535,6 +548,7 @@ function parseStageHeader(header: string): StageMeta | null {
       sourceFilename: value.sourceFilename,
       idempotencyKey: value.idempotencyKey,
       ...(value.expectedSha256 ? { expectedSha256: value.expectedSha256 } : {}),
+      ...attest,
       target: { kind: "new", metadata: target.metadata },
     };
   return null;
