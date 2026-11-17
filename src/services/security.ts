@@ -19,6 +19,7 @@ export type Capability =
   | "sync.apply"
   | "sync.revert"
   | "banner.manage"
+  | "banner.publish"
   | "report.review";
 
 export type AccountKind = "human" | "agent";
@@ -114,6 +115,8 @@ export const GRANTABLE_AGENT_CAPABILITIES = [
   "sync.read",
   "sync.apply",
   "sync.revert",
+  "d1.inspect",
+  "banner.publish",
 ] as const;
 export type GrantableAgentCapability =
   (typeof GRANTABLE_AGENT_CAPABILITIES)[number];

@@ -23,8 +23,62 @@ observations and required organization dependencies to that county, then builds 
 changeset until the next change would not fit the 8 MiB request limit, with no cap on the number of operations. Parent organizations required by those
 observations remain in parent-before-child order; shared people, positions,
 sources and organizations are emitted once. Without the flag, statewide
-behavior is unchanged. County-scoped preview is an eligibility diagnostic;
-`sync-prepare` remains the existing explicitly reviewed statewide workflow.
+behavior is unchanged. `sync-prepare` accepts the same `--county-fips` and rebuilds
+exactly that scope before it compares the fingerprint, so pass the value used for the
+reviewed preview. A county preview prepared without it, or with a different county,
+fails the fingerprint check and nothing is stored. Without the flag, `sync-prepare`
+remains the existing statewide workflow.
+
+## Submitting to the hosted Website: batch size and order
+
+Local planning and previews keep no count cap. The hosted Website is bounded by the
+Cloudflare Worker's per-request limits, which the staging scale rehearsal measured
+([Issue #141](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/141)). One
+atomic commit fit about 260 self-contained operations (a changeset whose
+dependencies are all inside the request) and about 125 role operations that reference
+records already on the Website. A single 816 operation changeset did not fit. These are
+interim operator defaults and will change when planning and commit become set-based.
+
+Add `--hosted` to `sync-preview`, `sync-eligibility` and `sync-prepare` to apply them:
+
+```powershell
+python -m research sync-preview D:\private\profiles.sqlite --site-key colorado_watchdog_alpha1 --county-fips 08001 --hosted
+python -m research sync-prepare D:\private\profiles.sqlite --site-key colorado_watchdog_alpha1 `
+  --county-fips 08001 --hosted --idempotency-key operator-batch-001 --select all --expect-fingerprint <sha256>
+```
+
+- **260 operations** when the changeset is provably self-contained. Every operation
+  is a known create and none names an existing Website record.
+- **100 operations** when any operation names an existing record (a role that points
+  at a person, source, position or organization already on the Website) or the
+  workload cannot be classified, for example an update. The lower size always wins
+  when the builder is unsure.
+- `--hosted` cannot be combined with `--max-changes`. The preview reports the choice
+  under `batching`, including `more_batches_expected`.
+
+A hosted import is a sequence of changesets, and **each changeset is atomic but the
+import as a whole is not**. It can be partly complete between commits, with some
+organizations, people and roles already on the Website and the rest not. Reversal works
+per changeset, newest first.
+
+Submit sequentially and let each receipt drive the next batch:
+
+1. Preview with `--hosted`, review, then `sync-prepare ... --hosted` with the previewed
+   fingerprint and the same `--county-fips`, if the preview used one.
+2. Send the prepared request. A timeout or server error leaves the submission
+   `pending` (outcome uncertain). Retry the exact stored request with the same
+   idempotency key until a receipt is stored. The Website replays the one batch and
+   never writes a second.
+3. `sync-reconcile` the stored receipt. This records the Website IDs.
+4. Only then preview again. The next changeset skips everything already mapped and
+   refers to existing records by Website ID, so nothing is planned twice.
+
+`sync-prepare` refuses a new changeset while an earlier submission for the same Site is
+pending or holds a receipt that is not reconciled. The check runs in the same SQLite
+write transaction that stores the new submission, so two operator sessions cannot both
+pass it. Repeating the same idempotency key stays allowed. A rejected submission mapped nothing and does not block. Never infer
+success from a timeout. Resolve it to the stored receipt or to the Website's batch state
+for that idempotency key first.
 
 ## Owner profile rule and implementation status
 

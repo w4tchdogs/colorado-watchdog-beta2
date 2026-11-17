@@ -10,6 +10,7 @@ import { commitSyncChangesetD1 } from "../../src/services/sync-commit-d1.ts";
 import { reverseSyncBatchD1 } from "../../src/services/sync-revert-d1.ts";
 import { runBannerAdminChecks } from "./banner-admin-checks.mjs";
 import { runBannerApiChecks } from "./banner-api-checks.mjs";
+import { runBannerMcpChecks } from "./banner-mcp-checks.mjs";
 import { runBannerPublishChecks } from "./banner-publish-checks.mjs";
 
 const json = (value, status = 200) =>
@@ -173,11 +174,13 @@ export default {
         const admin = await runBannerAdminChecks(env, fixtures);
         const publish = await runBannerPublishChecks(env, fixtures);
         const api = await runBannerApiChecks(env, fixtures);
+        const mcp = await runBannerMcpChecks(env, fixtures);
         return json({
           success: true,
           checks: admin.checks,
           publishChecks: publish.checks,
           apiChecks: api.checks,
+          mcpChecks: mcp.checks,
         });
       } catch (error) {
         return json({ success: false, error: String(error) }, 500);
@@ -746,12 +749,12 @@ export default {
     ).all();
     check(
       "ordered custom migration history and checksums",
-      history.results?.length === 24 &&
+      history.results?.length === 26 &&
         history.results.every(
           (row, index) =>
             row.version === index + 1 &&
             row.name ===
-              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake", "owner_bootstrap_audit", "correct_lake_la_plata_county_names", "banner_homepage_curation", "content_publication", "banner_publications", "human_sign_in", "role_source_publisher_classification", "report_challenge_claims", "unstructured_person_roles", "sync_batch_result_size", "agent_capability_grants"][index]}.sql` &&
+              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake", "owner_bootstrap_audit", "correct_lake_la_plata_county_names", "banner_homepage_curation", "content_publication", "banner_publications", "human_sign_in", "role_source_publisher_classification", "report_challenge_claims", "unstructured_person_roles", "sync_batch_result_size", "agent_capability_grants", "agent_inspect_grant", "agent_banner_publish_grant"][index]}.sql` &&
             /^[0-9a-f]{64}$/.test(row.sha256),
         ),
     );

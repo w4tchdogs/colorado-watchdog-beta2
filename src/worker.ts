@@ -505,7 +505,19 @@ const routes = {
         reports: reports.handler,
       });
       if (new URL(request.url).pathname === "/mcp") {
-        return handleWebsiteMcpRequest(request, services, inspection);
+        // Banner tools reuse the same D1/R2 service as the protected banner
+        // API. Without the bucket they authorize and then report unavailable.
+        return handleWebsiteMcpRequest(
+          request,
+          services,
+          inspection,
+          environment.BUCKET
+            ? new D1BannerAdministration(
+                database,
+                new R2BannerObjectStorage(environment.BUCKET),
+              )
+            : undefined,
+        );
       }
       return website.fetch(request);
     } catch {

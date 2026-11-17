@@ -121,6 +121,78 @@ MAX_REQUEST_BYTES = 8 * 1024 * 1024
 _ENVELOPE_RESERVE_BYTES = 1024
 
 
+# Interim operator defaults for submission to the hosted Website. They come from the
+# Cloudflare staging scale rehearsal (Issue #141): one atomic commit stays under the
+# Worker's per-request call limits at about 260 self-contained operations or about
+# 125 role operations that reference existing records, so 100 is the conservative
+# reference-heavy default. They apply only when the operator asks for them. Local
+# planning and previews keep no count cap.
+HOSTED_MAX_CHANGES_SELF_CONTAINED = 260
+HOSTED_MAX_CHANGES_REFERENCE_HEAVY = 100
+_SELF_CONTAINED_OPS = {
+    "create_organization": "organizations",
+    "add_county_affiliation": "organization_county_affiliations",
+    "create_person": "people",
+    "create_position": "positions",
+    "register_source": "role_sources",
+    "create_person_role": "person_roles",
+}
+# A field that names a record already on the Website costs extra Website reads.
+_EXISTING_ID_FIELDS = frozenset({
+    "organization_id", "parent_organization_id", "person_id", "position_id", "source_id",
+})
+
+
+def classify_workload(request):
+    """Return "self_contained", "reference_heavy" or "unknown" for a built request.
+
+    Self-contained means every operation is a known create whose dependencies are
+    resolved inside the same request. Any operation that names an existing Website
+    record is reference-heavy. Anything the classifier does not recognise, such as an
+    update, is unknown and gets the lower default.
+    """
+    changes = request.get("changes") if isinstance(request, dict) else None
+    if not isinstance(changes, list):
+        return "unknown"
+    heavy = False
+    for change in changes:
+        if not isinstance(change, dict) or _SELF_CONTAINED_OPS.get(change.get("op")) != change.get("entity"):
+            return "unknown"
+        fields = change.get("fields")
+        if not isinstance(fields, dict):
+            return "unknown"
+        if _EXISTING_ID_FIELDS & fields.keys():
+            heavy = True
+    return "reference_heavy" if heavy else "self_contained"
+
+
+def build_hosted_changeset(db, site_key, *, request_id=None, county_fips=None):
+    """Build one changeset sized for the hosted Website.
+
+    Try the self-contained size first. If the result is not provably self-contained,
+    rebuild at the reference-heavy size, so an unclassifiable workload always gets the
+    lower default. The result carries the choice under "batching".
+    """
+    generated = build_changeset(db, site_key, request_id=request_id, county_fips=county_fips,
+                                max_changes=HOSTED_MAX_CHANGES_SELF_CONTAINED)
+    workload = classify_workload(generated["request"])
+    if workload != "self_contained":
+        generated = build_changeset(db, site_key, request_id=request_id, county_fips=county_fips,
+                                    max_changes=HOSTED_MAX_CHANGES_REFERENCE_HEAVY)
+    limit = (HOSTED_MAX_CHANGES_SELF_CONTAINED if workload == "self_contained"
+             else HOSTED_MAX_CHANGES_REFERENCE_HEAVY)
+    generated["batching"] = {
+        "profile": "hosted_interim",
+        "workload": workload,
+        "max_changes": limit,
+        "operations": generated["eligible_count"],
+        "more_batches_expected": generated["truncated"],
+        "each_changeset_is_atomic": True,
+        "partial_completion_possible_between_commits": True,
+    }
+    return generated
+
+
 def build_changeset(db, site_key, *, request_id=None, max_changes=None, county_fips=None):
     """Return a stable request plus eligibility/exclusion diagnostics (never private notes)."""
     if not isinstance(site_key, str) or not site_key.strip() or len(site_key) > 128:
@@ -950,12 +1022,45 @@ def build_changeset(db, site_key, *, request_id=None, max_changes=None, county_f
     }
 
 
+def require_previous_submission_resolved(db, site_key, idempotency_key):
+    """Keep multi-batch submission sequential and receipt-driven.
+
+    A new changeset depends on the entity mappings that reconciling the previous
+    receipt records, so a new one is refused while an earlier submission for the same
+    Site is pending (outcome uncertain) or acknowledged but not yet reconciled.
+    Repeating the same idempotency key is always allowed. A rejected submission mapped
+    nothing, so it does not block. prepare_research_submission runs this inside the
+    write transaction that inserts the new submission, so two connections cannot both
+    pass it.
+    """
+    if db.execute("SELECT 1 FROM sync_submissions WHERE site_key=? AND idempotency_key=?",
+                  (site_key, idempotency_key)).fetchone():
+        return
+    open_row = db.execute(
+        "SELECT s.id,s.state FROM sync_submissions s "
+        "LEFT JOIN sync_submission_receipts r ON r.submission_id=s.id "
+        "WHERE s.site_key=? AND s.idempotency_key<>? AND s.state IN ('pending','acknowledged') "
+        "AND r.submission_id IS NULL ORDER BY s.created_at LIMIT 1",
+        (site_key, idempotency_key)).fetchone()
+    if open_row:
+        if open_row["state"] == "pending":
+            raise ValueError(
+                "An earlier submission has an uncertain outcome. Retry its exact stored request "
+                "with the same idempotency key until a receipt is stored, then reconcile it, "
+                "before preparing another changeset")
+        raise ValueError(
+            "An earlier submission has a stored receipt that is not reconciled. Reconcile it "
+            "before preparing another changeset")
+
+
 def prepare_research_submission(db, site_key, idempotency_key, generated, *, now=None):
     """Persist the generated exact bytes through R6, plus local-only item lineage."""
     text = json.dumps(
         generated["request"], ensure_ascii=False, separators=(",", ":"), allow_nan=False
     )
-    prepared = prepare_submission(db, site_key, idempotency_key, text, now=now)
+    prepared = prepare_submission(
+        db, site_key, idempotency_key, text, now=now,
+        before_insert=lambda conn: require_previous_submission_resolved(conn, site_key, idempotency_key))
     sid = prepared["submission_id"]
     with db:
         db.execute("BEGIN IMMEDIATE")

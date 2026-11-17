@@ -11,6 +11,7 @@ import {
   MAX_SYNC_REQUEST_BYTES,
 } from "../contracts/sync.js";
 import type { AsyncD1Database } from "../database/d1.js";
+import { SyncPlanReads } from "./sync-plan-reads-d1.js";
 
 const MAX_DEPTH = 64;
 const MAX_DIAGNOSTICS = 200;
@@ -138,10 +139,17 @@ const SAFE_MESSAGES: Record<SyncErrorCode, string> = {
 };
 
 /** Internal, unexposed read-only planner. It never opens a transaction or generates persistent IDs. */
+/**
+ * Plans a changeset against Website D1 without writing. Reads are set-based: one
+ * bounded query per entity and chunk, not one per item. Pass `reads` to reuse the
+ * lookups of an earlier plan, which is correct only under the caller's
+ * dependency-generation guard (see SyncPlanReads).
+ */
 export async function planSyncChangesetD1(
   database: AsyncD1Database,
   input: unknown,
   now: () => Date = () => new Date(),
+  reads?: SyncPlanReads,
 ): Promise<SyncPlan> {
   const errors: SyncPlanError[] = [];
   const add = (
@@ -218,6 +226,8 @@ export async function planSyncChangesetD1(
     add("invalid_field");
   if (input.intent === "commit") add("commit_not_supported");
   const flags = validateFlags(input.duplicateFlags, add);
+  const lookups = reads ?? new SyncPlanReads(database);
+  if (!reads) await lookups.prefetch(input);
   const items: PlannedSyncItem[] = [];
   const refs = new Map<
     string,
@@ -269,7 +279,7 @@ export async function planSyncChangesetD1(
     }
     const op = typeof raw.op === "string" ? raw.op : "";
     if (op === "update_record") {
-      await planUpdate(database, raw, i, items, targets, add, now);
+      await planUpdate(lookups, raw, i, items, targets, add, now);
       continue;
     }
     const entity = CREATE.get(op);
@@ -378,8 +388,7 @@ export async function planSyncChangesetD1(
           add("invalid_field", i, clientRef);
           valid = false;
         } else if (
-          !(await exists(
-            database,
+          !(await lookups.exists(
             relation.entity,
             fields[relation.id] as string,
           ))
@@ -411,7 +420,7 @@ export async function planSyncChangesetD1(
     }
     valid =
       (await validateCreateFields(
-        database,
+        lookups,
         entity,
         fields,
         i,
@@ -421,7 +430,7 @@ export async function planSyncChangesetD1(
       )) && valid;
     if (entity === "organizations" && valid)
       valid = await validateOrganizationPlan(
-        database,
+        lookups,
         fields,
         refs,
         i,
@@ -436,7 +445,7 @@ export async function planSyncChangesetD1(
         fields.relationship_type,
       ]);
       if (
-        (await dbAffiliationExists(database, fields)) ||
+        (await dbAffiliationExists(lookups, fields)) ||
         plannedAffiliations.has(affiliationKey)
       ) {
         add("duplicate_affiliation", i, clientRef);
@@ -445,10 +454,7 @@ export async function planSyncChangesetD1(
     }
     let action: PlannedSyncItem["action"] = "would_create";
     if (entity === "role_sources" && valid) {
-      const existing = await database.first<Record<string, unknown>>(
-        "SELECT id, title, source_type, publisher_classification FROM role_sources WHERE url = ?",
-        [fields.url as string],
-      );
+      const existing = await lookups.sourceByUrl(fields.url as string);
       if (
         existing &&
         (existing.title !== fields.title ||
@@ -479,10 +485,7 @@ export async function planSyncChangesetD1(
         });
     }
     if (action === "would_reuse") {
-      const found = await database.first<Record<string, unknown>>(
-        "SELECT id FROM role_sources WHERE url = ?",
-        [fields.url as string],
-      );
+      const found = await lookups.sourceByUrl(fields.url as string);
       items.push({
         itemIndex: i,
         entity,
@@ -504,18 +507,18 @@ export async function planSyncChangesetD1(
   for (const flag of flags) {
     const target = refs.get(flag.targetRef);
     if (target && target.entity !== "people") add("duplicate_flag_invalid");
-    if (!target && !(await exists(database, "people", flag.targetRef)))
+    if (!target && !(await lookups.exists("people", flag.targetRef)))
       add("duplicate_flag_invalid");
     if (
       flag.possibleDuplicateOf === flag.targetRef ||
-      !(await exists(database, "people", flag.possibleDuplicateOf))
+      !(await lookups.exists("people", flag.possibleDuplicateOf))
     )
       add("duplicate_flag_invalid");
     for (const sourceRef of flag.evidenceSourceRefs ?? []) {
       const source = refs.get(sourceRef);
       if (source && source.entity !== "role_sources")
         add("duplicate_flag_invalid");
-      if (!source && !(await exists(database, "role_sources", sourceRef)))
+      if (!source && !(await lookups.exists("role_sources", sourceRef)))
         add("duplicate_flag_invalid");
     }
   }
@@ -532,7 +535,7 @@ export async function planSyncChangesetD1(
 }
 
 async function planUpdate(
-  db: AsyncD1Database,
+  db: SyncPlanReads,
   raw: Record<string, unknown>,
   index: number,
   items: PlannedSyncItem[],
@@ -615,10 +618,7 @@ async function planUpdate(
     });
     return;
   }
-  const row = await db.first<Record<string, unknown>>(
-    `SELECT * FROM "${entity}" WHERE id = ?`,
-    [raw.targetId],
-  );
+  const row = await db.row(entity, raw.targetId as string);
   if (!row) {
     add("missing_target", index);
     items.push({
@@ -685,7 +685,7 @@ async function planUpdate(
 }
 
 async function validateCreateFields(
-  db: AsyncD1Database,
+  db: SyncPlanReads,
   entity: SyncEntity,
   f: Record<string, unknown>,
   i: number,
@@ -736,14 +736,14 @@ async function validateCreateFields(
       add("relationship_conflict", i, ref);
       ok = false;
     }
-    if (f.county_fips != null && !(await countyExists(db, f.county_fips))) {
+    if (f.county_fips != null && !(await db.countyExists(f.county_fips))) {
       add("unknown_county", i, ref);
       ok = false;
     }
   }
   if (
     ["organization_county_affiliations"].includes(entity) &&
-    !(await countyExists(db, f.county_fips))
+    !(await db.countyExists(f.county_fips))
   ) {
     add("unknown_county", i, ref);
     ok = false;
@@ -759,7 +759,7 @@ async function validateCreateFields(
       !(
         typeof f.county_fips === "string" &&
         validCounty(f.county_fips) &&
-        (await countyExists(db, f.county_fips))
+        (await db.countyExists(f.county_fips))
       )
     ) {
       add("unknown_county", i, ref);
@@ -791,7 +791,7 @@ async function validateCreateFields(
 }
 
 async function validateOrgUpdate(
-  db: AsyncD1Database,
+  db: SyncPlanReads,
   row: Record<string, unknown>,
   f: Record<string, unknown>,
   i: number,
@@ -822,7 +822,7 @@ async function validateOrgUpdate(
     add("invalid_field", i);
     ok = false;
   }
-  if (county !== null && !(await countyExists(db, county))) {
+  if (county !== null && !(await db.countyExists(county))) {
     add("unknown_county", i);
     ok = false;
   }
@@ -856,10 +856,7 @@ async function validateOrgUpdate(
           ok = false;
           break;
         }
-        const p = await db.first<Record<string, unknown>>(
-          "SELECT parent_organization_id, county_fips FROM organizations WHERE id = ?",
-          [current],
-        );
+        const p = await db.row("organizations", current);
         if (!p) {
           add("invalid_reference", i);
           ok = false;
@@ -874,7 +871,8 @@ async function validateOrgUpdate(
     }
   }
   if (Object.hasOwn(f, "county_fips")) {
-    const children = await db.all<Record<string, unknown>>(
+    db.queries++;
+    const children = await db.db.all<Record<string, unknown>>(
       "SELECT county_fips FROM organizations WHERE parent_organization_id = ? LIMIT 201",
       201,
       [row.id as string],
@@ -891,7 +889,7 @@ async function validateOrgUpdate(
 }
 
 async function validateRoleUpdate(
-  db: AsyncD1Database,
+  db: SyncPlanReads,
   row: Record<string, unknown>,
   f: Record<string, unknown>,
   i: number,
@@ -904,7 +902,7 @@ async function validateRoleUpdate(
   }
   if (
     Object.hasOwn(f, "source_id") &&
-    !(await exists(db, "role_sources", String(f.source_id)))
+    !(await db.exists("role_sources", String(f.source_id)))
   ) {
     add("invalid_reference", i);
     return false;
@@ -961,7 +959,7 @@ function validateRoleDates(
 }
 
 async function validateOrganizationPlan(
-  db: AsyncD1Database,
+  db: SyncPlanReads,
   f: Record<string, unknown>,
   refs: Map<
     string,
@@ -986,10 +984,7 @@ async function validateOrganizationPlan(
   }
   const parentId = f.parent_organization_id;
   if (typeof parentId === "string") {
-    const parent = await db.first<Record<string, unknown>>(
-      "SELECT county_fips FROM organizations WHERE id = ?",
-      [parentId],
-    );
+    const parent = await db.row("organizations", parentId);
     if (!parent) {
       add("invalid_reference", i, ref);
       return false;
@@ -1060,39 +1055,16 @@ function validateFlags(
 }
 
 async function dbAffiliationExists(
-  db: AsyncD1Database,
+  db: SyncPlanReads,
   f: Record<string, unknown>,
 ): Promise<boolean> {
   return (
     typeof f.organization_id === "string" &&
-    !!(await db.first(
-      "SELECT 1 AS found FROM organization_county_affiliations WHERE organization_id = ? AND county_fips = ? AND relationship_type = ?",
-      [
-        f.organization_id,
-        f.county_fips as string,
-        f.relationship_type as string,
-      ],
+    (await db.affiliationExists(
+      f.organization_id,
+      f.county_fips as string,
+      f.relationship_type as string,
     ))
-  );
-}
-async function exists(
-  db: AsyncD1Database,
-  table: SyncEntity,
-  id: string,
-): Promise<boolean> {
-  return !!(await db.first(`SELECT 1 AS found FROM "${table}" WHERE id = ?`, [
-    id,
-  ]));
-}
-async function countyExists(
-  db: AsyncD1Database,
-  value: unknown,
-): Promise<boolean> {
-  return (
-    typeof value === "string" &&
-    !!(await db.first("SELECT 1 AS found FROM counties WHERE fips = ?", [
-      value,
-    ]))
   );
 }
 function validCounty(value: unknown): boolean {

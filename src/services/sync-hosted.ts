@@ -43,6 +43,11 @@ export function createHostedSyncTransportDependencies(
       commit: (principal, key, request) =>
         commitSyncChangesetD1(database, principal, key, request, {
           authorize: guard,
+          // Operator diagnostic in the Worker log: counts and timings only.
+          diagnostic: (value) =>
+            console.log(
+              JSON.stringify({ event: "sync_commit_diagnostic", ...value }),
+            ),
         }),
       lookup: (principal, lookup) =>
         lookupSyncBatchD1(database, principal, lookup),

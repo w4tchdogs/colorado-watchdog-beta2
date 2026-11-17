@@ -108,8 +108,8 @@ if (
 const migrations = (await readdir(join(root, "website", "migrations")))
   .filter((name) => /^\d{4}_[a-z0-9_]+\.sql$/.test(name))
   .sort();
-if (!migrations.includes("0024_agent_capability_grants.sql")) {
-  throw new Error("Sites artifact must include Website migration 0024");
+if (!migrations.includes("0026_agent_banner_publish_grant.sql")) {
+  throw new Error("Sites artifact must include Website migration 0026");
 }
 const migrationCatalog = await Promise.all(
   migrations.map(async (name) => {
