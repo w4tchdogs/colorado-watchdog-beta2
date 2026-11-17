@@ -269,6 +269,11 @@ operator procedure is in [the Profiles foundation guide](research/R0-foundation.
 - Proposed tables and the complete v5 mapping are in the
   [local Profiles database redesign](research/local-profiles-schema-redesign.md).
 
+## Required county for confirmed Profiles, November 17, 2026
+
+- Every confirmed Profile has exactly one required county. `profile_county` is the single authoritative link and references the canonical code in `county`. See the [v7 scope](research/local-profiles-schema-redesign.md#county-decision-and-v7-scope).
+- County Research supplies a researched unit’s county and parent. A role may rest on a documented office, position title or job description before a structured unit is resolved.
+
 ## Local Profiles table names, November 17, 2026
 
 - The current naming plan uses `county`, `profile`, `county_research_*`,
