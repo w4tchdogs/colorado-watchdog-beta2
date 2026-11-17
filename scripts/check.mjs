@@ -358,6 +358,7 @@ const allowed = new Set([
   "research/batch_selection.py",
   "research/structure.py",
   "research/promotion.py",
+  "research/evidence_dates.py",
   "research/migrations/001_foundation.sql",
   "research/migrations/002_durable_site_submissions.sql",
   "research/migrations/003_site_entity_reconciliation.sql",
