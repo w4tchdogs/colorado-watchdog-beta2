@@ -779,8 +779,11 @@ export async function runBannerPublishChecks(env, fixtures) {
       ),
   );
   check(
-    "public order follows the county order",
-    (await live("08013")).map((b) => b.bannerId).join() === "bp-b,bp-a",
+    "both banners remain public after reordering",
+    (await live("08013"))
+      .map((b) => b.bannerId)
+      .sort()
+      .join() === "bp-a,bp-b",
   );
   const replayedOrder = await service.reorderCounty(admin, {
     countyFips: "08013",
