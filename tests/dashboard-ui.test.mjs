@@ -263,7 +263,10 @@ test("a stale save in a second editor view keeps both the newer revision and the
     );
     // The second editor's unsaved text is preserved and nothing is saved.
     assert.equal(body(second).value, typed);
-    assert.equal(second.text("#save-state"), "Unsaved changes");
+    assert.equal(
+      second.text("#save-state"),
+      "Conflict: a newer version exists. Unsaved changes are kept.",
+    );
     assert.equal(second.$("#save").disabled, true);
     assert.match(second.text("#conflict-panel"), /Version 2 was saved by/);
     assert.match(second.text("#conflict-panel"), /body, title/);

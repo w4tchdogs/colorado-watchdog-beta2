@@ -531,7 +531,10 @@ test("a stale save keeps the typed edits and recovers through the conflict panel
       second.click("#save");
       await waitFor(() => second.$("#conflict-panel"), "conflict");
       assert.equal(bodyInput(second).value, typed);
-      assert.equal(second.text("#save-state"), "Unsaved changes");
+      assert.equal(
+        second.text("#save-state"),
+        "Conflict: a newer version exists. Unsaved changes are kept.",
+      );
       assert.match(second.text("#conflict-panel"), /Version 2 was saved by/);
       assert.deepEqual(
         {
