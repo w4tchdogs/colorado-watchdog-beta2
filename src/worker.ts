@@ -8,6 +8,7 @@ import type { RuntimeEnvironment } from "./contracts/runtime.js";
 import { StorageUnavailableError } from "./contracts/storage.js";
 import { AsyncD1Database } from "./database/d1.js";
 import { handleWebsiteMcpRequest } from "./mcp/website.js";
+import { createSyncMcpBridge } from "./mcp/website-sync.js";
 import { createReportApiModule, type ReportApiOptions } from "./report-api.js";
 import { D1BannerAdministration } from "./services/banner-admin-d1.js";
 import { D1BannerPublicService } from "./services/banner-public.js";
@@ -511,6 +512,13 @@ const routes = {
                 new R2BannerObjectStorage(environment.BUCKET),
               )
             : undefined,
+          // Profiles sync tools reuse the hosted sync services and grants.
+          createSyncMcpBridge(
+            createHostedSyncTransportDependencies(
+              database,
+              accounts.hasCapability,
+            ),
+          ),
         );
       }
       return website.fetch(request);

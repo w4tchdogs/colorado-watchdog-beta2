@@ -12,6 +12,7 @@ import { runBannerAdminChecks } from "./banner-admin-checks.mjs";
 import { runBannerApiChecks } from "./banner-api-checks.mjs";
 import { runBannerMcpChecks } from "./banner-mcp-checks.mjs";
 import { runBannerPublishChecks } from "./banner-publish-checks.mjs";
+import { runSyncMcpChecks } from "./sync-mcp-checks.mjs";
 
 const json = (value, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -182,6 +183,14 @@ export default {
           apiChecks: api.checks,
           mcpChecks: mcp.checks,
         });
+      } catch (error) {
+        return json({ success: false, error: String(error) }, 500);
+      }
+    }
+    if (url.pathname === "/sync/mcp-verify" && request.method === "POST") {
+      try {
+        const mcp = await runSyncMcpChecks(env);
+        return json({ success: true, checks: mcp.checks });
       } catch (error) {
         return json({ success: false, error: String(error) }, 500);
       }

@@ -14,6 +14,16 @@ import {
   AuthorizationError,
   type TrustedPrincipal,
 } from "../services/security.js";
+import {
+  isSyncToolName,
+  MAX_SYNC_MCP_REQUEST_BYTES,
+  runSyncTool,
+  SYNC_LARGE_BODY_TOOLS,
+  SYNC_TOOL_CAPABILITY,
+  SYNC_TOOL_DEFINITIONS,
+  type SyncMcpBridge,
+  type SyncToolName,
+} from "./website-sync.js";
 
 export interface WebsiteInspectionTools {
   status(principal: TrustedPrincipal): Promise<unknown>;
@@ -48,7 +58,7 @@ type BannerToolName =
   | "website_banner_publish"
   | "website_banner_withdraw"
   | "website_banner_restore";
-type ToolCallName = InspectionToolName | BannerToolName;
+type ToolCallName = InspectionToolName | BannerToolName | SyncToolName;
 
 /**
  * Capability every banner tool needs. No role holds `banner.publish`, so only
@@ -302,6 +312,7 @@ const TOOL_DEFINITIONS = [
       additionalProperties: false,
     },
   },
+  ...SYNC_TOOL_DEFINITIONS,
 ] as const;
 
 export async function handleWebsiteMcpRequest(
@@ -309,6 +320,7 @@ export async function handleWebsiteMcpRequest(
   services: WebsiteMcpServices,
   inspection: WebsiteInspectionTools,
   banners?: BannerAdministration,
+  sync?: SyncMcpBridge,
 ): Promise<Response> {
   if (new URL(request.url).pathname !== "/mcp") {
     return jsonResponse(404, { error: "not_found" });
@@ -320,17 +332,32 @@ export async function handleWebsiteMcpRequest(
       { allow: "POST" },
     );
   }
-  const declaredLength = Number(request.headers.get("content-length") ?? 0);
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_REQUEST_BYTES) {
+  // Discovery and every other tool keep the small cap. A body over it is read
+  // only for a caller that already holds a sync grant, up to a separate hard
+  // byte limit that is enforced on the bytes actually received.
+  const declaredLength = request.headers.has("content-length")
+    ? Number(request.headers.get("content-length"))
+    : null;
+  if (declaredLength !== null && !Number.isFinite(declaredLength)) {
+    return jsonResponse(400, rpcError(null, -32600, "invalid_request"));
+  }
+  let limit = MAX_REQUEST_BYTES;
+  if (sync && (declaredLength === null || declaredLength > MAX_REQUEST_BYTES)) {
+    services = memoizedPrincipal(services, request);
+    if (await holdsSyncGrant(services, request)) {
+      limit = MAX_SYNC_MCP_REQUEST_BYTES;
+    }
+  }
+  if (declaredLength !== null && declaredLength > limit) {
     return jsonResponse(413, { error: "request_too_large" });
   }
   let body: unknown;
+  let largeBody = false;
   try {
-    const text = await request.text();
-    if (new TextEncoder().encode(text).byteLength > MAX_REQUEST_BYTES) {
-      return jsonResponse(413, { error: "request_too_large" });
-    }
-    body = JSON.parse(text);
+    const read = await readBoundedText(request, limit);
+    if (read === null) return jsonResponse(413, { error: "request_too_large" });
+    largeBody = read.bytes > MAX_REQUEST_BYTES;
+    body = JSON.parse(read.text);
   } catch {
     return jsonResponse(400, rpcError(null, -32700, "parse_error"));
   }
@@ -338,6 +365,18 @@ export async function handleWebsiteMcpRequest(
     return jsonResponse(400, rpcError(null, -32600, "invalid_request"));
   }
   const id = body.id;
+  // A body over the small cap is accepted only for the two changeset tools.
+  if (
+    largeBody &&
+    !(
+      body.method === "tools/call" &&
+      isRecord(body.params) &&
+      typeof body.params.name === "string" &&
+      SYNC_LARGE_BODY_TOOLS.has(body.params.name)
+    )
+  ) {
+    return jsonResponse(413, { error: "request_too_large" });
+  }
   if (body.method === "server/discover") {
     return jsonResponse(
       200,
@@ -373,6 +412,9 @@ export async function handleWebsiteMcpRequest(
     return jsonResponse(200, rpcResult(id, toolError("unknown_tool")));
   }
   const name = params.name as ToolCallName;
+  if (isSyncToolName(name)) {
+    return handleSyncTool(request, id, name, params.arguments, services, sync);
+  }
   if (BANNER_TOOLS.has(name)) {
     return handleBannerTool(
       request,
@@ -438,6 +480,109 @@ export async function handleWebsiteMcpRequest(
     console.warn("mcp tool failed", { tool: name, code });
     return jsonResponse(200, rpcResult(id, toolError(code)));
   }
+}
+
+async function handleSyncTool(
+  request: Request,
+  id: JsonRpcId,
+  name: SyncToolName,
+  rawArguments: unknown,
+  services: WebsiteMcpServices,
+  sync: SyncMcpBridge | undefined,
+): Promise<Response> {
+  const reply = (result: unknown) => jsonResponse(200, rpcResult(id, result));
+  try {
+    const principal = await services.resolvePrincipal(request);
+    if (
+      !principal ||
+      (principal.kind === "agent" && principal.role === "owner")
+    ) {
+      return reply(toolError("authentication_required"));
+    }
+    // Each tool needs its own owner-issued grant. Checked before the large
+    // arguments are validated, and the transport checks the live grant again.
+    if (
+      !(await services.hasCapability(principal, SYNC_TOOL_CAPABILITY[name]))
+    ) {
+      return reply(toolError("not_authorized"));
+    }
+    return reply(await runSyncTool(name, rawArguments, principal, sync));
+  } catch {
+    console.warn("mcp tool failed", { tool: name, code: "sync_failed" });
+    return reply(toolError("sync_failed"));
+  }
+}
+
+/** One credential check per request, shared by the size gate and the tool. */
+function memoizedPrincipal(
+  services: WebsiteMcpServices,
+  request: Request,
+): WebsiteMcpServices {
+  let cached: Promise<TrustedPrincipal | null> | undefined;
+  return {
+    resolvePrincipal: () => {
+      cached ??= services.resolvePrincipal(request);
+      return cached;
+    },
+    hasCapability: (principal, capability) =>
+      services.hasCapability(principal, capability),
+  };
+}
+
+async function holdsSyncGrant(
+  services: WebsiteMcpServices,
+  request: Request,
+): Promise<boolean> {
+  try {
+    const principal = await services.resolvePrincipal(request);
+    if (
+      !principal ||
+      (principal.kind === "agent" && principal.role === "owner")
+    ) {
+      return false;
+    }
+    return (
+      (await services.hasCapability(principal, "sync.read")) ||
+      (await services.hasCapability(principal, "sync.apply"))
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Reads at most `limit` bytes. Returns null as soon as the received bytes exceed it. */
+async function readBoundedText(
+  request: Request,
+  limit: number,
+): Promise<{ text: string; bytes: number } | null> {
+  if (!request.body) return { text: "", bytes: 0 };
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      try {
+        await reader.cancel();
+      } catch {
+        // The oversized request is already refused.
+      }
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return {
+    text: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    bytes: size,
+  };
 }
 
 async function handleBannerTool(
