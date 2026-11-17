@@ -19,6 +19,8 @@ _PROFILE = {"research_profile_id", "full_name", "reviewer_notes", "roles"}
 _ROLE = {"role_claim_ids", "office_or_department", "position_title", "duties",
          "employment_start_date", "employment_end_date", "citations"}
 _CITATION = {"claim_id", "verified_on"}
+_COUNTY_IN_TITLE = re.compile(r"\bcounty\b(?:['’]s\b|\s*[-–—]\s*)?", re.IGNORECASE)
+_TITLE_CONJUNCTION = re.compile(r"\s*(?:&|\band\b)\s*")
 
 
 def _id(prefix, *parts):
@@ -173,8 +175,10 @@ def _claim_snapshot(db, claim_id, county, batch_id, research_profile_id, full_na
         raise ValueError("Every selected claim must belong to the exact reviewed county and batch")
     if row["research_profile_id"] != research_profile_id:
         raise ValueError("Every selected claim must already link to its evidence-supported research identity")
-    if row["listing_status"] != "Listed" or row["is_superseded"]:
-        raise ValueError("Superseded or non-current claims require separate review and cannot be promoted")
+    if row["is_superseded"]:
+        raise ValueError("Superseded claims require separate review")
+    if row["listing_status"] not in {"Listed", "Explicitly former"}:
+        raise ValueError("Claims with unclear listing status require separate review")
     if not row["published_name"] or row["published_name"].strip().casefold() != full_name.strip().casefold():
         raise ValueError("Reviewed Profile name does not match the selected claim")
     return row
@@ -197,19 +201,40 @@ def _has_public_citation_metadata(row):
     return bool(valid_url and len(row["source_title"].encode("utf-8")) <= 500)
 
 
+def _display_position_title(title):
+    if title is None or not _COUNTY_IN_TITLE.search(title):
+        return title
+    return " ".join(_COUNTY_IN_TITLE.sub("", title).split()).strip(" ,–—-") or None
+
+
+def _title_matches(title, observed):
+    if title == observed:
+        return True
+    reviewed = _display_position_title(title)
+    source = _display_position_title(observed)
+    if reviewed is None or source is None:
+        return False
+    return (_TITLE_CONJUNCTION.sub(" and ", reviewed.casefold())
+            == _TITLE_CONJUNCTION.sub(" and ", source.casefold()))
+
+
 def _bind_fields(role, rows):
+    title = role["position_title"]
+    if title is not None and not any(_title_matches(title, row["title"]) for row in rows):
+        raise ValueError("Reviewed position_title must match a selected research observation")
     for field, source_field in (("office_or_department", "office"),
-                                ("position_title", "title"), ("duties", "duties"),
+                                ("duties", "duties"),
                                 ("employment_start_date", "employment_start"),
                                 ("employment_end_date", "employment_end")):
         value = role[field]
         if value is not None and not any(row[source_field] == value for row in rows):
             raise ValueError(f"Reviewed {field} must exactly match a selected research observation")
     for row in rows:
-        if not any(role[field] is not None and role[field] == row[source_field]
-                   for field, source_field in (("office_or_department", "office"),
-                                               ("position_title", "title"),
-                                               ("duties", "duties"))):
+        title_supported = title is not None and _title_matches(title, row["title"])
+        details_supported = any(
+                role[field] is not None and role[field] == row[source_field]
+                for field, source_field in (("office_or_department", "office"), ("duties", "duties")))
+        if not (title_supported or details_supported):
             raise ValueError("Each selected claim must support at least one promoted role field")
 
 
@@ -231,6 +256,8 @@ def build_preview(db, plan):
     input_state = {"county_name": county_row["name"], "batch": dict(batch), "profiles": []}
     result_profiles = []
     seen_profile_ids = set()
+    cleaned_titles = {}
+    missing_cleaned_title = False
     for person in checked["profiles"]:
         research_id = person["research_profile_id"]
         identity = db.execute(
@@ -296,8 +323,12 @@ def build_preview(db, plan):
                     if prior_date != verified_on:
                         raise ValueError("Claims sharing an evidence record must use one verification date")
             _bind_fields(role, rows)
-            roles.append({"id": _id("role", profile_id, *role["role_claim_ids"]),
-                          "grouping": role, "rows": rows})
+            role_id = _id("role", profile_id, *role["role_claim_ids"])
+            display_title = _display_position_title(role["position_title"])
+            if display_title != role["position_title"]:
+                cleaned_titles[role_id] = display_title
+                missing_cleaned_title |= not any((display_title, role["office_or_department"], role["duties"]))
+            roles.append({"id": role_id, "grouping": role, "rows": rows})
         if not roles:
             raise ValueError("Profile has no eligible reviewed roles")
         evidence_items = []
@@ -328,7 +359,22 @@ def build_preview(db, plan):
         result_profiles.append({"id": profile_id, "person": person, "roles": roles,
                                 "evidence": evidence_items})
 
-    scope_hash = _fingerprint({"plan": checked, "source_state": input_state})
+    scope = {"plan": checked, "source_state": input_state}
+    scope_hash = _fingerprint(scope)
+    if cleaned_titles:
+        # Existing receipts pin the exact older output. New previews pin their cleaned titles.
+        promotion_batch_id = _id("promotion_batch", checked["county_code"], checked["batch_id"],
+                                 checked["manifest_sha256"])
+        prior_audit = db.execute(
+            "SELECT detail_json FROM research_history WHERE entity_type=? AND entity_id=? AND kind=?",
+            ("profile_promotion_batch", promotion_batch_id, "profiles_promoted"),
+        ).fetchone()
+        if prior_audit and json.loads(prior_audit["detail_json"]).get("plan_sha256") == scope_hash:
+            cleaned_titles = {}
+        else:
+            if missing_cleaned_title:
+                raise ValueError("Role needs a documented title, office or duties after omitting County")
+            scope_hash = _fingerprint({**scope, "confirmed_position_titles": cleaned_titles})
     return {"status": "previewed", "county_code": checked["county_code"],
             "county_name": county_row["name"], "batch_id": checked["batch_id"],
             "manifest_sha256": checked["manifest_sha256"], "plan_sha256": scope_hash,
@@ -338,7 +384,8 @@ def build_preview(db, plan):
             "evidence_count": sum(len(item["evidence"]) for item in result_profiles),
             "batch_selected": bool(batch["selected"]),
             "scope": "local_confirmed_profiles_only", "website_sync": "not_requested",
-            "_plan": checked, "_source_state": input_state, "_profiles": result_profiles}
+            "_plan": checked, "_source_state": input_state, "_profiles": result_profiles,
+            "_confirmed_position_titles": cleaned_titles}
 
 
 def _expected_rows(preview, now):
@@ -362,8 +409,9 @@ def _expected_rows(preview, now):
                     evidence["page_type"], evidence["verified_on"]))
         for role in profile["roles"]:
             grouping = role["grouping"]
+            title = preview["_confirmed_position_titles"].get(role["id"], grouping["position_title"])
             rows["profile_role"].append((role["id"], profile_id, plan["county_code"], None, None,
-                grouping["office_or_department"], grouping["position_title"], grouping["duties"],
+                grouping["office_or_department"], title, grouping["duties"],
                 grouping["employment_start_date"], grouping["employment_end_date"], None, None))
             for claim in role["rows"]:
                 citation_id = citations_by_evidence.get(claim["evidence_id"])
