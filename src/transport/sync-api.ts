@@ -187,7 +187,10 @@ async function handleRequest(
         input.value.request,
       );
       const safe = sanitizeCommit(result);
-      if (!safe) return json(500, { error: "internal_error" });
+      if (!safe) {
+        logFailure("commit_result_unsafe", route, result?.status);
+        return json(500, { error: "internal_error" });
+      }
       const status =
         result?.status === "committed"
           ? 200
@@ -219,9 +222,33 @@ async function handleRequest(
       return safe ? json(200, safe) : json(500, { error: "internal_error" });
     }
     return json(500, { error: "internal_error" });
-  } catch {
+  } catch (error) {
+    logFailure("operation_threw", route, error);
     return json(500, { error: "internal_error" });
   }
+}
+
+/**
+ * Operator diagnostics only: the response stays generic. Logs the operation
+ * and the error class and a bounded message, never request content or
+ * credentials. Visible through the Worker's own log stream.
+ */
+function logFailure(
+  event: string,
+  operation: SyncTransportOperation,
+  detail: unknown,
+): void {
+  const text =
+    detail instanceof Error
+      ? `${detail.name}: ${detail.message}`
+      : String(detail ?? "");
+  console.error(
+    JSON.stringify({
+      event: `sync_${event}`,
+      operation,
+      detail: text.slice(0, 300),
+    }),
+  );
 }
 
 function routeFor(path: string): SyncTransportOperation | null {
