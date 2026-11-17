@@ -45,11 +45,11 @@ test("model: cosmetic variants are accepted without changing meaning", () => {
 test("model: syntax it cannot represent stays source-only", () => {
   for (const source of [
     "```\ncode\n```",
-    "text\n\n---\n\nmore",
     "- a\n  - nested",
     "> one\n>\n> two",
     "Line one  \nLine two",
-    "![alt](https://example.invalid/i.png)",
+    "Text ![alt](https://example.invalid/i.png) inline",
+    "![a](x(y).png)",
     "[bad](javascript:alert(1))",
     "##### Deep heading",
     "3. starts at three\n4. next",

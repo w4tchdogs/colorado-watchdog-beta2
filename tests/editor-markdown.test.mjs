@@ -63,9 +63,19 @@ test("raw HTML and scripts are shown as text and never become elements", () => {
 });
 
 test("images and media are omitted rather than loaded", () => {
-  const out = render("![alt text](https://example.invalid/x.png)");
+  const inline = render("Text ![alt text](https://example.invalid/x.png) more");
+  assert.equal(inline.querySelector("img"), null);
+  assert.match(inline.textContent ?? "", /image omitted/);
+});
+
+test("a standalone image becomes a placeholder with alt text and caption", () => {
+  const out = render(
+    '![A river](https://example.invalid/x.png "Looking north")',
+  );
   assert.equal(out.querySelector("img"), null);
-  assert.match(out.textContent ?? "", /image omitted/);
+  assert.equal(out.querySelector("figure.image-placeholder") !== null, true);
+  assert.match(out.textContent ?? "", /Alt text: A river/);
+  assert.equal(out.querySelector("figcaption")?.textContent, "Looking north");
 });
 
 test("unsafe link targets are rejected and render as plain text", () => {

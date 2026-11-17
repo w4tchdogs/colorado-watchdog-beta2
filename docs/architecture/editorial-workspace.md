@@ -50,6 +50,26 @@ Saves still send the expected version through the same content service, permissi
 
 `tests/editor-visual.test.mjs` covers the block model, round-trip rules, escaping, mode switches, unchanged bodies after unrelated saves, source-only drafts, paste, block operations, undo and redo, preview and the settings panel. Browser checks covered keyboard writing, formatting, links, block moves, undo, save, reload, the two-tab conflict, an existing Markdown draft and a 375 px width in Chromium on Windows.
 
+## Block editor additions (EDIT-4 PR 1)
+
+EDIT-4 PR 1 extends the EDIT-3 canvas. It adds a divider block, image placeholders with alt text and captions, Duplicate (toolbar button, sidebar button and `Ctrl+Shift+D`), a heading outline in the sidebar, a Block panel in the sidebar for the selected block, a `Revision history` button in the top bar that opens and focuses the revision panel, and a Desktop and Narrow width switch in Preview.
+
+### Supported blocks
+
+Paragraph, heading levels 1 to 4, quote, bulleted list item, numbered list item, divider and image placeholder. Inline: bold, italic, links and inline code. Dividers and images are focusable blocks. `Enter` adds a paragraph after them and `Backspace` or `Delete` removes them. `Alt+Up` and `Alt+Down` move any block.
+
+### Image placeholders
+
+An image block stores a Markdown image that is the only content of its paragraph, for example `![Alt text](image-placeholder "Caption")`. The alt text and caption are edited in the block and survive save and reload. No image is loaded, uploaded or fetched, and nothing in this slice uses the media path. The editor preview shows a labeled placeholder with the alt text and caption. The public article renderer is unchanged in effect and still prints `[image omitted: alt text]`. An image with a real address (legacy media) opens as an image block, keeps its address and is still never loaded. Real images and tables wait for an authorized media path and a table syntax that works through storage, editing and preview.
+
+### Markdown fallback cases
+
+A draft opens in Source view, with the reason shown and its text untouched, when it contains: nested list items or list items with several blocks, fenced code blocks, quotes with several blocks, hard line breaks, images mixed into other text, links the safe renderer would drop, an image address with spaces or parentheses, headings below level 4 and numbered lists that do not start at 1. These open visually and keep their text: inline code, HTML comments and legacy shortcodes (they appear as literal text exactly as the safe renderer shows them) and pipe tables (shown as the same literal text, since the renderer has no table support). Opening a draft, toggling modes and saving metadata alone never change the saved body, and `tests/editor-blocks.test.mjs` checks this byte for byte for each of these cases.
+
+### Editor engine decision
+
+Tiptap 3 (`@tiptap/core`, `starter-kit` and `markdown`) was evaluated in a scratch project before committing to an adapter. A minified browser bundle of those three packages is about 457 KB (144 KB gzipped), and the editor modules are served without a bundler today, so adopting it would add a bundling step to the sandbox and the hosted build. Its Markdown output was byte-identical for only 3 of 14 representative drafts. It added trailing blank lines, rewrote `*` bullets, `__bold__`, setext headings, reference links and escapes, and it dropped HTML comments, raw HTML, legacy media syntax and tables. Faithful round trips are a hard requirement, so the workspace keeps its dependency-free block model and its lossless round-trip gate, and Tiptap is not adopted. Revisit it only with a Markdown adapter that preserves unknown constructs.
+
 ## Safe Markdown preview
 
 The preview is built with a small dependency-free parser and DOM node creation. It never assigns `innerHTML` and has no HTML pass-through. Supported: headings, paragraphs, bold, italic, ordered and unordered lists, blockquotes, links, inline and fenced code, rules and line breaks. Raw HTML, including scripts and iframes, appears as literal text. Images and embeds are replaced by an `[image omitted]` note. A link survives only for an absolute `http`, `https` or `mailto` address without whitespace, control characters or embedded credentials. Everything else shows the link text plus a short note. Input size and nesting are bounded.

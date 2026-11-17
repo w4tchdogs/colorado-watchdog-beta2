@@ -10,6 +10,7 @@ import { clear, el } from "./dom.js";
 import { safeLinkTarget } from "./markdown.js";
 import {
   cloneBlocks,
+  IMAGE_PLACEHOLDER_SRC,
   isEmptyText,
   KIND_LABELS,
   normalizeBlockText,
@@ -40,6 +41,11 @@ export interface Canvas {
   readonly tools: HTMLElement;
   /** The inline link form, shown under the top bar when open. */
   readonly linkForm: HTMLElement;
+  /** Sidebar controls for the selected block. */
+  readonly blockPanel: HTMLElement;
+  /** Headings in document order, for the outline. */
+  getOutline(): OutlineEntry[];
+  focusBlock(index: number): void;
   setBlocks(blocks: readonly VBlock[]): void;
   setReadOnly(value: boolean): void;
   focus(): void;
@@ -48,7 +54,40 @@ export interface Canvas {
   destroy(): void;
 }
 
-const INSERTABLE: readonly VKind[] = ["p", "h2", "h3", "ul", "ol", "quote"];
+const INSERTABLE: readonly VKind[] = [
+  "p",
+  "h2",
+  "h3",
+  "ul",
+  "ol",
+  "quote",
+  "hr",
+  "image",
+];
+const TEXT_KINDS: readonly VKind[] = [
+  "p",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "quote",
+  "ul",
+  "ol",
+];
+const isTextKind = (kind: VKind) => TEXT_KINDS.includes(kind);
+
+export interface OutlineEntry {
+  readonly index: number;
+  readonly level: number;
+  readonly text: string;
+}
+
+const plain = (nodes: readonly VInline[]): string =>
+  nodes
+    .map((node) =>
+      node.t === "text" || node.t === "code" ? node.v : plain(node.c),
+    )
+    .join("");
 const HISTORY_LIMIT = 200;
 
 // ------------------------------------------------------- DOM <-> inline
@@ -197,6 +236,11 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
   const upButton = button("Move block up (Alt+Up)", "Up", "vtool-text");
   const downButton = button("Move block down (Alt+Down)", "Down", "vtool-text");
   const removeButton = button("Remove block", "Remove", "vtool-text");
+  const duplicateButton = button(
+    "Duplicate block (Ctrl+Shift+D)",
+    "Duplicate",
+    "vtool-text",
+  );
   const boldButton = button("Bold (Ctrl+B)", "B", "vtool-bold");
   const italicButton = button("Italic (Ctrl+I)", "I", "vtool-italic");
   const linkButton = button("Link (Ctrl+K)", "Link", "vtool-text");
@@ -204,7 +248,7 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
     class: "vtool vtool-select",
     "aria-label": "Block type",
   });
-  for (const kind of Object.keys(KIND_LABELS) as VKind[]) {
+  for (const kind of TEXT_KINDS) {
     kindSelect.appendChild(h("option", { value: kind }, KIND_LABELS[kind]));
   }
   const menu = h("div", {
@@ -236,6 +280,7 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
     kindSelect,
     upButton,
     downButton,
+    duplicateButton,
     removeButton,
     h("span", { class: "vtool-gap", "aria-hidden": "true" }),
     boldButton,
@@ -243,6 +288,36 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
     linkButton,
   );
   tools.removeAttribute("aria-controls");
+
+  const panelLabel = h("p", {
+    class: "help",
+    id: `${options.idPrefix}-block-sel`,
+  });
+  const panelButton = (label: string) =>
+    h("button", { type: "button", class: "vtool-text" }, label);
+  const panelUp = panelButton("Move up");
+  const panelDown = panelButton("Move down");
+  const panelDuplicate = panelButton("Duplicate");
+  const panelRemove = panelButton("Remove");
+  const blockPanel = h(
+    "section",
+    { class: "panel", "aria-labelledby": `${options.idPrefix}-block-h` },
+    h("h3", { id: `${options.idPrefix}-block-h` }, "Block"),
+    panelLabel,
+    h(
+      "div",
+      { class: "actions" },
+      panelUp,
+      panelDown,
+      panelDuplicate,
+      panelRemove,
+    ),
+    h(
+      "p",
+      { class: "help" },
+      "Change the block type with the Block type list in the toolbar. Images are placeholders only. Add alt text and a caption in the block.",
+    ),
+  );
 
   const linkInput = h("input", {
     type: "text",
@@ -340,7 +415,25 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
     upButton.disabled = lock || current <= 0;
     downButton.disabled = lock || current >= blocks.length - 1;
     removeButton.disabled = lock;
-    kindSelect.value = blocks[current]?.kind ?? "p";
+    duplicateButton.disabled = lock;
+    const here = blocks[current];
+    const text = here ? isTextKind(here.kind) : true;
+    kindSelect.disabled = lock || !text;
+    boldButton.disabled = lock || !text;
+    italicButton.disabled = lock || !text;
+    linkButton.disabled = lock || !text;
+    kindSelect.value = text ? (here?.kind ?? "p") : "p";
+    panelLabel.textContent = here
+      ? `Selected: ${KIND_LABELS[here.kind]} ${current + 1} of ${blocks.length}`
+      : "No block selected";
+    for (const [control, source] of [
+      [panelUp, upButton],
+      [panelDown, downButton],
+      [panelDuplicate, duplicateButton],
+      [panelRemove, removeButton],
+    ] as const) {
+      control.disabled = source.disabled;
+    }
   }
 
   // ------------------------------------------------------------- rendering
@@ -353,19 +446,36 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
       listNumber =
         block.kind === "ol" && previous?.kind === "ol" ? listNumber + 1 : 1;
       const label = `${KIND_LABELS[block.kind]} ${index + 1} of ${blocks.length}`;
-      const editable = h("div", {
-        class: "vtext",
-        role: "textbox",
-        "aria-multiline": "true",
-        "aria-label": label,
-        "aria-readonly": readOnly ? "true" : null,
-        contenteditable: readOnly ? "false" : "true",
-        spellcheck: "true",
-        "data-placeholder":
-          block.kind === "p" ? "Write, or press + Block to add more." : label,
-      });
-      inlineToDom(doc, normalizeBlockText(block.text), editable);
-      wire(editable, index);
+      let editable: HTMLElement;
+      if (block.kind === "hr") {
+        editable = h(
+          "div",
+          {
+            class: "vdivider",
+            role: "separator",
+            tabindex: "0",
+            "aria-label": label,
+          },
+          h("hr"),
+        );
+        wireStatic(editable, index);
+      } else if (block.kind === "image") {
+        editable = buildImage(block, index, label);
+      } else {
+        editable = h("div", {
+          class: "vtext",
+          role: "textbox",
+          "aria-multiline": "true",
+          "aria-label": label,
+          "aria-readonly": readOnly ? "true" : null,
+          contenteditable: readOnly ? "false" : "true",
+          spellcheck: "true",
+          "data-placeholder":
+            block.kind === "p" ? "Write, or press + Block to add more." : label,
+        });
+        inlineToDom(doc, normalizeBlockText(block.text), editable);
+        wire(editable, index);
+      }
       editables.push(editable);
       column.appendChild(
         h(
@@ -392,7 +502,10 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
         editables[Math.max(0, Math.min(focusIndex, editables.length - 1))];
       if (target) {
         target.focus();
-        if (offset !== null) setCaret(doc, target, offset);
+        const focused = blocks[editables.indexOf(target)];
+        if (offset !== null && focused && isTextKind(focused.kind)) {
+          setCaret(doc, target, offset);
+        }
         current = editables.indexOf(target);
       }
     }
@@ -402,7 +515,7 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
   function syncBlock(index: number): void {
     const element = editables[index];
     const block = blocks[index];
-    if (!element || !block) return;
+    if (!element || !block || !isTextKind(block.kind)) return;
     block.text = domToInline(element);
     if (!(element.textContent ?? "").length && element.firstChild) {
       clear(element);
@@ -410,12 +523,79 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
   }
 
   // ------------------------------------------------------------ operations
+  function buildImage(
+    block: VBlock,
+    index: number,
+    label: string,
+  ): HTMLElement {
+    const altInput = h("input", {
+      type: "text",
+      id: `${options.idPrefix}-alt-${index}`,
+      value: block.alt ?? "",
+      maxlength: 300,
+      autocomplete: "off",
+    });
+    const captionInput = h("input", {
+      type: "text",
+      id: `${options.idPrefix}-cap-${index}`,
+      value: block.caption ?? "",
+      maxlength: 300,
+      autocomplete: "off",
+    });
+    altInput.readOnly = readOnly;
+    captionInput.readOnly = readOnly;
+    const root = h(
+      "div",
+      { class: "vimage", role: "group", tabindex: "0", "aria-label": label },
+      h(
+        "div",
+        { class: "vimage-box" },
+        "Image placeholder. No image is loaded or stored.",
+      ),
+      h("label", { for: altInput.id }, "Alt text (describe the image)"),
+      altInput,
+      h("label", { for: captionInput.id }, "Caption (optional)"),
+      captionInput,
+    );
+    const onInput = () => {
+      const target = blocks[index];
+      if (!target) return;
+      target.alt = altInput.value;
+      target.caption = captionInput.value;
+      emit();
+      scheduleCheckpoint();
+    };
+    altInput.addEventListener("input", onInput);
+    captionInput.addEventListener("input", onInput);
+    wireStatic(root, index);
+    return root;
+  }
+
+  function duplicateBlock(): void {
+    const block = blocks[current];
+    if (readOnly || !block) return;
+    syncBlock(current);
+    checkpoint();
+    const copy = JSON.parse(JSON.stringify(block)) as VBlock;
+    blocks.splice(current + 1, 0, copy);
+    renderAll(current + 1, 0);
+    emit();
+    checkpoint();
+    options.onNotice("info", `${KIND_LABELS[block.kind]} duplicated.`);
+  }
+
   function insertBlock(kind: VKind, after: number | null): void {
     if (readOnly) return;
     checkpoint();
     const at = after === null ? blocks.length - 1 : after;
     const here = blocks[at];
-    if (here && here.kind === "p" && isEmptyText(here.text) && kind !== "p") {
+    if (
+      here &&
+      here.kind === "p" &&
+      isEmptyText(here.text) &&
+      kind !== "p" &&
+      isTextKind(kind)
+    ) {
       here.kind = kind;
       renderAll(at, 0);
     } else if (
@@ -426,7 +606,13 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
     ) {
       renderAll(at, 0);
     } else {
-      blocks.splice(at + 1, 0, { kind, text: [] });
+      blocks.splice(
+        at + 1,
+        0,
+        kind === "image"
+          ? { kind, text: [], alt: "", src: IMAGE_PLACEHOLDER_SRC, caption: "" }
+          : { kind, text: [] },
+      );
       renderAll(at + 1, 0);
     }
     emit();
@@ -678,6 +864,50 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
     }
   });
 
+  function wireStatic(element: HTMLElement, index: number): void {
+    element.addEventListener("focusin", () => {
+      current = index;
+      updateTools();
+    });
+    element.addEventListener("keydown", (raw) => {
+      const event = raw as KeyboardEvent;
+      const mod = event.ctrlKey || event.metaKey;
+      const key = event.key;
+      if (mod && !event.altKey && key.toLowerCase() === "z") {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+      } else if (mod && !event.altKey && key.toLowerCase() === "y") {
+        event.preventDefault();
+        redo();
+      } else if (mod && event.shiftKey && key.toLowerCase() === "d") {
+        event.preventDefault();
+        duplicateBlock();
+      } else if (
+        event.altKey &&
+        !mod &&
+        (key === "ArrowUp" || key === "ArrowDown")
+      ) {
+        event.preventDefault();
+        moveBlock(key === "ArrowUp" ? -1 : 1);
+      } else if (event.target === element && !readOnly) {
+        if (key === "Enter") {
+          event.preventDefault();
+          insertBlock("p", index);
+        } else if (key === "Backspace" || key === "Delete") {
+          event.preventDefault();
+          removeBlock();
+        } else if (key === "ArrowUp" && index > 0) {
+          event.preventDefault();
+          editables[index - 1]?.focus();
+        } else if (key === "ArrowDown" && index < editables.length - 1) {
+          event.preventDefault();
+          editables[index + 1]?.focus();
+        }
+      }
+    });
+  }
+
   // ---------------------------------------------------------- block events
   function wire(element: HTMLElement, index: number): void {
     element.addEventListener("focus", () => {
@@ -731,6 +961,11 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
       if (mod && !event.altKey && key.toLowerCase() === "y") {
         event.preventDefault();
         redo();
+        return;
+      }
+      if (mod && event.shiftKey && !event.altKey && key.toLowerCase() === "d") {
+        event.preventDefault();
+        duplicateBlock();
         return;
       }
       if (mod && !event.altKey && key.toLowerCase() === "k") {
@@ -799,6 +1034,11 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
   upButton.addEventListener("click", () => moveBlock(-1));
   downButton.addEventListener("click", () => moveBlock(1));
   removeButton.addEventListener("click", removeBlock);
+  duplicateButton.addEventListener("click", duplicateBlock);
+  panelUp.addEventListener("click", () => moveBlock(-1));
+  panelDown.addEventListener("click", () => moveBlock(1));
+  panelDuplicate.addEventListener("click", duplicateBlock);
+  panelRemove.addEventListener("click", removeBlock);
   boldButton.addEventListener("click", () => format("bold"));
   italicButton.addEventListener("click", () => format("italic"));
   linkButton.addEventListener("click", openLink);
@@ -897,6 +1137,28 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
     element,
     tools,
     linkForm,
+    blockPanel,
+    getOutline() {
+      return blocks.flatMap((block, index) =>
+        /^h[1-4]$/.test(block.kind)
+          ? [
+              {
+                index,
+                level: Number(block.kind[1]),
+                text: plain(normalizeBlockText(block.text)),
+              },
+            ]
+          : [],
+      );
+    },
+    focusBlock(index) {
+      const target = editables[index];
+      if (!target) return;
+      target.focus();
+      current = index;
+      updateTools();
+      target.scrollIntoView?.({ block: "center" });
+    },
     setBlocks(next) {
       if (timer) clearTimeout(timer);
       timer = undefined;

@@ -16,7 +16,17 @@ import {
   safeLinkTarget,
 } from "./markdown.js";
 
-export type VKind = "p" | "h1" | "h2" | "h3" | "h4" | "quote" | "ul" | "ol";
+export type VKind =
+  | "p"
+  | "h1"
+  | "h2"
+  | "h3"
+  | "h4"
+  | "quote"
+  | "ul"
+  | "ol"
+  | "hr"
+  | "image";
 export type VInline =
   | { readonly t: "text"; readonly v: string }
   | { readonly t: "code"; readonly v: string }
@@ -31,7 +41,13 @@ export type VInline =
 export interface VBlock {
   kind: VKind;
   text: VInline[];
+  /** Image placeholder fields. The image is never loaded. */
+  alt?: string;
+  src?: string;
+  caption?: string;
 }
+
+export const IMAGE_PLACEHOLDER_SRC = "image-placeholder";
 
 export type VisualResult =
   | { readonly ok: true; readonly blocks: VBlock[] }
@@ -46,6 +62,8 @@ export const KIND_LABELS: Readonly<Record<VKind, string>> = {
   quote: "Quote",
   ul: "Bulleted list item",
   ol: "Numbered list item",
+  hr: "Divider",
+  image: "Image placeholder",
 };
 
 class Unsupported extends Error {}
@@ -250,6 +268,15 @@ function guardLineStart(text: string): string {
 
 // ----------------------------------------------------------------- blocks
 
+const oneLine = (value: string) => value.replace(/\s+/g, " ").trim();
+
+function figureToMarkdown(block: VBlock): string {
+  const alt = oneLine(block.alt ?? "").replace(/([\\[\]])/g, "\\$1");
+  const src = block.src || IMAGE_PLACEHOLDER_SRC;
+  const caption = oneLine(block.caption ?? "").replace(/(["\\])/g, "\\$1");
+  return `![${alt}](${src}${caption ? ` "${caption}"` : ""})`;
+}
+
 export function serializeBlocks(blocks: readonly VBlock[]): string {
   const parts: string[] = [];
   let run: { kind: "ul" | "ol"; lines: string[] } | null = null;
@@ -258,6 +285,16 @@ export function serializeBlocks(blocks: readonly VBlock[]): string {
     run = null;
   };
   for (const block of blocks) {
+    if (block.kind === "hr") {
+      flush();
+      parts.push("---");
+      continue;
+    }
+    if (block.kind === "image") {
+      flush();
+      parts.push(figureToMarkdown(block));
+      continue;
+    }
     const text = normalizeBlockText(block.text);
     if (text.length === 0) continue;
     const md = inlineToMarkdown(text);
@@ -324,7 +361,19 @@ function fromTree(tree: readonly Block[]): VBlock[] {
         fail("a code block");
         break;
       case "hr":
-        fail("a horizontal rule");
+        out.push({ kind: "hr", text: [] });
+        break;
+      case "figure":
+        if (!/^[^\s()<>]+$/.test(block.src)) {
+          fail("an image address with unsupported characters");
+        }
+        out.push({
+          kind: "image",
+          text: [],
+          alt: oneLine(block.alt),
+          src: block.src,
+          caption: oneLine(block.caption),
+        });
         break;
     }
   }
@@ -334,8 +383,20 @@ function fromTree(tree: readonly Block[]): VBlock[] {
 const canonical = (blocks: readonly VBlock[]): string =>
   JSON.stringify(
     blocks
-      .map((block) => ({ k: block.kind, t: normalizeBlockText(block.text) }))
-      .filter((block) => block.t.length > 0),
+      .map((block) => ({
+        k: block.kind,
+        t: normalizeBlockText(block.text),
+        a: block.kind === "image" ? oneLine(block.alt ?? "") : undefined,
+        s:
+          block.kind === "image"
+            ? block.src || IMAGE_PLACEHOLDER_SRC
+            : undefined,
+        c: block.kind === "image" ? oneLine(block.caption ?? "") : undefined,
+      }))
+      .filter(
+        (block) =>
+          block.k === "hr" || block.k === "image" || block.t.length > 0,
+      ),
   );
 
 function* walk(nodes: readonly VInline[]): Generator<VInline> {
@@ -388,4 +449,11 @@ export const cloneBlocks = (blocks: readonly VBlock[]): VBlock[] =>
   blocks.map((block) => ({
     kind: block.kind,
     text: normalizeBlockText(block.text),
+    ...(block.kind === "image"
+      ? {
+          alt: block.alt ?? "",
+          src: block.src || IMAGE_PLACEHOLDER_SRC,
+          caption: block.caption ?? "",
+        }
+      : {}),
   }));

@@ -28,7 +28,14 @@ export type Block =
       readonly start: number;
       readonly items: readonly (readonly Block[])[];
     }
-  | { readonly t: "hr" };
+  | { readonly t: "hr" }
+  | {
+      /** A paragraph that is only one image. Never loaded, shown as a placeholder. */
+      readonly t: "figure";
+      readonly alt: string;
+      readonly src: string;
+      readonly caption: string;
+    };
 
 export const MAX_BLOCK_DEPTH = 6;
 export const MAX_INLINE_DEPTH = 8;
@@ -237,6 +244,11 @@ function parseBlocks(lines: readonly string[], depth: number): Block[] {
       index += 1;
     }
     const text = paragraph.map((entry) => entry.trimStart()).join("\n");
+    const figure = readFigure(text);
+    if (figure) {
+      blocks.push(figure);
+      continue;
+    }
     blocks.push({
       t: "paragraph",
       c:
@@ -426,7 +438,22 @@ function findEmphasisClose(
 interface LinkParse {
   readonly text: string;
   readonly target: string;
+  readonly title: string;
   readonly end: number;
+}
+
+/** A paragraph made only of one image becomes a figure placeholder. */
+function readFigure(text: string): Block | null {
+  const trimmed = text.trimEnd();
+  if (!trimmed.startsWith("![") || trimmed.includes("\n")) return null;
+  const link = readLink(trimmed, 1);
+  if (!link || link.end !== trimmed.length || link.target === "") return null;
+  return {
+    t: "figure",
+    alt: link.text.replace(/\\([\\[\]])/g, "$1"),
+    src: link.target,
+    caption: link.title,
+  };
 }
 
 function readLink(source: string, open: number): LinkParse | null {
@@ -474,7 +501,10 @@ function readLink(source: string, open: number): LinkParse | null {
   }
   const inside = source.slice(close + 2, end).trim();
   const target = inside.split(/[ \t]/, 1)[0] ?? "";
+  const rest = inside.slice(target.length).trim();
+  const quoted = /^"((?:[^"\\]|\\.)*)"$/.exec(rest);
   return {
+    title: quoted ? (quoted[1] as string).replace(/\\(["\\])/g, "$1") : "",
     text: source.slice(open + 1, close),
     target:
       target.startsWith("<") && target.endsWith(">")

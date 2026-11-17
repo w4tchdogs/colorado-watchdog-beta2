@@ -194,6 +194,11 @@ const STATIC_FILES: Readonly<
     file: "relationship-format.js",
     type: "text/javascript; charset=utf-8",
   },
+  "/app/writer-chrome.js": {
+    directory: "script",
+    file: "writer-chrome.js",
+    type: "text/javascript; charset=utf-8",
+  },
   "/app/visual-model.js": {
     directory: "script",
     file: "visual-model.js",
