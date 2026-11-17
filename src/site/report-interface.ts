@@ -23,6 +23,12 @@ export interface ReportTrackingProjection {
 export interface ReportSubmitContext {
   /** Single-use challenge token. Present only when the host runs a challenge. */
   readonly challengeToken?: string;
+  /**
+   * The account this form was rendered for. A comparison value only: the host
+   * sends it outside the report body and the server derives the stored account
+   * from the live session.
+   */
+  readonly accountExpectation?: string;
 }
 
 /**
@@ -47,6 +53,9 @@ export interface ReportChallenge {
 
 /** Thrown by an adapter when the server refused the challenge token. */
 export class ReportChallengeRejectedError extends Error {}
+
+/** Thrown by an adapter when the session is gone or belongs to another account. */
+export class ReportAccountChangedError extends Error {}
 
 /** Host integration boundary. The host binds the authenticated actor server-side. */
 export interface ReportUiAdapter {
@@ -79,7 +88,15 @@ export interface ReportInterfaceOptions {
    * unavailable instead. Track a Report remains available either way.
    */
   readonly submissionsEnabled?: boolean;
+  /** The public report page presents the same form as a three-step workflow. */
+  readonly submissionFlow?: "guest" | "account";
+  readonly submitHref?: string;
   readonly trackingHref?: string;
+  /** Where an account form sends a reporter whose session ended or changed. */
+  readonly accountRecovery?: {
+    readonly signInHref: string;
+    readonly reloadHref: string;
+  };
   /** Optional human check. Without it the form behaves exactly as before. */
   readonly challenge?: ReportChallenge;
   readonly createIdempotencyKey?: () => string;
@@ -272,9 +289,14 @@ export function mountReportInterface(
   const document = root.ownerDocument;
   const window = document.defaultView;
   const submissionsEnabled = options.submissionsEnabled !== false;
+  const workflow = options.submissionFlow;
   /** Reassigned when submission is enabled; stays a no-op otherwise. */
   let clearRecoveryDisclosure: () => void = () => {};
-  const section = node(document, "section", "report-interface");
+  const section = node(
+    document,
+    "section",
+    workflow ? "report-interface report-workflow" : "report-interface",
+  );
   section.setAttribute("aria-label", "Private report submission and tracking");
 
   if (options.demoNotice) {
@@ -289,10 +311,10 @@ export function mountReportInterface(
   const tabs = node(document, "nav", "report-tabs");
   tabs.setAttribute("aria-label", "Report services");
   const submitTab = node(document, "a");
-  submitTab.href = "#report-submit";
+  submitTab.href = options.submitHref ?? "#report-submit";
   submitTab.textContent = "Submit a Report";
   const trackTab = node(document, "a");
-  trackTab.href = "#report-track";
+  trackTab.href = options.trackingHref ?? "#report-track";
   trackTab.textContent = "Track a Report";
   tabs.append(submitTab, trackTab);
 
@@ -305,10 +327,19 @@ export function mountReportInterface(
 
   const submitHeading = node(document, "h1", "report-heading");
   submitHeading.id = "report-submit-heading";
-  submitHeading.textContent = "Submit a Report";
+  submitHeading.textContent =
+    workflow === "guest"
+      ? "Submit as a guest"
+      : workflow === "account"
+        ? "Submit using an account"
+        : "Submit a Report";
   const submitIntro = node(document, "p", "report-intro");
   submitIntro.textContent =
-    "Share a concern or incident for private review. A submission is an allegation, not a verified finding, and is never published automatically.";
+    workflow === "guest"
+      ? "No account, legal name or contact email is required. Keep your reference and recovery key to track your report. If you are signed in, your account may still be linked privately to the submission."
+      : workflow === "account"
+        ? "Send a report for private editorial review using your linked account. Keep your reference and recovery key to track the report."
+        : "Share a concern or incident for private review. A submission is an allegation, not a verified finding, and is never published automatically.";
 
   if (submissionsEnabled) {
     const errorSummary = node(document, "div", "report-error-summary");
@@ -323,13 +354,16 @@ export function mountReportInterface(
     const form = node(document, "form", "report-form");
     form.noValidate = true;
     const formStatus = node(document, "p", "report-status");
+    formStatus.tabIndex = -1;
     formStatus.setAttribute("role", "status");
     formStatus.setAttribute("aria-live", "polite");
 
     const countyField = node(document, "div", "report-field");
     const countyLabel = node(document, "label");
     countyLabel.htmlFor = "report-county";
-    countyLabel.textContent = "Colorado county ";
+    countyLabel.textContent = workflow
+      ? "County at the event "
+      : "Colorado county ";
     countyLabel.append(requiredHint(document, "report-county"));
     const countySelect = node(document, "select");
     countySelect.id = "report-county";
@@ -371,7 +405,7 @@ export function mountReportInterface(
     subjectKind.append(noSubject, personSubject, organizationSubject);
     const subjectKindLabel = node(document, "label");
     subjectKindLabel.htmlFor = subjectKind.id;
-    subjectKindLabel.textContent = "Reference type";
+    subjectKindLabel.textContent = workflow ? "Subject type" : "Reference type";
     const subjectIdLabel = node(document, "label");
     subjectIdLabel.htmlFor = "report-subject-id";
     subjectIdLabel.textContent = "Directory record ID";
@@ -405,7 +439,9 @@ export function mountReportInterface(
     const descriptionField = node(document, "div", "report-field");
     const descriptionLabel = node(document, "label");
     descriptionLabel.htmlFor = "report-description";
-    descriptionLabel.textContent = "Description of the concern or incident ";
+    descriptionLabel.textContent = workflow
+      ? "Grievance details "
+      : "Description of the concern or incident ";
     descriptionLabel.append(requiredHint(document, "report-description"));
     const description = node(document, "textarea");
     description.id = "report-description";
@@ -419,15 +455,20 @@ export function mountReportInterface(
     descriptionHint.id = "report-description-hint";
     descriptionHint.textContent =
       "20 to 12,000 characters. Include only information relevant to review.";
-    descriptionLabel.append(descriptionHint);
     const descriptionError = fieldError(document, description.id);
     connectError(description, descriptionHint, descriptionError);
-    descriptionField.append(descriptionLabel, description, descriptionError);
+    descriptionField.append(
+      descriptionLabel,
+      descriptionHint,
+      description,
+      descriptionError,
+    );
 
     const evidenceField = node(document, "fieldset", "report-field");
     const evidenceLegend = node(document, "legend");
-    evidenceLegend.textContent =
-      "Supporting source URLs and evidence descriptions (optional)";
+    evidenceLegend.textContent = workflow
+      ? "Supporting sources · optional"
+      : "Supporting source URLs and evidence descriptions (optional)";
     const evidenceList = node(document, "div", "report-evidence-list");
     const addEvidence = button(
       document,
@@ -529,11 +570,16 @@ export function mountReportInterface(
     const attributionGroup = node(document, "div", "report-radio-group");
     const anonymousLabel = node(document, "label", "report-radio-label");
     const anonymous = node(document, "input");
-    anonymous.type = "radio";
+    anonymous.type = workflow === "guest" ? "checkbox" : "radio";
     anonymous.name = "attribution";
     anonymous.value = "anonymous";
     anonymous.checked = true;
-    anonymousLabel.append(anonymous, document.createTextNode(" Anonymous"));
+    anonymousLabel.append(
+      anonymous,
+      document.createTextNode(
+        workflow ? " Send without my name" : " Anonymous",
+      ),
+    );
     const signedLabel = node(document, "label", "report-radio-label");
     const signed = node(document, "input");
     signed.type = "radio";
@@ -548,7 +594,8 @@ export function mountReportInterface(
           : " Signed-in reporting (sign in to use this option)",
       ),
     );
-    attributionGroup.append(anonymousLabel, signedLabel);
+    attributionGroup.append(anonymousLabel);
+    if (workflow !== "guest") attributionGroup.append(signedLabel);
     signed.addEventListener("change", () => {
       if (!signed.checked || !options.account) return;
       if (!nameInput.value && options.account.name) {
@@ -563,7 +610,10 @@ export function mountReportInterface(
 
     const nameLabel = node(document, "label");
     nameLabel.htmlFor = "reporter-name";
-    nameLabel.textContent = "Name (optional unless reporting signed in)";
+    nameLabel.textContent =
+      workflow === "guest"
+        ? "Name shared privately with reviewers · optional"
+        : "Name (optional unless reporting signed in)";
     const nameInput = node(document, "input");
     nameInput.id = nameLabel.htmlFor;
     nameInput.name = "reporterName";
@@ -572,10 +622,27 @@ export function mountReportInterface(
     nameInput.autocomplete = "name";
     const nameError = fieldError(document, nameInput.id);
     connectError(nameInput, null, nameError);
+    const nameHint = node(document, "p", "report-field-hint");
+    nameHint.id = "reporter-name-hint";
+    nameHint.textContent = workflow
+      ? "Only the review team sees a name. Leave “Send without my name” selected to send none."
+      : "Only the review team sees a name. It is never published automatically.";
+    nameInput.setAttribute("aria-describedby", nameHint.id);
+    if (workflow) {
+      const updateNamePreference = () => {
+        nameInput.disabled = anonymous.checked;
+        nameInput.required = signed.checked;
+      };
+      anonymous.addEventListener("change", updateNamePreference);
+      signed.addEventListener("change", updateNamePreference);
+      updateNamePreference();
+    }
 
     const emailLabel = node(document, "label");
     emailLabel.htmlFor = "reporter-email";
-    emailLabel.textContent = "Email (optional)";
+    emailLabel.textContent = workflow
+      ? "Contact email · optional"
+      : "Email (optional)";
     const emailInput = node(document, "input");
     emailInput.id = emailLabel.htmlFor;
     emailInput.name = "reporterEmail";
@@ -603,7 +670,7 @@ export function mountReportInterface(
 
     const confidentiality = node(document, "p", "report-confidentiality");
     confidentiality.textContent =
-      "Reports are private and reviewed before any possible publication. No submission is published automatically. Do not include information you are not authorized to share.";
+      "Reports are reviewed privately before any possible publication. A name or email you provide goes to the review team. No submission is published automatically.";
     const signedInRequired = node(document, "p", "report-field-hint");
     signedInRequired.textContent =
       "Signed-in reporting uses the authenticated account provided by this site; it does not sign you in here.";
@@ -612,6 +679,7 @@ export function mountReportInterface(
       attributionGroup,
       attributionError,
       nameLabel,
+      nameHint,
       nameInput,
       nameError,
       emailLabel,
@@ -621,9 +689,22 @@ export function mountReportInterface(
       contactPreference,
       contactError,
       confidentiality,
-      signedInRequired,
+      ...(workflow ? [] : [signedInRequired]),
     );
 
+    const accountRecovery = node(document, "p", "report-field-hint");
+    accountRecovery.setAttribute("role", "group");
+    accountRecovery.setAttribute("aria-label", "Account session options");
+    accountRecovery.hidden = true;
+    const signInAgain = node(document, "a");
+    signInAgain.textContent = "Sign in again";
+    const reloadForm = node(document, "a");
+    reloadForm.textContent = "Reload the form";
+    accountRecovery.append(
+      signInAgain,
+      document.createTextNode(" · "),
+      reloadForm,
+    );
     const challengeNotice = node(document, "p", "report-field-hint");
     const challengeBox = node(document, "div", "report-challenge");
     challengeBox.hidden = true;
@@ -637,18 +718,176 @@ export function mountReportInterface(
     const noUploads = node(document, "p", "report-field-hint");
     noUploads.textContent =
       "File uploads are not available. Add source URLs and descriptions instead.";
-    form.append(
-      errorSummary,
-      countyField,
-      subjectField,
-      descriptionField,
-      evidenceField,
-      reporterField,
-      ...(options.challenge ? [challengeNotice, challengeBox] : []),
-      formStatus,
-      submitButton,
-      noUploads,
+    form.append(errorSummary);
+    const progress = node(document, "nav", "report-steps");
+    let activeStep = 0;
+    const steps: HTMLElement[] = [];
+    const stepHeadings: HTMLElement[] = [];
+    const stepButtons: HTMLButtonElement[] = [];
+    const certification = node(document, "input");
+    certification.type = "checkbox";
+    certification.id = "report-certification";
+    certification.required = Boolean(workflow);
+    const certificationError = fieldError(document, certification.id);
+    connectError(certification, null, certificationError);
+    const reviewSummary = node(document, "div", "report-review-summary");
+    const reviewSubject = node(document, "p");
+    const reviewCounty = node(document, "p");
+    const reviewDescription = node(document, "p", "report-review-description");
+    const reviewSources = node(document, "p");
+    const reviewAttribution = node(document, "p");
+    reviewSummary.append(
+      reviewSubject,
+      reviewCounty,
+      reviewDescription,
+      reviewSources,
+      reviewAttribution,
     );
+    const showStep = (index: number, moveFocus = true) => {
+      activeStep = index;
+      for (const [position, step] of steps.entries()) {
+        step.hidden = position !== index;
+        if (position === index)
+          stepButtons[position]?.setAttribute("aria-current", "step");
+        else stepButtons[position]?.removeAttribute("aria-current");
+      }
+      if (index === 2) {
+        reviewCounty.textContent = countySelect.value
+          ? `County at the event: ${countySelect.selectedOptions[0]?.textContent ?? ""}`
+          : "County at the event: Not selected";
+        reviewDescription.textContent =
+          description.value.trim() || "Grievance details are missing.";
+        reviewSubject.textContent =
+          subjectKind.value && subjectId.value.trim()
+            ? `Directory reference: ${subjectKind.selectedOptions[0]?.textContent ?? ""} ${subjectId.value.trim()}`
+            : "Directory reference: None";
+        const filled = evidenceRows.filter(
+          (entry) => entry.title.value.trim() || entry.url.value.trim(),
+        );
+        reviewSources.textContent = filled.length
+          ? `Sources: ${filled
+              .map(
+                (entry) => entry.title.value.trim() || entry.url.value.trim(),
+              )
+              .join(" · ")}`
+          : "No supporting sources supplied.";
+        reviewAttribution.textContent = anonymous.checked
+          ? "Sent without your name."
+          : `Name shared privately with reviewers: ${nameInput.value.trim() || "Not provided"}`;
+      }
+      if (moveFocus) stepHeadings[index]?.focus();
+    };
+    if (workflow) {
+      progress.setAttribute("aria-label", "Report steps");
+      const eyebrow = node(document, "p", "eyebrow");
+      eyebrow.textContent = "Private editorial review";
+      const certificationLabel = node(
+        document,
+        "label",
+        "report-checkbox-label",
+      );
+      certificationLabel.htmlFor = certification.id;
+      certificationLabel.append(
+        certification,
+        document.createTextNode(
+          "I certify that this report is accurate to the best of my knowledge. · Required",
+        ),
+      );
+      const allegationsNotice = node(document, "p", "report-confidentiality");
+      allegationsNotice.textContent =
+        "Reports are allegations, not findings of fact. Submitting is not publication and does not establish wrongdoing. Source URLs are links only and files cannot be uploaded.";
+      const sections = [
+        {
+          label: "Employee & event",
+          title: "Identify the county and subject",
+          fields: [subjectField, countyField],
+        },
+        {
+          label: "Grievances & sources",
+          title: "Describe the grievance",
+          fields: [descriptionField, evidenceField, noUploads],
+        },
+        {
+          label: "Review & sign",
+          title: "Review and certify your report",
+          fields: [
+            reviewSummary,
+            allegationsNotice,
+            reporterField,
+            certificationLabel,
+            certificationError,
+            ...(options.challenge ? [challengeNotice, challengeBox] : []),
+            formStatus,
+            accountRecovery,
+          ],
+        },
+      ];
+      for (const [index, step] of sections.entries()) {
+        const stepButton = button(document, "", "report-step-button");
+        const number = node(document, "span");
+        number.textContent = String(index + 1);
+        stepButton.append(number, document.createTextNode(step.label));
+        stepButton.setAttribute("aria-controls", `report-step-${index + 1}`);
+        stepButton.addEventListener("click", () => {
+          if (!submitButton.disabled && index !== activeStep) showStep(index);
+        });
+        stepButtons.push(stepButton);
+        progress.append(stepButton);
+
+        const panel = node(document, "section", "report-step");
+        panel.id = `report-step-${index + 1}`;
+        const heading = node(document, "h2");
+        heading.id = `${panel.id}-heading`;
+        heading.tabIndex = -1;
+        heading.textContent = `${index + 1}. ${step.title}`;
+        panel.setAttribute("aria-labelledby", heading.id);
+        const actions = node(document, "div", "report-step-actions");
+        if (index > 0) {
+          const back = button(
+            document,
+            "← Back",
+            "report-button report-button-quiet",
+          );
+          back.addEventListener("click", () => {
+            if (!submitButton.disabled) showStep(index - 1);
+          });
+          actions.append(back);
+        }
+        if (index < sections.length - 1) {
+          const next = button(document, "Continue →");
+          next.addEventListener("click", () => showStep(index + 1));
+          actions.append(next);
+        } else {
+          actions.append(submitButton);
+        }
+        panel.append(heading, ...step.fields, actions);
+        steps.push(panel);
+        stepHeadings.push(heading);
+        form.append(panel);
+      }
+      const exit = node(document, "a", "report-track-link");
+      exit.href = options.submitHref ?? "#report-submit";
+      exit.textContent = "← Choose how to submit";
+      const unsaved = node(document, "p", "report-field-hint");
+      unsaved.textContent =
+        "Your entries are not saved if you leave this page before submitting.";
+      form.append(exit, unsaved);
+      submitPanel.append(eyebrow, submitHeading, submitIntro, progress);
+      showStep(0, false);
+    } else {
+      form.append(
+        countyField,
+        subjectField,
+        descriptionField,
+        evidenceField,
+        reporterField,
+        ...(options.challenge ? [challengeNotice, challengeBox] : []),
+        formStatus,
+        accountRecovery,
+        submitButton,
+        noUploads,
+      );
+    }
 
     const receiptPanel = node(document, "section", "report-receipt");
     receiptPanel.setAttribute("aria-labelledby", "report-receipt-heading");
@@ -754,6 +993,11 @@ export function mountReportInterface(
         error: contactError,
         getMessage: (errors) => errors.contact,
       },
+      {
+        id: certification.id,
+        error: certificationError,
+        getMessage: (errors) => errors.certification,
+      },
     ];
 
     clearRecoveryDisclosure = () => {
@@ -767,8 +1011,26 @@ export function mountReportInterface(
       receiptDisclosed = false;
     };
     trackingLink.addEventListener("click", () => clearRecoveryDisclosure());
-    form.addEventListener("input", () => {
-      if (formStatus.textContent) {
+    const clearFieldError = (event: Event) => {
+      const control = event.target as HTMLElement | null;
+      if (!control?.id || control.getAttribute("aria-invalid") !== "true")
+        return;
+      control.removeAttribute("aria-invalid");
+      const error = document.getElementById(`${control.id}-error`);
+      if (error) error.hidden = true;
+      for (const link of Array.from(errorList.querySelectorAll("a"))) {
+        if (link.getAttribute("href") === `#${control.id}`)
+          link.parentElement?.remove();
+      }
+      if (errorList.childElementCount === 0) errorSummary.hidden = true;
+    };
+    form.addEventListener("input", clearFieldError);
+    form.addEventListener("change", clearFieldError);
+    form.addEventListener("input", (event) => {
+      if (event.target !== certification && workflow) {
+        certification.checked = false;
+      }
+      if (event.target !== certification && formStatus.textContent) {
         pendingIdempotencyKey = null;
         formStatus.textContent = "";
       }
@@ -777,24 +1039,35 @@ export function mountReportInterface(
     const applyErrors = (errors: FieldErrors) => {
       errorList.replaceChildren();
       let firstInvalid: HTMLElement | undefined;
+      const showError = (
+        control: HTMLElement,
+        error: HTMLElement,
+        message?: string,
+      ) => {
+        control.removeAttribute("aria-invalid");
+        error.hidden = true;
+        if (!message) return;
+        control.setAttribute("aria-invalid", "true");
+        error.textContent = message;
+        error.hidden = false;
+        const item = node(document, "li");
+        const link = node(document, "a");
+        link.href = `#${control.id}`;
+        link.textContent = message;
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          const index = steps.findIndex((step) => step.contains(control));
+          if (index >= 0) showStep(index, false);
+          control.focus();
+        });
+        item.append(link);
+        errorList.append(item);
+        firstInvalid ??= control;
+      };
       for (const field of fields) {
         const control = document.getElementById(field.id);
         if (!control) continue;
-        const message = field.getMessage(errors);
-        control.removeAttribute("aria-invalid");
-        field.error.hidden = true;
-        if (message) {
-          control.setAttribute("aria-invalid", "true");
-          field.error.textContent = message;
-          field.error.hidden = false;
-          const item = node(document, "li");
-          const link = node(document, "a");
-          link.href = `#${field.id}`;
-          link.textContent = message;
-          item.append(link);
-          errorList.append(item);
-          firstInvalid ??= control;
-        }
+        showError(control, field.error, field.getMessage(errors));
       }
       for (const entry of evidenceRows) {
         for (const [index, control] of [
@@ -804,21 +1077,7 @@ export function mountReportInterface(
         ].entries()) {
           const error = entry.errors[index];
           if (!error) continue;
-          const message = errors[control.id];
-          control.removeAttribute("aria-invalid");
-          error.hidden = true;
-          if (message) {
-            control.setAttribute("aria-invalid", "true");
-            error.textContent = message;
-            error.hidden = false;
-            const item = node(document, "li");
-            const link = node(document, "a");
-            link.href = `#${control.id}`;
-            link.textContent = message;
-            item.append(link);
-            errorList.append(item);
-            firstInvalid ??= control;
-          }
+          showError(control, error, errors[control.id]);
         }
       }
       const attributionMessage = errors.attribution;
@@ -830,13 +1089,23 @@ export function mountReportInterface(
         errorList.append(item);
       }
       errorSummary.hidden = errorList.childElementCount === 0;
-      if (!errorSummary.hidden) errorSummary.focus();
-      return firstInvalid;
+      if (!errorSummary.hidden) {
+        const index = steps.findIndex((step) =>
+          step.contains(firstInvalid ?? null),
+        );
+        if (index >= 0) showStep(index, false);
+        errorSummary.focus();
+      }
+      return !errorSummary.hidden;
     };
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (submitting || form.hidden || receiptDisclosed) return;
+      if (workflow && activeStep < 2) {
+        showStep(activeStep + 1);
+        return;
+      }
       formStatus.textContent = "";
       const evidence = evidenceRows.map(({ key, title, url, note }) => ({
         key,
@@ -849,26 +1118,23 @@ export function mountReportInterface(
         description: description.value,
         subjectKind: subjectKind.value,
         subjectId: subjectId.value.trim(),
-        name: nameInput.value.trim(),
+        name: nameInput.disabled ? "" : nameInput.value.trim(),
         email: emailInput.value.trim(),
         attribution: signed.checked ? "signed" : "anonymous",
         contactPreference: contactPreference.value,
       };
-      const errors = validateForm(
-        values,
-        options.counties,
-        evidence,
-        Boolean(options.account),
-      );
-      const firstInvalid = applyErrors(errors);
-      if (
-        firstInvalid ||
-        !countySelect.value ||
-        description.value.trim().length < 20
-      ) {
-        if (!firstInvalid) errorSummary.focus();
-        return;
-      }
+      const errors = {
+        ...validateForm(
+          values,
+          options.counties,
+          evidence,
+          Boolean(options.account),
+        ),
+        ...(workflow && !certification.checked
+          ? { certification: "Certify the report before submitting." }
+          : {}),
+      };
+      if (applyErrors(errors)) return;
 
       const idempotencyKey =
         pendingIdempotencyKey ??
@@ -894,16 +1160,8 @@ export function mountReportInterface(
             ...(item.note ? { note: item.note } : {}),
           })),
         reporter: {
-          ...(signed.checked && options.account
-            ? {
-                accountId: options.account.accountId,
-                ...(values.name ? { name: values.name } : {}),
-                ...(values.email ? { email: values.email } : {}),
-              }
-            : {
-                ...(values.name ? { name: values.name } : {}),
-                ...(values.email ? { email: values.email } : {}),
-              }),
+          ...(values.name ? { name: values.name } : {}),
+          ...(values.email ? { email: values.email } : {}),
           attribution: signed.checked ? "signed" : "anonymous",
           confidential: true,
           contactPreference:
@@ -940,9 +1198,19 @@ export function mountReportInterface(
       }
       submitButton.textContent = "Submitting privately…";
       try {
+        accountRecovery.hidden = true;
+        const accountExpectation =
+          options.account && (signed.checked || workflow === "account")
+            ? options.account.accountId
+            : undefined;
         const receipt = await options.adapter.submit(
           submission,
-          challengeToken ? { challengeToken } : undefined,
+          challengeToken || accountExpectation
+            ? {
+                ...(challengeToken ? { challengeToken } : {}),
+                ...(accountExpectation ? { accountExpectation } : {}),
+              }
+            : undefined,
         );
         pendingIdempotencyKey = null;
         setText(receiptReference, receipt.reference);
@@ -961,11 +1229,22 @@ export function mountReportInterface(
             "This receipt was previously issued. Its recovery key cannot be shown again; use the key you saved to track the report.";
         }
         form.hidden = true;
+        progress.hidden = true;
         receiptPanel.hidden = false;
         receiptHeading.focus();
       } catch (error) {
         // A challenge token is single-use, so every failed attempt needs a new one.
         options.challenge?.reset();
+        if (error instanceof ReportAccountChangedError) {
+          signInAgain.href =
+            options.accountRecovery?.signInHref ?? "/auth/login";
+          reloadForm.href = options.accountRecovery?.reloadHref ?? "";
+          accountRecovery.hidden = false;
+          formStatus.textContent =
+            "Your sign-in ended or changed to a different account, so nothing was submitted. Sign in again or reload the form. Reloading clears what you entered.";
+          formStatus.focus();
+          return;
+        }
         formStatus.textContent =
           error instanceof ReportChallengeRejectedError
             ? "The human check expired or was not accepted. Your entries remain here; select Submit to run the check again."
@@ -977,7 +1256,8 @@ export function mountReportInterface(
       }
     });
 
-    submitPanel.append(submitHeading, submitIntro, form, receiptPanel);
+    if (!workflow) submitPanel.append(submitHeading, submitIntro);
+    submitPanel.append(form, receiptPanel);
   } else {
     const disabledNotice = node(document, "p", "report-disabled-notice");
     disabledNotice.setAttribute("role", "note");
@@ -1054,7 +1334,7 @@ export function mountReportInterface(
   );
   trackPanel.append(trackHeading, trackIntro, trackForm);
 
-  section.append(tabs, submitPanel, trackPanel);
+  section.append(...(workflow ? [] : [tabs]), submitPanel, trackPanel);
   root.replaceChildren(section);
 
   let tracking = false;

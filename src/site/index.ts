@@ -116,6 +116,8 @@ async function route(
   context: SiteContext,
   url: URL,
   pathname: string,
+  entry: AccountEntry | null,
+  reportAccountId?: () => Promise<string | null>,
 ): Promise<Page> {
   const segments = pathname.split("/").filter(Boolean);
   const [first, second, ...rest] = segments;
@@ -183,12 +185,30 @@ async function route(
       case "reading-records":
         none();
         return readingRecordsPage();
-      case "submit-report":
-        none();
-        return reportPage(context, false);
+      case "submit-report": {
+        const params = checkedParameters(
+          url,
+          ["guest", "account"],
+          "/submit-report",
+        );
+        const mode = params.has("guest")
+          ? "guest"
+          : params.has("account")
+            ? "account"
+            : "choose";
+        if (params.size > 1 || (mode !== "choose" && params.get(mode) !== "1"))
+          throw new BadRequest("/submit-report");
+        const accountId =
+          mode === "account" &&
+          context.reportSubmissionsEnabled &&
+          entry === "signed-in"
+            ? await reportAccountId?.()
+            : null;
+        return reportPage(context, mode, entry, accountId);
+      }
       case "track-report":
         none();
-        return reportPage(context, true);
+        return reportPage(context, "track", entry);
       default:
         throw new NotFound();
     }
@@ -386,9 +406,17 @@ export function createPublicSite(options: PublicSiteOptions) {
             : {}),
         };
         return respond(
-          await route(context, url, pathname),
+          await route(
+            context,
+            url,
+            pathname,
+            entry,
+            () => options.reportAccountId?.(request) ?? Promise.resolve(null),
+          ),
           head,
-          isStaffReportsPath(url.pathname)
+          isStaffReportsPath(url.pathname) ||
+            (pathname.replace(/\/+$/, "") === "/submit-report" &&
+              entry === "signed-in")
             ? { "cache-control": "no-store, private" }
             : {},
           PUBLIC_BROWSING_PATH.test(pathname)

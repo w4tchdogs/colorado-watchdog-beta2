@@ -15,6 +15,14 @@ export type ReportActor =
       role: "editor" | "administrator" | "owner";
     };
 
+/**
+ * Request header carrying the account the browser form was rendered for. It is
+ * a comparison value only: the server never stores it and derives the reporter
+ * account from the trusted session.
+ */
+export const REPORT_ACCOUNT_EXPECTATION_HEADER = "x-report-account-expectation";
+export const REPORT_ACCOUNT_EXPECTATION_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+
 export interface ReportSubmission {
   countyId: string;
   subject?: { kind: "person" | "organization"; id: string };

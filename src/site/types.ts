@@ -82,6 +82,8 @@ export interface PublicSiteOptions {
    * link and the Dashboard link. It grants nothing.
    */
   readonly accountEntry?: (request: Request) => Promise<AccountEntry>;
+  /** Expected reporter ID, derived from the current authenticated human session. */
+  readonly reportAccountId?: (request: Request) => Promise<string | null>;
 }
 
 /** What the shared header offers: sign in, or go to the dashboard. */
