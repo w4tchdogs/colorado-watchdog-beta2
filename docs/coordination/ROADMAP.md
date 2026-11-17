@@ -6,7 +6,7 @@ place for present status and active assignments. This roadmap says where the
 project is going. CURRENT says where it is now. Status words use CURRENT's
 vocabulary.
 
-Revision: November 16, 2026. Based on `main` at `62bb7c5` (PR #176). The
+Revision: November 17, 2026. Based on `main` at `8764b522e225549de1431cb5a4558a01f8f2012b` (PR #204). The
 owner approved these goals and lifted the development pause with this
 roadmap. The goals are recorded as an owner decision in
 [decisions.md](../decisions.md).
@@ -26,11 +26,8 @@ update and edit each of them.
   endpoint, can inspect and change Profiles, banners and editorial content
   through audited, capability-limited tools. Each domain has a written
   operator guide that any AI can follow.
-- **Today:** a read-only Website inspection MCP and a local Profiles
-  readiness MCP are merged (PR #95). Alpha-1 publishes the read-only
-  Website endpoint. Authenticated inspection and write tools remain open.
-- **Remaining:** authenticated hosted MCP verification (MCP-2), write tools for each domain
-  (MCP-3), and AI operator guides (MCP-4).
+- **Today:** see [CURRENT](CURRENT.md) for hosted inspection, banner and Profiles tools and client-specific evidence.
+- **Remaining:** the first real Profiles pilot, bulk banner import, editorial write tools, and AI operator guides (MCP-4). The [Windows Profiles bridge](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/204) has passed synthetic hosted acceptance. See CURRENT for native client status.
 
 ### Goal 2. A populated hosted database
 
@@ -40,10 +37,11 @@ that show the state of profiles, departments and grievances.
 - **Done when:** all 64 counties have screened, synchronized Profiles and an
   approved banner in hosted D1 and R2, and public pages show per-county
   counts for profiles, departments and grievances. Grievance counts include
-  reviewed submissions only.
+  reviewed submissions only. A human operator can edit and synchronize Profiles
+  through the [human Profiles workflow](../decisions.md#human-operation-of-profiles-november-17-2026).
 - **Today:** the local research database covers 64 counties (3,256 research
-  people, 2,692 organizational units). Real Profiles and banner imports
-  remain pending. 152 approved banner originals are in the local `banners\approved\`
+  people, 2,692 organizational units). Real Profiles and bulk banner imports
+  remain pending. The [one-banner Adams pilot](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/137#issuecomment-6944557184) passed on Cloudflare staging and the banner was withdrawn afterward. 152 approved banner originals are in the local `banners\approved\`
   folder. Cloudflare staging passed the R2 storage round trip and the
   [protected banner API exercise with one synthetic PNG](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/137#issuecomment-6933294436). The separate
   [Sites R2 attachment and object inventory](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/122)
@@ -51,7 +49,7 @@ that show the state of profiles, departments and grievances.
 - **Remaining:** finish the campaign-2 validation and resolve the intake
   decision in DATA-1. Research migration 003 and the post-003 restore test
   are complete. Screen and run the first hosted sync (SYNC-1), then sync all
-  counties (SYNC-2), pilot one approved banner before bulk import
+  counties (SYNC-2), resolve display ordering and import approved banners
   (BANNERS-IMPORT-1), and add public county counts (STATS-1).
 
 ### Goal 3. Universal sign-in and sign-up for admins and editors
@@ -100,10 +98,10 @@ Several goals depend on the same hosted groundwork. These come first.
 
 | ID | Work | Unblocks | Status |
 | --- | --- | --- | --- |
-| DEPLOY-1 | Maintain existing Sites Alpha-1 during the Cloudflare transition | Every hosted goal | Sites v16 deployed. Cloudflare staging public reads and D1 verified. See [CURRENT](CURRENT.md#d-deployment-state-separate-from-source) for both environments |
+| DEPLOY-1 | Maintain existing Sites Alpha-1 during the Cloudflare transition | Every hosted goal | See [CURRENT](CURRENT.md#d-deployment-state-separate-from-source). Owner deferred the public cutover. |
 | D1-0015 | Apply and verify the Lake and La Plata correction during Alpha-1 initialization | Goal 2 | Hosted registry verified in v5 |
 | AUTH-3 | Verified hosted human identity for sign-in | Goals 3, 4 (staff), 5 | Pilot hosted checks recorded on #125. Cloudflare staging owner sign-in hosted-verified in #174 |
-| MCP-2 | Publish read-only MCP and verify authenticated inspection | Goal 1, hosted D1 administration | Endpoint published; authenticated verification open |
+| MCP-2 | Publish read-only MCP and verify authenticated inspection | Goal 1, hosted D1 administration | Authenticated inspection verified on Cloudflare staging. See [CURRENT](CURRENT.md) for client-specific limits. |
 | R2-1 | Verify storage at the active deployment target | BANNERS-IMPORT-1 | Cloudflare staging storage round trip and protected banner API Hosted-verified with one synthetic PNG. [R2-1 staging receipt](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/137#issuecomment-6933294436). Sites R2 inventory remains open. |
 
 ## Ordered backlog
@@ -138,7 +136,7 @@ is lifted.
 | 10 | DATA-1 | Research migration 003, the campaign-2 Routt code fix, and a restore test of one backup | None (local) | 2 |
 | 11 | SYNC-1 | Screen one county and run the first hosted sync | DATA-1, MCP-3 | 2 |
 | 12 | SYNC-2 | Sync the remaining counties | SYNC-1 | 2 |
-| 13 | BANNERS-IMPORT-1 | Pilot one approved banner on staging, then import the approved banners to R2 and D1 | R2-1, MCP-3 | 2 |
+| 13 | BANNERS-IMPORT-1 | Import approved banners to R2 and D1 after resolving display ordering | One-banner staging pilot passed. R2-1, MCP-3 | 2 |
 | 14 | STATS-1 | Public per-county counts for profiles, departments and reviewed grievances | SYNC-1 | 2 |
 
 ### Phase 4. Public features
@@ -172,6 +170,11 @@ Settled on November 14, 2026:
   existing drafts, about 15, are the source.
 - The development pause is lifted with this roadmap.
 
+Settled on November 16, 2026:
+
+- Cloudflare is the staging priority. The separate Sites owner login assignment was withdrawn and public cutover preparation was deferred. See [decisions](../decisions.md#hosting-and-mcp-operator-priorities-november-16-2026).
+- The public report attribution choices and revision rules are recorded in [decisions](../decisions.md#public-report-attribution-november-16-2026).
+
 Still open:
 
 1. **Public hosting.** Choose the public Cloudflare hostname and cutover
@@ -179,9 +182,7 @@ Still open:
    retiring Sites. The [hosting decision](../decisions.md#cloudflare-hosting-transition-and-first-owner-target-november-16-2026)
    already selects the existing AUTH-3 application and GitHub connection for
    staging.
-2. **Original Sites sign-in.** Decide whether the original URL needs owner
-   sign-in during the transition. A separate bootstrap requires a verified
-   private operator path to that deployment's D1.
+2. **Report expansion.** Define grievance cards, event context and the employee picker before changing the intake contract. Draft workspace, private attachments, revision and withdrawal, and editorial release follow that model.
 
 ## Maintenance
 

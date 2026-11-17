@@ -222,6 +222,87 @@ export async function runHumanSignInChecks({
   );
   assert.equal(await status("/admin/reports", contested.jar), 403);
 
+  // Account report submission binds to the live session. The form states the
+  // account it was rendered for in a header, never in the JSON body.
+  {
+    const submitAs = (jar, expectation, body) =>
+      send("/api/v1/reports", {
+        method: "POST",
+        jar,
+        headers: {
+          origin: base,
+          "content-type": "application/json",
+          ...(expectation
+            ? { "x-report-account-expectation": expectation }
+            : {}),
+        },
+        body: JSON.stringify(body),
+      });
+    const report = (key, extra = {}) => ({
+      countyId: "08031",
+      description: "Synthetic report content used only by the local check.",
+      evidence: [],
+      reporter: {
+        attribution: "anonymous",
+        confidential: true,
+        contactPreference: "none",
+        ...extra,
+      },
+      idempotencyKey: key,
+    });
+    const page = await send("/submit-report?account=1", { jar: editor.jar });
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get("cache-control") ?? "", /no-store/);
+    assert.match(await page.text(), /data-report-account-id="wr-editor"/);
+    const guestPage = await send("/submit-report?account=1");
+    assert.doesNotMatch(await guestPage.text(), /data-report-account-id/);
+    const ok = await submitAs(
+      editor.jar,
+      "wr-editor",
+      report("wrangler-acct-1"),
+    );
+    assert.equal(ok.status, 201, await ok.clone().text());
+    assert.equal((await ok.json()).recoveryKey.length, 64);
+    const replayed = await submitAs(
+      editor.jar,
+      "wr-editor",
+      report("wrangler-acct-1"),
+    );
+    assert.equal(replayed.status, 200);
+    assert.equal((await replayed.json()).recoveryKey, undefined);
+    // Page rendered for one account, session now another account.
+    const changed = await submitAs(
+      contested.jar,
+      "wr-editor",
+      report("wrangler-acct-2"),
+    );
+    assert.equal(changed.status, 409);
+    assert.deepEqual(await changed.json(), { error: "account_changed" });
+    // Page rendered for an account, session gone.
+    const expired = await submitAs(
+      undefined,
+      "wr-editor",
+      report("wrangler-acct-2"),
+    );
+    assert.equal(expired.status, 401);
+    for (const response of [changed, expired])
+      assert.match(response.headers.get("cache-control") ?? "", /no-store/);
+    // A client-supplied reporter.accountId stays outside the schema.
+    const forged = await submitAs(
+      editor.jar,
+      "wr-editor",
+      report("wrangler-acct-3", { accountId: "wr-editor" }),
+    );
+    assert.equal(forged.status, 400);
+    // Neither refused attempt left a report: the same key still creates one.
+    const later = await submitAs(
+      editor.jar,
+      "wr-editor",
+      report("wrangler-acct-2"),
+    );
+    assert.equal(later.status, 201);
+  }
+
   // An unlinked identity gets 403 and creates no account and no session.
   const accountsBefore = await accountCount();
   const unlinked = await signIn("github|wrangler-never-linked");

@@ -8,6 +8,7 @@ import type { RuntimeEnvironment } from "./contracts/runtime.js";
 import { StorageUnavailableError } from "./contracts/storage.js";
 import { AsyncD1Database } from "./database/d1.js";
 import { handleWebsiteMcpRequest } from "./mcp/website.js";
+import { createSyncMcpBridge } from "./mcp/website-sync.js";
 import { createReportApiModule, type ReportApiOptions } from "./report-api.js";
 import { D1BannerAdministration } from "./services/banner-admin-d1.js";
 import { D1BannerPublicService } from "./services/banner-public.js";
@@ -463,6 +464,11 @@ const routes = {
         },
       );
       const reports = reportApi(environment, services, database);
+      const currentHumanAccountId = async (request: Request) => {
+        if (!hasSessionCookie(request)) return null;
+        const principal = await accounts.resolvePrincipal(request);
+        return principal?.kind === "human" ? principal.accountId : null;
+      };
       const site = createPublicSite({
         services: reads,
         editorial: createD1EditorialSource(database),
@@ -479,10 +485,11 @@ const routes = {
         ...(signIn.status === "enabled"
           ? {
               accountEntry: async (entryRequest: Request) => {
-                if (!hasSessionCookie(entryRequest)) return "signed-out";
-                const principal = await accounts.resolvePrincipal(entryRequest);
-                return principal?.kind === "human" ? "signed-in" : "signed-out";
+                return (await currentHumanAccountId(entryRequest))
+                  ? "signed-in"
+                  : "signed-out";
               },
+              reportAccountId: currentHumanAccountId,
             }
           : {}),
         reportReviewAccess: async (request) => {
@@ -499,7 +506,26 @@ const routes = {
         reports: reports.handler,
       });
       if (new URL(request.url).pathname === "/mcp") {
-        return handleWebsiteMcpRequest(request, services, inspection);
+        // Banner tools reuse the same D1/R2 service as the protected banner
+        // API. Without the bucket they authorize and then report unavailable.
+        return handleWebsiteMcpRequest(
+          request,
+          services,
+          inspection,
+          environment.BUCKET
+            ? new D1BannerAdministration(
+                database,
+                new R2BannerObjectStorage(environment.BUCKET),
+              )
+            : undefined,
+          // Profiles sync tools reuse the hosted sync services and grants.
+          createSyncMcpBridge(
+            createHostedSyncTransportDependencies(
+              database,
+              accounts.hasCapability,
+            ),
+          ),
+        );
       }
       return website.fetch(request);
     } catch {

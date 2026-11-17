@@ -51,6 +51,15 @@ test("Website MCP exposes the bounded tool set and denies unauthenticated calls"
       "website_county_reference_counts",
       "website_migration_history",
       "website_county_provenance_summary",
+      "website_banner_county",
+      "website_banner_publications",
+      "website_banner_publish",
+      "website_banner_withdraw",
+      "website_banner_restore",
+      "website_sync_dry_run",
+      "website_sync_commit",
+      "website_sync_lookup",
+      "website_sync_reverse",
     ]);
   } finally {
     fixture.database.close();
@@ -73,11 +82,8 @@ test("Website D1 inspection is read-only, bounded and provenance-conservative", 
 
     const history = await fixture.call("website_migration_history", {});
     assert.equal(history.orderedHistoryValid, true);
-    assert.equal(history.migrations.length, 25);
-    assert.equal(
-      history.migrations.at(-1).name,
-      "0025_agent_inspect_grant.sql",
-    );
+    assert.equal(history.migrations.length, 27);
+    assert.equal(history.migrations.at(-1).name, "0027_archived_accounts.sql");
 
     const references = await fixture.call("website_county_reference_counts", {
       countyFips: ["08065", "08067"],

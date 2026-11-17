@@ -35,7 +35,7 @@ const PAGE_HEADERS = {
   "cache-control": "no-store, private",
   "content-type": "text/html; charset=utf-8",
   "content-security-policy":
-    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   // Same-origin, so the sign-out form post carries the exact page origin.
   "referrer-policy": "same-origin",
   "x-content-type-options": "nosniff",

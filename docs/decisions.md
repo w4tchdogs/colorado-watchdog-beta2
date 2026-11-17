@@ -231,3 +231,56 @@ operator procedure is in [the Profiles foundation guide](research/R0-foundation.
 - Move Website hosting to the owner's Cloudflare Workers, Website D1 and private R2. Stage and verify on Cloudflare before any public cutover. Keep the original Sites deployment and DNS in service during staging. This decision supersedes using Cloudflare to obtain access to the Sites-managed Worker or database. Keep the private Profiles database local and move eligible Website records through the accepted sync boundary.
 - Use the existing AUTH-3 Auth0 application and GitHub connection for staging. Append the staging callback and retain the Sites callback. Keep sign-in disabled until the guarded private first-owner bootstrap is verified. Public registration, Turnstile and guest intake stay disabled for this staging phase.
 - The public hostname and cutover timing remain open. Record the disposition of existing Sites R2 objects before retiring the Sites deployment. See [Cloudflare staging evidence](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/173) and [hosted staging sign-in evidence](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/174#issuecomment-6932672296).
+
+## Hosting and MCP operator priorities, November 16, 2026
+
+- The owner prioritizes Cloudflare for Website sign-in, dashboard and data work. The separate first-owner setup on the existing ChatGPT Sites URL is withdrawn. Keep that public Site in service during the transition. The owner explicitly deferred preparing or executing the public cutover. See the [owner’s Cloudflare priority](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/168#issuecomment-6939221622).
+- Future Profiles MCP operation should work from ChatGPT Work/Codex with access to the owner's Windows workspace, without relying on Claude Code. Preserve distinct evidence for native ChatGPT connectivity, scripted hosted transport, and the R6/R8 operator bridge. See [PR #204](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/204) and the [R6 driver verification](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/202#issuecomment-6940902868).
+- The owner made this repository public for transparency and standard Actions compute availability. The existing boundaries on private research, credentials and original artwork still apply.
+- The owner confirmed the approved-folder lineage and the reviewed caption and alt text for the single Adams banner pilot. That decision is limited to the selected artwork. See the [approved-artwork pilot preparation](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/137#issuecomment-6933879397). Its scope is the county page on Cloudflare staging.
+
+## Public report attribution, November 16, 2026
+
+- Guests and account holders can choose Anonymous (default), Sign with my initials, or Use a generated pseudonym. Enter initials directly. Generate another is available for a pseudonym, with no free-text editing. A private account name is not copied to the byline. Explain on the form that report details can still identify the contributor. Verify name-list provenance before describing the lists as national top-100 rankings.
+- Show the exact byline before certification and record its mode and value on the certified revision. Edits clear certification. Only the approved revision supplies the public byline, and private names and contact details stay outside the public projection.
+- Keep an existing approved byline visible while a replacement is under review. Let the authorized reporter immediately switch a published byline to Anonymous through an audited, report-specific action that preserves the original certified revision privately. Showing a name again requires new certification and editorial approval. Future guest change authority is report-specific. Existing status tracking does not give that authority.
+- The [owner approval](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/184#issuecomment-6940889112) is the original decision record. The [Beta-1 form reference](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/184#issuecomment-6940138593) documents archived behavior and differences. The subsequent archived-source inspection confirmed two pools of 100 unique names, independently sampled, but did not establish that they are the overall national top 100. It also confirmed that guests and account holders share the same signing editor and that Beta-1 supported a separate display override. The hosted Beta-1 review step failed to load, so those findings are source-only. This is a design decision for subsequent revisions and editorial release work.
+
+## Human operation of Profiles, November 17, 2026
+
+- The owner requires a human-operated way to manage Profiles. A person must
+  be able to find and edit records in the private Windows Profiles database,
+  review the proposed Website changes, and carry out the approved sync
+  without depending on an AI session or an MCP connection.
+- Preserve profile identity, source evidence and edit history. Send approved
+  public changes through the existing changeset and receipt boundary between
+  local Profiles SQLite and Website D1.
+- The editor, human sync access design and choice of table names or views
+  are open design questions. MCP remains an AI operator interface.
+
+## Local Profiles data areas, November 17, 2026
+
+- Keep People Research and County Research distinct in the local database.
+  Prefix all research tables with `research_` and order the adjacent research
+  areas by name from sources and observations through reviewed conclusions.
+- Use Profiles for confirmed records prepared for the Website. Keep research
+  observations distinguishable from confirmed Profiles and keep Website
+  submission state distinguishable from local confirmation.
+- Proposed tables and the complete v5 mapping are in the
+  [local Profiles database redesign](research/local-profiles-schema-redesign.md).
+
+## Local Profiles table names, November 17, 2026
+
+- The current naming plan uses `county`, `profile`, `county_research_*`,
+  `profile_research_*` and `research_*` for shared research. It replaces
+  the earlier single numbered research block.
+- Use `county_research_coverage` and `profile_research_role`. The
+  `profile_research_role_selected` view shows role observations from
+  selected import batches.
+- The owner chose `website_change_receipts`, `website_id_evidence`,
+  `website_ids`, `website_request_changes`, `website_request_receipts`,
+  `website_requests`, `website_reversal_receipts` and
+  `website_update_approvals` for Website sync. The
+  [full inventory](research/local-profiles-schema-redesign.md#full-table-and-view-list)
+  records the working naming plan and the migration conditions for the three
+  empty legacy tables.

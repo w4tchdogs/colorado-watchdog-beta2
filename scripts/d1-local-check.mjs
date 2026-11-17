@@ -45,6 +45,8 @@ const migrations = [
   "0023_sync_batch_result_size.sql",
   "0024_agent_capability_grants.sql",
   "0025_agent_inspect_grant.sql",
+  "0026_agent_banner_publish_grant.sql",
+  "0027_archived_accounts.sql",
 ];
 
 function runWrangler(args) {
@@ -268,7 +270,7 @@ async function main() {
     "--persist-to",
     freshPersist,
     "--command",
-    `SELECT CASE WHEN (SELECT COUNT(*) FROM schema_migrations) = 25 AND ${historyChecks} AND (SELECT COUNT(*) FROM counties) = 64 AND (SELECT name FROM counties WHERE fips='08065') = 'Lake' AND (SELECT name FROM counties WHERE fips='08067') = 'La Plata' AND (SELECT COUNT(*) FROM content_revisions) = 0 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_capability_grants') = 1 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('content_items','content_item_counties','content_item_people','content_item_organizations','content_revisions')) = 5 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('banner_assets','banner_asset_versions','banner_stage_operations','banner_publications','banner_admin_operations')) = 5 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('reports','report_receipts','report_idempotency','report_evidence','report_status_history','report_audit')) = 6 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='content_revisions_editor') = 1 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('content_revisions_no_update','content_revisions_no_delete','content_revisions_match_current')) = 3 AND (SELECT generation FROM website_dependency_generation WHERE id = 1) = 3 THEN 'PASS fresh migration history, checksums, schema, and corrected county registry' ELSE 'FAIL fresh migration verification' END AS result;`,
+    `SELECT CASE WHEN (SELECT COUNT(*) FROM schema_migrations) = 27 AND ${historyChecks} AND (SELECT COUNT(*) FROM counties) = 64 AND (SELECT name FROM counties WHERE fips='08065') = 'Lake' AND (SELECT name FROM counties WHERE fips='08067') = 'La Plata' AND (SELECT COUNT(*) FROM content_revisions) = 0 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_capability_grants') = 1 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('content_items','content_item_counties','content_item_people','content_item_organizations','content_revisions')) = 5 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('banner_assets','banner_asset_versions','banner_stage_operations','banner_publications','banner_admin_operations')) = 5 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('reports','report_receipts','report_idempotency','report_evidence','report_status_history','report_audit')) = 6 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='content_revisions_editor') = 1 AND (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('content_revisions_no_update','content_revisions_no_delete','content_revisions_match_current')) = 3 AND (SELECT generation FROM website_dependency_generation WHERE id = 1) = 3 THEN 'PASS fresh migration history, checksums, schema, and corrected county registry' ELSE 'FAIL fresh migration verification' END AS result;`,
   ]);
   if (!freshOutput.includes("PASS fresh migration history")) {
     throw new Error(`Fresh local D1 verification failed:\n${freshOutput}`);
@@ -1133,6 +1135,22 @@ async function main() {
     console.log(
       `PASS D1 banner administration API: ${bannerCheck.apiChecks.length} checks for denial, origin, stage, private preview, publish, replace, restore, stale and idempotent writes, corrupt and missing objects, storage failure and revocation after the permission check`,
     );
+    console.log(
+      `PASS D1 banner MCP tools: ${bannerCheck.mcpChecks.length} checks for protected-API staging, MCP lookup, publish, same-key replay, stale and unverified refusal, readback, withdraw, recorded restore, audit, denied credentials and a grant revoked during the write`,
+    );
+
+    const syncMcpResponse = await fetch(`${base}/sync/mcp-verify`, {
+      method: "POST",
+    });
+    const syncMcp = await syncMcpResponse.json();
+    if (!syncMcpResponse.ok || !syncMcp.success) {
+      throw new Error(
+        `Local D1 sync MCP verification failed: ${JSON.stringify(syncMcp)}`,
+      );
+    }
+    console.log(
+      `PASS D1 sync MCP tools: ${syncMcp.checks.length} checks for one atomic 816-operation batch, same-key replay, changed-payload rejection, paged readback, reversal, cross-account isolation, denied and revoked grants and the large-body gate`,
+    );
 
     const write = await fetch(`${base}/write`, { method: "POST" });
     const inserted = await write.json();
@@ -1144,7 +1162,7 @@ async function main() {
       );
     }
     console.log(
-      `PASS local Wrangler D1: migrations 0001–0025; ${detail.checks.length} API checks; state persisted across requests`,
+      `PASS local Wrangler D1: migrations 0001–0027; ${detail.checks.length} API checks; state persisted across requests`,
     );
   } finally {
     if (process.platform === "win32" && worker.pid) {

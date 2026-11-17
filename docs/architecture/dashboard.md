@@ -124,7 +124,7 @@ The hosted service uses the same `DASHBOARD_MODULES` registry and `roleHasCapabi
 | --- | --- | --- |
 | Overview, My Account | Yes | Read only, any active human account. My Account shows no subject, provider string, identity ID or account ID |
 | Posts & Stories | No | The hosted Worker serves only the publication routes. The draft API and an asynchronous content service are not wired |
-| Banners | No | Needs a verified `BUCKET` attachment, still open in [Issue #122](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/122) |
+| Banners | Yes. Merged in #214, Deployed on Cloudflare staging and Hosted-verified in the signed-in owner dashboard with a synthetic image | The view only names itself. Every read and write goes through the protected `/api/admin/banners/*` routes with the Website session cookie, and the hosted client sends no sandbox header. The Cloudflare staging `BUCKET` is verified by the Adams pilot. The original Sites attachment stays open in [Issue #122](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/122). The hosted shell allows `blob:` in `img-src` only, so the staged preview built from bytes fetched from the protected route can render |
 | Reports, Accounts, Audit, System Status | No | Still planned |
 
 To add a module to the hosted dashboard, wire its hosted service and transport, verify its dependencies on the hosted Site, add its view factory to `src/editor/hosted-main.ts`, add the ID to `HOSTED_DASHBOARD_MODULES` and add role, signed-out, disabled, revoked and agent tests.

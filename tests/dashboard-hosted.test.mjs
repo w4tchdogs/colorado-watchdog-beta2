@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { JSDOM } from "jsdom";
+import { createBannerAdminClient } from "../dist/editor/banner-admin-client.js";
+import { createBannersView } from "../dist/editor/banner-views.js";
 import { mountDashboard } from "../dist/editor/dashboard.js";
 import { createDashboardClient } from "../dist/editor/dashboard-client.js";
 import { accountView, overviewView } from "../dist/editor/dashboard-views.js";
@@ -96,6 +98,7 @@ const ids = (list) => list.map((module) => module.id);
 const OWNER = "github|synthetic-owner";
 const EDITOR = "github|synthetic-editor";
 const CONTRIBUTOR = "github|synthetic-contributor";
+const ADMIN = "github|synthetic-admin";
 
 test("the dashboard and the header entry do not exist while sign-in is off", async () => {
   await withWorld(async (world) => {
@@ -176,11 +179,11 @@ test("the shared header keeps the entry visible on narrow screens", () => {
     fileURLToPath(new URL("../website/site/site.css", import.meta.url)),
     "utf8",
   );
-  const narrow = css.slice(css.indexOf("@media (max-width: 59.99rem)"));
-  assert.match(narrow.slice(0, 500), /\.header-account/);
+  const narrow = css.slice(css.indexOf("@media (max-width: 74.99rem)"));
+  assert.match(narrow.slice(0, 600), /\.header-actions/);
   assert.doesNotMatch(
-    narrow.slice(0, 500),
-    /\.header-account\s*\{[^}]*display:\s*none/,
+    narrow.slice(0, 600),
+    /\.header-(actions|account)\s*\{[^}]*display:\s*none/,
   );
   assert.match(css, /\.header-login:focus-visible/);
 });
@@ -205,6 +208,11 @@ test("/dashboard sends signed-out visitors to sign-in and serves the shell to a 
       /default-src 'none'; script-src 'self'; style-src 'self'/,
     );
     assert.match(policy, /frame-ancestors 'none'/);
+    // The Banners tab previews staged bytes it already fetched from the
+    // protected route through a blob: URL. Nothing else widens the policy.
+    assert.match(policy, /img-src 'self' blob:;/);
+    assert.match(policy, /connect-src 'self';/);
+    assert.doesNotMatch(policy, /data:|unsafe-|https?:/);
     assert.match(html, /\/assets\/dashboard-app\.js/);
     assert.match(html, /\/assets\/dashboard-app\.css/);
     assert.doesNotMatch(html, /editor-token|sandbox|Synthetic/i);
@@ -236,25 +244,30 @@ test("the hosted bundle and assets carry no sandbox code, fixtures or switcher",
       "sbx-",
       "Avery Author",
       "mountEditorApp",
-      "api/admin/banners",
     ]) {
       assert.equal(script.includes(marker), false, marker);
     }
+    // The Banners view is bundled and talks to the protected routes only.
+    assert.match(script, /api\/admin\/banners/);
+    assert.match(script, /x-banner-stage/);
     assert.match(script, /internal\/dashboard\/session/);
     assert.match(script, /\/auth\/logout/);
   });
 });
 
-test("a linked owner gets Overview and My Account only, with the rest named as planned", async () => {
+test("a linked owner gets Overview, My Account and Banners, with the rest named as planned", async () => {
   await withWorld(async (world) => {
     const jar = await signedIn(world, OWNER);
     const start = await json(await session(world, jar));
     assert.equal(start.status, 200);
-    assert.deepEqual(ids(start.body.modules), ["overview", "account"]);
+    assert.deepEqual(ids(start.body.modules), [
+      "overview",
+      "account",
+      "banners",
+    ]);
     assert.deepEqual(ids(start.body.planned).sort(), [
       "accounts",
       "audit",
-      "banners",
       "posts",
       "reports",
       "status",
@@ -283,11 +296,15 @@ test("a linked owner gets Overview and My Account only, with the rest named as p
       assert.equal(text.includes(secret), false, secret);
     }
 
-    // Posts & Stories and Banners are not hosted, so they are closed to every
-    // role, as are the planned and unknown views.
+    // Banners names its view only. The data stays behind the protected API.
+    const banners = await json(await view(world, jar, "banners"));
+    assert.equal(banners.status, 200);
+    assert.deepEqual(banners.body, { view: "banners" });
+
+    // Posts & Stories is not hosted, so it is closed to every role, as are the
+    // planned and unknown views.
     for (const id of [
       "posts",
-      "banners",
       "reports",
       "accounts",
       "audit",
@@ -301,9 +318,20 @@ test("a linked owner gets Overview and My Account only, with the rest named as p
 
 test("roles see only the hosted modules their role allows", async () => {
   await withWorld(async (world) => {
+    const admin = await signedIn(world, ADMIN);
+    const adminSession = await json(await session(world, admin));
+    assert.deepEqual(ids(adminSession.body.modules), [
+      "overview",
+      "account",
+      "banners",
+    ]);
+    assert.equal((await view(world, admin, "banners")).status, 200);
+
     const editor = await signedIn(world, EDITOR);
     const editorSession = await json(await session(world, editor));
     assert.deepEqual(ids(editorSession.body.modules), ["overview", "account"]);
+    // Without banner.manage the tab is absent and the view is refused.
+    assert.equal((await view(world, editor, "banners")).status, 403);
     assert.deepEqual(ids(editorSession.body.planned).sort(), [
       "posts",
       "reports",
@@ -315,6 +343,68 @@ test("roles see only the hosted modules their role allows", async () => {
       "account",
     ]);
     assert.deepEqual(contributorSession.body.planned, []);
+    assert.equal((await view(world, contributor, "banners")).status, 403);
+  });
+});
+
+test("the banner API behind the tab stays authenticated and capability-gated", async () => {
+  await withWorld(async (world) => {
+    const path = "/api/admin/banners/counties";
+    const signedOut = await send(world, path);
+    assert.equal(signedOut.status, 401);
+    const editor = await signedIn(world, EDITOR);
+    assert.equal((await send(world, path, { jar: editor })).status, 403);
+    const contributor = await signedIn(world, CONTRIBUTOR);
+    assert.equal((await send(world, path, { jar: contributor })).status, 403);
+    // The test world has no BUCKET, so an authorized caller is answered after
+    // the checks, not before them.
+    const owner = await signedIn(world, OWNER);
+    const allowed = await send(world, path, { jar: owner });
+    assert.equal(allowed.status, 503);
+    assert.deepEqual(await allowed.json(), {
+      error: "banner_admin_unavailable",
+    });
+  });
+});
+
+test("the hosted banner client authenticates by cookie only and reads the private preview route", async () => {
+  await withWorld(async (world) => {
+    const jar = await signedIn(world, OWNER);
+    const calls = [];
+    const client = createBannerAdminClient({
+      fetch: async (input, init) => {
+        calls.push({ input, method: init.method, headers: init.headers });
+        return send(world, input, {
+          method: init.method,
+          jar,
+          headers: { origin: ORIGIN, ...init.headers },
+          body: init.body,
+        });
+      },
+    });
+    await assert.rejects(client.listCounties({ query: "adams" }), (error) => {
+      assert.equal(error.code, "banner_admin_unavailable");
+      return true;
+    });
+    await assert.rejects(client.versionImage("synthetic-version"), (error) => {
+      assert.equal(error.code, "banner_admin_unavailable");
+      return true;
+    });
+    assert.deepEqual(
+      calls.map((call) => call.input),
+      [
+        "/api/admin/banners/counties?query=adams",
+        "/api/admin/banners/versions/synthetic-version/image",
+      ],
+    );
+    for (const call of calls) {
+      assert.deepEqual(
+        Object.keys(call.headers).filter((h) =>
+          /editor|test-human|sandbox|token/i.test(h),
+        ),
+        [],
+      );
+    }
   });
 });
 
@@ -525,7 +615,13 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
       doc: window.document,
       client: createDashboardClient({ fetch: fetchLike }),
       publicSiteUrl: "/",
-      views: { overview: overviewView, account: accountView },
+      views: {
+        overview: overviewView,
+        account: accountView,
+        banners: createBannersView({
+          client: createBannerAdminClient({ fetch: fetchLike }),
+        }),
+      },
       signOut: { action: "/auth/logout" },
     });
     const $ = (selector) => window.document.querySelector(selector);
@@ -547,7 +643,7 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
       [...window.document.querySelectorAll("#dash-sidebar a[data-view]")].map(
         (a) => a.textContent,
       ),
-      ["Overview", "My Account"],
+      ["Overview", "My Account", "Banners"],
     );
     const form = $("#menu-signout-form");
     assert.equal(form?.getAttribute("method"), "post");
@@ -563,8 +659,42 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
         [],
       );
     }
+    window.location.hash = "#/banners";
+    await waitFor("#banners-heading");
+    assert.equal($("#banners-heading")?.textContent, "Banners");
+    assert.ok(calls.some((c) => c.input === "/internal/dashboard/views/get"));
+    for (const call of calls) {
+      assert.deepEqual(
+        Object.keys(call.headers).filter((h) => /editor|test-human/i.test(h)),
+        [],
+      );
+    }
     window.location.hash = "#/posts";
     await waitFor("#state-not-found");
     assert.ok($("#state-not-found"));
+  });
+});
+
+test("the header offers Submit a report in every account state, ahead of the account entry", async () => {
+  await withWorld(async (world) => {
+    const jar = await signedIn(world, EDITOR);
+    for (const options of [{}, { jar }]) {
+      const html = await (await send(world, "/counties", options)).text();
+      assert.match(
+        html,
+        /<a class="header-submit" href="\/submit-report">Submit a report <svg[^>]*aria-hidden="true"/,
+      );
+      assert.ok(
+        html.indexOf('class="header-submit"') <
+          html.indexOf('class="header-login"'),
+      );
+      if (!options.jar)
+        assert.match(html, /class="header-login-note visually-hidden"/);
+    }
+    for (const env of [{ ...world.env, AUTH0_CLIENT_SECRET: undefined }, {}]) {
+      const html = await (await send(world, "/", { env })).text();
+      assert.match(html, /href="\/submit-report"/);
+      assert.doesNotMatch(html, /header-login/);
+    }
   });
 });

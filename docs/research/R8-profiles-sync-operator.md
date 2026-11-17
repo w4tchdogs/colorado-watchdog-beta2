@@ -1,8 +1,10 @@
 # R8 — Profiles synchronization operator workflow
 
 R8 exposes the merged R7 generator and reconciliation path through the local
-Profiles CLI. All commands require an explicit absolute SQLite path outside the
-source checkout and emit JSON. No command sends a Website request.
+Profiles CLI. Commands require an explicit absolute SQLite path outside the
+source checkout and emit JSON. Preview, preparation and reconciliation do not
+send Website requests. The optional sender is isolated in the separate
+[R8 local Website MCP sync driver](R8-mcp-sync-driver.md) operator workflow.
 
 ## Commands
 
@@ -140,12 +142,15 @@ and `--expect-fingerprint` to match the current preview. There
 is no cap on the number of changes, only the 8 MiB request limit. The request and idempotency key are persisted through
 the R6 client before any sender could be invoked. Repeating the same command is
 idempotent; a different request under the same idempotency key is rejected.
-There is no CLI sender. If another explicitly injected caller ever attempts
-delivery, R6 retains uncertain outcomes as pending and requires retrying the
-same stored request. Reconciliation accepts only the authoritative receipt
-stored by R6 and delegates entity mappings to R7; it cannot infer success from
-a timeout or missing receipt. R7 reversal reconciliation retains mappings and
-applies tombstone/refresh rules from its verified-receipt boundary.
+The optional local Website MCP sender is documented in
+[R8 local Website MCP sync driver](R8-mcp-sync-driver.md). It reads the exact
+prepared request from a private disk export and injects the transport into R6;
+it does not change R8 preparation or reconciliation. R6 retains uncertain
+outcomes as pending and requires retrying the same stored request. Reconciliation
+accepts only the authoritative complete receipt stored by R6 and delegates
+entity mappings to R7; it cannot infer success from a timeout or missing receipt.
+R7 reversal reconciliation retains mappings and applies tombstone/refresh rules
+from its verified-receipt boundary.
 
 All verification uses synthetic disposable research and Website databases.
 Hosted D1 behavior, credentials, authorization grants, network transport, and

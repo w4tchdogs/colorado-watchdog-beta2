@@ -91,6 +91,8 @@ export function bannerAdminFixtures() {
   const apiPngs = [30, 31, 32, 33, 35].map((seed, i) =>
     png(56 + i * 8, 22 + i * 2, seed),
   );
+  // MCP-3 checks use their own image so no digest collides with other checks.
+  const mcpPng = png(88, 30, 50);
   const apiJpeg = new Uint8Array(
     jpeg.encode({ width: 80, height: 26, data: pixels(80, 26, 34) }, 80).data,
   );
@@ -172,6 +174,7 @@ export function bannerAdminFixtures() {
       ]),
     ),
     apiJpeg: describe(apiJpeg, 80, 26),
+    mcpPng: describe(mcpPng, 88, 30),
     truncatedPng: describe(truncatedPng, 0, 0),
     badCrcPng: describe(badCrcPng, 0, 0),
     corruptDataPng: describe(corruptDataPng, 0, 0),

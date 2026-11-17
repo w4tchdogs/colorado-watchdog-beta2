@@ -656,6 +656,8 @@ async function main() {
     "0023_sync_batch_result_size.sql",
     "0024_agent_capability_grants.sql",
     "0025_agent_inspect_grant.sql",
+    "0026_agent_banner_publish_grant.sql",
+    "0027_archived_accounts.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(
@@ -1214,7 +1216,7 @@ async function main() {
       );
     }
 
-    const reportPage = await fetch(`${base}/submit-report`);
+    const reportPage = await fetch(`${base}/submit-report?guest=1`);
     const reportHtml = await reportPage.text();
     assert.equal(reportPage.status, 200);
     assert.match(reportHtml, /report-interface\.css/);
@@ -1645,6 +1647,10 @@ async function main() {
               AUTH0_CANONICAL_ORIGIN: base,
               AUTH0_REDIRECT_URI: `${base}/auth/callback`,
               AUTH0_TEST_UPSTREAM: tenant.origin,
+              // Local intake so the account report form can be exercised.
+              ...(enabled
+                ? { APP_ENV: "test", REPORTS_TEST_ABUSE_CONTROL: "enabled" }
+                : {}),
             }).flatMap(([name, value]) => ["--var", `${name}:${value}`]),
           );
         },

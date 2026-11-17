@@ -30,7 +30,7 @@ const helper =
   (tag, attributes = {}, ...children) =>
     el(doc, tag, attributes, ...children);
 
-const COUNTY_PAGE_LIMIT = 25;
+const COUNTY_PAGE_LIMIT = 100;
 const RETRYABLE_CODES = new Set([
   "storage_failed",
   "finalize_failed",
@@ -313,15 +313,93 @@ export function createBannersView(
       return button;
     };
 
+    const countyMatches = (county: CountyBannerSummary, query: string) => {
+      const needle = query.trim().toLowerCase();
+      return (
+        needle !== "" &&
+        (county.name.toLowerCase().includes(needle) ||
+          county.fips.includes(needle))
+      );
+    };
+
     const countySearchCard = () => {
       const input = h("input", {
         type: "search",
         id: "banner-county-query",
         value: state.query,
+        maxlength: "40",
+        autocomplete: "off",
         "aria-describedby": "banner-county-query-help",
       });
+      const note = h(
+        "p",
+        {
+          class: "help",
+          id: "banner-county-query-help",
+          role: "status",
+        },
+        "Type a county name or five-digit FIPS code to highlight matches. The number after each FIPS code is the county's banner count.",
+      );
+      const grid = h("ol", {
+        class: "county-index-grid banner-county-grid",
+        id: "banner-counties",
+      });
+      const cells = new Map<string, HTMLElement>();
+      for (const county of state.counties) {
+        const open = h(
+          "button",
+          {
+            type: "button",
+            class: "banner-county-open",
+            "data-fips": county.fips,
+            title: `${county.name} County, FIPS ${county.fips}, ${county.bannerCount} banner${county.bannerCount === 1 ? "" : "s"}, ${county.publicBannerCount} public`,
+          },
+          h(
+            "span",
+            { class: "cell-name" },
+            county.name,
+            h(
+              "span",
+              { class: "visually-hidden" },
+              ` County, FIPS ${county.fips}, ${county.bannerCount} banner${county.bannerCount === 1 ? "" : "s"}, ${county.publicBannerCount} public`,
+            ),
+          ),
+          h(
+            "span",
+            { class: "cell-code", "aria-hidden": "true" },
+            `${county.fips} \u00b7 ${county.bannerCount}`,
+          ),
+        );
+        open.addEventListener("click", () => void openCounty(county));
+        const cell = h(
+          "li",
+          { "data-county": "", "data-fips": county.fips },
+          open,
+        );
+        if (state.detail?.county.fips === county.fips)
+          cell.classList.add("is-active");
+        cells.set(county.fips, cell);
+        grid.append(cell);
+      }
+      // Highlight in place so typing never rebuilds the input or loses focus.
+      const highlight = () => {
+        let count = 0;
+        for (const county of state.counties) {
+          const hit = countyMatches(county, state.query);
+          if (hit) count += 1;
+          cells.get(county.fips)?.classList.toggle("is-match", hit);
+        }
+        note.textContent =
+          state.query.trim() === ""
+            ? "Type a county name or five-digit FIPS code to highlight matches. The number after each FIPS code is the county's banner count."
+            : count === 0
+              ? "No county matches that search."
+              : `${count} ${count === 1 ? "county matches" : "counties match"}. Press Enter with one match to open it.`;
+        return count;
+      };
       input.addEventListener("input", () => {
         state.query = input.value;
+        highlight();
       });
       const form = h(
         "form",
@@ -332,85 +410,35 @@ export function createBannersView(
           "Find a county by name or FIPS",
         ),
         input,
-        h(
-          "p",
-          { class: "help", id: "banner-county-query-help" },
-          "For example Adams or 08001.",
-        ),
         h("button", { type: "submit", id: "banner-county-submit" }, "Search"),
+        note,
       );
       form.addEventListener("submit", (event) => {
         event.preventDefault();
-        void loadCounties(state.query);
+        state.query = input.value;
+        highlight();
+        const hits = state.counties.filter((county) =>
+          countyMatches(county, state.query),
+        );
+        if (hits.length === 1 && hits[0]) void openCounty(hits[0]);
       });
       const rows: Node[] = [form];
       if (state.loadingCounties)
-        rows.push(h("p", { class: "loading", role: "status" }, "Searching..."));
+        rows.push(
+          h("p", { class: "loading", role: "status" }, "Loading counties..."),
+        );
       if (state.countiesError)
         rows.push(
           h(
             "p",
             { class: "dash-error", role: "alert" },
             state.countiesError,
-            retryButton(
-              () => void loadCounties(state.query),
-              "banner-county-retry",
-            ),
+            retryButton(() => void loadCounties(), "banner-county-retry"),
           ),
         );
-      if (
-        state.counties.length > 0 ||
-        (state.query && !state.loadingCounties)
-      ) {
-        rows.push(
-          state.counties.length === 0
-            ? h(
-                "p",
-                { class: "empty", id: "banner-counties-empty" },
-                "No county matches that search.",
-              )
-            : h(
-                "ul",
-                { class: "banner-counties", id: "banner-counties" },
-                ...state.counties.map((county) => {
-                  const item = h(
-                    "li",
-                    {},
-                    h(
-                      "button",
-                      {
-                        type: "button",
-                        class: "banner-county-open",
-                        "data-fips": county.fips,
-                      },
-                      `${county.name} (${county.fips})`,
-                    ),
-                    h(
-                      "span",
-                      { class: "dash-module-note" },
-                      `${county.bannerCount} banner${county.bannerCount === 1 ? "" : "s"}, ${county.publicBannerCount} public, ${county.attentionVersionCount} needing attention`,
-                    ),
-                  );
-                  item
-                    .querySelector("button")
-                    ?.addEventListener("click", () => void openCounty(county));
-                  return item;
-                }),
-              ),
-        );
-        if (state.nextAfterFips) {
-          const more = h(
-            "button",
-            { type: "button", id: "banner-counties-more" },
-            "Show more counties",
-          );
-          more.addEventListener(
-            "click",
-            () =>
-              void loadCounties(state.query, state.nextAfterFips ?? undefined),
-          );
-          rows.push(more);
-        }
+      if (state.counties.length > 0) {
+        rows.push(grid);
+        highlight();
       }
       return h(
         "section",
@@ -419,7 +447,7 @@ export function createBannersView(
           id: "banners-counties",
           "aria-labelledby": "banners-counties-h",
         },
-        h("h2", { id: "banners-counties-h" }, "Counties"),
+        h("h2", { id: "banners-counties-h" }, "Search and browse all counties"),
         ...rows,
       );
     };
@@ -1329,20 +1357,26 @@ export function createBannersView(
 
     // ------------------------------------------------------------ actions
 
-    const loadCounties = async (query: string, afterFips?: string) => {
+    const loadCounties = async () => {
       state.loadingCounties = true;
       state.countiesError = null;
       render();
       try {
-        const page = await view.client.listCounties({
-          ...(query ? { query } : {}),
-          limit: COUNTY_PAGE_LIMIT,
-          ...(afterFips ? { afterFips } : {}),
-        });
-        state.counties = afterFips
-          ? [...state.counties, ...page.counties]
-          : page.counties;
-        state.nextAfterFips = page.nextAfterFips ?? null;
+        const all: CountyBannerSummary[] = [];
+        let after: string | undefined;
+        // Colorado has 64 counties, so this is one request. The loop only
+        // guards against a smaller server page.
+        for (let page = 0; page < 5; page += 1) {
+          const result = await view.client.listCounties({
+            limit: COUNTY_PAGE_LIMIT,
+            ...(after ? { afterFips: after } : {}),
+          });
+          all.push(...result.counties);
+          after = result.nextAfterFips ?? undefined;
+          if (!after) break;
+        }
+        state.counties = all;
+        state.nextAfterFips = null;
       } catch (error) {
         state.countiesError = describe(error);
       } finally {
@@ -1794,6 +1828,7 @@ export function createBannersView(
     };
 
     render();
+    void loadCounties();
 
     return {
       destroy() {
