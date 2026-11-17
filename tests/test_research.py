@@ -218,14 +218,14 @@ class MigrationTests(DatabaseCase):
         with self.assertRaisesRegex(ValueError, "Foreign keys"):
             migrate(self.db)
         self.db.execute("PRAGMA foreign_keys=ON")
-        self.db.execute("PRAGMA user_version=8")
+        self.db.execute("PRAGMA user_version=9")
         with self.assertRaisesRegex(ValueError, "Schema version"):
             migrate(self.db)
 
     def test_research_tables_and_integrity(self):
         tables = {r[0] for r in self.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        self.assertEqual(len(tables - {"schema_migrations"}), 33)
-        self.assertEqual(validate_database(self.db), {"integrity": "ok", "foreign_keys": [], "schema_version": 7})
+        self.assertEqual(len(tables - {"schema_migrations"}), 34)
+        self.assertEqual(validate_database(self.db), {"integrity": "ok", "foreign_keys": [], "schema_version": 8})
         self.assertEqual(self.db.execute("PRAGMA foreign_keys").fetchone()[0], 1)
 
     def test_repeat_migration_preserves_rows(self):
