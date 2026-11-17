@@ -87,10 +87,16 @@ export type FetchLike = (
 
 export interface EditorApiClientOptions {
   readonly fetch: FetchLike;
-  /** Sandbox only: the per-launch token the local server embeds in the page. */
-  readonly token: string;
+  /**
+   * Sandbox only: the per-launch token the local server embeds in the page.
+   * Leave both `token` and `account` out for the hosted dashboard. Requests
+   * then carry no sandbox header and the Website session cookie is the only
+   * credential. The sandbox info and lookup routes do not exist there, so those
+   * calls answer locally without a request.
+   */
+  readonly token?: string;
   /** Sandbox only: which synthetic account the request speaks for. */
-  readonly account: () => string;
+  readonly account?: () => string;
 }
 
 export interface EditorApiClient {
@@ -157,8 +163,12 @@ export function createEditorApiClient(
       response = await options.fetch(path, {
         method,
         headers: {
-          [SANDBOX_TOKEN_HEADER]: options.token,
-          [SANDBOX_ACCOUNT_HEADER]: options.account(),
+          ...(options.token === undefined
+            ? {}
+            : { [SANDBOX_TOKEN_HEADER]: options.token }),
+          ...(options.account === undefined
+            ? {}
+            : { [SANDBOX_ACCOUNT_HEADER]: options.account() }),
           ...(method === "POST" ? { "content-type": "application/json" } : {}),
         },
         ...(method === "POST" ? { body: JSON.stringify(payload ?? {}) } : {}),
@@ -191,12 +201,23 @@ export function createEditorApiClient(
   const post = <T>(path: string, payload: unknown) =>
     send<T>(path, "POST", payload);
 
+  const hosted = options.token === undefined && options.account === undefined;
+  const unavailable = (): Promise<never> =>
+    Promise.reject(new EditorApiError(404, "operation_unavailable"));
+
   return {
-    sandboxInfo: () => send<SandboxInfo>(SANDBOX_INFO_PATH, "GET"),
+    sandboxInfo: () =>
+      hosted
+        ? Promise.resolve({ sandbox: true, accounts: [], counties: [] })
+        : send<SandboxInfo>(SANDBOX_INFO_PATH, "GET"),
     lookupPeople: (request) =>
-      post(SANDBOX_LOOKUP_PATH, { kind: "person", ...request }),
+      hosted
+        ? unavailable()
+        : post(SANDBOX_LOOKUP_PATH, { kind: "person", ...request }),
     lookupOrganizations: (request) =>
-      post(SANDBOX_LOOKUP_PATH, { kind: "organization", ...request }),
+      hosted
+        ? unavailable()
+        : post(SANDBOX_LOOKUP_PATH, { kind: "organization", ...request }),
     createDraft: (input) => post(EDITOR_API_PATHS.createDraft, input),
     getDraft: (id) => post(EDITOR_API_PATHS.getDraft, { id }),
     listDrafts: (request) => post(EDITOR_API_PATHS.listDrafts, request),

@@ -34,7 +34,7 @@ import {
  * `HOSTED_DASHBOARD_MODULES`.
  */
 export const HOSTED_DASHBOARD_MODULES: ReadonlySet<DashboardModuleId> =
-  new Set<DashboardModuleId>(["overview", "account", "banners"]);
+  new Set<DashboardModuleId>(["overview", "account", "posts", "banners"]);
 
 export interface HostedDashboardAccounts {
   hasCapability(
@@ -185,6 +185,11 @@ export function createD1DashboardService(
             signInMethods: await signInMethods(principal),
             modules: await modulesFor(principal, "active"),
           };
+        case "posts":
+          // The module only names the view. Every draft read and write goes
+          // through the protected `/internal/content/*` routes, which check
+          // `content.publish` and the live account themselves.
+          return { view: "posts" };
         case "banners":
           // The module only names the view. Every banner read and write goes
           // through the protected `/api/admin/banners/*` routes, which check

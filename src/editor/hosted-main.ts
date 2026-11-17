@@ -1,4 +1,4 @@
-import type { FetchLike } from "./api-client.js";
+import { createEditorApiClient, type FetchLike } from "./api-client.js";
 import {
   type BannerAdminFetch,
   createBannerAdminClient,
@@ -6,7 +6,11 @@ import {
 import { createBannersView } from "./banner-views.js";
 import { mountDashboard } from "./dashboard.js";
 import { createDashboardClient } from "./dashboard-client.js";
-import { accountView, overviewView } from "./dashboard-views.js";
+import {
+  accountView,
+  createPostsView,
+  overviewView,
+} from "./dashboard-views.js";
 
 /**
  * Hosted dashboard entry. It carries no sandbox switch, no synthetic account,
@@ -14,7 +18,9 @@ import { accountView, overviewView } from "./dashboard-views.js";
  * the Website session cookie, and only modules the server marks active have a
  * view here. Banners uses the same cookie, so its client sends no token or
  * account header, and the protected routes keep checking `banner.manage`.
- * Posts & Stories is added once its hosted dependencies are verified.
+ * Posts & Stories uses the same cookie. Its client sends no sandbox header and
+ * the draft routes keep checking `content.publish` on every request. It offers
+ * draft editing only, with no publication controls.
  */
 const root = document.getElementById("app");
 
@@ -34,6 +40,9 @@ if (root) {
       redirect: "error",
     });
   const bannerClient = createBannerAdminClient({ fetch: bannerFetch });
+  // The editor reads no account from the page. The server decides who the
+  // caller is, so the session below only labels unsaved edits.
+  const editorClient = createEditorApiClient({ fetch: sameOriginFetch });
   mountDashboard(root, {
     doc: document,
     client: createDashboardClient({ fetch: sameOriginFetch }),
@@ -41,6 +50,10 @@ if (root) {
     views: {
       overview: overviewView,
       account: accountView,
+      posts: createPostsView({
+        client: editorClient,
+        session: { account: "" },
+      }),
       banners: createBannersView({ client: bannerClient }),
     },
     signOut: { action: "/auth/logout" },

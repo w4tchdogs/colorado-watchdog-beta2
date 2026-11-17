@@ -3,11 +3,16 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { JSDOM } from "jsdom";
+import { createEditorApiClient } from "../dist/editor/api-client.js";
 import { createBannerAdminClient } from "../dist/editor/banner-admin-client.js";
 import { createBannersView } from "../dist/editor/banner-views.js";
 import { mountDashboard } from "../dist/editor/dashboard.js";
 import { createDashboardClient } from "../dist/editor/dashboard-client.js";
-import { accountView, overviewView } from "../dist/editor/dashboard-views.js";
+import {
+  accountView,
+  createPostsView,
+  overviewView,
+} from "../dist/editor/dashboard-views.js";
 import worker from "../dist/server/index.js";
 import {
   BETA2_PROJECT_ID,
@@ -235,15 +240,19 @@ test("the hosted bundle and assets carry no sandbox code, fixtures or switcher",
       assert.equal(response.status, 200, name);
     }
     const script = await (await send(world, "/assets/dashboard-app.js")).text();
+    // The hosted Posts & Stories view reuses the editor workspace, so the
+    // workspace's own standalone-shell labels and the sandbox header names ride
+    // in the bundle without being used. The hosted entry never passes a sandbox
+    // token or account, never builds that shell, and the mount tests below
+    // assert that no sandbox header is sent and no switcher is rendered.
     for (const marker of [
-      "x-editor-token",
-      "x-test-human-subject",
-      "sandbox-account",
-      "LOCAL SANDBOX",
-      "Acting as",
       "sbx-",
       "Avery Author",
-      "mountEditorApp",
+      "Eli Editor",
+      "Riley Reader",
+      "createEditorSandbox",
+      "editor-dev",
+      "Lorem ipsum",
     ]) {
       assert.equal(script.includes(marker), false, marker);
     }
@@ -255,7 +264,7 @@ test("the hosted bundle and assets carry no sandbox code, fixtures or switcher",
   });
 });
 
-test("a linked owner gets Overview, My Account and Banners, with the rest named as planned", async () => {
+test("a linked owner gets Overview, My Account, Posts & Stories and Banners, with the rest named as planned", async () => {
   await withWorld(async (world) => {
     const jar = await signedIn(world, OWNER);
     const start = await json(await session(world, jar));
@@ -263,12 +272,12 @@ test("a linked owner gets Overview, My Account and Banners, with the rest named 
     assert.deepEqual(ids(start.body.modules), [
       "overview",
       "account",
+      "posts",
       "banners",
     ]);
     assert.deepEqual(ids(start.body.planned).sort(), [
       "accounts",
       "audit",
-      "posts",
       "reports",
       "status",
     ]);
@@ -301,16 +310,14 @@ test("a linked owner gets Overview, My Account and Banners, with the rest named 
     assert.equal(banners.status, 200);
     assert.deepEqual(banners.body, { view: "banners" });
 
-    // Posts & Stories is not hosted, so it is closed to every role, as are the
-    // planned and unknown views.
-    for (const id of [
-      "posts",
-      "reports",
-      "accounts",
-      "audit",
-      "status",
-      "nope",
-    ]) {
+    // Posts & Stories names its view only. Every draft read and write goes
+    // through the protected content routes.
+    const posts = await json(await view(world, jar, "posts"));
+    assert.equal(posts.status, 200);
+    assert.deepEqual(posts.body, { view: "posts" });
+
+    // Planned and unknown views are closed to every role.
+    for (const id of ["reports", "accounts", "audit", "status", "nope"]) {
       assert.equal((await view(world, jar, id)).status, 404, id);
     }
   });
@@ -323,19 +330,23 @@ test("roles see only the hosted modules their role allows", async () => {
     assert.deepEqual(ids(adminSession.body.modules), [
       "overview",
       "account",
+      "posts",
       "banners",
     ]);
     assert.equal((await view(world, admin, "banners")).status, 200);
+    assert.equal((await view(world, admin, "posts")).status, 200);
 
     const editor = await signedIn(world, EDITOR);
     const editorSession = await json(await session(world, editor));
-    assert.deepEqual(ids(editorSession.body.modules), ["overview", "account"]);
+    assert.deepEqual(ids(editorSession.body.modules), [
+      "overview",
+      "account",
+      "posts",
+    ]);
+    assert.equal((await view(world, editor, "posts")).status, 200);
     // Without banner.manage the tab is absent and the view is refused.
     assert.equal((await view(world, editor, "banners")).status, 403);
-    assert.deepEqual(ids(editorSession.body.planned).sort(), [
-      "posts",
-      "reports",
-    ]);
+    assert.deepEqual(ids(editorSession.body.planned).sort(), ["reports"]);
     const contributor = await signedIn(world, CONTRIBUTOR);
     const contributorSession = await json(await session(world, contributor));
     assert.deepEqual(ids(contributorSession.body.modules), [
@@ -344,6 +355,7 @@ test("roles see only the hosted modules their role allows", async () => {
     ]);
     assert.deepEqual(contributorSession.body.planned, []);
     assert.equal((await view(world, contributor, "banners")).status, 403);
+    assert.equal((await view(world, contributor, "posts")).status, 403);
   });
 });
 
@@ -618,6 +630,10 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
       views: {
         overview: overviewView,
         account: accountView,
+        posts: createPostsView({
+          client: createEditorApiClient({ fetch: fetchLike }),
+          session: { account: "" },
+        }),
         banners: createBannersView({
           client: createBannerAdminClient({ fetch: fetchLike }),
         }),
@@ -643,7 +659,7 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
       [...window.document.querySelectorAll("#dash-sidebar a[data-view]")].map(
         (a) => a.textContent,
       ),
-      ["Overview", "My Account", "Banners"],
+      ["Overview", "My Account", "Posts & Stories", "Banners"],
     );
     const form = $("#menu-signout-form");
     assert.equal(form?.getAttribute("method"), "post");
@@ -673,7 +689,7 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
         [],
       );
     }
-    window.location.hash = "#/posts";
+    window.location.hash = "#/reports";
     await waitFor("#state-not-found");
     assert.ok($("#state-not-found"));
   });
