@@ -901,10 +901,7 @@ test("full-width heroes overlay unshaded copy and keep the 3:1 baseline at every
     shared,
     /\.hero-banner \{[^}]*grid-area: 1 \/ 1;[^}]*width: 100%;/,
   );
-  assert.match(
-    shared,
-    /\.hero \.banner-frame \{[^}]*aspect-ratio: auto;/,
-  );
+  assert.match(shared, /\.hero \.banner-frame \{[^}]*aspect-ratio: auto;/);
   assert.match(
     shared,
     /\.hero-content \{[^}]*grid-area: 1 \/ 1;[^}]*z-index: 1;[^}]*align-items: center;/,
@@ -916,8 +913,14 @@ test("full-width heroes overlay unshaded copy and keep the 3:1 baseline at every
     assert.doesNotMatch(declarations, /\bbackground(?:-[\w-]+)?\s*:/, selector);
   }
   // Caption sits bottom right and the controls overlay the top right.
-  assert.match(css, /\.banner-caption \{[^}]*right: 0\.75rem;[^}]*bottom: 0\.25rem;/);
-  assert.match(css, /\.banner-controls \{[^}]*position: absolute;[^}]*top: 0\.75rem;[^}]*right: 0\.75rem;/);
+  assert.match(
+    css,
+    /\.banner-caption \{[^}]*right: 0\.75rem;[^}]*bottom: 0\.25rem;/,
+  );
+  assert.match(
+    css,
+    /\.banner-controls \{[^}]*position: absolute;[^}]*top: 0\.75rem;[^}]*right: 0\.75rem;/,
+  );
   assert.match(/\.hero-content \.wrap \{[^}]*\}/.exec(css)[0], /var\(--wrap\)/);
 });
 
