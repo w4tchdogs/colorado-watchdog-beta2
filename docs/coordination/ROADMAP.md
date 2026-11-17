@@ -6,7 +6,7 @@ place for present status and active assignments. This roadmap says where the
 project is going. CURRENT says where it is now. Status words use CURRENT's
 vocabulary.
 
-Revision: November 16, 2026. Based on `main` at `40b76e9f9245e9bf4660a6f2383c3463db4ece70` (PR #203). The
+Revision: November 17, 2026. Based on `main` at `8764b522e225549de1431cb5a4558a01f8f2012b` (PR #204). The
 owner approved these goals and lifted the development pause with this
 roadmap. The goals are recorded as an owner decision in
 [decisions.md](../decisions.md).
@@ -27,7 +27,7 @@ update and edit each of them.
   through audited, capability-limited tools. Each domain has a written
   operator guide that any AI can follow.
 - **Today:** see [CURRENT](CURRENT.md) for hosted inspection, banner and Profiles tools and client-specific evidence.
-- **Remaining:** the ChatGPT-operated Profiles bridge, editorial write tools, pilot work, and AI operator guides (MCP-4).
+- **Remaining:** the first real Profiles and banner pilots, editorial write tools, and AI operator guides (MCP-4). The [Windows Profiles bridge](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/204) has passed synthetic hosted acceptance. See CURRENT for native client status.
 
 ### Goal 2. A populated hosted database
 
