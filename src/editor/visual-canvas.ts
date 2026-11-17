@@ -559,12 +559,10 @@ export function createVisualCanvas(options: CanvasOptions): Canvas {
     }
     syncBlock(index);
     if (paragraphs.length > 1) {
-      const extra: VBlock[] = paragraphs
-        .slice(1)
-        .map((line) => ({
-          kind: "p" as VKind,
-          text: [{ t: "text", v: line }],
-        }));
+      const extra: VBlock[] = paragraphs.slice(1).map((line) => ({
+        kind: "p" as VKind,
+        text: [{ t: "text", v: line }],
+      }));
       blocks.splice(index + 1, 0, ...extra);
       renderAll(index + extra.length, null);
     }
