@@ -527,3 +527,35 @@ test("rejects unsupported methods and does not expose a public application route
   assert.equal(publicRoute.status, 404);
   assert.deepEqual(await publicRoute.json(), { error: "not_found" });
 });
+
+test("a failing operation answers generically and logs only a bounded operator diagnostic", async () => {
+  await withPrincipal(async ({ principalFor }) => {
+    const principal = await principalFor();
+    const transport = createSyncApiTransport(
+      dependencies(principal, {
+        dryRun: async () => {
+          throw new Error(`D1 statement budget exceeded ${"x".repeat(1000)}`);
+        },
+      }),
+    );
+    const logged = [];
+    const original = console.error;
+    console.error = (line) => logged.push(String(line));
+    try {
+      const response = await transport.fetch(
+        jsonRequest(SYNC_API_PATHS.dryRun, changeset()),
+      );
+      assert.equal(response.status, 500);
+      assert.deepEqual(await response.json(), { error: "internal_error" });
+    } finally {
+      console.error = original;
+    }
+    assert.equal(logged.length, 1);
+    const entry = JSON.parse(logged[0]);
+    assert.equal(entry.event, "sync_operation_threw");
+    assert.equal(entry.operation, "dry_run");
+    assert.match(entry.detail, /^Error: D1 statement budget exceeded/);
+    assert.ok(entry.detail.length <= 300);
+    assert.ok(!logged[0].includes("Synthetic"), "no request content is logged");
+  });
+});
