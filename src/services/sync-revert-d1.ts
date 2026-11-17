@@ -182,14 +182,23 @@ export async function reverseSyncBatchD1(
       )
     )
       return blocked();
-    for (const item of items) {
+    // Set-based checks: a few queries per entity instead of one per item, so
+    // the CPU and query cost of a reversal does not grow with batch size.
+    const reused = new Map<SyncEntity, Set<string>>();
+    for (const item of items)
       if (item.outcome === "reused") {
-        const exists = await db.first<{ found: unknown }>(
-          `SELECT 1 AS found FROM "${item.entity}" WHERE id = ?`,
-          [item.targetId],
-        );
-        if (!exists) return blocked();
+        const ids = reused.get(item.entity) ?? new Set<string>();
+        ids.add(item.targetId);
+        reused.set(item.entity, ids);
       }
+    for (const [entity, ids] of reused) {
+      const found = await db.first<{ n: unknown }>(
+        `SELECT COUNT(DISTINCT id) AS n FROM "${entity}" WHERE id IN (
+           SELECT target_id FROM sync_batch_items
+           WHERE batch_id = ? AND entity = ? AND outcome = 'reused')`,
+        [batchId, entity],
+      );
+      if (found?.n !== ids.size) return blocked();
     }
     const created = new Set(
       items
@@ -234,18 +243,40 @@ export async function reverseSyncBatchD1(
       [batchId],
     );
     if (observations || decidedFlags) return blocked();
-    for (const item of items) {
-      if (item.outcome !== "created") continue;
+    const createdIds = `SELECT target_id FROM sync_batch_items WHERE batch_id = ? AND outcome = 'created'`;
+    if (created.size) {
       const laterFlagRef = await db.first<{ found: unknown }>(
         `SELECT 1 AS found FROM person_duplicate_flag_observations o
          LEFT JOIN sync_batch_reversals r ON r.batch_id = o.batch_id
          WHERE r.batch_id IS NULL AND o.batch_id <> ?
-           AND (o.pair_low_id = ? OR o.pair_high_id = ?
-             OR EXISTS (SELECT 1 FROM json_each(o.evidence_source_ids_json) j WHERE j.value = ?))
+           AND (o.pair_low_id IN (${createdIds})
+             OR o.pair_high_id IN (${createdIds})
+             OR EXISTS (SELECT 1 FROM json_each(o.evidence_source_ids_json) j
+                        WHERE j.value IN (${createdIds})))
          LIMIT 1`,
-        [batchId, item.targetId, item.targetId, item.targetId],
+        [batchId, batchId, batchId, batchId],
       );
       if (laterFlagRef) return blocked();
+    }
+    const createdEntities = new Set(
+      items.filter((x) => x.outcome === "created").map((x) => x.entity),
+    );
+    for (const entity of createdEntities) {
+      for (const [child, column] of dependents[entity] ?? []) {
+        // A row outside this batch that references a created row blocks reversal.
+        const outside = await db.first<{ found: unknown }>(
+          `SELECT 1 AS found FROM "${child}" c
+           WHERE c."${column}" IN (
+               SELECT target_id FROM sync_batch_items
+               WHERE batch_id = ? AND entity = ? AND outcome = 'created')
+             AND c.id NOT IN (
+               SELECT target_id FROM sync_batch_items
+               WHERE batch_id = ? AND entity = ? AND outcome = 'created')
+           LIMIT 1`,
+          [batchId, entity, batchId, child],
+        );
+        if (outside) return blocked();
+      }
     }
     for (const flag of flagRows)
       statements.push(
@@ -257,20 +288,6 @@ export async function reverseSyncBatchD1(
     for (const item of [...items].reverse()) {
       if (item.outcome === "reused") continue;
       if (item.outcome === "created") {
-        for (const [child, column] of dependents[item.entity] ?? []) {
-          for (let afterId = ""; ; ) {
-            const refs = await db.all<{ id: string }>(
-              `SELECT id FROM "${child}" WHERE "${column}" = ? AND id > ? ORDER BY id`,
-              PAGE_ROWS,
-              [item.targetId, afterId],
-            );
-            if (refs.some((ref) => !created.has(`${child}:${ref.id}`)))
-              return blocked();
-            const lastRef = refs.at(-1);
-            if (refs.length < PAGE_ROWS || !lastRef) break;
-            afterId = lastRef.id;
-          }
-        }
         statements.push(
           db.prepare(
             `DELETE FROM "${item.entity}" WHERE id = ? AND version = ?`,
