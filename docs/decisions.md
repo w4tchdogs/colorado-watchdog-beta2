@@ -274,9 +274,9 @@ operator procedure is in [the Profiles foundation guide](research/R0-foundation.
 - The current naming plan uses `county`, `profile`, `county_research_*`,
   `profile_research_*` and `research_*` for shared research. It replaces
   the earlier single numbered research block.
-- Use `county_research_coverage` and keep
-  `profile_research_observations_selected` as the view over observations
-  from selected import batches.
+- Use `county_research_coverage` and `profile_research_role`. The
+  `profile_research_role_selected` view shows role observations from
+  selected import batches.
 - The owner chose `website_change_receipts`, `website_id_evidence`,
   `website_ids`, `website_request_changes`, `website_request_receipts`,
   `website_requests`, `website_reversal_receipts` and

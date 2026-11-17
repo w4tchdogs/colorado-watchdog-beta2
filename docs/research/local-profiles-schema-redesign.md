@@ -29,7 +29,7 @@ physical `profile` table. Website sync records use `website_*`.
 
 `profile_research_conclusions` and `county_research_conclusions` are views
 of evidence-supported identities and county structure.
-`profile_research_observations_selected` is the existing observation view
+`profile_research_role_selected` is the existing observation view
 under its new name. It filters observations by the selected intake batches.
 Review findings before preparing a confirmed profile or a Website revision.
 
@@ -66,10 +66,10 @@ legacy table requires a preservation plan before retirement.
 | Current | Target | Area |
 | --- | --- | --- |
 | `research_people` | `profile_research` | People Research identities |
-| `role_claims` | `profile_research_observations` | People Research observations |
+| `role_claims` | `profile_research_role` | People Research observations |
 | `name_variants` | `profile_research_name` | People Research names |
 | `possible_matches` | `profile_research_duplicates` | People Research identity review |
-| `selected_role_claims` (view) | `profile_research_observations_selected` (view) | People Research intake selection |
+| `selected_role_claims` (view) | `profile_research_role_selected` (view) | People Research intake selection |
 | `org_units` | `county_research_unit_structure` | County Research structure |
 | `org_names` | `county_research_unit_names` | County Research organization names |
 | `role_targets` | `county_research_positions` | County Research documented positions |
@@ -118,8 +118,8 @@ profile_research
 profile_research_conclusions (view)
 profile_research_duplicates
 profile_research_name
-profile_research_observations
-profile_research_observations_selected (view)
+profile_research_role
+profile_research_role_selected (view)
 profile_revisions
 profile_role
 profiles_overview (view)
