@@ -10,6 +10,7 @@ import {
   type BannerAdminClient,
   BannerAdminError,
 } from "./banner-admin-client.js";
+import { parseBannerFilename } from "./banner-filename.js";
 import type { DashboardViewFactory } from "./dashboard.js";
 import { el, replaceChildren } from "./dom.js";
 
@@ -157,6 +158,7 @@ export function createBannersView(
       newStage: null,
     };
     const previews = new Set<string>();
+    let destroyed = false;
 
     const stateFor = (bannerId: string): BannerState => {
       let entry = state.banners.get(bannerId);
@@ -186,6 +188,37 @@ export function createBannersView(
     const dropPreviews = () => {
       for (const url of previews) view.revokePreviewUrl(url);
       previews.clear();
+      thumbs.clear();
+    };
+
+    // One private preview per image version, fetched through the protected
+    // route and shown as a blob URL. `null` records a failed load.
+    const thumbs = new Map<string, string | null>();
+    const thumbLoading = new Set<string>();
+    const thumbUpdates = new Map<string, () => void>();
+    const previewVersionId = (banner: BannerAdminBanner): string | null =>
+      banner.selectedVersionId ??
+      banner.versions.find((version) => version.state === "verified")?.id ??
+      null;
+    const ensureThumbs = (banners: readonly BannerAdminBanner[]) => {
+      for (const banner of banners) {
+        const id = previewVersionId(banner);
+        if (!id || thumbs.has(id) || thumbLoading.has(id)) continue;
+        thumbLoading.add(id);
+        void view.client
+          .versionImage(id)
+          .then((image) => {
+            if (!destroyed)
+              thumbs.set(id, makePreview(image.bytes, image.mediaType));
+          })
+          .catch(() => {
+            if (!destroyed) thumbs.set(id, null);
+          })
+          .finally(() => {
+            thumbLoading.delete(id);
+            thumbUpdates.get(id)?.();
+          });
+      }
     };
 
     const describe = (error: unknown): string => {
@@ -247,6 +280,8 @@ export function createBannersView(
     // ------------------------------------------------------------- render
 
     const render = () => {
+      if (destroyed) return;
+      thumbUpdates.clear();
       // Re-rendering replaces every control, so keyboard focus would fall to
       // the page. Remember the focused control and put focus back afterwards,
       // unless a step asked for focus to move somewhere specific.
@@ -469,7 +504,23 @@ export function createBannersView(
         h(
           "p",
           { class: "dash-lede" },
-          `${detail.county.name} (${detail.county.fips})`,
+          `${detail.county.name} (${detail.county.fips}) `,
+          h(
+            "a",
+            {
+              class: "banner-county-link",
+              href: `/counties/${detail.county.fips}`,
+              target: "_blank",
+              rel: "noopener noreferrer",
+              title: `Open the ${detail.county.name} County page in a new tab`,
+            },
+            h("span", { "aria-hidden": "true" }, "\u2197"),
+            h(
+              "span",
+              { class: "visually-hidden" },
+              `Open the ${detail.county.name} County page in a new tab`,
+            ),
+          ),
         ),
       ];
       if (detail.bannersTruncated)
@@ -592,6 +643,7 @@ export function createBannersView(
           { class: "dash-module-note" },
           `Banner ${banner.id}, version ${banner.rowVersion}`,
         ),
+        ...bannerThumb(banner),
         bannerFacts(banner),
         ...versionList(banner, bannerState),
         ...stagedArea(banner, bannerState),
@@ -610,6 +662,33 @@ export function createBannersView(
         },
         ...children,
       );
+    };
+
+    const bannerThumb = (banner: BannerAdminBanner): Node[] => {
+      const id = previewVersionId(banner);
+      if (!id) return [];
+      const slot = h("div");
+      const update = () => {
+        const url = thumbs.get(id);
+        const content = url
+          ? h("img", {
+              class: "banner-thumb",
+              src: url,
+              alt: `Private preview of the ${banner.selectedVersionId ? "current" : "latest"} image for banner ${banner.id}`,
+            })
+          : h(
+              "p",
+              { class: "help banner-thumb-note" },
+              thumbs.has(id)
+                ? "The preview could not be loaded."
+                : "Loading preview...",
+            );
+        replaceChildren(doc, slot, content);
+      };
+      // A background preview must leave the active form and file input intact.
+      thumbUpdates.set(id, update);
+      update();
+      return [slot];
     };
 
     const statusLabel = (banner: BannerAdminBanner): string =>
@@ -1286,6 +1365,45 @@ export function createBannersView(
         type: "checkbox",
         id: "banner-new-primary",
       });
+      const fileNote = h("p", {
+        class: "help",
+        id: "banner-new-file-note",
+        role: "status",
+      });
+      // Names follow 08XXX-COUNTYNAME-CAPTION. Fill only fields that are
+      // empty or still hold the previous fill, so typed edits are kept.
+      const filled = { id: "", caption: "", alt: "" };
+      const fillFrom = (
+        input: HTMLInputElement,
+        key: keyof typeof filled,
+        value: string,
+      ) => {
+        if (
+          value &&
+          (input.value.trim() === "" || input.value === filled[key])
+        ) {
+          input.value = value;
+          filled[key] = value;
+        }
+      };
+      file.addEventListener("change", () => {
+        const chosen = file.files?.[0];
+        if (!chosen) return;
+        const parsed = parseBannerFilename(
+          chosen.name,
+          state.detail?.county.name ?? "",
+        );
+        fillFrom(bannerIdInput, "id", parsed.bannerId);
+        state.newBannerId = bannerIdInput.value;
+        fillFrom(caption, "caption", parsed.caption);
+        fillFrom(alt, "alt", parsed.altText);
+        fileNote.textContent =
+          parsed.fips && parsed.fips !== countyFips
+            ? `The file name starts with ${parsed.fips}, but this county is ${countyFips}. Check the county before staging.`
+            : parsed.matched
+              ? "Banner ID, caption and alt text were filled from the file name. Edit them if needed."
+              : "The file name does not follow 08XXX-COUNTY-CAPTION, so only the banner ID was filled.";
+      });
       const stage = h(
         "button",
         { type: "button", id: "banner-new-stage" },
@@ -1318,6 +1436,7 @@ export function createBannersView(
         bannerIdInput,
         h("label", { for: "banner-new-file" }, "Image (PNG or JPEG)"),
         file,
+        fileNote,
         h("label", { for: "banner-new-caption" }, "Caption"),
         caption,
         h("label", { for: "banner-new-alt" }, "Alt text (required)"),
@@ -1398,6 +1517,7 @@ export function createBannersView(
         state.detail = detail;
         state.order = detail.banners.map((banner) => banner.id);
         state.orderDirty = false;
+        ensureThumbs(detail.banners);
         for (const banner of detail.banners) {
           const bannerState = stateFor(banner.id);
           if (
@@ -1831,6 +1951,8 @@ export function createBannersView(
 
     return {
       destroy() {
+        destroyed = true;
+        thumbUpdates.clear();
         dropPreviews();
       },
     };

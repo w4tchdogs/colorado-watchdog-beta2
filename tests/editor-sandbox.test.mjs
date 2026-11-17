@@ -182,11 +182,18 @@ test("pages carry a strict CSP and embed the token only in the HTML", async () =
     assert.equal(html.includes("__EDITOR_TOKEN__"), false);
     assert.equal(/<script(?![^>]*\bsrc=)[^>]*>/i.test(html), false);
     assert.equal(/\bon\w+=/i.test(html), false);
-    const script = await sandbox.fetch(
-      new Request(`http://${HOST}/app/main.js`),
-    );
-    assert.equal(script.status, 200);
-    assert.equal((await script.text()).includes(sandbox.token), false);
+    for (const file of ["main.js", "banner-filename.js"]) {
+      const script = await sandbox.fetch(
+        new Request(`http://${HOST}/app/${file}`),
+      );
+      assert.equal(script.status, 200, file);
+      assert.match(
+        script.headers.get("content-type") ?? "",
+        /javascript/,
+        file,
+      );
+      assert.equal((await script.text()).includes(sandbox.token), false, file);
+    }
     assert.equal(
       (await sandbox.fetch(new Request(`http://${HOST}/package.json`))).status,
       404,

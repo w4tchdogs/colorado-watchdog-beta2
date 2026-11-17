@@ -754,6 +754,143 @@ test("banner access follows the live role matrix and stays private", async () =>
   }
 });
 
+test("the county has a new-tab link, file names fill the form and banners show a private preview", async () => {
+  const fixtures = bannerAdminFixtures();
+  const d = await mountBanners();
+  try {
+    await waitFor(() => d.$("#banners-heading"), "banners view");
+    await openCounty(d, "08001", "Adams");
+
+    const link = d.$("#banner-county a.banner-county-link");
+    assert.equal(link.getAttribute("href"), "/counties/08001");
+    assert.equal(link.getAttribute("target"), "_blank");
+    assert.match(link.getAttribute("rel"), /noopener/);
+    assert.match(link.textContent, /new tab/);
+
+    // A name that follows 08XXX-COUNTYNAME-CAPTION fills every field.
+    d.chooseFile(
+      "#banner-new-file",
+      bytesOf(fixtures.pngA),
+      "08001-adams-barr_lake.png",
+    );
+    assert.equal(d.$("#banner-new-id").value, "08001-adams-barr_lake");
+    assert.equal(d.$("#banner-new-caption").value, "Adams Barr Lake");
+    assert.equal(
+      d.$("#banner-new-alt").value,
+      "Adams Barr Lake, Adams County, Colorado",
+    );
+    assert.match(d.text("#banner-new-file-note"), /filled from the file name/);
+
+    // A later file keeps edits the person made, and replaces untouched fills.
+    d.type(d.$("#banner-new-caption"), "My own caption");
+    d.chooseFile(
+      "#banner-new-file",
+      bytesOf(fixtures.pngA),
+      "08001-adams-rocky_flats.png",
+    );
+    assert.equal(d.$("#banner-new-id").value, "08001-adams-rocky_flats");
+    assert.equal(d.$("#banner-new-caption").value, "My own caption");
+    assert.equal(
+      d.$("#banner-new-alt").value,
+      "Adams Rocky Flats, Adams County, Colorado",
+    );
+
+    // A file for another county is flagged.
+    d.chooseFile(
+      "#banner-new-file",
+      bytesOf(fixtures.pngA),
+      "08005-arapahoe-reservoir.png",
+    );
+    assert.match(d.text("#banner-new-file-note"), /08005.*08001/);
+
+    // Stage and publish, then the banner card shows a private preview.
+    d.type(d.$("#banner-new-id"), "adams-barr-lake");
+    d.type(d.$("#banner-new-caption"), "Adams Barr Lake");
+    d.type(d.$("#banner-new-alt"), "Adams Barr Lake, Adams County, Colorado");
+    d.click("#banner-new-stage");
+    await waitFor(
+      () => d.$("#banner-staged-image-adams-barr-lake"),
+      "staged preview",
+    );
+    await publishStaged(d, "adams-barr-lake", "Adams");
+    await waitFor(
+      () => d.$("#banner-adams-barr-lake img.banner-thumb"),
+      "banner preview thumbnail",
+    );
+    const thumb = d.$("#banner-adams-barr-lake img.banner-thumb");
+    assert.match(thumb.getAttribute("src"), /^blob:preview-/);
+    assert.match(thumb.getAttribute("alt"), /adams-barr-lake/);
+  } finally {
+    await d.close();
+  }
+});
+
+test("thumbnail completion preserves a selected upload and edited caption", async () => {
+  const fixtures = bannerAdminFixtures();
+  const gate = Promise.withResolvers();
+  let d;
+  d = await mountBanners({
+    hook(call) {
+      if (!/\/versions\/[^/]+\/image$/.test(call.path)) return undefined;
+      return gate.promise.then(() =>
+        sandboxFetch(d.sandbox)(call.path, call.init),
+      );
+    },
+  });
+  try {
+    const connection = { token: d.sandbox.token, account: () => "admin" };
+    const client = createBannerAdminClient({
+      fetch: sandboxFetch(d.sandbox),
+      headers: sandboxHeaders(connection),
+    });
+    await client.stageNew({
+      bannerId: "thumbnail-gate-fixture",
+      countyFips: "08001",
+      sourceFilename: "fixture.png",
+      idempotencyKey: "thumbnail-gate-fixture",
+      metadata: {
+        caption: "Fixture",
+        altText: "Fixture",
+        displayOrder: 0,
+        isPrimary: false,
+        homepageOrder: null,
+        displayMode: "cover",
+        focalX: 0.5,
+        focalY: 0.5,
+      },
+      bytes: bytesOf(fixtures.pngA),
+      mediaType: "image/png",
+    });
+    await openCounty(d, "08001", "Adams");
+    await waitFor(() => d.$(".banner-thumb-note"), "pending thumbnail");
+    await waitFor(
+      () => d.$("#banner-history-empty-thumbnail-gate-fixture"),
+      "publication history loaded",
+    );
+    const chosen = d.chooseFile(
+      "#banner-new-file",
+      bytesOf(fixtures.pngB),
+      "08001-adams-next.png",
+    );
+    const caption = d.$("#banner-new-caption");
+    caption.focus();
+    d.type(caption, "Keep this caption");
+    gate.resolve();
+    await waitFor(() => d.$("img.banner-thumb"), "thumbnail completion");
+    assert.deepEqual(
+      [
+        d.$("#banner-new-file").files[0]?.name,
+        d.$("#banner-new-caption").value,
+      ],
+      [chosen.name, "Keep this caption"],
+    );
+    assert.equal(d.window.document.activeElement, caption);
+  } finally {
+    gate.resolve();
+    await d.close();
+  }
+});
+
 test("the banners view is keyboard operable and labelled", async () => {
   const d = await mountBanners();
   try {

@@ -229,6 +229,11 @@ const STATIC_FILES: Readonly<
     file: "banner-admin-client.js",
     type: "text/javascript; charset=utf-8",
   },
+  "/app/banner-filename.js": {
+    directory: "script",
+    file: "banner-filename.js",
+    type: "text/javascript; charset=utf-8",
+  },
   "/app/banner-views.js": {
     directory: "script",
     file: "banner-views.js",
