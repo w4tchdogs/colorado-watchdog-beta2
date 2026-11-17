@@ -194,6 +194,16 @@ const STATIC_FILES: Readonly<
     file: "relationship-format.js",
     type: "text/javascript; charset=utf-8",
   },
+  "/app/visual-model.js": {
+    directory: "script",
+    file: "visual-model.js",
+    type: "text/javascript; charset=utf-8",
+  },
+  "/app/visual-canvas.js": {
+    directory: "script",
+    file: "visual-canvas.js",
+    type: "text/javascript; charset=utf-8",
+  },
   "/app/preview.js": {
     directory: "script",
     file: "preview.js",

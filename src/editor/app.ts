@@ -18,6 +18,8 @@ import { diffLines, hasChanges } from "./diff.js";
 import { clear, el, replaceChildren } from "./dom.js";
 import { renderMarkdownInto } from "./preview.js";
 import { createRelationshipsPanel, type Rel } from "./relationships.js";
+import { createVisualCanvas } from "./visual-canvas.js";
+import { toVisual } from "./visual-model.js";
 
 export interface EditorSession {
   /** Sandbox account key sent with each request. */
@@ -254,9 +256,11 @@ export function mountEditorApp(
     route = target;
     const hash = routeHash(target);
     if (win && win.location.hash !== hash) {
-      suppressHash = true;
       if (replace) win.history.replaceState(null, "", hash);
-      else win.location.hash = hash;
+      else {
+        suppressHash = true;
+        win.location.hash = hash;
+      }
     }
     if (target.name === "dashboard") renderDashboard(token);
     else renderEditor(target, token);
@@ -761,6 +765,13 @@ export function mountEditorApp(
     let revisionsMore: number | null = null;
     let revisionsState: "idle" | "loading" | "error" = "idle";
     let previewTimer: ReturnType<typeof setTimeout> | undefined;
+    let saveFailed = false;
+    let mode: "visual" | "source" = "visual";
+    let previewing = false;
+    // Wide screens start with the settings open and keep the canvas central.
+    let settingsOpen = win?.matchMedia
+      ? win.matchMedia("(min-width: 80rem)").matches
+      : true;
 
     const isDirty = (): boolean => {
       if (!item) {
@@ -785,6 +796,8 @@ export function mountEditorApp(
       !isDirty() ||
       confirmLeave("You have unsaved changes. Leave and discard them?");
     cleanupView = () => {
+      doc.removeEventListener("keydown", onSaveShortcut);
+      canvas.destroy();
       if (previewTimer) clearTimeout(previewTimer);
       onAccountChanged = null;
       guardIsClean = null;
@@ -801,7 +814,7 @@ export function mountEditorApp(
     });
     const summaryInput = h("textarea", {
       id: `${idPrefix}-summary`,
-      rows: 2,
+      rows: 3,
       maxlength: 1000,
     });
     const bodyInput = h("textarea", {
@@ -809,23 +822,30 @@ export function mountEditorApp(
       rows: 18,
       maxlength: MAX_BODY_CHARACTERS,
       spellcheck: "true",
+      class: "source-input",
       "aria-describedby": `${idPrefix}-body-help`,
     });
     titleInput.value = draft.title;
     summaryInput.value = draft.summary;
     bodyInput.value = draft.body;
+    titleInput.classList.add("writer-title");
+    titleInput.setAttribute("placeholder", "Article title");
 
     const saveButton = h(
       "button",
       { type: "button", id: "save", class: "primary" },
-      "Save changes",
+      "Save Draft",
     );
     const lifecycleButton = h(
       "button",
       { type: "button", id: "lifecycle" },
       "Archive",
     );
-    const stateLine = h("span", { id: "save-state", class: "save-state" });
+    const stateLine = h("span", {
+      id: "save-state",
+      class: "save-state",
+      role: "status",
+    });
     const versionLine = h("span", {
       id: "version-line",
       class: "version-line",
@@ -848,36 +868,107 @@ export function mountEditorApp(
       class: "char-count",
       id: `${idPrefix}-body-help`,
     });
-    const editPane = h(
-      "section",
-      { class: "pane edit-pane", "aria-labelledby": `${idPrefix}-edit-h` },
-      h("h2", { id: `${idPrefix}-edit-h` }, "Write"),
-      h("label", { for: `${idPrefix}-title` }, "Title"),
-      titleInput,
+
+    // visual canvas, source view and toolbar toggles
+    const modeNote = h("p", {
+      class: "notice notice-info mode-note",
+      id: "mode-note",
+      hidden: true,
+    });
+    const roundTripNote = h(
+      "p",
+      {
+        class: "notice notice-error mode-note",
+        id: "round-trip-note",
+        hidden: true,
+      },
+      "Some of what you typed cannot be written as Markdown that reads exactly the same. Check the Source view before saving.",
+    );
+    const canvas = createVisualCanvas({
+      doc,
+      blocks: [],
+      readOnly: false,
+      idPrefix,
+      onChange: (markdown) => {
+        draft.body = markdown;
+        bodyInput.value = markdown;
+        saveFailed = false;
+        schedulePreview();
+        updateStatus();
+      },
+      onRoundTripWarning: (warn) => {
+        roundTripNote.hidden = !warn;
+      },
+      onNotice: (_kind, text) => announce(text),
+      checkpointDelayMs: previewDelay <= 0 ? 0 : 500,
+    });
+    const visualButton = h(
+      "button",
+      { type: "button", id: "mode-visual", class: "seg" },
+      "Visual",
+    );
+    const sourceButton = h(
+      "button",
+      { type: "button", id: "mode-source", class: "seg" },
+      "Source",
+    );
+    const previewButton = h(
+      "button",
+      { type: "button", id: "toggle-preview" },
+      "Preview",
+    );
+    const settingsButton = h(
+      "button",
+      {
+        type: "button",
+        id: "toggle-settings",
+        "aria-controls": `${idPrefix}-settings`,
+      },
+      "Settings",
+    );
+    const sourcePane = h(
+      "div",
+      { class: "source-pane" },
       h(
-        "p",
-        { class: "help", id: `${idPrefix}-title-help` },
-        "Required, up to 200 characters.",
+        "label",
+        { for: `${idPrefix}-body`, class: "visually-hidden" },
+        "Body (Markdown)",
       ),
-      h("label", { for: `${idPrefix}-summary` }, "Summary (optional)"),
-      summaryInput,
-      h("label", { for: `${idPrefix}-body` }, "Body (Markdown)"),
       bodyInput,
       h(
         "p",
         { class: "help" },
-        "Plain Markdown only. HTML is shown as text and never run.",
+        "Markdown source. HTML is shown as text and never run.",
         " ",
         charCount,
       ),
     );
-    const previewPane = h(
+    const canvasPane = h(
       "section",
-      { class: "pane preview-pane", "aria-labelledby": `${idPrefix}-prev-h` },
-      h("h2", { id: `${idPrefix}-prev-h` }, "Preview"),
+      { class: "pane canvas-pane", "aria-label": "Writing canvas" },
+      h(
+        "label",
+        { for: `${idPrefix}-title`, class: "visually-hidden" },
+        "Title",
+      ),
+      titleInput,
+      h(
+        "p",
+        { class: "visually-hidden", id: `${idPrefix}-title-help` },
+        "Required, up to 200 characters.",
+      ),
+      modeNote,
+      roundTripNote,
+      canvas.element,
+      sourcePane,
       preview,
     );
-    const grid = h("div", { class: "editor-grid" }, editPane, previewPane);
+    const grid = canvasPane;
+    const settingsPanel = h("aside", {
+      class: "settings-panel",
+      id: `${idPrefix}-settings`,
+      "aria-label": "Article settings",
+    });
     const historicalSlot = h("div", { id: "historical-slot" });
 
     // relationships panel
@@ -910,39 +1001,75 @@ export function mountEditorApp(
       go({ name: "dashboard" });
     });
 
+    settingsPanel.append(
+      h("h2", { id: `${idPrefix}-settings-h` }, "Settings"),
+      h(
+        "section",
+        { class: "panel", "aria-labelledby": `${idPrefix}-sum-h` },
+        h("h3", { id: `${idPrefix}-sum-h` }, "Summary"),
+        h("label", { for: `${idPrefix}-summary` }, "Summary (optional)"),
+        summaryInput,
+        h(
+          "p",
+          { class: "help" },
+          "Shown in lists and at the top of the article.",
+        ),
+      ),
+      relationshipsSlot,
+      revisionsSlot,
+    );
+
     replaceChildren(
       doc,
       main,
       h(
         "div",
-        { class: "editor" },
+        { class: "editor writer" },
         h("p", { class: "crumbs" }, backLink),
         h(
           "div",
-          { class: "page-head" },
+          { class: "writer-bar" },
           h(
-            "h1",
-            { id: "editor-heading" },
-            initial === null
-              ? `New ${contentType === "post" ? "Post" : "Story"}`
-              : "Edit article",
+            "div",
+            { class: "writer-bar-top" },
+            h(
+              "h1",
+              { id: "editor-heading", class: "writer-heading" },
+              initial === null
+                ? `New ${contentType === "post" ? "Post" : "Story"}`
+                : "Edit article",
+            ),
+            typeBadgeSlot,
+            statusBadgeSlot,
+            versionLine,
+            stateLine,
+            h(
+              "div",
+              { class: "actions writer-actions" },
+              h(
+                "span",
+                {
+                  class: "seg-group",
+                  role: "group",
+                  "aria-label": "Editing view",
+                },
+                visualButton,
+                sourceButton,
+              ),
+              previewButton,
+              settingsButton,
+              lifecycleButton,
+              saveButton,
+            ),
           ),
-          h("div", { class: "actions" }, saveButton, lifecycleButton),
-        ),
-        h(
-          "div",
-          { class: "status-row" },
-          typeBadgeSlot,
-          statusBadgeSlot,
-          versionLine,
-          stateLine,
+          canvas.tools,
+          canvas.linkForm,
         ),
         banners,
         conflictSlot,
         messages,
         historicalSlot,
-        grid,
-        h("div", { class: "side-grid" }, relationshipsSlot, revisionsSlot),
+        h("div", { class: "writer-body" }, grid, settingsPanel),
       ),
     );
 
@@ -962,18 +1089,37 @@ export function mountEditorApp(
       versionLine.textContent = item
         ? `Version ${item.version}`
         : "Not saved yet";
-      stateLine.className = `save-state ${saving ? "is-saving" : dirty ? "is-unsaved" : "is-saved"}`;
+      stateLine.className = `save-state ${saving ? "is-saving" : conflict || (saveFailed && dirty) ? "is-error" : dirty ? "is-unsaved" : "is-saved"}`;
       stateLine.textContent = saving
         ? "Saving..."
-        : dirty
-          ? "Unsaved changes"
-          : item
-            ? `All changes saved${lastSaved ? ` at ${lastSaved.toLocaleTimeString()}` : ""}`
-            : "Nothing to save yet";
+        : conflict
+          ? "Conflict: a newer version exists. Unsaved changes are kept."
+          : saveFailed && dirty
+            ? "Save failed. Unsaved changes are kept."
+            : dirty
+              ? "Unsaved changes"
+              : item
+                ? `All changes saved${lastSaved ? ` at ${lastSaved.toLocaleTimeString()}` : ""}`
+                : "Nothing to save yet";
       const lock = readOnly() || saving || working;
       titleInput.readOnly = readOnly();
       summaryInput.readOnly = readOnly();
       bodyInput.readOnly = readOnly();
+      canvas.setReadOnly(readOnly() || previewing);
+      visualButton.setAttribute("aria-pressed", String(mode === "visual"));
+      sourceButton.setAttribute("aria-pressed", String(mode === "source"));
+      previewButton.setAttribute("aria-pressed", String(previewing));
+      previewButton.textContent = previewing ? "Back to editing" : "Preview";
+      settingsButton.setAttribute("aria-expanded", String(settingsOpen));
+      settingsPanel.hidden = !settingsOpen;
+      titleInput.hidden = previewing;
+      canvas.element.hidden = previewing || mode !== "visual";
+      canvas.tools.hidden = previewing || mode !== "visual";
+      if (previewing || mode !== "visual") canvas.linkForm.hidden = true;
+      sourcePane.hidden = previewing || mode !== "source";
+      preview.hidden = !previewing;
+      modeNote.hidden = modeNote.textContent === "" || previewing;
+      roundTripNote.hidden = roundTripNote.hidden || mode !== "visual";
       saveButton.disabled = lock || conflict !== null || !dirty;
       lifecycleButton.hidden = item === null;
       lifecycleButton.textContent = isArchived()
@@ -1020,6 +1166,7 @@ export function mountEditorApp(
 
     titleInput.addEventListener("input", () => {
       draft.title = titleInput.value;
+      saveFailed = false;
       updatePreview();
       updateStatus();
     });
@@ -1030,15 +1177,95 @@ export function mountEditorApp(
     });
     bodyInput.addEventListener("input", () => {
       draft.body = bodyInput.value;
+      saveFailed = false;
+      if (mode === "visual") refreshCanvas();
       schedulePreview();
       updateStatus();
     });
+
+    // --- visual / source / preview / settings
+    function explain(reason: string): void {
+      modeNote.textContent = `This draft uses ${reason}, which the visual editor cannot represent safely. It stays in Source view and its text is unchanged.`;
+      announce(modeNote.textContent);
+    }
+    function setMode(next: "visual" | "source"): boolean {
+      if (next === "visual") {
+        const result = toVisual(draft.body);
+        if (!result.ok) {
+          explain(result.reason);
+          mode = "source";
+          updateStatus();
+          return false;
+        }
+        modeNote.textContent = "";
+        canvas.setBlocks(result.blocks);
+      }
+      mode = next;
+      updateStatus();
+      return true;
+    }
+    /** Reloads the canvas after the body changed from outside the canvas. */
+    function refreshCanvas(): void {
+      if (mode !== "visual") return;
+      const result = toVisual(draft.body);
+      if (result.ok) canvas.setBlocks(result.blocks);
+      else {
+        mode = "source";
+        explain(result.reason);
+      }
+    }
+    visualButton.addEventListener("click", () => {
+      previewing = false;
+      if (mode === "visual") {
+        updateStatus();
+        return;
+      }
+      if (setMode("visual")) canvas.focus();
+    });
+    sourceButton.addEventListener("click", () => {
+      previewing = false;
+      modeNote.textContent = "";
+      setMode("source");
+      bodyInput.focus();
+    });
+    previewButton.addEventListener("click", () => {
+      previewing = !previewing;
+      updatePreview();
+      updateStatus();
+      if (previewing) preview.setAttribute("tabindex", "-1");
+      (previewing
+        ? preview
+        : mode === "visual"
+          ? titleInput
+          : bodyInput
+      ).focus();
+    });
+    settingsButton.addEventListener("click", () => {
+      settingsOpen = !settingsOpen;
+      updateStatus();
+    });
+    const onSaveShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void save();
+      }
+    };
+    doc.addEventListener("keydown", onSaveShortcut);
+    {
+      const first = toVisual(draft.body);
+      if (first.ok) canvas.setBlocks(first.blocks);
+      else {
+        mode = "source";
+        explain(first.reason);
+      }
+    }
 
     // --- mutation plumbing
     function syncFrom(result: ContentItem, sent: typeof draft): void {
       item = result;
       if (draft.title === sent.title) draft.title = result.title;
       if (draft.summary === sent.summary) draft.summary = result.summary ?? "";
+      const bodyChanged = draft.body === sent.body && result.body !== sent.body;
       if (draft.body === sent.body) draft.body = result.body;
       if (sameRel(draft.rel, sent.rel))
         draft.rel = copyRel(result.relationships);
@@ -1046,6 +1273,7 @@ export function mountEditorApp(
       summaryInput.value = draft.summary;
       bodyInput.value = draft.body;
       lastSaved = new Date();
+      if (bodyChanged) refreshCanvas();
       updatePreview();
     }
     function replaceDraftWith(result: ContentItem): void {
@@ -1058,6 +1286,7 @@ export function mountEditorApp(
       summaryInput.value = draft.summary;
       bodyInput.value = draft.body;
       lastSaved = new Date();
+      refreshCanvas();
       updatePreview();
     }
     const snapshot = () => ({
@@ -1091,6 +1320,7 @@ export function mountEditorApp(
       }
       const sent = snapshot();
       saving = true;
+      saveFailed = false;
       updateStatus();
       try {
         if (!item) {
@@ -1106,9 +1336,9 @@ export function mountEditorApp(
           syncFrom(created, sent);
           notice(messages, "success", "Draft created as version 1.");
           if (win) {
-            suppressHash = true;
-            win.history.replaceState(null, "", `#/item/${created.id}`);
+            // replaceState fires no hashchange, so nothing is suppressed.
             route = { name: "item", id: created.id };
+            win.history.replaceState(null, "", routeHash(route));
           }
           const heading = main.querySelector("#editor-heading");
           if (heading) heading.textContent = "Edit article";
@@ -1140,6 +1370,7 @@ export function mountEditorApp(
         ) {
           await handleConflict();
         } else {
+          saveFailed = true;
           if (
             error instanceof EditorApiError &&
             error.code === "invalid_relationship"

@@ -1,4 +1,4 @@
-# Editorial workspace (M3-C, discovery added in M3-D, relationship discovery in M3-E)
+# Editorial workspace (M3-C, discovery added in M3-D, relationship discovery in M3-E, visual canvas in EDIT-3)
 
 A local, visual workspace for creating, editing, previewing, organizing and restoring fictional Posts and Stories. It drives the real M3-B content service through the real internal editorial transport. It is a development sandbox. It publishes nothing, adds no public page and grants no production access.
 
@@ -25,6 +25,30 @@ To use another port, set `EDITOR_PORT` first: in PowerShell `$env:EDITOR_PORT = 
 - **Relationships (M3-E):** three search pickers find counties, people and organizations by displayed name, so no ID has to be memorized or typed. Each result shows its identity before it is chosen, and selections are always stable IDs, never names. See [Relationship discovery](#relationship-discovery-m3-e).
 - **Revision history:** each saved version with change type, time, editing account and a `Current` marker. `View` opens a read-only historical revision with preview, an optional comparison with the current draft and a confirmed `Restore this revision`, which creates a new version.
 - **Acting as:** the selector in the yellow sandbox strip switches the synthetic sandbox account. Avery Author and Eli Editor hold the editor role and may edit, as may Ada Administrator and Olive Owner. Riley Reader is a contributor with no editorial permission and Rene Retired is a disabled account, so both show how denials look. Switching accounts is a sandbox convenience only.
+
+## Visual writing canvas (EDIT-3)
+
+The Editor view is a visual canvas modeled on the WordPress block editor's layout: a top toolbar, a central writing column and a collapsible settings panel. It is still local, fictional and fixture-only. Markdown stays the stored body format, so there is no schema change, no new API and no change to publication.
+
+- **Top toolbar:** the article title, type and status badges, the version, a save status (`Unsaved changes`, `Saving...`, `All changes saved at ...`, `Save failed. Unsaved changes are kept.` or `Conflict: a newer version exists. Unsaved changes are kept.`), the `Visual` and `Source` switch, `Preview`, `Settings`, `Archive` or `Restore to draft` and `Save Draft`. `Ctrl+S` (or `Cmd+S`) also saves.
+- **Writing canvas:** a large title field, then one editable block per paragraph, heading (levels 1 to 4), quote, bulleted list item and numbered list item. Bold, italic, links and inline code are supported. Pasted text is reduced to plain text and dropped markup never reaches the draft.
+- **Block tools:** `+ Block` opens a menu to add a Paragraph, Heading 2, Heading 3, bulleted list, numbered list or Quote after the current block. `Block type` changes the current block, `Up` and `Down` (or `Alt+Up` and `Alt+Down`) move it, `Remove` deletes it, and `Undo` and `Redo` (or `Ctrl+Z`, `Ctrl+Shift+Z` and `Ctrl+Y`) step through whole edits, including block moves, additions and type changes. `Enter` starts a new block (a list continues, an empty list item becomes a paragraph), `Backspace` at the start of a block turns it into a paragraph or joins it to the one above, `Ctrl+B` and `Ctrl+I` format, and `Ctrl+K` opens the link form, where an address is accepted only when it is a safe `http`, `https` or `mailto` link. The arrow keys move between blocks at their edges.
+- **Settings panel:** `Settings` opens or closes the summary, the county, person and organization relationships and the revision history. It starts open on wide screens and closed on narrower ones, so the writing column stays central.
+- **Preview:** `Preview` swaps the canvas for the article as the existing safe renderer shows it. `Back to editing` returns.
+- **Source view:** the Markdown textarea from the earlier workspace, kept as the `Source` view. Editing in either view updates the same draft.
+- **Mobile:** the toolbar rows scroll sideways inside their own row and the page has no horizontal scroll at 375 px.
+
+### Which drafts open visually
+
+A draft opens in the visual canvas only when its Markdown converts without loss. The canvas converts it to blocks, writes the blocks back and parses the result with the same parser. The two must match. A draft that fails stays in Source view with a note naming the reason, and its text is not touched. Unsupported syntax: fenced code blocks, horizontal rules, nested lists, list items or quotes with more than one block, headings below level 4, numbered lists that do not start at 1, hard line breaks, images, and links whose target the safe renderer would drop. Opening a draft, switching between Visual and Source and saving an unrelated field (such as the summary) never rewrite the body. The body is rewritten only when a block is edited, and then the visual editor writes its own canonical Markdown: `-` bullets, `**` and `*` emphasis, renumbered `1.` lists and one line per paragraph. Meaning is preserved and spelling choices such as `*` bullets may change. If an edit cannot be written as Markdown that reads the same, a warning asks you to check Source view.
+
+### Conflicts and failed saves
+
+Saves still send the expected version through the same content service, permissions and transport. After a failed save or a stale-version conflict, the canvas, title, summary and relationships keep what you typed, and the conflict panel's keep or discard choices work as before. The URL after the first save of a new article now includes the dashboard route, so reloading reopens the article.
+
+### Verification
+
+`tests/editor-visual.test.mjs` covers the block model, round-trip rules, escaping, mode switches, unchanged bodies after unrelated saves, source-only drafts, paste, block operations, undo and redo, preview and the settings panel. Browser checks covered keyboard writing, formatting, links, block moves, undo, save, reload, the two-tab conflict, an existing Markdown draft and a 375 px width in Chromium on Windows.
 
 ## Safe Markdown preview
 
