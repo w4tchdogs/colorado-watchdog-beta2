@@ -37,7 +37,8 @@ that show the state of profiles, departments and grievances.
 - **Done when:** all 64 counties have screened, synchronized Profiles and an
   approved banner in hosted D1 and R2, and public pages show per-county
   counts for profiles, departments and grievances. Grievance counts include
-  reviewed submissions only.
+  reviewed submissions only. A human operator can edit and synchronize Profiles
+  through the [human Profiles workflow](../decisions.md#human-operation-of-profiles-november-17-2026).
 - **Today:** the local research database covers 64 counties (3,256 research
   people, 2,692 organizational units). Real Profiles and banner imports
   remain pending. 152 approved banner originals are in the local `banners\approved\`

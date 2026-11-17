@@ -245,3 +245,15 @@ operator procedure is in [the Profiles foundation guide](research/R0-foundation.
 - Show the exact byline before certification and record its mode and value on the certified revision. Edits clear certification. Only the approved revision supplies the public byline, and private names and contact details stay outside the public projection.
 - Keep an existing approved byline visible while a replacement is under review. Let the authorized reporter immediately switch a published byline to Anonymous through an audited, report-specific action that preserves the original certified revision privately. Showing a name again requires new certification and editorial approval. Future guest change authority is report-specific. Existing status tracking does not give that authority.
 - The [owner approval](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/184#issuecomment-6940889112) is the original decision record. The [Beta-1 form reference](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/184#issuecomment-6940138593) documents archived behavior and differences. The subsequent archived-source inspection confirmed two pools of 100 unique names, independently sampled, but did not establish that they are the overall national top 100. It also confirmed that guests and account holders share the same signing editor and that Beta-1 supported a separate display override. The hosted Beta-1 review step failed to load, so those findings are source-only. This is a design decision for subsequent revisions and editorial release work.
+
+## Human operation of Profiles, November 17, 2026
+
+- The owner requires a human-operated way to manage Profiles. A person must
+  be able to find and edit records in the private Windows Profiles database,
+  review the proposed Website changes, and carry out the approved sync
+  without depending on an AI session or an MCP connection.
+- Preserve profile identity, source evidence and edit history. Send approved
+  public changes through the existing changeset and receipt boundary between
+  local Profiles SQLite and Website D1.
+- The editor, human sync access design and choice of table names or views
+  are open design questions. MCP remains an AI operator interface.
