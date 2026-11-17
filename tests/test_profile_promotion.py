@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from research.__main__ import main
 from research.db import connect, migrate
-from research.promotion import apply_reviewed_plan, build_preview
+from research.promotion import _legacy_position_title, apply_reviewed_plan, build_preview
 
 NOW = "2026-11-17T12:00:00+00:00"
 MANIFEST = "a" * 64
@@ -229,6 +229,43 @@ class PromotionCase(unittest.TestCase):
         self.assertEqual([tuple(row) for row in roles], [
             ("Clerk & Recorder", "Clerk & Recorder"), ("Clerk & Recorder", "County Clerk and Recorder"),
         ])
+
+    def test_consolidated_city_county_titles_preserve_the_other_conjunctions(self):
+        db = self.db
+        source_title = "City & COUNTY Engineer & Deputy Director"
+        db.execute('UPDATE profile_research_role SET "Position as published"=? WHERE "Role claim ID"=?',
+                   (source_title, "claim-office"))
+        db.commit()
+        plan = make_plan(["claim-office"])
+        plan["profiles"][0]["roles"][0]["position_title"] = "City Engineer & Deputy Director"
+        preview = build_preview(db, plan)
+        apply_reviewed_plan(db, plan, expected_sha256=preview["plan_sha256"])
+        self.assertEqual(db.execute('SELECT "Position title" FROM profile_role').fetchone()[0],
+                         "City Engineer & Deputy Director")
+        self.assertEqual(db.execute('SELECT "Position as published" FROM profile_research_role '
+                                    'WHERE "Role claim ID"=?', ("claim-office",)).fetchone()[0],
+                         source_title)
+        self.assertEqual(apply_reviewed_plan(db, plan, expected_sha256=preview["plan_sha256"])["status"],
+                         "replayed")
+
+    def test_prior_city_county_cleaning_replays_exactly(self):
+        source_title = "City and County Manager"
+        for reviewed_title in (source_title, "City and Manager"):
+            with self.subTest(title=reviewed_title):
+                db = fixture_db()
+                self.addCleanup(db.close)
+                db.execute('UPDATE profile_research_role SET "Position as published"=? WHERE "Role claim ID"=?',
+                           (source_title, "claim-office"))
+                db.commit()
+                plan = make_plan(["claim-office"])
+                plan["profiles"][0]["roles"][0]["position_title"] = reviewed_title
+                with patch("research.promotion._display_position_title", side_effect=_legacy_position_title):
+                    preview = build_preview(db, plan)
+                    apply_reviewed_plan(db, plan, expected_sha256=preview["plan_sha256"])
+                self.assertEqual(apply_reviewed_plan(db, plan, expected_sha256=preview["plan_sha256"])["status"],
+                                 "replayed")
+                self.assertEqual(db.execute('SELECT "Position title" FROM profile_role').fetchone()[0],
+                                 "City and Manager")
 
     def test_new_titles_omit_county_and_legacy_batches_replay_exactly(self):
         db = self.db

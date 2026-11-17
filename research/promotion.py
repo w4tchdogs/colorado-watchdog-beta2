@@ -20,6 +20,7 @@ _ROLE = {"role_claim_ids", "office_or_department", "position_title", "duties",
          "employment_start_date", "employment_end_date", "citations"}
 _CITATION = {"claim_id", "verified_on"}
 _COUNTY_IN_TITLE = re.compile(r"\bcounty\b(?:['’]s\b|\s*[-–—]\s*)?", re.IGNORECASE)
+_CITY_COUNTY_CONNECTOR = re.compile(r"(\bcity)(?:\s+and\s+|\s*&\s*)(?=county\b)", re.IGNORECASE)
 _TITLE_CONJUNCTION = re.compile(r"\s*(?:&|\band\b)\s*")
 
 
@@ -201,26 +202,37 @@ def _has_public_citation_metadata(row):
     return bool(valid_url and len(row["source_title"].encode("utf-8")) <= 500)
 
 
-def _display_position_title(title):
+def _legacy_position_title(title):
     if title is None or not _COUNTY_IN_TITLE.search(title):
         return title
     return " ".join(_COUNTY_IN_TITLE.sub("", title).split()).strip(" ,–—-") or None
 
 
-def _title_matches(title, observed):
+def _display_position_title(title):
+    if title is None:
+        return None
+    return _legacy_position_title(_CITY_COUNTY_CONNECTOR.sub(r"\1 ", title))
+
+
+def _title_matches(title, observed, *, legacy=False):
     if title == observed:
         return True
-    reviewed = _display_position_title(title)
-    source = _display_position_title(observed)
+    normalize = _legacy_position_title if legacy else _display_position_title
+    reviewed = normalize(title)
+    source = normalize(observed)
     if reviewed is None or source is None:
         return False
     return (_TITLE_CONJUNCTION.sub(" and ", reviewed.casefold())
             == _TITLE_CONJUNCTION.sub(" and ", source.casefold()))
 
 
-def _bind_fields(role, rows):
+def _bind_fields(role, rows, *, allow_legacy=False):
+    def matches_title(title, observed):
+        return _title_matches(title, observed) or (
+            allow_legacy and _title_matches(title, observed, legacy=True))
+
     title = role["position_title"]
-    if title is not None and not any(_title_matches(title, row["title"]) for row in rows):
+    if title is not None and not any(matches_title(title, row["title"]) for row in rows):
         raise ValueError("Reviewed position_title must match a selected research observation")
     for field, source_field in (("office_or_department", "office"),
                                 ("duties", "duties"),
@@ -230,7 +242,7 @@ def _bind_fields(role, rows):
         if value is not None and not any(row[source_field] == value for row in rows):
             raise ValueError(f"Reviewed {field} must exactly match a selected research observation")
     for row in rows:
-        title_supported = title is not None and _title_matches(title, row["title"])
+        title_supported = title is not None and matches_title(title, row["title"])
         details_supported = any(
                 role[field] is not None and role[field] == row[source_field]
                 for field, source_field in (("office_or_department", "office"), ("duties", "duties")))
@@ -253,10 +265,18 @@ def build_preview(db, plan):
     if batch is None or batch["county_fips"] != checked["county_code"]:
         raise ValueError("Reviewed intake batch is missing or belongs to another county")
 
+    promotion_batch_id = _id("promotion_batch", checked["county_code"], checked["batch_id"],
+                             checked["manifest_sha256"])
+    prior_audit = db.execute(
+        "SELECT detail_json FROM research_history WHERE entity_type=? AND entity_id=? AND kind=?",
+        ("profile_promotion_batch", promotion_batch_id, "profiles_promoted"),
+    ).fetchone()
+    prior_hash = json.loads(prior_audit["detail_json"]).get("plan_sha256") if prior_audit else None
     input_state = {"county_name": county_row["name"], "batch": dict(batch), "profiles": []}
     result_profiles = []
     seen_profile_ids = set()
     cleaned_titles = {}
+    legacy_titles = {}
     missing_cleaned_title = False
     for person in checked["profiles"]:
         research_id = person["research_profile_id"]
@@ -322,8 +342,12 @@ def build_preview(db, plan):
                     prior_date = evidence_dates.setdefault(row["evidence_id"], verified_on)
                     if prior_date != verified_on:
                         raise ValueError("Claims sharing an evidence record must use one verification date")
-            _bind_fields(role, rows)
+            _bind_fields(role, rows, allow_legacy=prior_hash is not None)
             role_id = _id("role", profile_id, *role["role_claim_ids"])
+            if prior_hash is not None:
+                legacy_title = _legacy_position_title(role["position_title"])
+                if legacy_title != role["position_title"]:
+                    legacy_titles[role_id] = legacy_title
             display_title = _display_position_title(role["position_title"])
             if display_title != role["position_title"]:
                 cleaned_titles[role_id] = display_title
@@ -363,14 +387,12 @@ def build_preview(db, plan):
     scope_hash = _fingerprint(scope)
     if cleaned_titles:
         # Existing receipts pin the exact older output. New previews pin their cleaned titles.
-        promotion_batch_id = _id("promotion_batch", checked["county_code"], checked["batch_id"],
-                                 checked["manifest_sha256"])
-        prior_audit = db.execute(
-            "SELECT detail_json FROM research_history WHERE entity_type=? AND entity_id=? AND kind=?",
-            ("profile_promotion_batch", promotion_batch_id, "profiles_promoted"),
-        ).fetchone()
-        if prior_audit and json.loads(prior_audit["detail_json"]).get("plan_sha256") == scope_hash:
+        legacy_hash = _fingerprint({**scope, "confirmed_position_titles": legacy_titles}) if legacy_titles else None
+        if prior_hash == scope_hash:
             cleaned_titles = {}
+        elif legacy_hash is not None and prior_hash == legacy_hash:
+            cleaned_titles = legacy_titles
+            scope_hash = legacy_hash
         else:
             if missing_cleaned_title:
                 raise ValueError("Role needs a documented title, office or duties after omitting County")

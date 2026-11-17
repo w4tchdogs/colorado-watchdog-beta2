@@ -78,7 +78,8 @@ which retains access to the claim's `Listing status` and source evidence.
 Use the latest supported observation when a claim was superseded. Claims
 with unclear listing status remain in the research review queue.
 
-Omit the standalone word “County” in confirmed position titles. A reviewed
+Omit the standalone word “County” in confirmed position titles. For the
+consolidated title “City and County Manager,” use “City Manager.” A reviewed
 role grouping can reuse all claims for the same role when their titles differ
 only by “County”, capitalization, or “and” versus “&”. Use the county,
 office and documented dates to distinguish genuinely different roles or terms.
