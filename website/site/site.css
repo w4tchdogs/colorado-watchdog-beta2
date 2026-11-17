@@ -34,6 +34,7 @@
   --space-7: 3.5rem;
 
   --radius: 2px;
+  --panel-radius: 4px;
   --wrap: 72rem;
   --measure: 68ch;
 }
@@ -563,7 +564,7 @@ img {
   padding: var(--space-5);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--panel-radius);
 }
 .card > :last-child {
   margin-bottom: 0;
@@ -684,6 +685,7 @@ img {
   background: var(--surface);
   border: 1px solid var(--line);
   border-left: 4px solid var(--ink);
+  border-radius: var(--panel-radius);
   font-size: 0.9375rem;
 }
 .empty-state {
@@ -692,7 +694,7 @@ img {
   background: var(--surface);
   border: 1px solid var(--line);
   border-top: 3px solid var(--ink);
-  border-radius: var(--radius);
+  border-radius: var(--panel-radius);
 }
 .empty-state h2,
 .empty-state h3 {
@@ -767,7 +769,7 @@ img {
   background: var(--surface);
   border: 1px solid var(--line);
   border-left: 4px solid var(--red);
-  border-radius: var(--radius);
+  border-radius: var(--panel-radius);
 }
 .record-list.affiliated {
   border-left: 4px dashed var(--ink-soft);
@@ -844,6 +846,7 @@ img {
   padding: var(--space-2) var(--space-3);
   background: var(--paper);
   border-left: 2px solid var(--ink);
+  border-radius: var(--panel-radius);
   font-size: 0.9375rem;
 }
 .citation-label {
@@ -1293,6 +1296,7 @@ img {
   background: var(--surface);
   color: var(--ink);
   border: 1px solid #bbbbbb;
+  border-radius: var(--panel-radius);
   text-decoration: none;
   transition: background-color 160ms, color 160ms, border-color 160ms;
 }
@@ -1326,7 +1330,7 @@ img {
 .discovery-card-action {
   color: var(--red);
 }
-.home-page :is(a.button, .discovery-card, .editorial-grid .article-card) {
+.home-page a.button {
   border-radius: var(--radius);
 }
 /* Stretch each homepage card's only link over its padding and border, keeping
@@ -1403,6 +1407,8 @@ img {
   background: var(--surface);
   border-top: 3px solid var(--ink);
   border-left: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  overflow: clip;
 }
 @media (min-width: 36rem) {
   .county-index-grid {
@@ -1547,6 +1553,7 @@ img {
   padding: 20px 30px 12px;
   background: #ffffff;
   border: 1px solid #cccccc;
+  border-radius: var(--panel-radius);
 }
 .county-map-status {
   /* One line only: a wrapped hover message would shift the map under a tap. */
@@ -1605,6 +1612,7 @@ img {
   margin-block: var(--space-4);
   padding: var(--space-3);
   border-inline-start: 4px solid var(--red);
+  border-radius: var(--panel-radius);
   background: var(--surface);
 }
 .counties-page .search-form {
@@ -1679,9 +1687,12 @@ img {
 }
 .county-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   background: #ffffff;
   border: 1px solid #cccccc;
+  border-radius: var(--panel-radius);
+  overflow: clip;
   font-size: 12px;
 }
 .county-table th {
@@ -1692,6 +1703,9 @@ img {
   letter-spacing: 0.2px;
   text-align: left;
   text-transform: uppercase;
+}
+:is(.county-table, .directory-table) th :focus-visible {
+  outline-offset: -3px;
 }
 .county-table th.is-sortable {
   padding: 0;
@@ -1736,6 +1750,9 @@ img {
 .county-table td {
   padding: 20px 16px;
   border-bottom: 1px solid #dddddd;
+}
+.county-table tbody tr:last-child td {
+  border-bottom: 0;
 }
 .county-table.is-enhanced tbody tr {
   cursor: pointer;
@@ -1807,6 +1824,7 @@ img {
   .county-table {
     background: none;
     border: 0;
+    overflow: visible;
   }
   .county-table thead {
     display: none;
@@ -1816,6 +1834,7 @@ img {
     padding: 17px;
     background: #ffffff;
     border: 1px solid #cccccc;
+    border-radius: var(--panel-radius);
   }
   .county-table td {
     padding: 5px 0;
@@ -1988,6 +2007,7 @@ img {
   background: var(--surface);
   border: 1px solid var(--line);
   border-top: 3px solid var(--ink);
+  border-radius: var(--panel-radius);
 }
 .article-card-title {
   font-family: var(--font-body);
@@ -2081,6 +2101,7 @@ img {
   background: var(--surface);
   border: 1px solid var(--line);
   border-top: 3px solid var(--ink);
+  border-radius: var(--panel-radius);
 }
 .article-aside h2 {
   font-family: var(--font-body);
@@ -2232,9 +2253,12 @@ img {
 }
 .directory-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   background: var(--surface);
   border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  overflow: clip;
   font-size: 0.9375rem;
 }
 .directory-table th {
@@ -2272,6 +2296,9 @@ th[aria-sort] .sort-mark {
   padding: var(--space-4);
   border-top: 1px solid var(--line);
   vertical-align: middle;
+}
+.directory-table tbody tr:first-child td {
+  border-top: 0;
 }
 .cell-person {
   display: flex;
@@ -2385,6 +2412,7 @@ th[aria-sort] .sort-mark {
   .directory-table {
     background: none;
     border: 0;
+    overflow: visible;
   }
   .directory-table thead {
     position: absolute;
@@ -2398,6 +2426,7 @@ th[aria-sort] .sort-mark {
     padding: var(--space-4);
     background: var(--surface);
     border: 1px solid var(--line);
+    border-radius: var(--panel-radius);
   }
   .directory-table td {
     display: grid;

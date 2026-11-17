@@ -188,6 +188,18 @@
   border: 1px solid var(--report-line);
 }
 
+.report-confidentiality,
+.report-disabled-notice,
+.report-form,
+.report-receipt,
+.report-review-summary,
+.report-tracking-result,
+.report-field,
+.report-error-summary,
+.report-evidence-row {
+  border-radius: var(--panel-radius);
+}
+
 .report-field legend {
   padding-inline: 0.35rem;
   font-weight: 800;
