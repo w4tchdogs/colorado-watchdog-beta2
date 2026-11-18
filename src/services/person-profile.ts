@@ -11,6 +11,7 @@ import type {
   PersonProfileRole,
 } from "../contracts/person-profile.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
+import { personIsPublicSql } from "./person-visibility.js";
 
 export class PersonProfileInputError extends Error {
   constructor(message: string) {
@@ -42,7 +43,9 @@ export function getPersonProfile(
 ): PersonProfilePage | null {
   const input = validateRequest(request);
   const person = database
-    .prepare("SELECT id, display_name, version FROM people WHERE id = ?")
+    .prepare(
+      `SELECT id, display_name, version FROM people WHERE id = ? AND ${personIsPublicSql("people.id")}`,
+    )
     .get(input.personId);
   if (!person) return null;
 

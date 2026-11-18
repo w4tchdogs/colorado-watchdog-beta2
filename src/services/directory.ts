@@ -9,6 +9,7 @@ import {
   type OrganizationType,
 } from "../contracts/directory.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
+import { personIsPublicSql } from "./person-visibility.js";
 
 export class DirectoryInputError extends Error {
   constructor(message: string) {
@@ -102,7 +103,7 @@ export function listCountyRoleEntries(
      WHERE (pr.county_fips = ? OR o.county_fips = ? OR EXISTS (
        SELECT 1 FROM organization_county_affiliations a
        WHERE a.organization_id = o.id AND a.county_fips = ?
-     )) AND (? IS NULL OR pr.id > ?)
+     )) AND ${personIsPublicSql("p.id")} AND (? IS NULL OR pr.id > ?)
      ORDER BY pr.id COLLATE BINARY LIMIT ?`,
     )
     .all(

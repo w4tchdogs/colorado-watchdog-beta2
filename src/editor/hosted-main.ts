@@ -6,6 +6,8 @@ import {
 import { createBannersView } from "./banner-views.js";
 import { mountDashboard } from "./dashboard.js";
 import { createDashboardClient } from "./dashboard-client.js";
+import { createProfilesClient, type ProfilesFetch } from "./profiles-client.js";
+import { createProfilesView } from "./profiles-view.js";
 import {
   accountView,
   createPostsView,
@@ -39,6 +41,13 @@ if (root) {
       cache: "no-store",
       redirect: "error",
     });
+  const profilesFetch: ProfilesFetch = (input, init) =>
+    fetch(input, {
+      ...init,
+      credentials: "same-origin",
+      cache: "no-store",
+      redirect: "error",
+    });
   const bannerClient = createBannerAdminClient({ fetch: bannerFetch });
   // The editor reads no account from the page. The server decides who the
   // caller is, so the session below only labels unsaved edits.
@@ -55,6 +64,9 @@ if (root) {
         session: { account: "" },
       }),
       banners: createBannersView({ client: bannerClient }),
+      profiles: createProfilesView({
+        client: createProfilesClient({ fetch: profilesFetch }),
+      }),
     },
     signOut: { action: "/auth/logout" },
   });

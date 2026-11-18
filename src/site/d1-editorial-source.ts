@@ -1,6 +1,7 @@
 import { ARTICLE_SLUG } from "../contracts/publication.js";
 import type { AsyncD1Database } from "../database/d1.js";
 import { validPublicationMetadata } from "../services/content-publication.js";
+import { personIsPublicSql } from "../services/person-visibility.js";
 import type {
   EditorialArticle,
   EditorialSource,
@@ -28,7 +29,8 @@ const PROJECTION = `SELECT ${CARD},r.body,
   (SELECT json_group_array(json_object('fips',c.fips,'name',c.name))
      FROM json_each(r.county_fips_json) j JOIN counties c ON c.fips=j.value) AS counties,
   (SELECT json_group_array(json_object('id',person.id,'displayName',person.display_name))
-     FROM json_each(r.person_ids_json) j JOIN people person ON person.id=j.value) AS people,
+     FROM json_each(r.person_ids_json) j JOIN people person ON person.id=j.value
+     WHERE ${personIsPublicSql("person.id")}) AS people,
   (SELECT json_group_array(json_object('id',o.id,'name',o.name))
      FROM json_each(r.organization_ids_json) j JOIN organizations o ON o.id=j.value) AS organizations
   ${PUBLIC_FROM}`;

@@ -15,6 +15,7 @@ import {
   OrganizationRolePageRequest,
 } from "../contracts/organization-profile.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
+import { personIsPublicSql } from "./person-visibility.js";
 
 export class OrganizationProfileInputError extends Error {
   constructor(message: string) {
@@ -145,6 +146,7 @@ export function listOrganizationRoleEntries(
        JOIN positions pos ON pos.id = pr.position_id
        JOIN role_sources s ON s.id = pr.source_id
        WHERE pos.organization_id = ?
+         AND ${personIsPublicSql("p.id")}
          AND (? IS NULL OR pr.id COLLATE BINARY > ? COLLATE BINARY)
        ORDER BY pr.id COLLATE BINARY
        LIMIT ?`,

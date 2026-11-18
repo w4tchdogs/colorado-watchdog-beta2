@@ -890,7 +890,7 @@ export default {
     ).all();
     check(
       "ordered custom migration history and checksums",
-      history.results?.length === 29 &&
+      history.results?.length === 30 &&
         history.results.every(
           (row, index) =>
             row.version === index + 1 &&

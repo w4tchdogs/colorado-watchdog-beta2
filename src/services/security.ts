@@ -20,7 +20,8 @@ export type Capability =
   | "sync.revert"
   | "banner.manage"
   | "banner.publish"
-  | "report.review";
+  | "report.review"
+  | "profile.manage";
 
 export type AccountKind = "human" | "agent";
 export type AccountRole = "contributor" | "editor" | "administrator" | "owner";
@@ -91,6 +92,7 @@ const ROLE_CAPABILITIES: Readonly<
     "banner.manage",
     "content.publish",
     "report.review",
+    "profile.manage",
   ],
 };
 

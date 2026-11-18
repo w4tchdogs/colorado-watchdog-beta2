@@ -16,6 +16,7 @@ import {
   type OfficialsSort,
 } from "../contracts/officials-directory.js";
 import type { AsyncD1Database } from "../database/d1.js";
+import { personIsPublicSql } from "./person-visibility.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
 
 const ORGANIZATION_TYPES: readonly OrganizationType[] = [
@@ -251,7 +252,8 @@ function matchingPeopleSql(input: ValidatedRequest): {
   sql: string;
   parameters: SqlValue[];
 } {
-  const roleFilters: string[] = [];
+  // A hidden Profile never reaches the public directory.
+  const roleFilters: string[] = [personIsPublicSql("person.id")];
   const roleParameters: SqlValue[] = [];
   let officeCte = "";
   const officeParameters: SqlValue[] = [];
@@ -313,6 +315,7 @@ function matchingPeopleSql(input: ValidatedRequest): {
        FROM people AS person
        WHERE NOT EXISTS (
                SELECT 1 FROM person_roles AS role WHERE role.person_id = person.id)
+         AND ${personIsPublicSql("person.id")}
          ${input.pattern === null ? "" : "AND person.display_name LIKE ? ESCAPE '\\'"}`;
 
   const sql = `WITH RECURSIVE ${officeCte}
@@ -594,6 +597,7 @@ export async function getCountyStructure(
      JOIN positions AS position
        ON position.organization_id = subtree.organization_id
      JOIN person_roles AS role ON role.position_id = position.id
+     WHERE ${personIsPublicSql("role.person_id")}
      GROUP BY subtree.root_id
      ORDER BY subtree.root_id COLLATE BINARY
      LIMIT 1000`,

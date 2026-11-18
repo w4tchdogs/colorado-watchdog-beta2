@@ -61,6 +61,16 @@ export const ROLE_LABELS: Readonly<Record<AccountRole, string>> = {
 
 const RECENT_LIMIT = 5;
 
+/**
+ * Modules that exist only on the hosted dashboard. The local sandbox has no
+ * view or service for them, so it reports them as planned and closed.
+ */
+const HOSTED_ONLY_MODULES: ReadonlySet<DashboardModuleId> = new Set([
+  "profiles",
+]);
+const stateOf = (module: DashboardModuleDefinition): "active" | "planned" =>
+  HOSTED_ONLY_MODULES.has(module.id) ? "planned" : module.state;
+
 export function createDashboardService(
   database: WebsiteDatabase,
   options: DashboardServiceOptions = {},
@@ -92,7 +102,7 @@ export function createDashboardService(
     state: "active" | "planned",
   ) =>
     DASHBOARD_MODULES.filter(
-      (module) => module.state === state && allows(principal, module),
+      (module) => stateOf(module) === state && allows(principal, module),
     ).map(link);
 
   function requireHuman(principal: TrustedPrincipal): void {
@@ -166,7 +176,7 @@ export function createDashboardService(
     view(principal, id) {
       requireHuman(principal);
       const module = DASHBOARD_MODULES.find(
-        (entry) => entry.id === id && entry.state === "active",
+        (entry) => entry.id === id && stateOf(entry) === "active",
       );
       // Unknown and not-yet-built views are the same answer for everyone.
       if (!module) throw new DashboardViewNotFoundError();
@@ -201,7 +211,7 @@ export function createDashboardService(
     },
     mayOpen(principal, id) {
       const module = DASHBOARD_MODULES.find(
-        (entry) => entry.id === id && entry.state === "active",
+        (entry) => entry.id === id && stateOf(entry) === "active",
       );
       return !!module && principal !== null && allows(principal, module);
     },

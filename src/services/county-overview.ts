@@ -3,6 +3,7 @@ import type {
   CountyOverviewRequest,
 } from "../contracts/county-overview.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
+import { personIsPublicSql } from "./person-visibility.js";
 
 export class CountyOverviewInputError extends Error {
   constructor(message: string) {
@@ -47,6 +48,7 @@ export function getCountyOverview(
          JOIN positions pos ON pos.organization_id = co.organization_id
          JOIN person_roles pr ON pr.position_id = pos.id
          JOIN role_sources source ON source.id = pr.source_id
+         WHERE ${personIsPublicSql("pr.person_id")}
          GROUP BY pos.organization_id
        )
        SELECT c.fips, c.name,
@@ -55,7 +57,8 @@ export function getCountyOverview(
               COALESCE(SUM(co.affiliated), 0) AS affiliated_organizations,
               COALESCE(SUM(rc.role_count), 0) + (SELECT COUNT(*) FROM person_roles unstructured
                 JOIN role_sources unstructured_source ON unstructured_source.id = unstructured.source_id
-                WHERE unstructured.position_id IS NULL AND unstructured.county_fips = ?) AS documented_role_count
+                WHERE unstructured.position_id IS NULL AND unstructured.county_fips = ?
+                  AND ${personIsPublicSql("unstructured.person_id")}) AS documented_role_count
        FROM counties c
        LEFT JOIN county_organizations co ON 1 = 1
        LEFT JOIN role_counts rc ON rc.organization_id = co.organization_id

@@ -60,9 +60,10 @@ test("navigation follows the existing role matrix for every human role", async (
       assert.equal(body.account.role, want.role);
       assert.deepEqual(ids(body.modules), want.modules, account);
       // Planned modules are listed only where the role holds the capability.
+      // Profiles is hosted-only, so the local sandbox lists it as planned.
       const planned = DASHBOARD_MODULES.filter(
         (module) =>
-          module.state === "planned" &&
+          (module.state === "planned" || module.id === "profiles") &&
           roleHasCapability(want.role, module.access.capability),
       ).map((module) => module.id);
       assert.deepEqual(ids(body.planned), planned, account);
@@ -72,6 +73,7 @@ test("navigation follows the existing role matrix for every human role", async (
     const owner = await (await session(sandbox, "owner")).json();
     assert.deepEqual(ids(owner.planned), [
       "reports",
+      "profiles",
       "accounts",
       "audit",
       "status",

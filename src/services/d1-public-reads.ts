@@ -47,6 +47,7 @@ import {
   listOfficials,
 } from "./officials-directory.js";
 import { OrganizationProfileInputError } from "./organization-profile.js";
+import { personIsPublicSql } from "./person-visibility.js";
 import { PersonProfileInputError } from "./person-profile.js";
 
 type Row = Record<string, unknown>;
@@ -92,10 +93,11 @@ export function createD1PublicReadServices(
       SELECT pos.organization_id, COUNT(*) role_count FROM county_organizations co
       JOIN positions pos ON pos.organization_id = co.organization_id
       JOIN person_roles pr ON pr.position_id = pos.id JOIN role_sources s ON s.id = pr.source_id
+      WHERE ${personIsPublicSql("pr.person_id")}
       GROUP BY pos.organization_id
     ) SELECT c.fips, c.name, COUNT(co.organization_id) total_organizations,
       COALESCE(SUM(co.direct),0) direct_organizations, COALESCE(SUM(co.affiliated),0) affiliated_organizations,
-      COALESCE(SUM(rc.role_count),0) + (SELECT COUNT(*) FROM person_roles u JOIN role_sources us ON us.id=u.source_id WHERE u.position_id IS NULL AND u.county_fips=?) documented_role_count FROM counties c
+      COALESCE(SUM(rc.role_count),0) + (SELECT COUNT(*) FROM person_roles u JOIN role_sources us ON us.id=u.source_id WHERE u.position_id IS NULL AND u.county_fips=? AND ${personIsPublicSql("u.person_id")}) documented_role_count FROM counties c
       LEFT JOIN county_organizations co ON 1=1 LEFT JOIN role_counts rc ON rc.organization_id=co.organization_id
       WHERE c.fips=? GROUP BY c.fips,c.name`,
       input.countyFips,
@@ -176,7 +178,7 @@ export function createD1PublicReadServices(
       FROM person_roles pr JOIN people p ON p.id=pr.person_id LEFT JOIN positions pos ON pos.id=pr.position_id
       LEFT JOIN organizations o ON o.id=pos.organization_id JOIN role_sources s ON s.id=pr.source_id
       WHERE (pr.county_fips=? OR o.county_fips=? OR EXISTS (SELECT 1 FROM organization_county_affiliations a WHERE a.organization_id=o.id AND a.county_fips=?))
-      AND (? IS NULL OR pr.id COLLATE BINARY>?) ORDER BY pr.id COLLATE BINARY LIMIT ?`,
+      AND ${personIsPublicSql("p.id")} AND (? IS NULL OR pr.id COLLATE BINARY>?) ORDER BY pr.id COLLATE BINARY LIMIT ?`,
       page.countyFips,
       page.countyFips,
       page.countyFips,
@@ -277,6 +279,8 @@ export function createD1PublicReadServices(
       kind === "people"
         ? { table: "people", column: "display_name" }
         : { table: "organizations", column: "name" };
+    const publicOnly =
+      kind === "people" ? ` AND ${personIsPublicSql("people.id")}` : "";
     const cursor = input.cursor ?? null;
     let afterName: string | null = null;
     let afterId: string | null = null;
@@ -305,7 +309,7 @@ export function createD1PublicReadServices(
         throw new DirectorySearchInputError("Invalid cursor");
       }
       const cur = await first<Row>(
-        `SELECT ${cfg.column} name FROM ${cfg.table} WHERE id=? AND ${cfg.column} LIKE ? ESCAPE '\\'`,
+        `SELECT ${cfg.column} name FROM ${cfg.table} WHERE id=? AND ${cfg.column} LIKE ? ESCAPE '\\'${publicOnly}`,
         afterId,
         `%${escapeLike(query)}%`,
       );
@@ -314,7 +318,7 @@ export function createD1PublicReadServices(
     }
     const rows = await all<Row>(
       `SELECT id,${cfg.column} name,version${kind === "organizations" ? ",organization_type" : ""} FROM ${cfg.table}
-      WHERE ${cfg.column} LIKE ? ESCAPE '\\' AND (? IS NULL OR ${cfg.column} COLLATE NOCASE>? COLLATE NOCASE OR
+      WHERE ${cfg.column} LIKE ? ESCAPE '\\'${publicOnly} AND (? IS NULL OR ${cfg.column} COLLATE NOCASE>? COLLATE NOCASE OR
       (${cfg.column} COLLATE NOCASE=? COLLATE NOCASE AND id COLLATE BINARY>? COLLATE BINARY))
       ORDER BY ${cfg.column} COLLATE NOCASE,id COLLATE BINARY LIMIT ?`,
       `%${escapeLike(query)}%`,
@@ -350,7 +354,7 @@ export function createD1PublicReadServices(
   ): Promise<PersonProfilePage | null> {
     const { personId, limit, after } = validateProfile(input, "person");
     const person = await first<Row>(
-      "SELECT id,display_name,version FROM people WHERE id=?",
+      `SELECT id,display_name,version FROM people WHERE id=? AND ${personIsPublicSql("people.id")}`,
       personId,
     );
     if (!person) return null;
@@ -524,7 +528,7 @@ export function createD1PublicReadServices(
       `SELECT pr.id role_id,pr.version role_version,pr.start_date,pr.end_date,pr.source_checked_at,p.id person_id,p.display_name,p.version person_version,
       pos.id position_id,pos.title position_title,pos.version position_version,s.id source_id,s.title source_title,s.url source_url,s.source_type,s.publisher_classification,s.version source_version
       FROM person_roles pr JOIN people p ON p.id=pr.person_id JOIN positions pos ON pos.id=pr.position_id JOIN role_sources s ON s.id=pr.source_id
-      WHERE pos.organization_id=? AND (? IS NULL OR pr.id COLLATE BINARY>?) ORDER BY pr.id COLLATE BINARY LIMIT ?`,
+      WHERE pos.organization_id=? AND ${personIsPublicSql("p.id")} AND (? IS NULL OR pr.id COLLATE BINARY>?) ORDER BY pr.id COLLATE BINARY LIMIT ?`,
       id,
       after,
       after,
