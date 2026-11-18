@@ -35,9 +35,7 @@ export class ProfilesApiError extends Error {
 export interface ProfilesClient {
   rows(query: ProfileQuery): Promise<ProfilePage>;
   facets(): Promise<ProfileFacets>;
-  selectAll(
-    query: ProfileQuery,
-  ): Promise<{
+  selectAll(query: ProfileQuery): Promise<{
     readonly entries: readonly ProfileSelectionEntry[];
     readonly truncated: boolean;
   }>;
@@ -83,14 +81,16 @@ export function createProfilesClient(options: {
       throw new ProfilesApiError(
         response.status,
         typeof body.error === "string" ? body.error : "internal_error",
-        Array.isArray(body.issues)
-          ? (body.issues as ProfileChangeIssue[])
-          : [],
+        Array.isArray(body.issues) ? (body.issues as ProfileChangeIssue[]) : [],
       );
     }
     return body as T;
   }
-  const post = (path: string, changes: readonly ProfileChange[], key?: string) =>
+  const post = (
+    path: string,
+    changes: readonly ProfileChange[],
+    key?: string,
+  ) =>
     call<never>(path, {
       method: "POST",
       headers: {
@@ -102,8 +102,7 @@ export function createProfilesClient(options: {
   return {
     rows: (query) => call<ProfilePage>(`/rows?${queryString(query, true)}`),
     facets: () => call<ProfileFacets>("/facets"),
-    selectAll: (query) =>
-      call(`/select-all?${queryString(query, false)}`),
+    selectAll: (query) => call(`/select-all?${queryString(query, false)}`),
     preview: (changes) => post("/preview", changes) as Promise<ProfilePreview>,
     save: (changes, key) =>
       post("/save", changes, key) as Promise<ProfileSaveResult>,

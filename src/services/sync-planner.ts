@@ -658,6 +658,23 @@ function planUpdate(
     targetId: raw.targetId as string,
     websiteId: raw.targetId as string,
     expectedVersion: version,
+    ...(valid
+      ? {
+          fieldChanges: Object.keys(fields).map((field) => {
+            const current = (row as Record<string, unknown>)[field];
+            const proposed = fields[field];
+            const plain = (value: unknown) =>
+              typeof value === "string" || typeof value === "number"
+                ? value
+                : null;
+            return {
+              field,
+              current: plain(current),
+              proposed: plain(proposed),
+            };
+          }),
+        }
+      : {}),
     dependencies: [],
   });
 }

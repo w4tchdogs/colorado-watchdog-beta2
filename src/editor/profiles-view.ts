@@ -30,7 +30,7 @@ import {
 } from "../contracts/profiles.js";
 import type { DashboardViewFactory } from "./dashboard.js";
 import { clear, el } from "./dom.js";
-import { type ProfilesClient, ProfilesApiError } from "./profiles-client.js";
+import { ProfilesApiError, type ProfilesClient } from "./profiles-client.js";
 
 Tabulator.registerModule([
   AjaxModule,
@@ -250,9 +250,13 @@ export function createProfilesView(options: {
     const setButton = button("Set selected values", () => openSetPanel(), {
       id: "profiles-set",
     });
-    const hideButton = button("Hide selected Profiles", () => stageVisibility(false), {
-      id: "profiles-hide",
-    });
+    const hideButton = button(
+      "Hide selected Profiles",
+      () => stageVisibility(false),
+      {
+        id: "profiles-hide",
+      },
+    );
     const restoreButton = button(
       "Restore selected Profiles",
       () => stageVisibility(true),
@@ -284,7 +288,11 @@ export function createProfilesView(options: {
         el(
           doc,
           "form",
-          { class: "cw-profiles-filters", role: "search", "aria-label": "Filter Profiles" },
+          {
+            class: "cw-profiles-filters",
+            role: "search",
+            "aria-label": "Filter Profiles",
+          },
           field("Search", searchInput, "profiles-search"),
           field("County", countySelect, "profiles-county"),
           field("Office / Unit", officeSelect, "profiles-office"),
@@ -312,7 +320,11 @@ export function createProfilesView(options: {
         el(
           doc,
           "div",
-          { class: "cw-profiles-actions", role: "toolbar", "aria-label": "Profiles actions" },
+          {
+            class: "cw-profiles-actions",
+            role: "toolbar",
+            "aria-label": "Profiles actions",
+          },
           selectPage,
           selectMatching,
           clearSelection,
@@ -341,8 +353,7 @@ export function createProfilesView(options: {
       if (error instanceof ProfilesApiError) {
         if (error.status === 401)
           return "Your session ended. Sign in again. Your unsaved edits are still here.";
-        if (error.status === 403)
-          return "You do not have access to Profiles.";
+        if (error.status === 403) return "You do not have access to Profiles.";
         if (error.code === "network_error")
           return "The network failed. Your edits are kept. Try again.";
         return `The request failed (${error.code}). Your edits are kept.`;
@@ -380,7 +391,8 @@ export function createProfilesView(options: {
       for (const row of table.getRows()) {
         const data = row.getData() as unknown as ProfileRow;
         const fresh = base.get(data.roleId);
-        if (fresh) void row.update(overlay(fresh) as unknown as Record<string, unknown>);
+        if (fresh)
+          void row.update(overlay(fresh) as unknown as Record<string, unknown>);
       }
     }
 
@@ -417,9 +429,7 @@ export function createProfilesView(options: {
       reviewKey = null;
       const key = stagedKey(entry.change);
       const baseline =
-        entry.change.kind === "visibility"
-          ? entry.before
-          : entry.before;
+        entry.change.kind === "visibility" ? entry.before : entry.before;
       if (entry.after === baseline) staged.delete(key);
       else staged.set(key, entry);
     }
@@ -485,7 +495,9 @@ export function createProfilesView(options: {
           void table
             ?.getRows()
             .find(
-              (row) => (row.getData() as unknown as ProfileRow).roleId === sibling.roleId,
+              (row) =>
+                (row.getData() as unknown as ProfileRow).roleId ===
+                sibling.roleId,
             )
             ?.update({ fullName: (value ?? "").trim() });
       }
@@ -494,7 +506,9 @@ export function createProfilesView(options: {
     }
 
     function markErrors(): void {
-      for (const element of Array.from(gridHost.querySelectorAll(".cw-cell-error"))) {
+      for (const element of Array.from(
+        gridHost.querySelectorAll(".cw-cell-error"),
+      )) {
         element.classList.remove("cw-cell-error");
         element.removeAttribute("aria-invalid");
       }
@@ -525,14 +539,17 @@ export function createProfilesView(options: {
     function stageVisibility(visible: boolean): void {
       const profiles = new Map<string, ProfileSelectionEntry>();
       for (const entry of selected.values())
-        if (!profiles.has(entry.profileId)) profiles.set(entry.profileId, entry);
+        if (!profiles.has(entry.profileId))
+          profiles.set(entry.profileId, entry);
       let staging = 0;
       let skipped = 0;
       for (const entry of profiles.values()) {
         const current =
-          (staged.get(`v:${entry.profileId}`)?.change as
-            | { visible: boolean }
-            | undefined)?.visible ?? entry.visible;
+          (
+            staged.get(`v:${entry.profileId}`)?.change as
+              | { visible: boolean }
+              | undefined
+          )?.visible ?? entry.visible;
         if (current === visible && !staged.has(`v:${entry.profileId}`)) {
           skipped += 1;
           continue;
@@ -565,14 +582,19 @@ export function createProfilesView(options: {
       setPanel.hidden = false;
       const fieldSelect = el(doc, "select", { id: "profiles-set-field" });
       for (const spec of ROLE_BULK_FIELDS)
-        fieldSelect.appendChild(el(doc, "option", { value: spec.id }, spec.label));
+        fieldSelect.appendChild(
+          el(doc, "option", { value: spec.id }, spec.label),
+        );
       const value = el(doc, "input", {
         id: "profiles-set-value",
         type: "text",
         placeholder: "YYYY-MM-DD",
         autocomplete: "off",
       });
-      const blank = el(doc, "input", { id: "profiles-set-blank", type: "checkbox" });
+      const blank = el(doc, "input", {
+        id: "profiles-set-blank",
+        type: "checkbox",
+      });
       const error = el(doc, "p", { class: "cw-profiles-error", role: "alert" });
       setPanel.append(
         el(doc, "h2", { id: "profiles-set-h" }, "Set selected values"),
@@ -589,11 +611,18 @@ export function createProfilesView(options: {
           "div",
           { class: "cw-profiles-field" },
           blank,
-          el(doc, "label", { for: "profiles-set-blank" }, "Leave blank (unknown)"),
+          el(
+            doc,
+            "label",
+            { for: "profiles-set-blank" },
+            "Leave blank (unknown)",
+          ),
         ),
         error,
         button("Stage values", () => {
-          const spec = ROLE_BULK_FIELDS.find((item) => item.id === fieldSelect.value);
+          const spec = ROLE_BULK_FIELDS.find(
+            (item) => item.id === fieldSelect.value,
+          );
           if (!spec) return;
           const text = blank.checked ? null : value.value.trim();
           if (!blank.checked && text === "") {
@@ -610,7 +639,8 @@ export function createProfilesView(options: {
             const key = `person_roles:${entry.roleId}:${spec.column}`;
             const before =
               (staged.get(key)?.before as string | null | undefined) ??
-              ((entry as unknown as Record<string, string | null>)[spec.id] ?? null);
+              (entry as unknown as Record<string, string | null>)[spec.id] ??
+              null;
             stage({
               change: {
                 kind: "field",
@@ -646,7 +676,8 @@ export function createProfilesView(options: {
 
     // ------------------------------------------------------ selection
     function selectCurrentPage(): void {
-      for (const row of base.values()) selected.set(row.roleId, toSelection(row));
+      for (const row of base.values())
+        selected.set(row.roleId, toSelection(row));
       refreshSelectionState();
       announce(`Selected ${base.size} role rows on this page.`);
     }
@@ -723,7 +754,12 @@ export function createProfilesView(options: {
       clear(reviewPanel);
       reviewPanel.hidden = false;
       reviewPanel.appendChild(
-        el(doc, "h2", { id: "profiles-review-h", tabindex: -1 }, "Review changes"),
+        el(
+          doc,
+          "h2",
+          { id: "profiles-review-h", tabindex: -1 },
+          "Review changes",
+        ),
       );
       if (local.length) {
         reviewPanel.append(
@@ -732,7 +768,12 @@ export function createProfilesView(options: {
         const list = el(doc, "ul", { class: "cw-profiles-issues" });
         for (const entry of local)
           list.appendChild(
-            el(doc, "li", {}, `${entry.label} for ${entry.who}: ${entry.error}`),
+            el(
+              doc,
+              "li",
+              {},
+              `${entry.label} for ${entry.who}: ${entry.error}`,
+            ),
           );
         reviewPanel.append(
           list,
@@ -793,8 +834,8 @@ export function createProfilesView(options: {
             doc,
             "tr",
             {},
-            ...["Row", "Field", "Old value", "New value", "Impact"].map((title) =>
-              el(doc, "th", { scope: "col" }, title),
+            ...["Row", "Field", "Old value", "New value", "Impact"].map(
+              (title) => el(doc, "th", { scope: "col" }, title),
             ),
           ),
         ),
@@ -823,7 +864,9 @@ export function createProfilesView(options: {
               doc,
               "td",
               {},
-              item.impact.shared ? el(doc, "strong", {}, "Shared record. ") : null,
+              item.impact.shared
+                ? el(doc, "strong", {}, "Shared record. ")
+                : null,
               item.impact.summary,
             ),
           ),
@@ -890,9 +933,8 @@ export function createProfilesView(options: {
     async function confirmSave(): Promise<void> {
       if (!reviewKey) reviewKey = newKey();
       const key = reviewKey;
-      const confirm = reviewPanel.querySelector<HTMLButtonElement>(
-        "#profiles-confirm",
-      );
+      const confirm =
+        reviewPanel.querySelector<HTMLButtonElement>("#profiles-confirm");
       if (confirm) confirm.disabled = true;
       try {
         const result = await client.save(changeList(), key);
@@ -906,10 +948,19 @@ export function createProfilesView(options: {
         saveButton.focus();
       } catch (error) {
         if (confirm) confirm.disabled = false;
-        if (error instanceof ProfilesApiError && error.status === 409 && error.code === "stale_version") {
+        if (
+          error instanceof ProfilesApiError &&
+          error.status === 409 &&
+          error.code === "stale_version"
+        ) {
           clear(reviewPanel);
           reviewPanel.append(
-            el(doc, "h2", { id: "profiles-review-h", tabindex: -1 }, "Some rows changed"),
+            el(
+              doc,
+              "h2",
+              { id: "profiles-review-h", tabindex: -1 },
+              "Some rows changed",
+            ),
             el(
               doc,
               "p",
@@ -929,7 +980,12 @@ export function createProfilesView(options: {
         if (error instanceof ProfilesApiError && error.status === 422) {
           clear(reviewPanel);
           reviewPanel.append(
-            el(doc, "h2", { id: "profiles-review-h", tabindex: -1 }, "Fix these changes"),
+            el(
+              doc,
+              "h2",
+              { id: "profiles-review-h", tabindex: -1 },
+              "Fix these changes",
+            ),
           );
           showIssues(error.issues, reviewPanel);
           reviewPanel.appendChild(
@@ -964,7 +1020,8 @@ export function createProfilesView(options: {
         announce(describeError(error));
         throw error;
       }
-      if (token !== requestToken || destroyed) return { last_page: 1, data: [] };
+      if (token !== requestToken || destroyed)
+        return { last_page: 1, data: [] };
       total = page.total;
       query = { ...query, page: page.page };
       base.clear();
@@ -976,7 +1033,9 @@ export function createProfilesView(options: {
       });
       return {
         last_page: page.lastPage,
-        data: page.rows.map((row) => overlay(row)),
+        // Tabulator edits the objects it is given, so hand it copies. The
+        // untouched server rows in `base` are what staged edits compare against.
+        data: page.rows.map((row) => ({ ...overlay(row) })),
       };
     }
 
@@ -1034,8 +1093,11 @@ export function createProfilesView(options: {
       return columns;
     }
 
-    function columnFor(definition: ProfileFieldDefinition): TabulatorColumnDefinition {
-      const frozen = definition.id === "fullName" || definition.id === "visible";
+    function columnFor(
+      definition: ProfileFieldDefinition,
+    ): TabulatorColumnDefinition {
+      const frozen =
+        definition.id === "fullName" || definition.id === "visible";
       const common: TabulatorColumnDefinition = {
         title: definition.label,
         field: definition.id,
@@ -1080,7 +1142,8 @@ export function createProfilesView(options: {
           editorParams: {
             elementAttributes: {
               "aria-label": definition.label,
-              maxlength: definition.id === "fullName" ? PROFILES_MAX_NAME_LENGTH : 30,
+              maxlength:
+                definition.id === "fullName" ? PROFILES_MAX_NAME_LENGTH : 30,
             },
           },
           cellEdited: onCellEdited,
@@ -1122,12 +1185,7 @@ export function createProfilesView(options: {
         ],
       ];
       for (const [title, fields] of groups) {
-        const group = el(
-          doc,
-          "fieldset",
-          {},
-          el(doc, "legend", {}, title),
-        );
+        const group = el(doc, "fieldset", {}, el(doc, "legend", {}, title));
         for (const definition of fields) {
           const id = `profiles-col-${definition.id}`;
           const input = el(doc, "input", {
@@ -1176,7 +1234,9 @@ export function createProfilesView(options: {
     }
 
     function fillFacets(facets: ProfileFacets): void {
-      countySelect.appendChild(el(doc, "option", { value: "" }, "All counties"));
+      countySelect.appendChild(
+        el(doc, "option", { value: "" }, "All counties"),
+      );
       for (const county of facets.counties)
         countySelect.appendChild(
           el(doc, "option", { value: county.fips }, county.name),
@@ -1213,9 +1273,12 @@ export function createProfilesView(options: {
       tabEndNewRow: false,
     });
     gridHost.setAttribute("aria-label", "Profiles, one row per role");
-    table.on("tableBuilt" as never, (() => {
-      gridHost.setAttribute("aria-rowcount", String(total));
-    }) as never);
+    table.on(
+      "tableBuilt" as never,
+      (() => {
+        gridHost.setAttribute("aria-rowcount", String(total));
+      }) as never,
+    );
     searchInput.addEventListener("input", () => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(applyFilters, 350);

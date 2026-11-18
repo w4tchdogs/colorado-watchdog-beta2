@@ -47,8 +47,8 @@ import {
   listOfficials,
 } from "./officials-directory.js";
 import { OrganizationProfileInputError } from "./organization-profile.js";
-import { personIsPublicSql } from "./person-visibility.js";
 import { PersonProfileInputError } from "./person-profile.js";
+import { personIsPublicSql } from "./person-visibility.js";
 
 type Row = Record<string, unknown>;
 const ID = /^[A-Za-z0-9._:-]{1,128}$/;

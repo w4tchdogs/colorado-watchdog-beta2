@@ -6,13 +6,13 @@ import {
 import { createBannersView } from "./banner-views.js";
 import { mountDashboard } from "./dashboard.js";
 import { createDashboardClient } from "./dashboard-client.js";
-import { createProfilesClient, type ProfilesFetch } from "./profiles-client.js";
-import { createProfilesView } from "./profiles-view.js";
 import {
   accountView,
   createPostsView,
   overviewView,
 } from "./dashboard-views.js";
+import { createProfilesClient, type ProfilesFetch } from "./profiles-client.js";
+import { createProfilesView } from "./profiles-view.js";
 
 /**
  * Hosted dashboard entry. It carries no sandbox switch, no synthetic account,

@@ -1,4 +1,6 @@
 import {
+  PROFILE_FIELDS,
+  PROFILE_SORT_FIELDS,
   PROFILES_DEFAULT_PAGE_SIZE,
   PROFILES_MAX_CHANGES,
   PROFILES_MAX_NAME_LENGTH,
@@ -6,8 +8,6 @@ import {
   PROFILES_MAX_PAGE_SIZE,
   PROFILES_MAX_QUERY_LENGTH,
   PROFILES_MAX_SELECT_ALL,
-  PROFILE_FIELDS,
-  PROFILE_SORT_FIELDS,
   type ProfileChange,
   type ProfileChangeIssue,
   type ProfileFacets,
@@ -176,7 +176,8 @@ export function createD1ProfilesService(
     let allowed = false;
     try {
       allowed =
-        principal.kind === "human" && (await options.authorize(principal)) === true;
+        principal.kind === "human" &&
+        (await options.authorize(principal)) === true;
     } catch {
       allowed = false;
     }
@@ -218,7 +219,8 @@ export function createD1ProfilesService(
   }
 
   function orderClause(query: ProfileQuery): string {
-    const expression = SORT_EXPRESSIONS[query.sort] ?? SORT_EXPRESSIONS.fullName;
+    const expression =
+      SORT_EXPRESSIONS[query.sort] ?? SORT_EXPRESSIONS.fullName;
     const direction = query.direction === "desc" ? "DESC" : "ASC";
     return `ORDER BY ${expression} ${direction}, pr.id COLLATE BINARY ASC`;
   }
@@ -250,9 +252,7 @@ export function createD1ProfilesService(
     };
   }
 
-  async function loadFieldTargets(
-    changes: readonly ProfileChange[],
-  ): Promise<{
+  async function loadFieldTargets(changes: readonly ProfileChange[]): Promise<{
     people: Map<string, Row>;
     roles: Map<string, Row>;
     visibility: Map<string, Row>;
@@ -326,9 +326,7 @@ export function createD1ProfilesService(
     return { people, roles, visibility, impact };
   }
 
-  async function validate(
-    input: unknown,
-  ): Promise<{
+  async function validate(input: unknown): Promise<{
     readonly changes: readonly ProfileChange[];
     readonly preview: ProfilePreview;
     readonly stale: readonly ProfileChangeIssue[];
@@ -359,7 +357,9 @@ export function createD1ProfilesService(
       if (change.kind === "visibility") {
         const row = targets.visibility.get(change.personId);
         if (!row) {
-          issues.push(issue(index, "not_found", "That Profile no longer exists."));
+          issues.push(
+            issue(index, "not_found", "That Profile no longer exists."),
+          );
           return;
         }
         const current = num(row.visible) === 1;
@@ -427,13 +427,19 @@ export function createD1ProfilesService(
       if (change.entity === "people") {
         const row = targets.people.get(change.targetId);
         if (!row) {
-          issues.push(issue(index, "not_found", "That Profile no longer exists."));
+          issues.push(
+            issue(index, "not_found", "That Profile no longer exists."),
+          );
           return;
         }
         const currentVersion = num(row.version);
         if (currentVersion !== change.expectedVersion) {
           const entry = {
-            ...issue(index, "stale_version", `${label} changed since it was read.`),
+            ...issue(
+              index,
+              "stale_version",
+              `${label} changed since it was read.`,
+            ),
             currentVersion,
             currentValue: str(row.display_name),
           };
@@ -478,9 +484,7 @@ export function createD1ProfilesService(
             roleRows: detail.roles,
             counties: detail.counties,
             summary: `The display name is shared by this Profile's ${detail.roles} role ${plural(detail.roles, "row")}${
-              detail.counties.length
-                ? ` in ${detail.counties.join(", ")}`
-                : ""
+              detail.counties.length ? ` in ${detail.counties.join(", ")}` : ""
             } and by every public page that shows the person. The private reviewed Profiles record is not changed.`,
           },
         });
@@ -495,7 +499,11 @@ export function createD1ProfilesService(
       const currentValue = nullable(row[change.field]);
       if (currentVersion !== change.expectedVersion) {
         const entry = {
-          ...issue(index, "stale_version", `${label} changed since it was read.`),
+          ...issue(
+            index,
+            "stale_version",
+            `${label} changed since it was read.`,
+          ),
           currentVersion,
           currentValue,
         };
@@ -534,7 +542,8 @@ export function createD1ProfilesService(
       const merged = proposed.get(change.targetId) ?? {};
       const start =
         "start_date" in merged ? merged.start_date : nullable(row.start_date);
-      const end = "end_date" in merged ? merged.end_date : nullable(row.end_date);
+      const end =
+        "end_date" in merged ? merged.end_date : nullable(row.end_date);
       if (
         (change.field === "start_date" || change.field === "end_date") &&
         start &&
@@ -646,14 +655,19 @@ export function createD1ProfilesService(
       await require(principal);
       const query = parseQuery(input);
       const { where, values } = filterClause(query);
+      const countRow = await database.first<Row>(
+        `SELECT COUNT(*) AS total ${FROM_CLAUSE} ${where}`,
+        values,
+      );
+      // D1 caps one result set at 1000 rows, so truncation comes from the count.
       const rows = await database.all<Row>(
         `SELECT ${ROW_COLUMNS} ${FROM_CLAUSE} ${where}
-         ${orderClause(query)} LIMIT ${PROFILES_MAX_SELECT_ALL + 1}`,
-        PROFILES_MAX_SELECT_ALL + 1,
+         ${orderClause(query)} LIMIT ${PROFILES_MAX_SELECT_ALL}`,
+        PROFILES_MAX_SELECT_ALL,
         values,
       );
       return {
-        entries: rows.slice(0, PROFILES_MAX_SELECT_ALL).map((row) => {
+        entries: rows.map((row) => {
           const entry = toRow(row);
           return {
             roleId: entry.roleId,
@@ -668,7 +682,7 @@ export function createD1ProfilesService(
             dateReviewed: entry.dateReviewed,
           };
         }),
-        truncated: rows.length > PROFILES_MAX_SELECT_ALL,
+        truncated: num(countRow?.total) > PROFILES_MAX_SELECT_ALL,
       };
     },
     async preview(principal, changes) {
@@ -681,7 +695,9 @@ export function createD1ProfilesService(
         throw new ProfilesInputError("A valid idempotency key is required");
       const checked = await validate(input);
       const fingerprint = await sha256Hex(
-        JSON.stringify(canonical(checked.changes.length ? checked.changes : [])),
+        JSON.stringify(
+          canonical(checked.changes.length ? checked.changes : []),
+        ),
       );
       const prior = await savedResult(principal.accountId, idempotencyKey);
       if (prior) {
@@ -690,7 +706,8 @@ export function createD1ProfilesService(
         return { ...prior.response, replayed: true };
       }
       if (!checked.preview.ok) {
-        if (checked.stale.length) throw new ProfilesConflictError(checked.preview.issues);
+        if (checked.stale.length)
+          throw new ProfilesConflictError(checked.preview.issues);
         throw new ProfilesValidationError(checked.preview.issues);
       }
       if (checked.preview.items.length === 0)
@@ -737,11 +754,17 @@ export function createD1ProfilesService(
         );
       };
 
-      const previewIndexes = new Set(checked.preview.items.map((item) => item.index));
+      const previewIndexes = new Set(
+        checked.preview.items.map((item) => item.index),
+      );
       // One UPDATE per role row so its version advances once per save.
       const roleGroups = new Map<
         string,
-        { expected: number; columns: [string, string | null][]; indexes: number[] }
+        {
+          expected: number;
+          columns: [string, string | null][];
+          indexes: number[];
+        }
       >();
       changes.forEach((change, index) => {
         if (!previewIndexes.has(index)) return;
@@ -854,7 +877,9 @@ export function createD1ProfilesService(
         roleGroups.set(change.targetId, group);
       });
       for (const [roleId, group] of roleGroups) {
-        const columns = [...group.columns].sort(([a], [b]) => a.localeCompare(b));
+        const columns = [...group.columns].sort(([a], [b]) =>
+          a.localeCompare(b),
+        );
         for (const [column] of columns)
           if (!FIELD_WRITES.person_roles.includes(column))
             throw new ProfilesInputError("Unsupported field");
@@ -923,7 +948,8 @@ export function createD1ProfilesService(
         }
         const again = await validate(input);
         if (!again.preview.ok) {
-          if (again.stale.length) throw new ProfilesConflictError(again.preview.issues);
+          if (again.stale.length)
+            throw new ProfilesConflictError(again.preview.issues);
           throw new ProfilesValidationError(again.preview.issues);
         }
         throw new StorageUnavailableError();
@@ -959,9 +985,10 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const FIPS = /^08\d{3}$/;
 
 export function parseQuery(input: unknown): ProfileQuery {
-  const source = (
-    input && typeof input === "object" ? input : {}
-  ) as Record<string, unknown>;
+  const source = (input && typeof input === "object" ? input : {}) as Record<
+    string,
+    unknown
+  >;
   const text = (key: string, max: number): string => {
     const value = source[key];
     if (value === undefined || value === null || value === "") return "";
@@ -971,7 +998,8 @@ export function parseQuery(input: unknown): ProfileQuery {
   };
   const query = text("query", PROFILES_MAX_QUERY_LENGTH);
   const county = text("county", 5);
-  if (county && !FIPS.test(county)) throw new ProfilesInputError("Invalid county");
+  if (county && !FIPS.test(county))
+    throw new ProfilesInputError("Invalid county");
   const office = text("office", 500);
   const visibility = text("visibility", 10) || "all";
   if (!["all", "visible", "hidden"].includes(visibility))
@@ -1049,7 +1077,9 @@ export function parseChanges(input: unknown): {
         typeof entry.visible !== "boolean" ||
         !versionOk
       ) {
-        issues.push(issue(index, "invalid_value", "Invalid visibility change."));
+        issues.push(
+          issue(index, "invalid_value", "Invalid visibility change."),
+        );
         return;
       }
       const key = `visibility:${entry.personId}`;
@@ -1123,12 +1153,7 @@ export function parseChanges(input: unknown): {
 function canonical(changes: readonly ProfileChange[]): unknown[] {
   return changes.map((change) =>
     change.kind === "visibility"
-      ? [
-          "v",
-          change.personId,
-          change.expectedVersion,
-          change.visible,
-        ]
+      ? ["v", change.personId, change.expectedVersion, change.visible]
       : [
           "f",
           change.entity,
@@ -1169,5 +1194,5 @@ function validUtc(value: unknown): boolean {
   );
 }
 
-export { PROFILE_FIELDS };
 export type { ProfileImpact };
+export { PROFILE_FIELDS };

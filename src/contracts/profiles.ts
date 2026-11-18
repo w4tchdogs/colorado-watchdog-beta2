@@ -211,7 +211,8 @@ export const PROFILE_FIELDS: readonly ProfileFieldDefinition[] = [
     label: "County Unit",
     status: "read-only",
     scope: "role",
-    source: "Parent of the linked organization (organizations.parent_organization_id)",
+    source:
+      "Parent of the linked organization (organizations.parent_organization_id)",
     owner:
       "Shared organization entity. Changed only through a reviewed sync of the organization.",
     defaultVisible: false,
@@ -292,8 +293,7 @@ export const PROFILE_FIELDS: readonly ProfileFieldDefinition[] = [
     scope: "role",
     source:
       "Direct county government, or organization_county_affiliations for the county",
-    owner:
-      "Shared organization entity. Changed only through a reviewed sync.",
+    owner: "Shared organization entity. Changed only through a reviewed sync.",
     defaultVisible: false,
     sortable: false,
   },
@@ -409,7 +409,10 @@ export interface ProfilePage {
 }
 
 export interface ProfileFacets {
-  readonly counties: readonly { readonly fips: string; readonly name: string }[];
+  readonly counties: readonly {
+    readonly fips: string;
+    readonly name: string;
+  }[];
   readonly offices: readonly string[];
 }
 

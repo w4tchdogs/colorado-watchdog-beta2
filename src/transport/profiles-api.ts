@@ -2,10 +2,10 @@ import { exactSameOrigin } from "../auth/http.js";
 import { PROFILES_API_PREFIX } from "../contracts/profiles.js";
 import { StorageUnavailableError } from "../contracts/storage.js";
 import {
-  type ProfilesService,
   ProfilesConflictError,
   ProfilesIdempotencyError,
   ProfilesInputError,
+  type ProfilesService,
   ProfilesValidationError,
 } from "../services/profiles-d1.js";
 import {
@@ -88,7 +88,8 @@ async function handle(
     if (url.search !== "") return json(400, { error: "unexpected_query" });
     const declared = request.headers.get("content-length");
     if (declared !== null) {
-      if (!/^\d+$/.test(declared)) return json(400, { error: "invalid_request" });
+      if (!/^\d+$/.test(declared))
+        return json(400, { error: "invalid_request" });
       if (Number(declared) > MAX_PROFILES_JSON_BYTES)
         return json(413, { error: "request_too_large" });
     }
@@ -131,7 +132,9 @@ async function handle(
       case "facets":
         return json(200, { ...(await service.facets(principal)) });
       case "selectAll":
-        return json(200, { ...(await service.selectAll(principal, params(url))) });
+        return json(200, {
+          ...(await service.selectAll(principal, params(url))),
+        });
       case "preview": {
         const body = await readBody(request);
         if (!body) return json(400, { error: "invalid_json" });
@@ -196,7 +199,8 @@ async function readBody(
 }
 
 function failure(error: unknown): Response {
-  if (error instanceof AuthorizationError) return json(403, { error: "forbidden" });
+  if (error instanceof AuthorizationError)
+    return json(403, { error: "forbidden" });
   if (error instanceof ProfilesInputError)
     return json(400, { error: "invalid_request", message: error.message });
   if (error instanceof ProfilesConflictError)

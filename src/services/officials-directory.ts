@@ -16,8 +16,8 @@ import {
   type OfficialsSort,
 } from "../contracts/officials-directory.js";
 import type { AsyncD1Database } from "../database/d1.js";
-import { personIsPublicSql } from "./person-visibility.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
+import { personIsPublicSql } from "./person-visibility.js";
 
 const ORGANIZATION_TYPES: readonly OrganizationType[] = [
   "county_government",
