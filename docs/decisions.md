@@ -223,6 +223,12 @@ rewriting the history above.
 - The owner directed on November 17 that confirmed role titles omit the standalone word “County”. Preserve the source wording, county and office or department separately. Group title variants when they describe the same role for the same person, and retain every supporting claim and source link. For example, “County Clerk and Recorder” and “Clerk & Recorder” describe one Clerk & Recorder role, and “County Treasurer” and “Treasurer” describe one Treasurer role.
 - This decision supersedes conflicting earlier identity evidence defaults and R7 eligibility assumptions. The identity planner, R7 generator and local Website reads implement it as of SYNC-1. Apply the source-link rule recorded above to every qualifying role.
 
+### Confirmed Profiles elected-office grouping, November 17, 2026
+
+- Use **Elected Official** as the county-specific display unit. Use the documented office as the subunit for Assessor, Board of County Commissioners, Clerk & Recorder, Coroner, Sheriff’s Office, Surveyor, Treasurer and Public Trustee. Apply the rule to new batches and supported existing assignments through the normal coordinated write window.
+- The display hierarchy records navigation. Preserve the researched organization hierarchy, documented position and duties, election and former status, dates, role IDs and source wording. Keep the full Board of County Commissioners office name. The standalone “County” omission applies to confirmed position titles.
+- Review Treasurer and Public Trustee county by county. Use a combined display label when the retained evidence supports it and preserve distinct documented offices or roles. The same officeholder alone is insufficient evidence for combining the offices. Flag unresolved cases for review. See the [owner direction](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/240#issuecomment-6965128633) and [independent audit](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/240#issuecomment-6965409800).
+
 ## Profiles database column names, November 16, 2026
 
 Use the approved plain-language names as actual SQLite column identifiers in
