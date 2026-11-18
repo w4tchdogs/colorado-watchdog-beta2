@@ -27,7 +27,7 @@ update and edit each of them.
   through audited, capability-limited tools. Each domain has a written
   operator guide that any AI can follow.
 - **Today:** see [CURRENT](CURRENT.md) for hosted inspection, banner and Profiles tools and client-specific evidence.
-- **Remaining:** the first real Profiles pilot, bulk banner import, editorial write tools, and AI operator guides (MCP-4). The [Windows Profiles bridge](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/204) has passed synthetic hosted acceptance. See CURRENT for native client status.
+- **Remaining:** the first real Profiles pilot, remaining county banner coverage and permanent publication, editorial write tools, and AI operator guides (MCP-4). The [Windows Profiles bridge](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/204) has passed synthetic hosted acceptance. See CURRENT for native client status.
 
 ### Goal 2. A populated hosted database
 
@@ -40,8 +40,9 @@ that show the state of profiles, departments and grievances.
   reviewed submissions only. A human operator can edit and synchronize Profiles
   through the [human Profiles workflow](../decisions.md#human-operation-of-profiles-november-17-2026).
 - **Today:** the local research database covers 64 counties (3,256 research
-  people, 2,692 organizational units). Real Profiles and bulk banner imports
-  remain pending. The [one-banner Adams pilot](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/137#issuecomment-6944557184) passed on Cloudflare staging and the banner was withdrawn afterward. 152 approved banner originals are in the local `banners\approved\`
+  people, 2,692 organizational units). Real Profiles sync remains pending.
+  Cloudflare staging has 151 staged originals and 145 published county banners
+  per the [PR #242](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/242) receipt. The [one-banner Adams pilot](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/137#issuecomment-6944557184) passed on Cloudflare staging and the banner was withdrawn afterward. 152 approved banner originals are in the local `banners\approved\`
   folder. Cloudflare staging passed the R2 storage round trip and the
   [protected banner API exercise with one synthetic PNG](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/137#issuecomment-6933294436). The separate
   [Sites R2 attachment and object inventory](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/122)
@@ -49,7 +50,8 @@ that show the state of profiles, departments and grievances.
 - **Remaining:** finish the campaign-2 validation and resolve the intake
   decision in DATA-1. Research migration 003 and the post-003 restore test
   are complete. Screen and run the first hosted sync (SYNC-1), then sync all
-  counties (SYNC-2), resolve display ordering and import approved banners
+  counties (SYNC-2), reconcile the banner inventory, fill missing county
+  coverage and resolve Adams restore and permanent publication
   (BANNERS-IMPORT-1), and add public county counts (STATS-1).
 
 ### Goal 3. Universal sign-in and sign-up for admins and editors
@@ -136,7 +138,7 @@ is lifted.
 | 10 | DATA-1 | Research migration 003, the campaign-2 Routt code fix, and a restore test of one backup | None (local) | 2 |
 | 11 | SYNC-1 | Screen one county and run the first hosted sync | DATA-1, MCP-3 | 2 |
 | 12 | SYNC-2 | Sync the remaining counties | SYNC-1 | 2 |
-| 13 | BANNERS-IMPORT-1 | Import approved banners to R2 and D1 after resolving display ordering | One-banner staging pilot passed. R2-1, MCP-3 | 2 |
+| 13 | BANNERS-IMPORT-1 | Reconcile the banner manifest, fill missing county coverage and resolve permanent publication in R2 and D1 | Staging bulk publication recorded in PR #242. R2-1, MCP-3 | 2 |
 | 14 | STATS-1 | Public per-county counts for profiles, departments and reviewed grievances | SYNC-1 | 2 |
 
 ### Phase 4. Public features
