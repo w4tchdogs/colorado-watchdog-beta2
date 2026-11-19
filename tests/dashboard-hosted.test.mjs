@@ -661,6 +661,13 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
         banners: createBannersView({
           client: createBannerAdminClient({ fetch: fetchLike }),
         }),
+        "county-structure": (context) => {
+          const heading = context.doc.createElement("h1");
+          heading.id = "county-structure-stub";
+          heading.textContent = "County Structure stub";
+          context.container.append(heading);
+          return { destroy() {} };
+        },
       },
       signOut: { action: "/auth/logout" },
     });
@@ -720,6 +727,10 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
         [],
       );
     }
+    window.location.hash = "#/county-structure";
+    await waitFor("#county-structure-stub");
+    assert.ok($("#county-structure-stub"));
+    assert.equal($("#state-not-found"), null);
     window.location.hash = "#/reports";
     await waitFor("#state-not-found");
     assert.ok($("#state-not-found"));
