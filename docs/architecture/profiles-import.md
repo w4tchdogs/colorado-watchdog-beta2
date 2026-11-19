@@ -67,3 +67,7 @@ The real Adams send stays a separate step. It needs the owner's exact reviewed s
 ## Mapping isolation
 
 The importer reads stable-ID mappings only from sync batches it committed itself. Importer batches are stored with the idempotency key prefix `pi:` and mappings use the `dash:profile:`, `dash:role:` and `dash:source:` client references. A mapping is ignored when its batch has a reversal record, when its key lacks the `pi:` prefix, or when the batch belongs to another account. The reverse route refuses any batch that is not an importer batch of the signed-in owner. Tests cover import, reverse and re-preview, an unrelated batch that reuses the `dash:` namespace, and a synthetic 5 Profile, 7 role, 1 shared source follow-on batch.
+
+## Title only roles
+
+A role row may carry only published_title, with published_office and job_description blank and no structured position link. The exact title, including commas and an ampersand when the field is quoted, is stored in person_roles.published_title and is shown in the Position column of the Profiles tab (the column reads the published title first and the structured position second). A regression test uses the synthetic title Training, Records & Development Manager through preview, commit, readback, search and an unchanged re-upload.

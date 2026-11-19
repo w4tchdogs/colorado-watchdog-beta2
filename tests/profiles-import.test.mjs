@@ -1081,3 +1081,73 @@ test("a shared source that already exists on the Website but was never imported 
     );
   });
 });
+
+test("an exact published_title with blank office and duties survives preview, commit and Position readback", async () => {
+  await withService(async ({ service, owner, profiles, database }) => {
+    const title = "Training, Records & Development Manager";
+    const head = [
+      "role_id",
+      "profile_id",
+      "county_fips",
+      "published_title",
+      "source_id",
+      "source_url",
+      "source_title",
+      "publisher_classification",
+      "source_type",
+      "source_checked_at",
+    ];
+    const files = {
+      profile: csv([PROFILE_HEAD, ["T1", "Synthetic Title Holder"]]),
+      profileRole: csv([
+        head,
+        [
+          "TR1",
+          "T1",
+          "08001",
+          `"${title}"`,
+          "TS1",
+          "https://example.invalid/title-source",
+          "Synthetic title source",
+          "official",
+          "official_page",
+          "2026-11-01T00:00:00Z",
+        ],
+      ]),
+    };
+    const preview = await service.preview(owner, { files });
+    assert.equal(preview.canCommit, true, JSON.stringify(preview.issues));
+    const row = preview.rows.find((r) => r.kind === "role");
+    assert.equal(row.action, "add");
+    assert.equal(row.label, title, "the preview shows the exact title");
+    const receipt = await service.commit(owner, "key-title-000001", {
+      files,
+      digest: preview.digest,
+    });
+    assert.equal(receipt.created.roles, 1);
+    const stored = database
+      .prepare(
+        `SELECT published_title t, published_office o, job_description d, position_id p
+         FROM person_roles WHERE person_id = ?`,
+      )
+      .all(receipt.createdProfiles[0].profileId);
+    assert.deepEqual(stored, [{ t: title, o: null, d: null, p: null }]);
+    const listed = await profiles.listRows(owner, {
+      query: "Synthetic Title Holder",
+    });
+    assert.equal(listed.total, 1);
+    assert.equal(
+      listed.rows[0].position,
+      title,
+      "the Position column shows the exact title",
+    );
+    assert.ok(!listed.rows[0].office, "no office is shown");
+    // A re-upload with the identical title is unchanged.
+    const again = await service.preview(owner, { files });
+    assert.equal(again.roles.unchanged, 1);
+    assert.equal(
+      again.roles.add + again.roles.update + again.roles.conflict,
+      0,
+    );
+  });
+});
