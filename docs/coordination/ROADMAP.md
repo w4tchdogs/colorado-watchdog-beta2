@@ -37,8 +37,8 @@ that show the state of profiles, departments and grievances.
 - **Done when:** all 64 counties have screened, synchronized Profiles and an
   approved banner in hosted D1 and R2, and public pages show per-county
   counts for profiles, departments and grievances. Grievance counts include
-  reviewed submissions only. A human operator can edit and synchronize Profiles
-  through the [human Profiles workflow](../decisions.md#human-operation-of-profiles-november-17-2026).
+  reviewed submissions only. The owner can import reviewed Profiles and County
+  Structure CSVs through the [dashboard](../decisions.md#dashboard-csv-imports--november-19-2026).
 - **Today:** the local research database covers 64 counties (3,256 research
   people, 2,692 organizational units). Real Profiles sync remains pending.
   Cloudflare staging has 151 staged originals and 145 published county banners
@@ -49,8 +49,8 @@ that show the state of profiles, departments and grievances.
   remains open. Public pages show no counts.
 - **Remaining:** finish the campaign-2 validation and resolve the intake
   decision in DATA-1. Research migration 003 and the post-003 restore test
-  are complete. Screen and run the first hosted sync (SYNC-1), then sync all
-  counties (SYNC-2), reconcile the banner inventory, fill missing county
+  are complete. Build and verify the first dashboard Profiles import (SYNC-1),
+  then import the remaining counties (SYNC-2), reconcile the banner inventory, fill missing county
   coverage and resolve Adams restore and permanent publication
   (BANNERS-IMPORT-1), and add public county counts (STATS-1).
 
@@ -96,9 +96,9 @@ that show the state of profiles, departments and grievances.
 
 ### November 18, 2026 data prerequisite update
 
-All 64 shared-CSV county processing closeouts are recorded ([Clear Creek closeout](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/240#issuecomment-6994380145)); this does **not** establish independent audit completion, import to the owner's working Windows SQLite, or hosted Profiles sync. Statewide Profile and County Structure audits remain conditional/provisional ([Profile audit](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/240#issuecomment-6995896476), [County audit](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/240#issuecomment-6994791267)). Before SYNC-1/SYNC-2 real data import: finalize those audits using existing Google Drive research-table CSV exports, resolve or explicitly hold duplicate and county-mapping questions, approve consolidated data, and validate the working database.
+All 64 shared-CSV county processing closeouts are recorded ([Clear Creek closeout](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/240#issuecomment-6994380145)); this does **not** establish independent audit completion, import to the owner's working Windows SQLite, or hosted Profiles sync. Statewide Profile and County Structure audits remain conditional/provisional ([Profile audit](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/240#issuecomment-6995896476), [County audit](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/240#issuecomment-6994791267)). Before SYNC-1/SYNC-2 real data import, validate the reviewed CSV scope and resolve or explicitly hold duplicate and county-mapping questions. Working Windows SQLite import is tracked separately.
 
-Owner's new Website design: one dashboard-importable `county.csv` for **new canonical County Structure tables**, distinct from obsolete Website `organizations`; structurally independent elected-official display classifications; separate primary Profile name columns and unlimited typed alternate names in `profile_name.csv`. See [binding decisions](../decisions.md#county-structure-import-and-organizational-display--november-18-2026) and [CURRENT](CURRENT.md) for assignment status. These are approved requirements, not completed features. Cloudflare staging Profiles sheet v0030 is deployed but functional acceptance remains open ([PR #257 receipt](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/257#issuecomment-6995747320)).
+The owner uses separate dashboard uploads for `county.csv` and `profile.csv`. County Structure has dedicated D1 tables and separate browse classifications. The Profiles design has distinct primary-name columns and typed alternate names in `profile_name.csv`. See the [dashboard import decision](../decisions.md#dashboard-csv-imports--november-19-2026) and [CURRENT](CURRENT.md) for implementation and hosted status.
 
 ## Shared foundations
 
@@ -142,8 +142,8 @@ is lifted.
 | Order | ID | Work | Depends on | Goal |
 | --- | --- | --- | --- | --- |
 | 10 | DATA-1 | Research migration 003, the campaign-2 Routt code fix, and a restore test of one backup | None (local) | 2 |
-| 11 | SYNC-1 | Screen one county and run the first hosted sync | DATA-1, MCP-3 | 2 |
-| 12 | SYNC-2 | Sync the remaining counties | SYNC-1 | 2 |
+| 11 | SYNC-1 | Build the Profiles dashboard CSV importer and stage the first reviewed county pilot | #257 Profiles tab; reviewed pilot CSV and synthetic staging acceptance | 2 |
+| 12 | SYNC-2 | Import the remaining reviewed county Profiles through the dashboard | SYNC-1 | 2 |
 | 13 | BANNERS-IMPORT-1 | Reconcile the banner manifest, fill missing county coverage and resolve permanent publication in R2 and D1 | Staging bulk publication recorded in PR #242. R2-1, MCP-3 | 2 |
 | 14 | STATS-1 | Public per-county counts for profiles, departments and reviewed grievances | SYNC-1 | 2 |
 
