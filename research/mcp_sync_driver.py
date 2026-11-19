@@ -423,7 +423,10 @@ try {
         indices = [item.get("itemIndex") if isinstance(item, dict) else None for item in all_items]
         if indices != list(range(item_count)):
             raise McpDriverError("Paged receipt items are not a complete ordered sequence")
-        if not isinstance(initial_items, list) or initial_items != all_items[: len(initial_items)]:
+        if not isinstance(initial_items, list) or not all(
+            _commit_item_matches_lookup(commit_item, lookup_item)
+            for commit_item, lookup_item in zip(initial_items, all_items)
+        ):
             raise McpDriverError("Lookup receipt does not match the commit response page")
         return {
             "status": "committed",
@@ -435,6 +438,27 @@ try {
             "counts": first_metadata[4],
             "items": all_items,
         }
+
+
+def _commit_item_matches_lookup(commit_item, lookup_item):
+    """Return True when a commit response item agrees exactly with its lookup item.
+
+    The Website commit response leaves clientRef out of an item whose request had
+    none, such as an update_record item. The persisted batch item that paged lookup
+    returns carries the default reference item-N for the same item. That one
+    documented difference is accepted. Every other field must be identical, and an
+    explicit clientRef in the commit response must equal the lookup value.
+    """
+    if not isinstance(commit_item, dict) or not isinstance(lookup_item, dict):
+        return False
+    if commit_item == lookup_item:
+        return True
+    if "clientRef" in commit_item:
+        return False
+    item_index = lookup_item.get("itemIndex")
+    if type(item_index) is not int or lookup_item.get("clientRef") != f"item-{item_index}":
+        return False
+    return commit_item == {k: v for k, v in lookup_item.items() if k != "clientRef"}
 
 
 def _stored_request(db, submission_id, request_file):

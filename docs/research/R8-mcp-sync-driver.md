@@ -34,6 +34,13 @@ the R6 row pending. Re-run the same command with the same request file; it
 reuses the stored request and idempotency key. Do not prepare a replacement
 request while the prior one is pending.
 
+The commit response omits `clientRef` on an item whose request had none, such as
+an `update_record` item, while lookup returns the persisted default `item-N`
+for that item. The driver accepts that one difference and nothing else. An
+explicit `clientRef` must match exactly, and batch ID, item index, entity,
+target, version and outcome must match between the commit response and lookup.
+The stored receipt is the lookup view.
+
 Recover and reconcile the saved receipt with R8:
 
 ```powershell
@@ -78,7 +85,8 @@ python -B -m research sync-mcp-roundtrip $db --submission-id $submission `
 The focused tests use disposable, on-disk SQLite state and a synthetic Website
 MCP server. They cover prepare/export, first-attempt dry run, exact-byte R6
 delivery, complete paged receipt recovery, lost-response retry with one server
-batch, R8 reconciliation, reversal and local reversal reconciliation. A hosted test
+batch, update-only and mixed create/update receipts, receipt mismatch refusal, R8
+reconciliation, reversal and local reversal reconciliation. A hosted test
 must use the existing staging Worker, synthetic records, its scoped sync
 grants, and must confirm cleanup and revoke temporary access before reporting
 completion. This tool does not grant access or deploy a Worker.
