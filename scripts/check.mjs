@@ -387,6 +387,7 @@ const allowed = new Set([
   "tests/test_research.py",
   "tests/test_submission.py",
   "tests/test_mcp_sync_driver.py",
+  "tests/test_mcp_sync_update_receipts.py",
   "tests/test_sync_cli.py",
   "tests/r7_profiles_bridge.py",
   "tests/test_legacy_contract.py",
