@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { JSDOM } from "jsdom";
+import { createCountyStructureView } from "../dist/editor/county-structure-view.js";
 import { parseCountyCsv } from "../dist/services/county-structure-csv.js";
 import {
   CountyStructureConflictError,
@@ -116,6 +118,74 @@ test("Sheriff's Office is a top-level unit and not under Elected Official", asyn
       .get();
     assert.equal(assessor.display_group_id, "adams-eo");
   });
+});
+
+test("the county summary counts sub-units under a unit or a display group and keeps the display group separate", async () => {
+  await withStructure(async (ctx) => {
+    await load(ctx, csv(adamsRows()));
+    const detail = await ctx.service.getCounty(ctx.owner, "08001");
+    assert.deepEqual(
+      {
+        units: detail.counts.units,
+        subunits: detail.counts.subunits,
+        displayGroups: detail.counts.displayGroups,
+      },
+      { units: 7, subunits: 5, displayGroups: 1 },
+    );
+    const list = await ctx.service.listCounties(ctx.owner);
+    const adams = list.counties.find((county) => county.fips === "08001");
+    assert.deepEqual(
+      {
+        units: adams.counts.units,
+        subunits: adams.counts.subunits,
+        displayGroups: adams.counts.displayGroups,
+      },
+      { units: 7, subunits: 5, displayGroups: 1 },
+    );
+  });
+});
+
+test("the dashboard summary reads top-level units, sub-units and the display group separately", async () => {
+  const dom = new JSDOM('<!doctype html><div id="c"></div>');
+  const { document } = dom.window;
+  const container = document.getElementById("c");
+  const counts = {
+    units: 7,
+    subunits: 5,
+    displayGroups: 1,
+    profiles: 0,
+    unresolved: 0,
+  };
+  const client = {
+    counties: async () => ({
+      version: 1,
+      counties: [{ fips: "08001", name: "Adams", counts }],
+    }),
+    county: async () => ({
+      county: { fips: "08001", name: "Adams" },
+      version: 1,
+      counts,
+      roots: [],
+    }),
+    imports: async () => ({ imports: [] }),
+  };
+  createCountyStructureView({ client })({
+    doc: document,
+    container,
+    data: { view: "county-structure" },
+    session: {},
+    hrefFor: () => "#",
+    announce: () => {},
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const select = container.querySelector("select");
+  select.value = "08001";
+  select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(
+    container.querySelector(".cs-counts").textContent,
+    "8 entries: 2 top-level units, 5 sub-units (under a unit or a display group) and 1 display group. 0 linked Profiles, 0 needing review.",
+  );
 });
 
 test("duplicate ids, missing parents and cycles are rejected", async () => {
