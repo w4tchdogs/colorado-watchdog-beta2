@@ -331,7 +331,7 @@ The owner approved these rules for the protected alternate-name sync follow-up t
 
 1. **Original research Full name.** Keep the exact source value in the private Profiles ledger for traceability.
 2. **Changes to public alternate names.** Hold sync changes to an already-public alternate name for owner review, including evidence-only additions, replacements, detachments and clears. Keep the current public name and owner publication settings in effect while the proposal is pending.
-3. **Pending proposals.** Keep proposals open until resolved. Recheck the current record version when approving a proposal and require a fresh review if the approved version is stale.
+3. **Pending proposals.** Keep distinct proposals for the same name open until the owner explicitly resolves them. A newer proposal leaves earlier proposals pending. A pending proposal becomes out of date when its base version differs from the current record version. Recheck the current record version at acceptance and require fresh review for a stale proposal.
 4. **Recovery.** Require explicit approval for each recovery of a reversed sync-created alternate name.
 5. **Removal attribution.** Record the sync account as the actor that performed an automated removal.
 6. **Traceability after reversal.** Retain detached evidence and reversed mapping rows so their original links and Website IDs remain traceable.
