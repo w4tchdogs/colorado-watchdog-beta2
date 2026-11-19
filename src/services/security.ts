@@ -20,6 +20,7 @@ export type Capability =
   | "sync.revert"
   | "banner.manage"
   | "banner.publish"
+  | "county_structure.manage"
   | "report.review"
   | "profile.manage";
 
@@ -90,6 +91,7 @@ const ROLE_CAPABILITIES: Readonly<
     "checkpoint.verify",
     "checkpoint.read",
     "banner.manage",
+    "county_structure.manage",
     "content.publish",
     "report.review",
     "profile.manage",

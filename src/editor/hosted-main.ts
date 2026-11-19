@@ -4,6 +4,8 @@ import {
   createBannerAdminClient,
 } from "./banner-admin-client.js";
 import { createBannersView } from "./banner-views.js";
+import { createCountyStructureClient } from "./county-structure-client.js";
+import { createCountyStructureView } from "./county-structure-view.js";
 import { mountDashboard } from "./dashboard.js";
 import { createDashboardClient } from "./dashboard-client.js";
 import {
@@ -66,6 +68,9 @@ if (root) {
       banners: createBannersView({ client: bannerClient }),
       profiles: createProfilesView({
         client: createProfilesClient({ fetch: profilesFetch }),
+      }),
+      "county-structure": createCountyStructureView({
+        client: createCountyStructureClient({ fetch: profilesFetch }),
       }),
     },
     signOut: { action: "/auth/logout" },

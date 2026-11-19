@@ -23,6 +23,7 @@ import {
 } from "../format.js";
 import { html, path, type SafeHtml, withQuery } from "../html.js";
 import { BadRequest, NotFound, type Page, type SiteContext } from "../types.js";
+import { countyStructureSection } from "./county-structure-section.js";
 
 const ORGANIZATION_PAGE_SIZE = 50;
 const ROLE_PAGE_SIZE = 25;
@@ -159,6 +160,9 @@ export async function countyPage(
     switchTo: "home",
   });
 
+  const structure =
+    await context.countyStructure.getCountyStructure(countyFips);
+
   const body = html`
   <section class="section" aria-labelledby="overview-heading">
     <h2 id="overview-heading">Overview</h2>
@@ -179,6 +183,8 @@ export async function countyPage(
           ${notice("These counts describe records in this database. They do not measure staffing, completeness, vacancies or current employment. An organization recorded both as a county organization and as an affiliate is counted in both groups and once in the total.")}`
     }
   </section>
+
+  ${countyStructureSection(title, structure)}
 
   ${
     empty
