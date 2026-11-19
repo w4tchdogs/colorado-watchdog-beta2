@@ -31,6 +31,7 @@ import {
 import type { DashboardViewFactory } from "./dashboard.js";
 import { clear, el } from "./dom.js";
 import { ProfilesApiError, type ProfilesClient } from "./profiles-client.js";
+import { createImportPanel } from "./profiles-import-view.js";
 
 Tabulator.registerModule([
   AjaxModule,
@@ -285,6 +286,14 @@ export function createProfilesView(options: {
           { class: "cw-profiles-intro" },
           "One row per role. Edit cells in place or in bulk, then choose Save changes. Edits go to the Website only. The private reviewed Profiles record is edited in its own workflow.",
         ),
+        createImportPanel({
+          doc,
+          client,
+          newKey,
+          onChanged: () => {
+            void reload();
+          },
+        }),
         el(
           doc,
           "form",

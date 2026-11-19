@@ -27,6 +27,7 @@ import { createD1PublicReadServices } from "./services/d1-public-reads.js";
 import { createD1DashboardService } from "./services/dashboard-d1.js";
 import type { ApplicationServices } from "./services/index.js";
 import { createD1ProfilesService } from "./services/profiles-d1.js";
+import { createD1ProfilesImportService } from "./services/profiles-import-d1.js";
 import {
   type ChallengeOutcome,
   createTurnstileAbuseControl,
@@ -504,6 +505,9 @@ const routes = {
           resolvePrincipal: accounts.resolvePrincipal,
           authorize: authorizeProfiles,
           service: createD1ProfilesService(database, {
+            authorize: authorizeProfiles,
+          }),
+          importService: createD1ProfilesImportService(database, {
             authorize: authorizeProfiles,
           }),
         }).fetch(request);
