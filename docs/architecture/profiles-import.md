@@ -27,10 +27,13 @@ Headers are matched after lowercasing and replacing spaces and hyphens with unde
 - Keys (`profile_id`, `role_id`, `source_id`) are the private export keys. They are 1 to 100 letters, digits, dots, colons, underscores or hyphens.
 - `profile_role.csv` is optional. Without it only Profiles are previewed.
 
-This is the contract the Profiles Audit handoff on [Issue #141](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/141#issuecomment-7000870240) describes for the first slice. Not accepted yet, and deferred with a clear message rather than guessed:
+This is the contract the Profiles Audit handoff on [Issue #141](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/141#issuecomment-7000870240) describes for the first slice.
+
+Private evidence files (`profile_evidence*.csv`), claim IDs, research evidence-link IDs and review metadata stay in the private Profiles store. Each role can carry its selected source citation inline.
+
+The first slice defers these imports:
 
 - `profile_county_unit.csv`, `profile_position.csv` and any organization or position links. Rows carrying only those keys cannot become roles until a verified Website mapping exists.
-- Evidence and citation files (`profile_evidence*.csv`). Claim IDs, raw evidence and private review metadata stay in the private audit.
 - Alternate names and name components (`profile_name.csv`, `first_name` and the other name columns). The typed alternate-name schema and its validators stay in PR #261. Name columns in `profile.csv` are listed as not imported.
 
 ## Matching, versions and preservation
