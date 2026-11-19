@@ -31,10 +31,13 @@ import {
  * idempotency key. Business rules, the live permission recheck, expected
  * versions and atomic writes stay in the service.
  *
- * Routes: GET rows, facets and select-all. POST preview and save. The CSV
- * import (SYNC-1) adds POST import/preview, import/commit and import/reverse
- * under the same checks. Preview is read-only and commit needs the digest of
- * the preview the owner reviewed plus an idempotency key.
+ * Routes: GET rows, facets, select-all and names (one Profile's alternate
+ * names). POST preview and save. Alternate-name writes travel through the
+ * same preview and save, so a Profile's primary and alternate names are saved
+ * in one atomic batch. The CSV import (SYNC-1) adds POST import/preview,
+ * import/commit and import/reverse under the same checks. Preview is
+ * read-only and commit needs the digest of the preview the owner reviewed
+ * plus an idempotency key.
  */
 export const MAX_PROFILES_JSON_BYTES = 256 * 1024;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -62,6 +65,7 @@ type Op =
   | "rows"
   | "facets"
   | "selectAll"
+  | "names"
   | "preview"
   | "save"
   | "importPreview"
@@ -85,6 +89,7 @@ function match(
     rows: ["rows", "GET"],
     facets: ["facets", "GET"],
     "select-all": ["selectAll", "GET"],
+    names: ["names", "GET"],
     preview: ["preview", "POST"],
     save: ["save", "POST"],
     "import/preview": ["importPreview", "POST"],
@@ -191,6 +196,18 @@ async function handle(
         return json(200, {
           ...(await service.selectAll(principal, params(url))),
         });
+      case "names": {
+        const profileId = url.searchParams.get("profileId");
+        if (
+          profileId === null ||
+          [...url.searchParams.keys()].some((key) => key !== "profileId") ||
+          url.searchParams.getAll("profileId").length !== 1
+        )
+          throw new ProfilesInputError("A profileId is required");
+        const list = await service.alternateNames(principal, profileId);
+        if (!list) return json(404, { error: "not_found" });
+        return json(200, { ...list });
+      }
       case "preview": {
         const body = await readBody(request);
         if (!body) return json(400, { error: "invalid_json" });

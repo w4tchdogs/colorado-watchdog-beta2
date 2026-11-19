@@ -15,7 +15,10 @@ import type {
 import type { WebsiteDatabase } from "../database/sqlite.js";
 
 import type { DirectoryQueryRunner } from "./officials-directory.js";
-import { personIsPublicSql } from "./person-visibility.js";
+import {
+  personIsPublicSql,
+  publicPersonNameMatchSql,
+} from "./person-visibility.js";
 
 type SearchKind = "people" | "organizations";
 type SearchConfig = {
@@ -195,6 +198,12 @@ function searchRecords<T>(
   const pattern = `%${escapeLike(input.query)}%`;
   const publicOnly =
     kind === "people" ? ` AND ${personIsPublicSql("people.id")}` : "";
+  // People match on the display name or a public alternate name only.
+  const nameMatch =
+    kind === "people"
+      ? publicPersonNameMatchSql(config.nameColumn, "people.id")
+      : `${config.nameColumn} LIKE ? ESCAPE '\\'`;
+  const patterns = kind === "people" ? [pattern, pattern] : [pattern];
   let afterName: string | null = null;
 
   if (input.cursorId !== null) {
@@ -202,9 +211,9 @@ function searchRecords<T>(
       .prepare(
         `SELECT ${config.nameColumn} AS name
          FROM ${config.table}
-         WHERE id = ? AND ${config.nameColumn} LIKE ? ESCAPE '\\'${publicOnly}`,
+         WHERE id = ? AND ${nameMatch}${publicOnly}`,
       )
-      .get(input.cursorId, pattern);
+      .get(input.cursorId, ...patterns);
     if (!cursorRow) {
       throw new DirectorySearchInputError("cursor is invalid or stale");
     }
@@ -216,7 +225,7 @@ function searchRecords<T>(
       `SELECT id, ${config.nameColumn} AS name, version
               ${kind === "organizations" ? ", organization_type" : ""}
        FROM ${config.table}
-       WHERE ${config.nameColumn} LIKE ? ESCAPE '\\'${publicOnly}
+       WHERE ${nameMatch}${publicOnly}
          AND (? IS NULL OR
               ${config.nameColumn} COLLATE NOCASE > ? COLLATE NOCASE OR
               (${config.nameColumn} COLLATE NOCASE = ? COLLATE NOCASE
@@ -225,7 +234,7 @@ function searchRecords<T>(
        LIMIT ?`,
     )
     .all(
-      pattern,
+      ...patterns,
       afterName,
       afterName,
       afterName,

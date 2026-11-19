@@ -264,3 +264,60 @@ async function transportless(call, type) {
     headers: { "content-type": type },
   });
 }
+
+test("the names route is owner-only, no-store, validates input and returns the owner view", async () => {
+  await withApi(async ({ call }) => {
+    const path = "/api/admin/profiles/names?profileId=person-a";
+    assert.equal((await call(path)).status, 401);
+    assert.equal((await call(path, { subject: "editor" })).status, 403);
+    assert.equal((await call(path, { subject: "agent" })).status, 403);
+    assert.equal(
+      (await call("/api/admin/profiles/names", { subject: "owner" })).status,
+      400,
+    );
+    assert.equal(
+      (
+        await call("/api/admin/profiles/names?profileId=person-missing", {
+          subject: "owner",
+        })
+      ).status,
+      404,
+    );
+    const save = await call("/api/admin/profiles/save", {
+      method: "POST",
+      subject: "owner",
+      headers: { "idempotency-key": "key-api-names-01" },
+      body: {
+        changes: [
+          {
+            kind: "alternate_name",
+            op: "add",
+            personId: "person-a",
+            fields: {
+              nameType: "nickname",
+              firstName: null,
+              middleName: null,
+              lastName: null,
+              namePrefix: null,
+              nameSuffix: null,
+              publishedName: "Synthetic API Nick",
+              appliesFrom: null,
+              appliesUntil: null,
+              verificationStatus: "requires_review",
+              publicDisplay: false,
+            },
+          },
+        ],
+      },
+    });
+    assert.equal(save.status, 200);
+    const names = await call(path, { subject: "owner" });
+    assert.equal(names.status, 200);
+    assert.match(names.headers.get("cache-control"), /no-store/);
+    const list = await names.json();
+    assert.equal(list.names.length, 1);
+    assert.equal(list.names[0].publishedName, "Synthetic API Nick");
+    assert.equal(list.names[0].publicDisplay, false);
+    assert.equal("sources" in list.names[0], false);
+  });
+});

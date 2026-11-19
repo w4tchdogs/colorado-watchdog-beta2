@@ -1,4 +1,5 @@
 import {
+  type AlternateNameList,
   PROFILES_API_PREFIX,
   type ProfileChange,
   type ProfileChangeIssue,
@@ -48,6 +49,8 @@ export interface ProfilesClient {
     readonly entries: readonly ProfileSelectionEntry[];
     readonly truncated: boolean;
   }>;
+  /** One Profile's alternate names with private evidence. Owner only. */
+  alternateNames(profileId: string): Promise<AlternateNameList>;
   preview(changes: readonly ProfileChange[]): Promise<ProfilePreview>;
   save(
     changes: readonly ProfileChange[],
@@ -142,6 +145,10 @@ export function createProfilesClient(options: {
     rows: (query) => call<ProfilePage>(`/rows?${queryString(query, true)}`),
     facets: () => call<ProfileFacets>("/facets"),
     selectAll: (query) => call(`/select-all?${queryString(query, false)}`),
+    alternateNames: (profileId) =>
+      call<AlternateNameList>(
+        `/names?${new URLSearchParams({ profileId }).toString()}`,
+      ),
     preview: (changes) => post("/preview", changes) as Promise<ProfilePreview>,
     save: (changes, key) =>
       post("/save", changes, key) as Promise<ProfileSaveResult>,

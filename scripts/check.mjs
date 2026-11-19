@@ -21,6 +21,8 @@ const allowed = new Set([
   "tests/cloudflare-staging-config.test.mjs",
   "tests/profiles-api.test.mjs",
   "tests/profiles-d1.test.mjs",
+  "tests/profile-names.test.mjs",
+  "tests/profile-csv.test.mjs",
   "tests/profiles-import.test.mjs",
   "tests/profiles-import-ui.test.mjs",
   "tests/profiles-view.test.mjs",
@@ -186,6 +188,7 @@ const allowed = new Set([
   "src/services/person-profile.ts",
   "src/services/person-visibility.ts",
   "src/services/profiles-d1.ts",
+  "src/services/profile-csv.ts",
   "src/services/profiles-import-csv.ts",
   "src/services/profiles-import-d1.ts",
   "src/services/audit.ts",
@@ -237,6 +240,7 @@ const allowed = new Set([
   "website/migrations/0029_content_revision_checkpoint_label.sql",
   "website/migrations/0030_profile_visibility.sql",
   "website/migrations/0031_county_structure.sql",
+  "website/migrations/0032_profile_names.sql",
   "src/contracts/county-structure.ts",
   "src/services/county-structure-csv.ts",
   "src/services/county-structure-model.ts",
@@ -347,6 +351,7 @@ const allowed = new Set([
   "tests/dashboard-banners-ui.test.mjs",
   "docs/architecture/dashboard.md",
   "docs/architecture/profiles-sheet.md",
+  "docs/architecture/profile-names.md",
   "docs/architecture/profiles-import.md",
   "scripts/profiles-import-fixture.mjs",
   "src/editor/markdown.ts",
@@ -561,7 +566,7 @@ for (const file of files) {
   const bytes = staged ? git("show", `:${file}`) : readFileSync(file);
   // Large files have scoped limits: the lockfile, bundled county geometry, the
   // repository copy of the Fable revision 4 assessment, the banner
-  // administration service, and the local research CLI and identity planner.
+  // administration service, the Profiles service and editor view, and the local research CLI and identity planner.
   const sizeLimit =
     file === "package-lock.json"
       ? 256 * 1024
@@ -569,6 +574,8 @@ for (const file of files) {
         ? 1024 * 1024
         : file === "docs/architecture/fable-assessment-rev4.md" ||
             file === "src/services/banner-admin-d1.ts" ||
+            file === "src/services/profiles-d1.ts" ||
+            file === "src/editor/profiles-view.ts" ||
             file === "research/__main__.py" ||
             file === "research/identity.py"
           ? 96 * 1024

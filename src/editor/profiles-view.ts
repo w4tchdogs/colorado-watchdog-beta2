@@ -14,8 +14,17 @@ import {
   type TabulatorColumnDefinition,
 } from "tabulator-tables";
 import {
+  ALTERNATE_NAME_STATUSES,
+  ALTERNATE_NAME_TYPE_INFO,
+  ALTERNATE_NAME_TYPES,
+  type AlternateNameFields,
+  type AlternateNameList,
+  type AlternateNameRecord,
   PROFILE_FIELDS,
+  PROFILE_NAME_COMPONENT_COLUMNS,
   PROFILES_DEFAULT_PAGE_SIZE,
+  PROFILES_MAX_NAME_AFFIX_LENGTH,
+  PROFILES_MAX_NAME_COMPONENT_LENGTH,
   PROFILES_MAX_NAME_LENGTH,
   PROFILES_MAX_SELECT_ALL,
   type ProfileChange,
@@ -62,7 +71,15 @@ type RowKey = keyof ProfileRow;
 /** Field map ID to the row property the grid shows. */
 const ROW_KEY: Readonly<Record<string, RowKey>> = {
   profileId: "profileId",
-  fullName: "fullName",
+  displayName: "displayName",
+  firstName: "firstName",
+  middleName: "middleName",
+  lastName: "lastName",
+  preferredFirstName: "preferredFirstName",
+  namePrefix: "namePrefix",
+  nameSuffix: "nameSuffix",
+  alternateNameCount: "alternateNameCount",
+  nameReview: "nameReview",
   visible: "visible",
   createdOn: "createdOn",
   county: "county",
@@ -86,8 +103,14 @@ const ROLE_BULK_FIELDS = [
   { id: "dateReviewed", column: "source_checked_at", label: "Date Reviewed" },
 ] as const;
 
+/** Person-level name fields. One Profile, one value, shown on every role row. */
+const PERSON_NAME_COLUMNS: Readonly<Record<string, string>> = {
+  displayName: "display_name",
+  ...PROFILE_NAME_COMPONENT_COLUMNS,
+};
+
 const COLUMN_FOR_FIELD: Readonly<Record<string, string>> = {
-  fullName: "display_name",
+  ...PERSON_NAME_COLUMNS,
   employmentStart: "start_date",
   employmentEnd: "end_date",
   dateReviewed: "source_checked_at",
@@ -100,21 +123,45 @@ interface Staged {
   before: string | boolean | null;
   after: string | boolean | null;
   error: string | null;
+  /** Alternate-name entries: the Profile and the effect on its active count. */
+  profileId?: string;
+  countDelta?: number;
 }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+function emptyToNull(value: string | null | undefined): string | null {
+  return value === null || value === undefined || value.trim() === ""
+    ? null
+    : value.trim();
+}
+
 function stagedKey(change: ProfileChange): string {
-  return change.kind === "visibility"
-    ? `v:${change.personId}`
-    : `${change.entity}:${change.targetId}:${change.field}`;
+  if (change.kind === "visibility") return `v:${change.personId}`;
+  if (change.kind === "alternate_name")
+    return change.op === "add"
+      ? `a:new:${change.personId}`
+      : `a:${change.nameId}`;
+  return `${change.entity}:${change.targetId}:${change.field}`;
+}
+
+function componentLimit(field: string): number {
+  return field === "namePrefix" || field === "nameSuffix"
+    ? PROFILES_MAX_NAME_AFFIX_LENGTH
+    : PROFILES_MAX_NAME_COMPONENT_LENGTH;
 }
 
 function localError(field: string, value: string | null): string | null {
-  if (field === "fullName") {
-    if (!value?.trim()) return "Full Name cannot be blank.";
+  if (field === "displayName") {
+    if (!value?.trim()) return "Display Name cannot be blank.";
     if (value.trim().length > PROFILES_MAX_NAME_LENGTH)
-      return `Full Name is limited to ${PROFILES_MAX_NAME_LENGTH} characters.`;
+      return `Display Name is limited to ${PROFILES_MAX_NAME_LENGTH} characters.`;
+    return null;
+  }
+  if (field in PERSON_NAME_COLUMNS) {
+    const limit = componentLimit(field);
+    if (value !== null && value.trim().length > limit)
+      return `This name part is limited to ${limit} characters.`;
     return null;
   }
   if (value === null || value.trim() === "") return null;
@@ -133,7 +180,7 @@ function toSelection(row: ProfileRow): ProfileSelectionEntry {
     roleVersion: row.roleVersion,
     visibilityVersion: row.visibilityVersion,
     visible: row.visible,
-    fullName: row.fullName,
+    displayName: row.displayName,
     employmentStart: row.employmentStart,
     employmentEnd: row.employmentEnd,
     dateReviewed: row.dateReviewed,
@@ -155,7 +202,7 @@ export function createProfilesView(options: {
       countyFips: null,
       office: null,
       visibility: "all",
-      sort: "fullName",
+      sort: "displayName",
       direction: "asc",
       page: 1,
       pageSize: options.pageSize ?? PROFILES_DEFAULT_PAGE_SIZE,
@@ -215,6 +262,11 @@ export function createProfilesView(options: {
     const reviewPanel = el(doc, "section", {
       class: "cw-profiles-review",
       "aria-labelledby": "profiles-review-h",
+      hidden: true,
+    });
+    const namesPanel = el(doc, "section", {
+      class: "cw-profiles-names",
+      "aria-labelledby": "profiles-names-h",
       hidden: true,
     });
     const setPanel = el(doc, "section", {
@@ -284,7 +336,7 @@ export function createProfilesView(options: {
           doc,
           "p",
           { class: "cw-profiles-intro" },
-          "One row per role. Edit cells in place or in bulk, then choose Save changes. Edits go to the Website only. The private reviewed Profiles record is edited in its own workflow.",
+          "One row per role. Name columns belong to the person, so a change shows on every role row of that Profile. Edit cells in place or in bulk, open a row's alternate names to add, edit, remove or approve them, then choose Save changes. Edits go to the Website only. The private reviewed Profiles record is edited in its own workflow.",
         ),
         createImportPanel({
           doc,
@@ -347,6 +399,7 @@ export function createProfilesView(options: {
         ),
         message,
         setPanel,
+        namesPanel,
         reviewPanel,
         gridHost,
       ),
@@ -377,9 +430,25 @@ export function createProfilesView(options: {
     /** Server values with this browser's staged edits laid over them. */
     function overlay(row: ProfileRow): ProfileRow {
       let next = row;
-      const name = staged.get(`people:${row.profileId}:display_name`);
-      if (name?.change.kind === "field")
-        next = { ...next, fullName: name.change.value ?? "" };
+      for (const [fieldId, column] of Object.entries(PERSON_NAME_COLUMNS)) {
+        const entry = staged.get(`people:${row.profileId}:${column}`);
+        if (entry?.change.kind === "field")
+          next = {
+            ...next,
+            [fieldId]:
+              fieldId === "displayName"
+                ? (entry.change.value ?? "")
+                : emptyToNull(entry.change.value),
+          };
+      }
+      let delta = 0;
+      for (const entry of staged.values())
+        if (entry.profileId === row.profileId) delta += entry.countDelta ?? 0;
+      if (delta !== 0)
+        next = {
+          ...next,
+          alternateNameCount: Math.max(0, next.alternateNameCount + delta),
+        };
       const visible = staged.get(`v:${row.profileId}`);
       if (visible?.change.kind === "visibility")
         next = { ...next, visible: visible.change.visible };
@@ -434,9 +503,9 @@ export function createProfilesView(options: {
     }
 
     // --------------------------------------------------------- staging
-    function stage(entry: Staged): void {
+    function stage(entry: Staged, explicitKey?: string): void {
       reviewKey = null;
-      const key = stagedKey(entry.change);
+      const key = explicitKey ?? stagedKey(entry.change);
       const baseline =
         entry.change.kind === "visibility" ? entry.before : entry.before;
       if (entry.after === baseline) staged.delete(key);
@@ -451,7 +520,8 @@ export function createProfilesView(options: {
       const clean = value === null || value.trim() === "" ? null : value.trim();
       const column = COLUMN_FOR_FIELD[fieldId];
       if (!column) return;
-      const profileLevel = fieldId === "fullName";
+      const profileLevel = fieldId in PERSON_NAME_COLUMNS;
+      const required = fieldId === "displayName";
       const before = (row[ROW_KEY[fieldId] as RowKey] ?? null) as string | null;
       const change: ProfileChange = {
         kind: "field",
@@ -459,7 +529,7 @@ export function createProfilesView(options: {
         targetId: profileLevel ? row.profileId : row.roleId,
         field: column,
         expectedVersion: profileLevel ? row.profileVersion : row.roleVersion,
-        value: profileLevel ? (value ?? "").trim() : clean,
+        value: required ? (value ?? "").trim() : clean,
       };
       const label =
         PROFILE_FIELDS.find((definition) => definition.id === fieldId)?.label ??
@@ -467,10 +537,10 @@ export function createProfilesView(options: {
       stage({
         change,
         label,
-        who: row.fullName,
+        who: row.displayName,
         before,
-        after: profileLevel ? (value ?? "").trim() : clean,
-        error: localError(fieldId, profileLevel ? value : clean),
+        after: required ? (value ?? "").trim() : clean,
+        error: localError(fieldId, required ? value : clean),
       });
     }
 
@@ -483,7 +553,7 @@ export function createProfilesView(options: {
           visible,
         },
         label: "Visible on Website",
-        who: row.fullName,
+        who: row.displayName,
         before: row.visible,
         after: visible,
         error: null,
@@ -498,8 +568,10 @@ export function createProfilesView(options: {
       const raw = cell.getValue();
       const value = raw === null || raw === undefined ? null : String(raw);
       stageField(original, fieldId, value);
-      if (fieldId === "fullName") {
+      if (fieldId in PERSON_NAME_COLUMNS) {
         // One Profile, one name: every role row of that person shows it.
+        const shown =
+          fieldId === "displayName" ? (value ?? "").trim() : emptyToNull(value);
         for (const sibling of rowsOnPage(original.profileId))
           void table
             ?.getRows()
@@ -508,7 +580,7 @@ export function createProfilesView(options: {
                 (row.getData() as unknown as ProfileRow).roleId ===
                 sibling.roleId,
             )
-            ?.update({ fullName: (value ?? "").trim() });
+            ?.update({ [fieldId]: shown });
       }
       markErrors();
       refreshStatus();
@@ -572,7 +644,7 @@ export function createProfilesView(options: {
             roleVersion: entry.roleVersion,
             visibilityVersion: entry.visibilityVersion,
             visible: entry.visible,
-            fullName: entry.fullName,
+            displayName: entry.displayName,
           } as ProfileRow,
           visible,
         );
@@ -660,7 +732,7 @@ export function createProfilesView(options: {
                 value: text,
               },
               label: spec.label,
-              who: entry.fullName,
+              who: entry.displayName,
               before,
               after: text,
               error: null,
@@ -704,6 +776,606 @@ export function createProfilesView(options: {
       } catch (error) {
         announce(describeError(error));
       }
+    }
+
+    // ------------------------------------------- alternate-name editor
+    let addCounter = 0;
+    const STATUS_LABEL: Readonly<Record<string, string>> = {
+      requires_review: "Requires review",
+      confirmed: "Confirmed",
+    };
+
+    function typeLabel(type: string): string {
+      return (
+        ALTERNATE_NAME_TYPE_INFO[type as keyof typeof ALTERNATE_NAME_TYPE_INFO]
+          ?.label ?? type
+      );
+    }
+
+    function fieldsText(f: AlternateNameFields): string {
+      const parts = [
+        `${typeLabel(f.nameType)}: ${f.publishedName}`,
+        [f.namePrefix, f.firstName, f.middleName, f.lastName, f.nameSuffix]
+          .filter((part) => part)
+          .join(" "),
+        f.appliesFrom || f.appliesUntil
+          ? `${f.appliesFrom ?? "?"} to ${f.appliesUntil ?? "?"}`
+          : "",
+        STATUS_LABEL[f.verificationStatus] ?? f.verificationStatus,
+        f.publicDisplay ? "public" : "private",
+      ];
+      return parts.filter((part) => part).join(" | ");
+    }
+
+    function recordFields(record: AlternateNameRecord): AlternateNameFields {
+      return {
+        nameType: record.nameType,
+        firstName: record.firstName,
+        middleName: record.middleName,
+        lastName: record.lastName,
+        namePrefix: record.namePrefix,
+        nameSuffix: record.nameSuffix,
+        publishedName: record.publishedName,
+        appliesFrom: record.appliesFrom,
+        appliesUntil: record.appliesUntil,
+        verificationStatus: record.verificationStatus,
+        publicDisplay: record.publicDisplay,
+      };
+    }
+
+    function nameProblem(f: AlternateNameFields): string | null {
+      if (!f.publishedName) return "Enter the name as it was published.";
+      if (f.publishedName.length > PROFILES_MAX_NAME_LENGTH)
+        return `Name as published is limited to ${PROFILES_MAX_NAME_LENGTH} characters.`;
+      for (const [label, value, limit] of [
+        ["First Name", f.firstName, PROFILES_MAX_NAME_COMPONENT_LENGTH],
+        ["Middle Name", f.middleName, PROFILES_MAX_NAME_COMPONENT_LENGTH],
+        ["Last Name", f.lastName, PROFILES_MAX_NAME_COMPONENT_LENGTH],
+        ["Name Prefix", f.namePrefix, PROFILES_MAX_NAME_AFFIX_LENGTH],
+        ["Name Suffix", f.nameSuffix, PROFILES_MAX_NAME_AFFIX_LENGTH],
+      ] as const)
+        if (value !== null && value.length > limit)
+          return `${label} is limited to ${limit} characters.`;
+      for (const [label, value] of [
+        ["Applies From", f.appliesFrom],
+        ["Applies Until", f.appliesUntil],
+      ] as const)
+        if (
+          value !== null &&
+          (!DATE.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`)))
+        )
+          return `${label} must be a date like 2026-03-14, or blank.`;
+      if (f.appliesFrom && f.appliesUntil && f.appliesUntil < f.appliesFrom)
+        return "Applies Until cannot be before Applies From.";
+      if (f.publicDisplay && f.verificationStatus !== "confirmed")
+        return "Only a confirmed name can be shown publicly. Mark it Confirmed first.";
+      return null;
+    }
+
+    function closeNames(profileId: string): void {
+      namesPanel.hidden = true;
+      clear(namesPanel);
+      container
+        .querySelector<HTMLElement>(`[data-names-for="${profileId}"]`)
+        ?.focus();
+    }
+
+    async function openNamesEditor(row: ProfileRow): Promise<void> {
+      clear(namesPanel);
+      namesPanel.hidden = false;
+      const heading = el(
+        doc,
+        "h2",
+        { id: "profiles-names-h", tabindex: -1 },
+        `Alternate names for ${row.displayName}`,
+      );
+      namesPanel.append(
+        heading,
+        el(doc, "p", { role: "status" }, "Loading alternate names."),
+      );
+      heading.focus();
+      let list: AlternateNameList;
+      try {
+        list = await client.alternateNames(row.profileId);
+      } catch (error) {
+        if (destroyed) return;
+        clear(namesPanel);
+        namesPanel.append(
+          heading,
+          el(doc, "p", { role: "alert" }, describeError(error)),
+          button("Close", () => closeNames(row.profileId)),
+        );
+        return;
+      }
+      if (destroyed) return;
+      renderNames(row, list, null);
+    }
+
+    function stagedAdds(profileId: string): [string, Staged][] {
+      return [...staged.entries()].filter(([key]) =>
+        key.startsWith(`a:new:${profileId}:`),
+      );
+    }
+
+    function renderNames(
+      row: ProfileRow,
+      list: AlternateNameList,
+      editing: {
+        key: string | null;
+        record: AlternateNameRecord | null;
+        fields: AlternateNameFields;
+      } | null,
+    ): void {
+      clear(namesPanel);
+      const heading = el(
+        doc,
+        "h2",
+        { id: "profiles-names-h", tabindex: -1 },
+        `Alternate names for ${row.displayName}`,
+      );
+      namesPanel.append(
+        heading,
+        el(
+          doc,
+          "p",
+          {},
+          "A name is private and needs review until you mark it Confirmed and approve public display. Private research evidence stays in the private Profiles workflow and is never stored here. Changes here are staged with the rest of the sheet and saved together with Save changes, so a failed save never leaves the primary and alternate names half updated.",
+        ),
+      );
+      if (list.truncated)
+        namesPanel.append(
+          el(
+            doc,
+            "p",
+            { role: "note" },
+            "This Profile has more names than one view carries. The first names are shown.",
+          ),
+        );
+      const tableEl = el(
+        doc,
+        "table",
+        { class: "cw-profiles-diff cw-profiles-names-table" },
+        el(
+          doc,
+          "caption",
+          {},
+          `${list.names.length} saved ${list.names.length === 1 ? "name" : "names"}`,
+        ),
+        el(
+          doc,
+          "thead",
+          {},
+          el(
+            doc,
+            "tr",
+            {},
+            ...[
+              "Type",
+              "Name as published",
+              "Dates",
+              "Status",
+              "Public",
+              "Actions",
+            ].map((title) => el(doc, "th", { scope: "col" }, title)),
+          ),
+        ),
+      );
+      const body = el(doc, "tbody");
+      const addRow = (
+        fields: AlternateNameFields,
+        note: string,
+        actions: HTMLElement[],
+        removed: boolean,
+      ) => {
+        body.appendChild(
+          el(
+            doc,
+            "tr",
+            removed ? { class: "cw-row-hidden" } : {},
+            el(doc, "td", {}, typeLabel(fields.nameType)),
+            el(doc, "th", { scope: "row" }, fields.publishedName),
+            el(
+              doc,
+              "td",
+              {},
+              fields.appliesFrom || fields.appliesUntil
+                ? `${fields.appliesFrom ?? "?"} to ${fields.appliesUntil ?? "?"}`
+                : "",
+            ),
+            el(doc, "td", {}, STATUS_LABEL[fields.verificationStatus] ?? ""),
+            el(doc, "td", {}, fields.publicDisplay ? "Public" : "Private"),
+            el(
+              doc,
+              "td",
+              {},
+              note ? el(doc, "em", {}, `${note} `) : null,
+              ...actions,
+            ),
+          ),
+        );
+      };
+      const refreshAll = () => {
+        refreshTableRows();
+        refreshStatus();
+        renderNames(row, list, null);
+      };
+      for (const record of list.names) {
+        const key = `a:${record.id}`;
+        const entry = staged.get(key);
+        const change = entry?.change;
+        const label = record.publishedName;
+        if (change?.kind === "alternate_name" && change.op === "remove") {
+          addRow(
+            recordFields(record),
+            "Removal staged.",
+            [
+              button("Undo", () => {
+                staged.delete(key);
+                refreshAll();
+                announce(`Removal of ${label} undone.`);
+              }),
+            ],
+            true,
+          );
+          continue;
+        }
+        if (change?.kind === "alternate_name" && change.op === "restore") {
+          addRow(
+            { ...recordFields(record), publicDisplay: false },
+            "Restore staged.",
+            [
+              button("Undo", () => {
+                staged.delete(key);
+                refreshAll();
+                announce(`Restore of ${label} undone.`);
+              }),
+            ],
+            false,
+          );
+          continue;
+        }
+        if (record.removed) {
+          addRow(
+            recordFields(record),
+            "Removed.",
+            [
+              button("Restore", () => {
+                stage(
+                  {
+                    change: {
+                      kind: "alternate_name",
+                      op: "restore",
+                      personId: row.profileId,
+                      nameId: record.id,
+                      expectedVersion: record.version,
+                    },
+                    label: "Alternate name (restore)",
+                    who: row.displayName,
+                    before: fieldsText(recordFields(record)),
+                    after: `${fieldsText({ ...recordFields(record), publicDisplay: false })} (restored, private)`,
+                    error: null,
+                    profileId: row.profileId,
+                    countDelta: 1,
+                  },
+                  key,
+                );
+                refreshAll();
+                announce(
+                  `Restore of ${label} staged. Choose Save changes to apply.`,
+                );
+              }),
+            ],
+            true,
+          );
+          continue;
+        }
+        const updated =
+          change?.kind === "alternate_name" && change.op === "update"
+            ? change.fields
+            : null;
+        const shown = updated ?? recordFields(record);
+        addRow(
+          shown,
+          updated ? "Edit staged." : "",
+          [
+            button("Edit", () =>
+              renderNames(row, list, { key, record, fields: shown }),
+            ),
+            button("Remove", () => {
+              stage(
+                {
+                  change: {
+                    kind: "alternate_name",
+                    op: "remove",
+                    personId: row.profileId,
+                    nameId: record.id,
+                    expectedVersion: record.version,
+                  },
+                  label: "Alternate name (remove)",
+                  who: row.displayName,
+                  before: fieldsText(recordFields(record)),
+                  after: null,
+                  error: null,
+                  profileId: row.profileId,
+                  countDelta: -1,
+                },
+                key,
+              );
+              refreshAll();
+              announce(
+                `Removal of ${label} staged. Choose Save changes to apply.`,
+              );
+            }),
+            ...(updated
+              ? [
+                  button("Undo edit", () => {
+                    staged.delete(key);
+                    refreshAll();
+                    announce(`Edit of ${label} undone.`);
+                  }),
+                ]
+              : []),
+          ],
+          false,
+        );
+      }
+      for (const [key, entry] of stagedAdds(row.profileId)) {
+        if (entry.change.kind !== "alternate_name" || entry.change.op !== "add")
+          continue;
+        const fields = entry.change.fields;
+        addRow(
+          fields,
+          "New, unsaved.",
+          [
+            button("Edit", () =>
+              renderNames(row, list, { key, record: null, fields }),
+            ),
+            button("Discard", () => {
+              staged.delete(key);
+              refreshAll();
+              announce("New alternate name discarded.");
+            }),
+          ],
+          false,
+        );
+      }
+      tableEl.appendChild(body);
+      namesPanel.appendChild(tableEl);
+      if (!editing) {
+        namesPanel.append(
+          button(
+            "Add alternate name",
+            () =>
+              renderNames(row, list, {
+                key: null,
+                record: null,
+                fields: {
+                  nameType: "other",
+                  firstName: null,
+                  middleName: null,
+                  lastName: null,
+                  namePrefix: null,
+                  nameSuffix: null,
+                  publishedName: "",
+                  appliesFrom: null,
+                  appliesUntil: null,
+                  verificationStatus: "requires_review",
+                  publicDisplay: false,
+                },
+              }),
+            { id: "profiles-names-add" },
+          ),
+          button("Close", () => closeNames(row.profileId), {
+            id: "profiles-names-close",
+          }),
+        );
+        heading.focus();
+        return;
+      }
+      namesPanel.appendChild(renderNameForm(row, list, editing));
+    }
+
+    function renderNameForm(
+      row: ProfileRow,
+      list: AlternateNameList,
+      editing: {
+        key: string | null;
+        record: AlternateNameRecord | null;
+        fields: AlternateNameFields;
+      },
+    ): HTMLElement {
+      const f = editing.fields;
+      const text = (id: string, value: string | null, max: number) =>
+        el(doc, "input", {
+          id,
+          type: "text",
+          autocomplete: "off",
+          maxlength: max,
+          value: value ?? "",
+        });
+      const type = el(doc, "select", { id: "pn-type" });
+      for (const value of ALTERNATE_NAME_TYPES)
+        type.appendChild(el(doc, "option", { value }, typeLabel(value)));
+      type.value = f.nameType;
+      const help = el(doc, "small", { id: "pn-type-help" });
+      const showHelp = () => {
+        help.textContent =
+          ALTERNATE_NAME_TYPE_INFO[
+            type.value as keyof typeof ALTERNATE_NAME_TYPE_INFO
+          ]?.meaning ?? "";
+      };
+      type.addEventListener("change", showHelp);
+      showHelp();
+      const published = text(
+        "pn-published",
+        f.publishedName,
+        PROFILES_MAX_NAME_LENGTH,
+      );
+      const first = text(
+        "pn-first",
+        f.firstName,
+        PROFILES_MAX_NAME_COMPONENT_LENGTH,
+      );
+      const middle = text(
+        "pn-middle",
+        f.middleName,
+        PROFILES_MAX_NAME_COMPONENT_LENGTH,
+      );
+      const last = text(
+        "pn-last",
+        f.lastName,
+        PROFILES_MAX_NAME_COMPONENT_LENGTH,
+      );
+      const prefix = text(
+        "pn-prefix",
+        f.namePrefix,
+        PROFILES_MAX_NAME_AFFIX_LENGTH,
+      );
+      const suffix = text(
+        "pn-suffix",
+        f.nameSuffix,
+        PROFILES_MAX_NAME_AFFIX_LENGTH,
+      );
+      const from = text("pn-from", f.appliesFrom, 10);
+      from.setAttribute("placeholder", "YYYY-MM-DD");
+      const until = text("pn-until", f.appliesUntil, 10);
+      until.setAttribute("placeholder", "YYYY-MM-DD");
+      const status = el(doc, "select", { id: "pn-status" });
+      for (const value of ALTERNATE_NAME_STATUSES)
+        status.appendChild(
+          el(doc, "option", { value }, STATUS_LABEL[value] ?? value),
+        );
+      status.value = f.verificationStatus;
+      const isPublic = el(doc, "input", { id: "pn-public", type: "checkbox" });
+      isPublic.checked = f.publicDisplay;
+      const publicHint = el(doc, "small", { id: "pn-public-hint" });
+      const syncPublic = () => {
+        const confirmed = status.value === "confirmed";
+        isPublic.disabled = !confirmed;
+        if (!confirmed) isPublic.checked = false;
+        publicHint.textContent = confirmed
+          ? " Approve to show this name on the public Profile page and in public search."
+          : " Mark the name Confirmed before it can be shown publicly.";
+      };
+      status.addEventListener("change", syncPublic);
+      syncPublic();
+      const error = el(doc, "p", { class: "cw-profiles-error", role: "alert" });
+      const optional = (input: HTMLInputElement): string | null =>
+        emptyToNull(input.value);
+      return el(
+        doc,
+        "form",
+        { class: "cw-profiles-name-form", "aria-label": "Alternate name" },
+        field("Name type", type, "pn-type"),
+        help,
+        field("Name as published", published, "pn-published"),
+        field("First Name", first, "pn-first"),
+        field("Middle Name", middle, "pn-middle"),
+        field("Last Name", last, "pn-last"),
+        field("Name Prefix", prefix, "pn-prefix"),
+        field("Name Suffix", suffix, "pn-suffix"),
+        field("Applies From", from, "pn-from"),
+        field("Applies Until", until, "pn-until"),
+        field("Verification status", status, "pn-status"),
+        el(
+          doc,
+          "div",
+          { class: "cw-profiles-field" },
+          isPublic,
+          el(doc, "label", { for: "pn-public" }, "Show publicly"),
+          publicHint,
+        ),
+        error,
+        button(
+          "Stage name",
+          () => {
+            const fields: AlternateNameFields = {
+              nameType: type.value as AlternateNameFields["nameType"],
+              firstName: optional(first),
+              middleName: optional(middle),
+              lastName: optional(last),
+              namePrefix: optional(prefix),
+              nameSuffix: optional(suffix),
+              publishedName: published.value.trim(),
+              appliesFrom: optional(from),
+              appliesUntil: optional(until),
+              verificationStatus:
+                status.value as AlternateNameFields["verificationStatus"],
+              publicDisplay: isPublic.checked,
+            };
+            const problem = nameProblem(fields);
+            if (problem) {
+              error.textContent = problem;
+              return;
+            }
+            if (editing.record) {
+              const current = recordFields(editing.record);
+              if (fieldsText(fields) === fieldsText(current)) {
+                staged.delete(`a:${editing.record.id}`);
+                refreshTableRows();
+                refreshStatus();
+                renderNames(row, list, null);
+                announce("No change to stage for this name.");
+                return;
+              }
+              stage(
+                {
+                  change: {
+                    kind: "alternate_name",
+                    op: "update",
+                    personId: row.profileId,
+                    nameId: editing.record.id,
+                    expectedVersion: editing.record.version,
+                    fields,
+                  },
+                  label: "Alternate name (edit)",
+                  who: row.displayName,
+                  before: fieldsText(current),
+                  after: fieldsText(fields),
+                  error: null,
+                  profileId: row.profileId,
+                  countDelta: 0,
+                },
+                `a:${editing.record.id}`,
+              );
+            } else {
+              addCounter += 1;
+              const key = editing.key ?? `a:new:${row.profileId}:${addCounter}`;
+              stage(
+                {
+                  change: {
+                    kind: "alternate_name",
+                    op: "add",
+                    personId: row.profileId,
+                    fields,
+                  },
+                  label: "Alternate name (add)",
+                  who: row.displayName,
+                  before: null,
+                  after: fieldsText(fields),
+                  error: null,
+                  profileId: row.profileId,
+                  countDelta: editing.key ? 0 : 1,
+                },
+                key,
+              );
+              if (editing.key) {
+                // Editing a staged add keeps its single +1 on the count.
+                const kept = staged.get(key);
+                if (kept) kept.countDelta = 1;
+              }
+            }
+            refreshTableRows();
+            refreshStatus();
+            renderNames(row, list, null);
+            announce(
+              "Alternate name staged. Choose Save changes to review and apply.",
+            );
+          },
+          { id: "pn-stage" },
+        ),
+        button("Cancel", () => renderNames(row, list, null)),
+      );
     }
 
     // ----------------------------------------------------- save flow
@@ -1070,7 +1742,7 @@ export function createProfilesView(options: {
             const input = el(doc, "input", {
               type: "checkbox",
               "data-select-role": row.roleId,
-              "aria-label": `Select role row for ${row.fullName}${row.position ? `, ${row.position}` : ""}`,
+              "aria-label": `Select role row for ${row.displayName}${row.position ? `, ${row.position}` : ""}`,
             });
             input.checked = selected.has(row.roleId);
             input.addEventListener("change", () => {
@@ -1085,12 +1757,12 @@ export function createProfilesView(options: {
         },
       ];
       const order = [
-        "fullName",
+        "displayName",
         "visible",
         ...PROFILE_FIELDS.filter(
           (item) =>
             item.status !== "unavailable" &&
-            item.id !== "fullName" &&
+            item.id !== "displayName" &&
             item.id !== "visible",
         ).map((item) => item.id),
       ];
@@ -1106,7 +1778,7 @@ export function createProfilesView(options: {
       definition: ProfileFieldDefinition,
     ): TabulatorColumnDefinition {
       const frozen =
-        definition.id === "fullName" || definition.id === "visible";
+        definition.id === "displayName" || definition.id === "visible";
       const common: TabulatorColumnDefinition = {
         title: definition.label,
         field: definition.id,
@@ -1115,7 +1787,11 @@ export function createProfilesView(options: {
         resizable: true,
         headerSort: definition.sortable,
         minWidth: 90,
-        width: frozen ? (definition.id === "fullName" ? 220 : 130) : undefined,
+        width: frozen
+          ? definition.id === "displayName"
+            ? 220
+            : 130
+          : undefined,
         headerTooltip: false,
         cssClass: `cw-col-${definition.status}`,
       } as TabulatorColumnDefinition;
@@ -1126,7 +1802,7 @@ export function createProfilesView(options: {
             const row = cell.getRow().getData() as unknown as ProfileRow;
             const input = el(doc, "input", {
               type: "checkbox",
-              "aria-label": `Visible on Website for ${row.fullName}`,
+              "aria-label": `Visible on Website for ${row.displayName}`,
             });
             input.checked = row.visible;
             input.addEventListener("change", () => {
@@ -1137,10 +1813,30 @@ export function createProfilesView(options: {
               refreshTableRows();
               refreshStatus();
               announce(
-                `${source.fullName} will be ${input.checked ? "visible" : "hidden"} after you choose Save changes.`,
+                `${source.displayName} will be ${input.checked ? "visible" : "hidden"} after you choose Save changes.`,
               );
             });
             return input;
+          },
+        };
+      }
+      if (definition.id === "alternateNameCount") {
+        return {
+          ...common,
+          formatter: (cell) => {
+            const row = cell.getRow().getData() as unknown as ProfileRow;
+            const source = base.get(row.roleId);
+            const open = button(
+              `${row.alternateNameCount} ${row.alternateNameCount === 1 ? "name" : "names"}`,
+              () => {
+                if (source) void openNamesEditor(source);
+              },
+              {
+                "data-names-for": row.profileId,
+                "aria-label": `Edit alternate names for ${row.displayName}, ${row.alternateNameCount} ${row.alternateNameCount === 1 ? "name" : "names"}`,
+              },
+            );
+            return open;
           },
         };
       }
@@ -1152,7 +1848,11 @@ export function createProfilesView(options: {
             elementAttributes: {
               "aria-label": definition.label,
               maxlength:
-                definition.id === "fullName" ? PROFILES_MAX_NAME_LENGTH : 30,
+                definition.id === "displayName"
+                  ? PROFILES_MAX_NAME_LENGTH
+                  : definition.id in PERSON_NAME_COLUMNS
+                    ? componentLimit(definition.id)
+                    : 30,
             },
           },
           cellEdited: onCellEdited,
@@ -1204,7 +1904,7 @@ export function createProfilesView(options: {
           });
           const locked =
             definition.status === "unavailable" ||
-            definition.id === "fullName" ||
+            definition.id === "displayName" ||
             definition.id === "visible";
           input.checked =
             definition.status !== "unavailable" &&
@@ -1232,7 +1932,7 @@ export function createProfilesView(options: {
               definition.status === "unavailable" && definition.reason
                 ? el(doc, "small", {}, ` ${definition.reason}`)
                 : null,
-              definition.id === "fullName" || definition.id === "visible"
+              definition.id === "displayName" || definition.id === "visible"
                 ? el(doc, "small", {}, " Always shown.")
                 : null,
             ),
@@ -1270,7 +1970,7 @@ export function createProfilesView(options: {
       sortMode: "remote",
       ajaxURL: "profiles",
       ajaxRequestFunc: (_url, _config, params) => loadPage(params),
-      initialSort: [{ column: "fullName", dir: "asc" }],
+      initialSort: [{ column: "displayName", dir: "asc" }],
       placeholder: "No roles match these filters.",
       editTriggerEvent: "focus",
       rowFormatter: (row) => {

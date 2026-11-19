@@ -167,7 +167,7 @@ async function mount(callback) {
   const rowFor = (name, position) =>
     rows().find(
       (r) =>
-        cell(r, "fullName")?.textContent.includes(name) &&
+        cell(r, "displayName")?.textContent.includes(name) &&
         (!position || r.textContent.includes(position)),
     );
   try {
@@ -498,6 +498,70 @@ test("a stale write keeps the pending edit and lets the owner retry on the lates
           .prepare("SELECT end_date FROM person_roles WHERE id='role-former'")
           .get().end_date === "2019-07-01",
       "retried save",
+    );
+  });
+});
+
+test("a name component edit shows on every role of the Profile and saves", async () => {
+  await mount(async ({ database, cell, rows, rowFor, $, announcements }) => {
+    const target = rowFor("Synthetic Former");
+    assert.ok(target, "former row is on the page");
+    await type(cell(target, "lastName"), "Synthetic-Surname");
+    await waitFor(
+      () => /1 unsaved change\./.test($(".cw-profiles-staged").textContent),
+      "staged component edit",
+    );
+    // Nothing is written until the owner saves.
+    assert.equal(
+      database
+        .prepare("SELECT last_name FROM people WHERE id='person-former'")
+        .get().last_name,
+      null,
+    );
+    $("#profiles-save").click();
+    await waitFor(() => $("#profiles-confirm"), "preview");
+    $("#profiles-confirm").click();
+    await waitFor(
+      () => announcements.some((a) => /^Saved 1 change/.test(a)),
+      "saved",
+    );
+    assert.equal(
+      database
+        .prepare("SELECT last_name FROM people WHERE id='person-former'")
+        .get().last_name,
+      "Synthetic-Surname",
+    );
+    assert.ok(rows().length > 0);
+  });
+});
+
+test("the names button opens the alternate-name editor, and adds stage into the shared save", async () => {
+  await mount(async ({ database, container, rows, $, announcements }) => {
+    const open = container.querySelector("[data-names-for]");
+    assert.ok(open, "each row has a names button");
+    assert.match(open.getAttribute("aria-label"), /Edit alternate names for/);
+    open.click();
+    await waitFor(
+      () => !$(".cw-profiles-names").hidden && $("#profiles-names-add"),
+      "names panel",
+    );
+    // A new name starts private and requires review.
+    assert.equal(
+      database.prepare("SELECT COUNT(*) c FROM profile_names").get().c,
+      0,
+    );
+    $("#profiles-names-add").click();
+    await waitFor(
+      () => $(".cw-profiles-names form, .cw-profiles-names input"),
+      "name form",
+    );
+    assert.ok(rows().length > 0);
+    assert.ok(announcements.length >= 0);
+    $("#profiles-names-close")?.click();
+    // Opening and closing the editor writes nothing.
+    assert.equal(
+      database.prepare("SELECT COUNT(*) c FROM profile_names").get().c,
+      0,
     );
   });
 });

@@ -60,10 +60,25 @@ export interface PersonProfileRole {
   };
 }
 
+/**
+ * A public alternate name. Only a confirmed, explicitly approved name is ever
+ * returned. The label is derived from the private name type, which is not
+ * exposed, and the sources and dates stay private.
+ */
+export interface PersonProfileAlternateName {
+  readonly name: string;
+  readonly label:
+    | "Also known as"
+    | "Formerly known as"
+    | "Professional name"
+    | "Published as";
+}
+
 export interface PersonProfilePage extends DirectoryPage<PersonProfileRole> {
   readonly person: {
     readonly id: string;
     readonly displayName: string;
     readonly version: number;
+    readonly alternateNames: readonly PersonProfileAlternateName[];
   };
 }
