@@ -15,6 +15,7 @@ import type {
 import type { WebsiteDatabase } from "../database/sqlite.js";
 
 import type { DirectoryQueryRunner } from "./officials-directory.js";
+import { personIsPublicSql } from "./person-visibility.js";
 
 type SearchKind = "people" | "organizations";
 type SearchConfig = {
@@ -121,6 +122,8 @@ async function browseRecords<T>(
 
   const { table, nameColumn } = SEARCH_CONFIG[kind];
   const sort = `${nameColumn} COLLATE NOCASE, id COLLATE BINARY`;
+  // A hidden Profile is absent from the public browse list and its cursors.
+  const publicOnly = kind === "people" ? personIsPublicSql("people.id") : "";
   let after: readonly string[] = [];
   if (request.cursor != null) {
     const cursor =
@@ -136,7 +139,7 @@ async function browseRecords<T>(
       );
     }
     const anchor = await runner.first(
-      `SELECT ${nameColumn} AS name FROM ${table} WHERE id = ?`,
+      `SELECT ${nameColumn} AS name FROM ${table} WHERE id = ?${publicOnly ? ` AND ${publicOnly}` : ""}`,
       [id],
     );
     if (
@@ -152,7 +155,7 @@ async function browseRecords<T>(
     `SELECT id, ${nameColumn} AS name, version
             ${kind === "organizations" ? ", organization_type" : ""}
      FROM ${table}
-     ${after.length ? `WHERE (${sort}) > (?, ?)` : ""}
+     ${[...(after.length ? [`(${sort}) > (?, ?)`] : []), ...(publicOnly ? [publicOnly] : [])].reduce((text, condition, index) => `${text}${index === 0 ? "WHERE " : " AND "}${condition}`, "")}
      ORDER BY ${sort}
      LIMIT ?`,
     limit + 1,
@@ -190,6 +193,8 @@ function searchRecords<T>(
   const input = validateRequest(request, kind);
   const config = SEARCH_CONFIG[kind];
   const pattern = `%${escapeLike(input.query)}%`;
+  const publicOnly =
+    kind === "people" ? ` AND ${personIsPublicSql("people.id")}` : "";
   let afterName: string | null = null;
 
   if (input.cursorId !== null) {
@@ -197,7 +202,7 @@ function searchRecords<T>(
       .prepare(
         `SELECT ${config.nameColumn} AS name
          FROM ${config.table}
-         WHERE id = ? AND ${config.nameColumn} LIKE ? ESCAPE '\\'`,
+         WHERE id = ? AND ${config.nameColumn} LIKE ? ESCAPE '\\'${publicOnly}`,
       )
       .get(input.cursorId, pattern);
     if (!cursorRow) {
@@ -211,7 +216,7 @@ function searchRecords<T>(
       `SELECT id, ${config.nameColumn} AS name, version
               ${kind === "organizations" ? ", organization_type" : ""}
        FROM ${config.table}
-       WHERE ${config.nameColumn} LIKE ? ESCAPE '\\'
+       WHERE ${config.nameColumn} LIKE ? ESCAPE '\\'${publicOnly}
          AND (? IS NULL OR
               ${config.nameColumn} COLLATE NOCASE > ? COLLATE NOCASE OR
               (${config.nameColumn} COLLATE NOCASE = ? COLLATE NOCASE

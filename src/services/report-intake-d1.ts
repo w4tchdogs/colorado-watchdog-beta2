@@ -9,6 +9,7 @@ import type {
 } from "../contracts/report-intake.js";
 import { ReportIntakeError } from "../contracts/report-intake.js";
 import type { AsyncD1Database } from "../database/d1.js";
+import { personIsPublicSql } from "./person-visibility.js";
 
 type Row = Record<string, unknown>;
 
@@ -51,7 +52,8 @@ export class D1ReportIntakeStore implements ReportIntakeStore {
       if (
         grievance.subject.kind === "listed" &&
         !(await this.db.first(
-          "SELECT id FROM person_roles WHERE id = ? AND person_id = ?",
+          `SELECT id FROM person_roles WHERE id = ? AND person_id = ?
+             AND ${personIsPublicSql("person_roles.person_id")}`,
           [grievance.subject.roleId, grievance.subject.personId],
         ))
       )
@@ -60,9 +62,12 @@ export class D1ReportIntakeStore implements ReportIntakeStore {
     if (!input.subject) return true;
     const table = input.subject.kind === "person" ? "people" : "organizations";
     return Boolean(
-      await this.db.first(`SELECT id FROM ${table} WHERE id = ?`, [
-        input.subject.id,
-      ]),
+      await this.db.first(
+        `SELECT id FROM ${table} WHERE id = ?${
+          table === "people" ? ` AND ${personIsPublicSql("people.id")}` : ""
+        }`,
+        [input.subject.id],
+      ),
     );
   }
 

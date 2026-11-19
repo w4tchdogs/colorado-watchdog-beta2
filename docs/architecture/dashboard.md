@@ -43,6 +43,7 @@ A role change, a disabled account or a revoked link applies on the next request.
 | Posts & Stories | Working | `content.publish` | No | Yes | Yes | Yes |
 | Reports | Planned | `report.review` | No | Yes | Yes | Yes |
 | Banners | Working | `banner.manage` | No | No | Yes | Yes |
+| Profiles | Working, hosted only. The local sandbox lists it as planned | `profile.manage` | No | No | No | Yes |
 | Accounts | Planned | `account.read` | No | No | Yes | Yes |
 | Audit | Planned | `audit.read` | No | No | Yes | Yes |
 | System Status | Planned | `d1.inspect` | No | No | Yes | Yes |
@@ -125,6 +126,7 @@ The hosted service uses the same `DASHBOARD_MODULES` registry and `roleHasCapabi
 | Overview, My Account | Yes | Read only, any active human account. My Account shows no subject, provider string, identity ID or account ID |
 | Posts & Stories | Yes, draft editing only. Merged source, tested locally on the bundled Worker and a disposable local D1. Not deployed and not Hosted-verified | The view only names itself. Every read and write goes through the protected `/internal/content/drafts/*` and `/internal/content/revisions/*` routes with the Website session cookie, over `createD1ContentService` in `src/services/content-d1.ts`. Each change is one atomic D1 batch: the versioned write, a write assertion that aborts it when no row matched, relationships, the revision snapshot and the audit event. The routes require a current human account holding `content.publish`, so an agent credential is refused. Publication controls are not in the tab. The county, person and organization relationship pickers need sandbox lookups that the hosted Worker does not serve, so the hosted editor leaves them empty and edits title, summary and body only |
 | Banners | Yes. Merged in #214, Deployed on Cloudflare staging and Hosted-verified in the signed-in owner dashboard with a synthetic image | The view only names itself. Every read and write goes through the protected `/api/admin/banners/*` routes with the Website session cookie, and the hosted client sends no sandbox header. The Cloudflare staging `BUCKET` is verified by the Adams pilot. The original Sites attachment stays open in [Issue #122](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/122). The hosted shell allows `blob:` in `img-src` only, so the staged preview built from bytes fetched from the protected route can render |
+| Profiles | Yes. Draft [PR #257](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/257), tested locally on a migrated local D1 and in jsdom. Not merged, not deployed and not Hosted-verified | An owner-only Tabulator grid over the protected `/api/admin/profiles/*` routes with the Website session cookie. See [profiles-sheet.md](profiles-sheet.md) for the field map, sync ownership and public visibility rules |
 | Reports, Accounts, Audit, System Status | No | Still planned |
 
 To add a module to the hosted dashboard, wire its hosted service and transport, verify its dependencies on the hosted Site, add its view factory to `src/editor/hosted-main.ts`, add the ID to `HOSTED_DASHBOARD_MODULES` and add role, signed-out, disabled, revoked and agent tests.

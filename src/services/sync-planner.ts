@@ -22,7 +22,7 @@ const CREATE = new Map<string, SyncEntity>([
   ["register_source", "role_sources"],
   ["create_person_role", "person_roles"],
 ]);
-const UPDATE_FIELDS: Record<string, readonly string[]> = {
+export const SYNC_UPDATE_FIELDS: Record<string, readonly string[]> = {
   organizations: [
     "name",
     "organization_type",
@@ -582,7 +582,7 @@ function planUpdate(
   }
   targets.add(key);
   const fields = raw.fields;
-  const allowed = UPDATE_FIELDS[entity] ?? [];
+  const allowed = SYNC_UPDATE_FIELDS[entity] ?? [];
   if (Object.keys(fields).some((f) => !allowed.includes(f))) {
     add("unsupported_field", index);
     items.push({
@@ -658,6 +658,23 @@ function planUpdate(
     targetId: raw.targetId as string,
     websiteId: raw.targetId as string,
     expectedVersion: version,
+    ...(valid
+      ? {
+          fieldChanges: Object.keys(fields).map((field) => {
+            const current = (row as Record<string, unknown>)[field];
+            const proposed = fields[field];
+            const plain = (value: unknown) =>
+              typeof value === "string" || typeof value === "number"
+                ? value
+                : null;
+            return {
+              field,
+              current: plain(current),
+              proposed: plain(proposed),
+            };
+          }),
+        }
+      : {}),
     dependencies: [],
   });
 }

@@ -14,6 +14,7 @@ export type DashboardModuleId =
   | "posts"
   | "reports"
   | "banners"
+  | "profiles"
   | "accounts"
   | "audit"
   | "status";
@@ -85,6 +86,14 @@ export const DASHBOARD_MODULES: readonly DashboardModuleDefinition[] = [
     group: "administration",
     description: "Stage, preview, publish and restore banners.",
     access: { kind: "capability", capability: "banner.manage" },
+    state: "active",
+  },
+  {
+    id: "profiles",
+    label: "Profiles",
+    group: "administration",
+    description: "Search, edit and hide or restore Profiles in a sheet.",
+    access: { kind: "capability", capability: "profile.manage" },
     state: "active",
   },
   {
@@ -178,11 +187,20 @@ export interface DashboardBannersView {
   readonly view: "banners";
 }
 
+/**
+ * The Profiles sheet keeps its data in its own protected transport and
+ * service. The dashboard view carries no Profile data.
+ */
+export interface DashboardProfilesView {
+  readonly view: "profiles";
+}
+
 export type DashboardView =
   | DashboardOverviewView
   | DashboardAccountView
   | DashboardPostsView
-  | DashboardBannersView;
+  | DashboardBannersView
+  | DashboardProfilesView;
 
 export const DASHBOARD_API_PATHS = {
   session: "/internal/dashboard/session",

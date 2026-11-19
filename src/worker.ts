@@ -24,6 +24,7 @@ import { createD1WebsiteInspectionService } from "./services/d1-inspection.js";
 import { createD1PublicReadServices } from "./services/d1-public-reads.js";
 import { createD1DashboardService } from "./services/dashboard-d1.js";
 import type { ApplicationServices } from "./services/index.js";
+import { createD1ProfilesService } from "./services/profiles-d1.js";
 import {
   type ChallengeOutcome,
   createTurnstileAbuseControl,
@@ -53,6 +54,10 @@ import {
   handleDashboardRequest,
   isDashboardPath,
 } from "./transport/dashboard-hosted.js";
+import {
+  createProfilesApiTransport,
+  isProfilesPath,
+} from "./transport/profiles-api.js";
 import { createSyncApiTransport, isSyncApiPath } from "./transport/sync-api.js";
 
 declare const __WATCHDOG_SITES_PROJECT_ID__: string | null;
@@ -314,6 +319,15 @@ const routes = {
       if (isAuthPath(pathname))
         return handleAuthRequest(request, { database: null, signIn });
       if (isBannerAdminPath(pathname)) return bannerAdminUnavailable();
+      if (isProfilesPath(pathname))
+        return new Response(JSON.stringify({ error: "profiles_unavailable" }), {
+          status: 503,
+          headers: {
+            "cache-control": "no-store",
+            "content-type": "application/json; charset=utf-8",
+            "x-content-type-options": "nosniff",
+          },
+        });
       if (isSyncApiPath(pathname))
         return new Response(
           JSON.stringify({ error: "operation_unavailable" }),
@@ -460,6 +474,32 @@ const routes = {
             database,
             accounts.hasCapability,
           ),
+        }).fetch(request);
+      }
+      if (isProfilesPath(pathname)) {
+        // The owner Profiles sheet exists only with human sign-in enabled. It
+        // admits a current human session holding `profile.manage` and nothing
+        // else, so an agent credential is denied on every route.
+        if (signIn.status !== "enabled")
+          return new Response(JSON.stringify({ error: "not_found" }), {
+            status: 404,
+            headers: {
+              "cache-control": "no-store",
+              "content-type": "application/json; charset=utf-8",
+              "x-content-type-options": "nosniff",
+            },
+          });
+        const authorizeProfiles = (
+          principal: NonNullable<
+            Awaited<ReturnType<typeof accounts.resolvePrincipal>>
+          >,
+        ) => accounts.hasCapability(principal, "profile.manage");
+        return createProfilesApiTransport({
+          resolvePrincipal: accounts.resolvePrincipal,
+          authorize: authorizeProfiles,
+          service: createD1ProfilesService(database, {
+            authorize: authorizeProfiles,
+          }),
         }).fetch(request);
       }
       if (isBannerAdminPath(pathname)) {

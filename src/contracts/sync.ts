@@ -238,6 +238,16 @@ export interface PlannedSyncItem {
   readonly websiteId?: string;
   readonly targetId?: string;
   readonly expectedVersion?: number;
+  /**
+   * For an update, each allowlisted field with the value the Website holds now
+   * and the value the sync proposes, so a reviewer sees the difference before
+   * the expected-version check commits it.
+   */
+  readonly fieldChanges?: readonly {
+    readonly field: string;
+    readonly current: string | number | null;
+    readonly proposed: string | number | null;
+  }[];
   readonly dependencies: readonly string[];
 }
 export interface SyncPlan {

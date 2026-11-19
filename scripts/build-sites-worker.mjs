@@ -93,6 +93,19 @@ assetData["dashboard-app.css"] = Buffer.concat([
   await readFile(join(root, "website", "editor", "editor.css")),
   Buffer.from("\n"),
   await readFile(join(root, "website", "editor", "dashboard.css")),
+  Buffer.from("\n"),
+  await readFile(
+    join(
+      root,
+      "node_modules",
+      "tabulator-tables",
+      "dist",
+      "css",
+      "tabulator.min.css",
+    ),
+  ),
+  Buffer.from("\n"),
+  await readFile(join(root, "website", "editor", "profiles.css")),
 ]).toString("base64");
 const hosting = JSON.parse(
   await readFile(join(root, ".openai", "hosting.json"), "utf8"),

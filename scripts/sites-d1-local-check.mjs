@@ -662,6 +662,7 @@ async function main() {
     "0027_archived_accounts.sql",
     "0028_optional_role_source_found_date.sql",
     "0029_content_revision_checkpoint_label.sql",
+    "0030_profile_visibility.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(
