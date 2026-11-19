@@ -326,7 +326,7 @@ export class D1CountyStructureAdministration {
     const rows = await this.database.all<Record<string, number | string>>(
       `SELECT c.fips, c.name,
          (SELECT COUNT(*) FROM county_unit u WHERE u.county_fips = c.fips) AS units,
-         (SELECT COUNT(*) FROM county_unit u WHERE u.county_fips = c.fips AND u.parent_unit_id IS NOT NULL) AS subunits,
+         (SELECT COUNT(*) FROM county_unit u WHERE u.county_fips = c.fips AND (u.parent_unit_id IS NOT NULL OR u.display_group_id IS NOT NULL)) AS subunits,
          (SELECT COUNT(*) FROM county_unit_display g WHERE g.county_fips = c.fips) AS groups,
          (SELECT COUNT(DISTINCT r.person_role_id) FROM county_role_display r WHERE r.county_fips = c.fips) AS profiles,
          (SELECT COUNT(*) FROM county_unit u WHERE u.county_fips = c.fips AND u.status = 'review_required')
@@ -383,7 +383,10 @@ export class D1CountyStructureAdministration {
       version,
       counts: {
         units: units.length,
-        subunits: units.filter((record) => record.parentId !== null).length,
+        subunits: units.filter(
+          (record) =>
+            record.parentId !== null || record.displayGroupId !== null,
+        ).length,
         displayGroups: records.length - units.length,
         profiles: units.reduce(
           (sum, record) => sum + (references.get(record.id) ?? 0),

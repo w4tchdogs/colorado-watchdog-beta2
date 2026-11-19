@@ -293,7 +293,9 @@ export function createCountyStructureView(options: {
         return;
       }
       const c = detail.counts;
-      counts.textContent = `${c.units} units, ${c.subunits} sub-units, ${c.displayGroups} display groups, ${c.profiles} linked Profiles, ${c.unresolved} needing review.`;
+      const topLevel = c.units - c.subunits;
+      const groups = `${c.displayGroups} display ${c.displayGroups === 1 ? "group" : "groups"}`;
+      counts.textContent = `${c.units + c.displayGroups} entries: ${topLevel} top-level ${topLevel === 1 ? "unit" : "units"}, ${c.subunits} ${c.subunits === 1 ? "sub-unit" : "sub-units"} (under a unit or a display group) and ${groups}. ${c.profiles} linked Profiles, ${c.unresolved} needing review.`;
     }
 
     // ---------------------------------------------------------- edits
