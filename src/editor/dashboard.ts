@@ -74,7 +74,7 @@ export interface Dashboard {
   destroy(): void;
 }
 
-const VIEW_ID = /^[a-z]{1,32}$/;
+const VIEW_ID = /^[a-z](?:[a-z]|-(?=[a-z])){0,31}$/;
 const DEFAULT_VIEW = "overview";
 
 export function mountDashboard(
