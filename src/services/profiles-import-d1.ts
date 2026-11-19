@@ -29,7 +29,10 @@ import {
   validateRoleRows,
 } from "./profiles-import-csv.js";
 import { AuthorizationError, type TrustedPrincipal } from "./security.js";
-import { commitSyncChangesetD1 } from "./sync-commit-d1.js";
+import {
+  commitSyncChangesetD1,
+  IMPORTER_BATCH_KEY_PREFIX,
+} from "./sync-commit-d1.js";
 import { planSyncChangesetD1 } from "./sync-planner-d1.js";
 import { reverseSyncBatchD1 } from "./sync-revert-d1.js";
 
@@ -121,7 +124,7 @@ interface Plan {
  * client can never supply, shadow or move a stable mapping, even when it uses
  * a client reference in the importer's namespace.
  */
-const IMPORT_KEY_PREFIX = "pi:";
+const IMPORT_KEY_PREFIX = IMPORTER_BATCH_KEY_PREFIX;
 const MAX_USER_KEY = 128 - IMPORT_KEY_PREFIX.length;
 const CHUNK = 80;
 const emptyCounts = (): Record<keyof ProfilesImportCounts, number> => ({
@@ -183,6 +186,10 @@ export function createD1ProfilesImportService(
           throw new ImportIdempotencyError();
         return receiptFromStored(String(existing.result_json), true);
       }
+      // Sampled before any read the plan depends on. The shared write fails
+      // if the Website changes after this point, so two commits built from
+      // the same preview cannot both apply.
+      const generation = await database.readDependencyGeneration();
       const planned = await plan(input);
       if (planned.preview.digest !== digest)
         throw new ImportStalePreviewError();
@@ -198,6 +205,8 @@ export function createD1ProfilesImportService(
           authorize: () => options.authorize(principal),
           now,
           createdPeopleHidden: true,
+          importerBatch: true,
+          expectedGeneration: generation,
         },
       );
       if (result.status === "rejected") {

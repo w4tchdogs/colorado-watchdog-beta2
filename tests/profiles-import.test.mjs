@@ -1151,3 +1151,128 @@ test("an exact published_title with blank office and duties survives preview, co
     );
   });
 });
+
+test("the importer key marker is reserved: ordinary sync callers cannot supply it and cannot become mappings", async () => {
+  await withService(async ({ service, owner, d1, database }) => {
+    const request = (ref) =>
+      unrelatedBatch([
+        {
+          op: "create_person",
+          entity: "people",
+          clientRef: ref,
+          fields: { display_name: "Synthetic Forged Mapping" },
+        },
+      ]);
+    // An ordinary caller with the reserved prefix is refused and writes nothing.
+    const before = database.prepare("SELECT COUNT(*) c FROM people").get().c;
+    const forged = await commitSyncChangesetD1(
+      d1,
+      owner,
+      "pi:forged-key-0001",
+      request("dash:profile:PF"),
+      { authorize: async () => true },
+    );
+    assert.equal(forged.status, "rejected");
+    assert.equal(forged.errors[0].code, "invalid_idempotency_key");
+    assert.equal(
+      database.prepare("SELECT COUNT(*) c FROM people").get().c,
+      before,
+    );
+    // The importer flag is refused for a key without the reserved prefix.
+    const wrong = await commitSyncChangesetD1(
+      d1,
+      owner,
+      "plain-key-0000001",
+      request("dash:profile:PF"),
+      { authorize: async () => true, importerBatch: true },
+    );
+    assert.equal(wrong.status, "rejected");
+    // An ordinary batch with a lookalike reference is never a mapping.
+    const ordinary = await commitSyncChangesetD1(
+      d1,
+      owner,
+      "ordinary-key-0001",
+      request("dash:profile:PF"),
+      { authorize: async () => true },
+    );
+    assert.equal(ordinary.status, "committed");
+    const files = {
+      profile: csv([PROFILE_HEAD, ["PF", "Synthetic Forged Mapping"]]),
+    };
+    const preview = await service.preview(owner, { files });
+    assert.equal(preview.profiles.add, 1);
+    assert.equal(preview.rows[0].websiteId, undefined);
+  });
+});
+
+test("two commits from one preview with different keys cannot both create records", async () => {
+  await withService(async ({ owner, d1, database, count }) => {
+    const authorize = async (p) => p.accountId === "acct-owner";
+    const files = small();
+    const direct = createD1ProfilesImportService(d1, { authorize, now: NOW });
+    const preview = await direct.preview(owner, { files });
+    const baseline = snapshot(count);
+    let rival = null;
+    let fired = false;
+    // The rival commit lands after the second importer has planned and before
+    // the shared engine reads anything of its own.
+    const racing = new Proxy(d1, {
+      get(target, prop) {
+        const value = Reflect.get(target, prop, target);
+        if (prop !== "first")
+          return typeof value === "function" ? value.bind(target) : value;
+        return async (sql, values) => {
+          if (
+            !fired &&
+            String(sql).includes("SELECT a.kind, a.role FROM accounts")
+          ) {
+            fired = true;
+            rival = await direct.commit(owner, "key-race-rival-1", {
+              files,
+              digest: preview.digest,
+            });
+          }
+          return value.call(target, sql, values);
+        };
+      },
+    });
+    const second = createD1ProfilesImportService(racing, {
+      authorize,
+      now: NOW,
+    });
+    await assert.rejects(
+      () =>
+        second.commit(owner, "key-race-second-1", {
+          files,
+          digest: preview.digest,
+        }),
+      (error) =>
+        error.name === "ImportStalePreviewError" ||
+        /changed|stale/i.test(String(error.message)),
+    );
+    assert.equal(fired, true, "the rival commit ran inside the window");
+    assert.ok(rival && rival.created.profiles === 2);
+    const after = snapshot(count);
+    assert.equal(
+      after.people,
+      baseline.people + 2,
+      "exactly one set of Profiles exists",
+    );
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) c FROM sync_batches WHERE idempotency_key LIKE 'pi:%'",
+        )
+        .get().c,
+      1,
+    );
+    // A third attempt from the same preview is a plain stale preview.
+    await assert.rejects(() =>
+      direct.commit(owner, "key-race-third-01", {
+        files,
+        digest: preview.digest,
+      }),
+    );
+    assert.equal(snapshot(count).people, baseline.people + 2);
+  });
+});

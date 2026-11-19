@@ -147,6 +147,14 @@ const UPDATE_COLUMNS: Readonly<Record<SyncEntity, readonly string[]>> = {
 };
 
 /**
+ * Idempotency keys that begin with this prefix mark batches written by the
+ * Profiles dashboard importer, and the importer reads its stable-ID mappings
+ * only from them. The shared writer reserves the prefix, so an ordinary sync
+ * caller cannot supply it. Only the importer passes `importerBatch: true`.
+ */
+export const IMPORTER_BATCH_KEY_PREFIX = "pi:";
+
+/**
  * Internal, default-deny asynchronous D1 commit engine. No route or service
  * registry calls this implementation. The D1 batch is the only write boundary.
  */
@@ -165,6 +173,18 @@ export async function commitSyncChangesetD1(
      * publication. Existing Profiles and their visibility are never touched.
      */
     createdPeopleHidden?: boolean;
+    /**
+     * Marks the batch as an importer batch. Required for, and only allowed
+     * with, a key that starts with IMPORTER_BATCH_KEY_PREFIX.
+     */
+    importerBatch?: boolean;
+    /**
+     * The dependency generation the caller sampled before it read anything
+     * its plan depends on. The guarded write fails if the Website changed
+     * after that point, so a plan built from earlier reads can never commit
+     * over a concurrent commit.
+     */
+    expectedGeneration?: number;
   } = {},
 ): Promise<D1SyncCommitResult> {
   const now = options.now ?? (() => new Date());
@@ -200,9 +220,13 @@ export async function commitSyncChangesetD1(
   }
   const structural = validateStructure(request, idempotencyKey);
   if (structural) return rejected(requestId, structural);
+  const reserved = idempotencyKey.startsWith(IMPORTER_BATCH_KEY_PREFIX);
+  if (reserved !== (options.importerBatch === true))
+    return rejected(requestId, error("invalid_idempotency_key"));
 
   const fingerprint = await fingerprintRequest(request);
-  const generation = await database.readDependencyGeneration();
+  const generation =
+    options.expectedGeneration ?? (await database.readDependencyGeneration());
   // Recheck after the generation snapshot. A later authorization write makes
   // the guarded batch stale, and this read catches changes that preceded it.
   if (!(await canApply(database, principal, options.authorize, now()))) {

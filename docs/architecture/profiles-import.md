@@ -71,3 +71,7 @@ The importer reads stable-ID mappings only from sync batches it committed itself
 ## Title only roles
 
 A role row may carry only published_title, with published_office and job_description blank and no structured position link. The exact title, including commas and an ampersand when the field is quoted, is stored in person_roles.published_title and is shown in the Position column of the Profiles tab (the column reads the published title first and the structured position second). A regression test uses the synthetic title Training, Records & Development Manager through preview, commit, readback, search and an unchanged re-upload.
+
+## Reserved marker and version guard
+
+The pi: key prefix is reserved inside the shared sync writer. A batch whose key starts with it is refused unless the importer passes the importer flag, and the flag is refused for any other key, so ordinary sync callers cannot create importer mappings. The commit route samples the Website dependency generation before it reads mappings or builds the plan and hands that value to the shared write. If anything the plan depends on changed after that sample, the guarded write fails and the importer answers with a stale preview. Two commits from one preview with different keys therefore cannot both create records. Tests cover the reserved prefix, and a deterministic rival commit landing between the importer plan and the shared write.
