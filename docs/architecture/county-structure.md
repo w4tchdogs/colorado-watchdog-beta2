@@ -61,6 +61,21 @@ Migration `0033_county_structure_v4_contract.sql` adapts the tables for the stat
 - `src/editor/county-structure-client.ts` and `county-structure-view.ts` are the dashboard module.
 - `src/site/pages/county-structure-section.ts` renders the public county section.
 
+## Role-to-unit attachment
+
+Profiles and County Structure stay separate until the owner explicitly attaches a role to a unit. A published Profile whose role has a county but no attachment is listed in that county's public browse (`listCountyRoleEntries`) and in name search, and it does not appear in County Structure. County Structure lists a role under a unit only through a reviewed `home` row in `county_role_display`.
+
+The owner uploads the reviewed role file for one county. Only three columns are read: `role_id`, `county_fips` (or `County code`) and `county_unit_id` (`County unit ID`). Every other column is listed as not used. Matching is by stable IDs only:
+
+- `role_id` resolves to the Website role through the dashboard Profiles import mapping (`dash:role:<role_id>` on a committed, unreversed importer batch). A role that has not been imported yet is **skipped**, not blocked, so the same file can be re-run after the next Profiles import.
+- The county on the row must equal the Website role's county and the unit's county. A mismatch, an unknown unit, two different units for one role in the file, or a role that already has more than one home listing is **blocked**.
+- A row with a blank unit ID is **unattached** and changes nothing. This workflow never removes an existing link.
+- A role with no home listing is **attached**. A role whose home listing names another unit is **remapped** to the new unit, keeping the same row and increasing its version. A role already at the named unit is **unchanged**.
+
+`POST /api/admin/county-structure/role-attachments/preview` with `{ csv, countyFips }` is read-only and returns counts, every row's action and reason, and a digest. `POST /api/admin/county-structure/role-attachments/commit` with `{ csv, countyFips, digest }` and an `Idempotency-Key` header recomputes the plan, refuses `409 stale_preview` when the digest differs, refuses `409 blocked` when a row is blocked, and otherwise writes every attachment and remap in one atomic batch. Each set-based statement carries the state the preview saw and is followed by an exact row count assertion. The idempotency key is recorded in an append-only `audit_events` row, which is also the receipt: the same key and digest return it with `replayed: true` and write nothing, and the same key with another digest returns `409 idempotency_reuse`. Access is the owner `county_structure.manage` session with the exact page origin, like every County Structure write. No migration is needed. The service is `src/services/county-role-attachment-d1.ts`, with pure parsing and planning in `county-role-attachment.ts`.
+
+Hidden Profiles stay off County Structure and county browse even when attached, because both public reads apply the Profile visibility predicate.
+
 ## Verification
 
 The service tests run on an in-process SQLite and cover the 25 cases in `tests/county-structure.test.mjs`. The same service also runs against Wrangler’s local D1 engine in `tests/d1/county-structure-checks.mjs`, with 21 checks that include a county of 3,010 units, so chunked writes and keyset reads are exercised on the real engine. Both ran locally in the Linux workspace on the owner’s computer with synthetic data. They are local results only. Nothing here has run on the hosted Site.

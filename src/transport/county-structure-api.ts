@@ -4,6 +4,7 @@ import {
   IMPORT_MODES,
   type ImportMode,
 } from "../contracts/county-structure.js";
+import type { D1CountyRoleAttachments } from "../services/county-role-attachment-d1.js";
 import {
   CountyStructureConflictError,
   CountyStructureNotFoundError,
@@ -46,6 +47,8 @@ export interface CountyStructureTransportDependencies {
   readonly authorize?: (principal: TrustedPrincipal) => Promise<boolean>;
   /** Absent means the database binding is unavailable. */
   readonly administration?: D1CountyStructureAdministration;
+  /** Role-to-unit attachment. Absent means it is unavailable. */
+  readonly roleAttachments?: D1CountyRoleAttachments;
 }
 
 type Route =
@@ -59,7 +62,9 @@ type Route =
   | { op: "edit" }
   | { op: "history"; id: string }
   | { op: "unitRoles"; id: string }
-  | { op: "roleDisplay" };
+  | { op: "roleDisplay" }
+  | { op: "attachPreview" }
+  | { op: "attachCommit" };
 
 type Matched =
   | { kind: "route"; route: Route }
@@ -97,6 +102,10 @@ function match(pathname: string, method: string): Matched {
     return hit({ op: "unitRoles", id: b }, "GET");
   if (a === "role-displays" && parts.length === 1)
     return hit({ op: "roleDisplay" }, "POST");
+  if (a === "role-attachments" && parts.length === 2 && b === "preview")
+    return hit({ op: "attachPreview" }, "POST");
+  if (a === "role-attachments" && parts.length === 2 && b === "commit")
+    return hit({ op: "attachCommit" }, "POST");
   return { kind: "none" };
 }
 
@@ -154,6 +163,16 @@ async function handle(
       return json(403, { error: "forbidden" });
   } catch {
     return json(403, { error: "forbidden" });
+  }
+  if (route.op === "attachPreview" || route.op === "attachCommit") {
+    const attachments = dependencies.roleAttachments;
+    if (!attachments)
+      return json(503, { error: "county_structure_unavailable" });
+    try {
+      return await attachRoles(request, route.op, principal, attachments);
+    } catch (error) {
+      return failure(error);
+    }
   }
   const service = dependencies.administration;
   if (!service) return json(503, { error: "county_structure_unavailable" });
@@ -286,6 +305,10 @@ async function execute(
         })),
       });
     }
+    case "attachPreview":
+    case "attachCommit":
+      // Routed before this switch to the attachment service.
+      return json(404, { error: "not_found" });
     case "commit": {
       const key = request.headers.get("idempotency-key");
       if (!key) return json(400, { error: "idempotency_key_required" });
@@ -360,6 +383,36 @@ async function execute(
       });
     }
   }
+}
+
+async function attachRoles(
+  request: Request,
+  op: "attachPreview" | "attachCommit",
+  principal: TrustedPrincipal,
+  attachments: D1CountyRoleAttachments,
+): Promise<Response> {
+  const key = request.headers.get("idempotency-key");
+  if (op === "attachCommit" && !key)
+    return json(400, { error: "idempotency_key_required" });
+  const input = await body(request);
+  if (
+    !input ||
+    typeof input.csv !== "string" ||
+    typeof input.countyFips !== "string" ||
+    !FIPS.test(input.countyFips) ||
+    (op === "attachCommit" && typeof input.digest !== "string")
+  )
+    return invalid();
+  const files = { csv: input.csv, countyFips: input.countyFips };
+  if (op === "attachPreview")
+    return json(200, { ...(await attachments.preview(principal, files)) });
+  return json(200, {
+    ...(await attachments.commit(principal, {
+      ...files,
+      digest: input.digest as string,
+      idempotencyKey: key as string,
+    })),
+  });
 }
 
 function failure(error: unknown): Response {

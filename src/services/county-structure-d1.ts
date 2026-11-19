@@ -22,6 +22,7 @@ import {
 } from "../contracts/county-structure.js";
 import type { AsyncD1Database, D1BatchStatement } from "../database/d1.js";
 import { assertCredentialFree } from "./audit.js";
+import { authorizeCountyStructure } from "./county-structure-auth.js";
 import { parseAliases, parseCountyCsv } from "./county-structure-csv.js";
 import {
   canonicalRecord,
@@ -36,12 +37,7 @@ import {
   planImport,
   sha256Hex,
 } from "./county-structure-plan.js";
-import {
-  AuthorizationError,
-  newId,
-  roleHasCapability,
-  type TrustedPrincipal,
-} from "./security.js";
+import { newId, type TrustedPrincipal } from "./security.js";
 
 /**
  * County Structure administration (COUNTY-DB-1) on the Website D1 binding.
@@ -79,7 +75,8 @@ export class CountyStructureConflictError extends Error {
       | "idempotency_reuse"
       | "blocked"
       | "not_reversible"
-      | "not_prepared",
+      | "not_prepared"
+      | "stale_preview",
     message: string,
   ) {
     super(message);
@@ -190,23 +187,8 @@ export class D1CountyStructureAdministration {
 
   // ------------------------------------------------------------- authority
 
-  private async authorize(principal: TrustedPrincipal): Promise<void> {
-    if (!roleHasCapability(principal.role, "county_structure.manage"))
-      throw new AuthorizationError();
-    const live = await this.database.first(
-      `SELECT 1 AS ok FROM identities i JOIN accounts a ON a.id = i.account_id
-       WHERE a.id = ? AND i.id = ? AND i.provider = ? AND a.kind = ? AND a.role = ?
-         AND a.status = 'active' AND i.revoked_at IS NULL
-         AND (i.expires_at IS NULL OR i.expires_at > ${NOW})`,
-      [
-        principal.accountId,
-        principal.identityId,
-        principal.provider,
-        principal.kind,
-        principal.role,
-      ],
-    );
-    if (!live) throw new AuthorizationError();
+  private authorize(principal: TrustedPrincipal): Promise<void> {
+    return authorizeCountyStructure(this.database, principal);
   }
 
   private assertion(condition: string, values: (string | number)[]) {
