@@ -696,6 +696,7 @@ function validateCreateFields(
     positions: ["title"],
     role_sources: ["url", "title", "source_type", "publisher_classification"],
     person_roles: ["county_fips"],
+    profile_names: [],
   };
   for (const field of required[entity])
     if (!Object.hasOwn(f, field)) {
@@ -1171,6 +1172,7 @@ function supportedCreateFields(entity: SyncEntity): string[] {
       "published_title",
       "job_description",
     ],
+    profile_names: [],
   };
   return base[entity];
 }

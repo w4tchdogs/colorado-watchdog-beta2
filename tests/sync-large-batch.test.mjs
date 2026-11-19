@@ -318,6 +318,12 @@ test("migration 0023 widens the batch result limit and preserves populated sync 
     );
     assert.equal(first.status, "committed", JSON.stringify(first));
     assert.equal(second.status, "committed", JSON.stringify(second));
+    // The reversal engine checks Profile names as dependents. This schema
+    // predates that table, so an empty stand-in lets history be built here.
+    // It is dropped before the migrations resume.
+    database.exec(
+      "CREATE TABLE profile_names (id TEXT PRIMARY KEY, person_id TEXT)",
+    );
     const reversed = await reverseSyncBatch(
       database,
       principal,
@@ -326,6 +332,7 @@ test("migration 0023 widens the batch result limit and preserves populated sync 
       now,
     );
     assert.equal(reversed.status, "reverted");
+    database.exec("DROP TABLE profile_names");
 
     const tables = [
       "sync_batches",

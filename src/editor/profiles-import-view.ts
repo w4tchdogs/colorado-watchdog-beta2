@@ -43,6 +43,11 @@ export function createImportPanel(options: {
     accept: ".csv,text/csv",
     id: "import-role-file",
   });
+  const nameInput = el(doc, "input", {
+    type: "file",
+    accept: ".csv,text/csv",
+    id: "import-name-file",
+  });
   const status = el(doc, "p", {
     class: "cw-import-status",
     role: "status",
@@ -91,7 +96,9 @@ export function createImportPanel(options: {
         preview.roles.add +
         preview.roles.update +
         preview.sources.add +
-        preview.sources.update >
+        preview.sources.update +
+        preview.names.add +
+        preview.names.update >
         0;
     toggle(commitButton, !reviewable);
     toggle(previewButton, false);
@@ -140,7 +147,12 @@ export function createImportPanel(options: {
       return;
     }
     const role = await readFile(roleInput);
-    files = { profile, ...(role !== null ? { profileRole: role } : {}) };
+    const names = await readFile(nameInput);
+    files = {
+      profile,
+      ...(role !== null ? { profileRole: role } : {}),
+      ...(names !== null ? { profileName: names } : {}),
+    };
     receipt = null;
     setBusy(true);
     say("Reading the files. Nothing is written during a preview.");
@@ -246,13 +258,22 @@ export function createImportPanel(options: {
   }
 
   function visibilityText(v: ImportRowReport["visibility"]): string {
-    return v === "hidden_on_create"
-      ? "Created hidden"
-      : v === "stays_hidden"
-        ? "Stays hidden"
-        : v === "stays_visible"
-          ? "Stays visible"
-          : "";
+    switch (v) {
+      case "hidden_on_create":
+        return "Created hidden";
+      case "stays_hidden":
+        return "Stays hidden";
+      case "stays_visible":
+        return "Stays visible";
+      case "private_pending_review":
+        return "Created private, pending your review";
+      case "stays_private":
+        return "Stays private";
+      case "stays_public":
+        return "Stays public";
+      default:
+        return "";
+    }
   }
 
   function render(): void {
@@ -270,7 +291,7 @@ export function createImportPanel(options: {
             {},
             receipt.status === "nothing_to_commit"
               ? "Nothing needed to change."
-              : `Batch ${receipt.batchId}. Created ${receipt.created.profiles} Profiles, ${receipt.created.roles} roles and ${receipt.created.sources} sources (${receipt.created.reusedSources} existing sources reused). Updated ${receipt.updated.profiles} Profiles and ${receipt.updated.roles} roles. ${receipt.newProfilesHidden} new Profiles are hidden until you publish them.`,
+              : `Batch ${receipt.batchId}. Created ${receipt.created.profiles} Profiles, ${receipt.created.roles} roles and ${receipt.created.sources} sources (${receipt.created.reusedSources} existing sources reused). Updated ${receipt.updated.profiles} Profiles and ${receipt.updated.roles} roles. ${receipt.newProfilesHidden} new Profiles are hidden until you publish them. Created ${receipt.created.names} alternate names and updated ${receipt.updated.names}. ${receipt.newNamesPrivate} new alternate names are private until you review and publish them.`,
           ),
         ),
       );
@@ -309,6 +330,7 @@ export function createImportPanel(options: {
             countsRow("Profiles", p.profiles),
             countsRow("Roles", p.roles),
             countsRow("Sources", p.sources),
+            countsRow("Alternate names", p.names),
           ),
         ),
         el(
@@ -316,6 +338,12 @@ export function createImportPanel(options: {
           "p",
           { id: "import-visibility" },
           `${p.newProfilesHidden} new Profiles will be created hidden and stay hidden until you publish them. Existing Profiles keep their current visibility.`,
+        ),
+        el(
+          doc,
+          "p",
+          { id: "import-name-visibility" },
+          `${p.newNamesPrivate} new alternate names will be created private and pending your review. A name does not become public through import.${p.namesPublishRequested > 0 ? ` ${p.namesPublishRequested} rows ask for Public or Confirmed. That request is ignored.` : ""}`,
         ),
         el(
           doc,
@@ -404,7 +432,7 @@ export function createImportPanel(options: {
       doc,
       "p",
       {},
-      "Upload reviewed profile.csv, and optionally profile_role.csv with its source columns. Preview changes nothing. New Profiles are created hidden.",
+      "Upload reviewed profile.csv, and optionally profile_role.csv with its source columns and profile_name.csv with typed alternate names. profile.csv can carry first, middle, last, prefix, suffix and preferred first names. Preview changes nothing. New Profiles are created hidden and new alternate names are created private.",
     ),
     el(
       doc,
@@ -419,6 +447,13 @@ export function createImportPanel(options: {
         "profile_role.csv (optional)",
       ),
       roleInput,
+      el(
+        doc,
+        "label",
+        { for: "import-name-file" },
+        "profile_name.csv (optional)",
+      ),
+      nameInput,
     ),
     el(
       doc,

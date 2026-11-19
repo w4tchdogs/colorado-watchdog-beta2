@@ -87,7 +87,7 @@ The owner API gains `GET /api/admin/profiles/names?profileId=…`. It is owner-o
 
 ## CSV import compatibility
 
-`src/services/profile-csv.ts` validates and maps name rows. It is pure and reads no database. The dashboard upload that uses it is the follow-up described in [Profiles dashboard CSV import](profiles-import.md).
+The dashboard upload reads name components from `profile.csv` and typed alternates from `profile_name.csv`. See [Profiles dashboard CSV import](profiles-import.md). `src/services/profile-csv.ts` is a separate pure validator and is no longer used by the upload.
 
 `profile.csv` name columns: `first_name`, `middle_name`, `last_name`, `name_prefix`, `name_suffix`, `preferred_first_name` and `display_name`.
 
@@ -134,5 +134,5 @@ Not done. A staging step needs the owner’s approval and is outside this PR.
 ## Limits
 
 - Tested locally on synthetic data only, with sql.js and the Worker build. Not run against a real D1 or a browser.
-- The dashboard CSV upload is a follow-up PR. Only validation and mapping exist here.
+- The dashboard CSV upload is in the follow-up PR and is described in the import note.
 - Components are Website-only. A later local Profiles database change would need its own mapping.

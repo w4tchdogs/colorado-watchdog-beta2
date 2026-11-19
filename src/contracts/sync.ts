@@ -1,4 +1,5 @@
 import type { CountyAffiliationType, OrganizationType } from "./directory.js";
+import type { AlternateNameType } from "./profiles.js";
 
 export const SYNC_CONTRACT_VERSION = "m2-sync/v1" as const;
 export const MAX_SYNC_REQUEST_BYTES = 8 * 1024 * 1024;
@@ -21,7 +22,8 @@ export type SyncEntity =
   | "people"
   | "positions"
   | "role_sources"
-  | "person_roles";
+  | "person_roles"
+  | "profile_names";
 
 type ExistingIdOrReference<IdKey extends string, RefKey extends string> =
   | (Readonly<Record<IdKey, string>> & { readonly [Key in RefKey]?: never })
@@ -64,11 +66,49 @@ export interface CreateAffiliation {
   }> &
     ExistingIdOrReference<"organization_id", "organization_ref">;
 }
+/**
+ * Primary name components on a Profile. Only the Profiles dashboard importer
+ * may set them. A blank component is omitted on create and null on update.
+ */
+export const PERSON_NAME_COMPONENT_FIELDS = [
+  "first_name",
+  "middle_name",
+  "last_name",
+  "name_prefix",
+  "name_suffix",
+  "preferred_first_name",
+] as const;
+export type PersonNameComponentField =
+  (typeof PERSON_NAME_COMPONENT_FIELDS)[number];
 export interface CreatePerson {
   readonly op: "create_person";
   readonly entity: "people";
   readonly clientRef: string;
-  readonly fields: { readonly display_name: string };
+  readonly fields: {
+    readonly display_name: string;
+  } & Partial<Readonly<Record<PersonNameComponentField, string>>>;
+}
+/**
+ * An alternate name created by the dashboard importer. It is always created
+ * private and pending review: this operation cannot set a verification status
+ * or public display, and only the importer may use it.
+ */
+export interface CreateProfileName {
+  readonly op: "create_profile_name";
+  readonly entity: "profile_names";
+  readonly clientRef: string;
+  readonly fields: Readonly<{
+    name_type: AlternateNameType;
+    published_name: string;
+    first_name?: string;
+    middle_name?: string;
+    last_name?: string;
+    name_prefix?: string;
+    name_suffix?: string;
+    applies_from?: string;
+    applies_until?: string;
+  }> &
+    ExistingIdOrReference<"person_id", "person_ref">;
 }
 export interface CreatePosition {
   readonly op: "create_position";
@@ -128,7 +168,22 @@ export type UpdateRecord =
     })
   | (UpdateRecordBase & {
       readonly entity: "people";
-      readonly fields: Readonly<{ display_name?: string }>;
+      readonly fields: Readonly<{ display_name?: string }> &
+        Partial<Readonly<Record<PersonNameComponentField, string | null>>>;
+    })
+  | (UpdateRecordBase & {
+      readonly entity: "profile_names";
+      readonly fields: Readonly<{
+        name_type?: AlternateNameType;
+        published_name?: string;
+        first_name?: string | null;
+        middle_name?: string | null;
+        last_name?: string | null;
+        name_prefix?: string | null;
+        name_suffix?: string | null;
+        applies_from?: string | null;
+        applies_until?: string | null;
+      }>;
     })
   | (UpdateRecordBase & {
       readonly entity: "positions" | "role_sources";
@@ -159,6 +214,7 @@ export type SyncChange =
   | CreatePosition
   | CreateRoleSource
   | CreatePersonRole
+  | CreateProfileName
   | UpdateRecord;
 
 export interface DuplicateFlagInput {

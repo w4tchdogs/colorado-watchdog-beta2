@@ -4,6 +4,7 @@ import {
   type ImportIssue,
   type ImportRowReport,
   type ImportVisibility,
+  NAME_FILE,
   PROFILE_FILE,
   PROFILES_IMPORT_CONTRACT,
   PROFILES_IMPORT_MAX_BYTES,
@@ -15,6 +16,7 @@ import {
   type ProfilesImportReversal,
   ROLE_FILE,
 } from "../contracts/profiles-import.js";
+import type { PersonNameComponentField } from "../contracts/sync.js";
 import {
   SYNC_CONTRACT_VERSION,
   type SyncChange,
@@ -22,9 +24,11 @@ import {
 } from "../contracts/sync.js";
 import type { AsyncD1Database, D1Value } from "../database/d1.js";
 import {
+  type NameRecord,
   type ProfileRecord,
   parseImportFile,
   type RoleRecord,
+  validateNameRows,
   validateProfileRows,
   validateRoleRows,
 } from "./profiles-import-csv.js";
@@ -107,7 +111,7 @@ interface Mapped {
   readonly baselineVersion: number;
 }
 interface Origin {
-  readonly kind: "profile" | "role" | "source";
+  readonly kind: "profile" | "role" | "source" | "name";
   readonly key: string;
   readonly line: number;
 }
@@ -269,23 +273,26 @@ function parseFiles(input: unknown): ProfilesImportFiles {
     throw new ImportInputError("The request needs a files object");
   const f = files as Record<string, unknown>;
   for (const name of Object.keys(f))
-    if (name !== "profile" && name !== "profileRole")
+    if (name !== "profile" && name !== "profileRole" && name !== "profileName")
       throw new ImportInputError(`Unexpected file "${name}"`);
   if (typeof f.profile !== "string" || f.profile.trim() === "")
     throw new ImportInputError("profile.csv is required");
   if (f.profileRole !== undefined && typeof f.profileRole !== "string")
     throw new ImportInputError("profile_role.csv must be text");
-  const bytes =
-    new TextEncoder().encode(f.profile).byteLength +
-    (typeof f.profileRole === "string"
-      ? new TextEncoder().encode(f.profileRole).byteLength
-      : 0);
+  if (f.profileName !== undefined && typeof f.profileName !== "string")
+    throw new ImportInputError("profile_name.csv must be text");
+  const size = (text: unknown) =>
+    typeof text === "string" ? new TextEncoder().encode(text).byteLength : 0;
+  const bytes = size(f.profile) + size(f.profileRole) + size(f.profileName);
   if (bytes > PROFILES_IMPORT_MAX_BYTES)
     throw new ImportInputError("The files are too large");
   return {
     profile: f.profile,
     ...(typeof f.profileRole === "string" && f.profileRole.trim() !== ""
       ? { profileRole: f.profileRole }
+      : {}),
+    ...(typeof f.profileName === "string" && f.profileName.trim() !== ""
+      ? { profileName: f.profileName }
       : {}),
   };
 }
@@ -385,6 +392,21 @@ async function readRows<Row>(
   return out;
 }
 
+const nameIdentity = (
+  personId: string,
+  type: string,
+  published: string,
+  from: string | null,
+  until: string | null,
+) =>
+  [
+    personId,
+    type,
+    published.trim().toLowerCase(),
+    from ?? "",
+    until ?? "",
+  ].join("|");
+
 const sameInstant = (a: string | null, b: string) =>
   a === b || (a !== null && Date.parse(a) === Date.parse(b));
 
@@ -397,7 +419,7 @@ async function buildPlan(
   const rows: ImportRowReport[] = [];
   const notes: string[] = [];
   const ignored: {
-    file: typeof PROFILE_FILE | typeof ROLE_FILE;
+    file: typeof PROFILE_FILE | typeof ROLE_FILE | typeof NAME_FILE;
     columns: readonly string[];
   }[] = [];
 
@@ -424,6 +446,17 @@ async function buildPlan(
     );
   }
 
+  let nameRecords: readonly NameRecord[] = [];
+  if (files.profileName !== undefined) {
+    const nameParsed = parseImportFile(NAME_FILE, files.profileName);
+    issues.push(...nameParsed.issues);
+    if (nameParsed.ignoredColumns.length)
+      ignored.push({ file: NAME_FILE, columns: nameParsed.ignoredColumns });
+    const nameChecked = validateNameRows(nameParsed);
+    issues.push(...nameChecked.issues);
+    nameRecords = nameChecked.records;
+  }
+
   const mappings = await readMappings(db);
   const mapOf = (prefix: string, id: string) => mappings.get(`${prefix}${id}`);
   const invalidProfileIds = new Set(
@@ -447,12 +480,72 @@ async function buildPlan(
     (r) => mapOf(IMPORT_REF.profile, r.profileId)?.websiteId ?? [],
   );
 
-  const people = await readRows<{ display_name: string; version: number }>(
+  const nameProfileIds = nameRecords.flatMap(
+    (n) => mapOf(IMPORT_REF.profile, n.profileId)?.websiteId ?? [],
+  );
+  const mappedNameIds = nameRecords.flatMap(
+    (n) => mapOf(IMPORT_REF.name, n.nameId)?.websiteId ?? [],
+  );
+  const people = await readRows<
+    {
+      display_name: string;
+      version: number;
+    } & Record<PersonNameComponentField, string | null>
+  >(
     db,
     "people",
-    "id, display_name, version",
+    "id, display_name, version, first_name, middle_name, last_name, name_prefix, name_suffix, preferred_first_name",
     [...mappedProfileIds, ...referencedProfileIds],
   );
+  const nameRows = await readRows<{
+    person_id: string;
+    name_type: string;
+    published_name: string;
+    first_name: string | null;
+    middle_name: string | null;
+    last_name: string | null;
+    name_prefix: string | null;
+    name_suffix: string | null;
+    applies_from: string | null;
+    applies_until: string | null;
+    public_display: number;
+    removed_at: string | null;
+    version: number;
+  }>(
+    db,
+    "profile_names",
+    "id, person_id, name_type, published_name, first_name, middle_name, last_name, name_prefix, name_suffix, applies_from, applies_until, public_display, removed_at, version",
+    mappedNameIds,
+  );
+  // Active names already on mapped Profiles, so a new row that repeats one is
+  // reported before commit instead of failing the unique index.
+  const activeNames = new Map<string, string>();
+  for (const part of chunks([...new Set(nameProfileIds)])) {
+    const found = await db.all<{
+      id: string;
+      person_id: string;
+      name_type: string;
+      published_name: string;
+      applies_from: string | null;
+      applies_until: string | null;
+    }>(
+      `SELECT id, person_id, name_type, published_name, applies_from, applies_until
+       FROM profile_names WHERE removed_at IS NULL AND person_id IN (${marks(part.length)})`,
+      1000,
+      part,
+    );
+    for (const row of found)
+      activeNames.set(
+        nameIdentity(
+          row.person_id,
+          row.name_type,
+          row.published_name,
+          row.applies_from,
+          row.applies_until,
+        ),
+        row.id,
+      );
+  }
   const roleRows = await readRows<{
     person_id: string;
     source_id: string;
@@ -634,8 +727,15 @@ async function buildPlan(
           op: "create_person",
           entity: "people",
           clientRef: IMPORT_REF.profile + profile.profileId,
-          fields: { display_name: profile.displayName },
-        },
+          fields: {
+            display_name: profile.displayName,
+            ...Object.fromEntries(
+              Object.entries(profile.components).filter(
+                ([, value]) => value !== null,
+              ),
+            ),
+          },
+        } as SyncChange,
         origin,
       );
       rows.push({
@@ -672,63 +772,225 @@ async function buildPlan(
         code: "mapped_record_missing",
         message,
       });
-    } else if (current.display_name === profile.displayName) {
-      rows.push({
-        kind: "profile",
+    } else {
+      const diffs: {
+        field: string;
+        current: string | null;
+        proposed: string | null;
+      }[] = [];
+      if (current.display_name !== profile.displayName)
+        diffs.push({
+          field: "display_name",
+          current: current.display_name,
+          proposed: profile.displayName,
+        });
+      for (const [field, proposed] of Object.entries(profile.components)) {
+        const now_ = current[field as PersonNameComponentField] ?? null;
+        if (now_ !== proposed) diffs.push({ field, current: now_, proposed });
+      }
+      const base = {
+        kind: "profile" as const,
         key: profile.profileId,
         line: profile.line,
         label: profile.displayName,
-        action: "unchanged",
         websiteId: mapped.websiteId,
         visibility,
+      };
+      if (diffs.length === 0) {
+        rows.push({ ...base, action: "unchanged" });
+      } else if (current.version === mapped.baselineVersion) {
+        addChange(
+          {
+            op: "update_record",
+            entity: "people",
+            targetId: mapped.websiteId,
+            expectedVersion: current.version,
+            fields: Object.fromEntries(diffs.map((d) => [d.field, d.proposed])),
+          } as SyncChange,
+          origin,
+          updates,
+        );
+        updateOrigins.push(origin);
+        rows.push({ ...base, action: "update", fields: diffs });
+      } else {
+        rows.push({
+          ...base,
+          action: "conflict",
+          reason:
+            "The name was edited on the Website after the last import. The Website values are kept.",
+          fields: diffs,
+        });
+      }
+    }
+  }
+
+  // Typed alternate names. Always private and pending review when created.
+  let namesPublishRequested = 0;
+  for (const name of nameRecords) {
+    const origin = { kind: "name" as const, key: name.nameId, line: name.line };
+    if (name.requestedPublic || name.requestedConfirmed)
+      namesPublishRequested++;
+    const blockedRow = (reason: string, code: string, websiteId?: string) => {
+      rows.push({
+        kind: "name",
+        key: name.nameId,
+        line: name.line,
+        label: name.publishedName,
+        action: "blocked",
+        ...(websiteId ? { websiteId } : {}),
+        visibility: "not_applicable",
+        reason,
       });
-    } else if (current.version === mapped.baselineVersion) {
+      issues.push({
+        file: NAME_FILE,
+        line: name.line,
+        key: name.nameId,
+        code,
+        message: reason,
+      });
+    };
+    const mappedProfile = mapOf(IMPORT_REF.profile, name.profileId);
+    if (!mappedProfile && !fileProfileIds.has(name.profileId)) {
+      blockedRow(
+        invalidProfileIds.has(name.profileId)
+          ? `Profile ${name.profileId} has an invalid row in profile.csv.`
+          : `Profile ${name.profileId} is neither in profile.csv nor already imported.`,
+        "missing_profile",
+      );
+      continue;
+    }
+    const nameFields = {
+      name_type: name.nameType,
+      published_name: name.publishedName,
+      ...name.components,
+      applies_from: name.appliesFrom,
+      applies_until: name.appliesUntil,
+    };
+    const mappedName = mapOf(IMPORT_REF.name, name.nameId);
+    if (!mappedName) {
+      const duplicate = mappedProfile
+        ? activeNames.get(
+            nameIdentity(
+              mappedProfile.websiteId,
+              name.nameType,
+              name.publishedName,
+              name.appliesFrom,
+              name.appliesUntil,
+            ),
+          )
+        : undefined;
+      if (duplicate) {
+        blockedRow(
+          "This Profile already has this name, type and dates on the Website. Use its existing profile_name_id or remove the row.",
+          "duplicate_name",
+          duplicate,
+        );
+        continue;
+      }
+      addChange(
+        {
+          op: "create_profile_name",
+          entity: "profile_names",
+          clientRef: IMPORT_REF.name + name.nameId,
+          fields: {
+            ...Object.fromEntries(
+              Object.entries(nameFields).filter(([, value]) => value !== null),
+            ),
+            ...(mappedProfile
+              ? { person_id: mappedProfile.websiteId }
+              : { person_ref: IMPORT_REF.profile + name.profileId }),
+          },
+        } as SyncChange,
+        origin,
+      );
+      rows.push({
+        kind: "name",
+        key: name.nameId,
+        line: name.line,
+        label: name.publishedName,
+        action: "add",
+        visibility: "private_pending_review",
+      });
+      continue;
+    }
+    const current = nameRows.get(mappedName.websiteId);
+    if (!current) {
+      blockedRow(
+        "The mapped Website name no longer exists.",
+        "mapped_record_missing",
+        mappedName.websiteId,
+      );
+      continue;
+    }
+    const visibility: ImportVisibility =
+      current.public_display === 1 ? "stays_public" : "stays_private";
+    const base = {
+      kind: "name" as const,
+      key: name.nameId,
+      line: name.line,
+      label: name.publishedName,
+      websiteId: mappedName.websiteId,
+      visibility,
+    };
+    if (current.removed_at !== null) {
+      rows.push({
+        ...base,
+        action: "conflict",
+        reason:
+          "The name was removed on the Website. It stays removed. Restore it in the Names editor first.",
+      });
+      continue;
+    }
+    if (mappedProfile && current.person_id !== mappedProfile.websiteId) {
+      rows.push({
+        ...base,
+        action: "conflict",
+        reason:
+          "A name cannot move to another Profile through import. The Website value is kept.",
+      });
+      continue;
+    }
+    const diffs: {
+      field: string;
+      current: string | null;
+      proposed: string | null;
+    }[] = [];
+    for (const [field, proposed] of Object.entries(nameFields)) {
+      const now_ = (current as unknown as Record<string, string | null>)[field];
+      if ((now_ ?? null) !== proposed)
+        diffs.push({ field, current: now_ ?? null, proposed });
+    }
+    if (diffs.length === 0) {
+      rows.push({ ...base, action: "unchanged" });
+    } else if (current.public_display === 1) {
+      rows.push({
+        ...base,
+        action: "conflict",
+        reason:
+          "This name is public. A change to it goes through the owner's Names editor and its review. The public value is kept.",
+        fields: diffs,
+      });
+    } else if (current.version === mappedName.baselineVersion) {
       addChange(
         {
           op: "update_record",
-          entity: "people",
-          targetId: mapped.websiteId,
+          entity: "profile_names",
+          targetId: mappedName.websiteId,
           expectedVersion: current.version,
-          fields: { display_name: profile.displayName },
-        },
+          fields: Object.fromEntries(diffs.map((d) => [d.field, d.proposed])),
+        } as SyncChange,
         origin,
         updates,
       );
       updateOrigins.push(origin);
-      rows.push({
-        kind: "profile",
-        key: profile.profileId,
-        line: profile.line,
-        label: profile.displayName,
-        action: "update",
-        websiteId: mapped.websiteId,
-        visibility,
-        fields: [
-          {
-            field: "display_name",
-            current: current.display_name,
-            proposed: profile.displayName,
-          },
-        ],
-      });
+      rows.push({ ...base, action: "update", fields: diffs });
     } else {
       rows.push({
-        kind: "profile",
-        key: profile.profileId,
-        line: profile.line,
-        label: profile.displayName,
+        ...base,
         action: "conflict",
-        websiteId: mapped.websiteId,
-        visibility,
         reason:
-          "The name was edited on the Website after the last import. The Website value is kept.",
-        fields: [
-          {
-            field: "display_name",
-            current: current.display_name,
-            proposed: profile.displayName,
-          },
-        ],
+          "The name was edited or reviewed on the Website after the last import. The Website value is kept.",
+        fields: diffs,
       });
     }
   }
@@ -983,6 +1245,7 @@ async function buildPlan(
     files: [
       await sha256Hex(files.profile),
       await sha256Hex(files.profileRole ?? ""),
+      await sha256Hex(files.profileName ?? ""),
     ],
   };
   if (allChanges.length > 0) {
@@ -1003,7 +1266,7 @@ async function buildPlan(
   }
 
   const counts = (
-    kind: "profile" | "role" | "source",
+    kind: "profile" | "role" | "source" | "name",
   ): ProfilesImportCounts => {
     const c = emptyCounts();
     for (const row of rows) if (row.kind === kind) c[row.action]++;
@@ -1011,6 +1274,7 @@ async function buildPlan(
   };
   const profileCounts = counts("profile");
   const roleCounts = counts("role");
+  const nameCounts = counts("name");
   const totalPeople = Number(
     (await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM people"))?.n ?? 0,
   );
@@ -1055,7 +1319,10 @@ async function buildPlan(
       profiles: profileCounts,
       roles: roleCounts,
       sources: counts("source"),
+      names: nameCounts,
       newProfilesHidden: profileCounts.add,
+      newNamesPrivate: nameCounts.add,
+      namesPublishRequested,
       rows: reported.slice(0, PROFILES_IMPORT_MAX_REPORT_ROWS),
       rowsTruncated: reported.length > PROFILES_IMPORT_MAX_REPORT_ROWS,
       issues: issues.slice(0, 200),
@@ -1091,9 +1358,11 @@ function issueFor(
     file:
       origin?.kind === "profile"
         ? PROFILE_FILE
-        : origin
-          ? ROLE_FILE
-          : "request",
+        : origin?.kind === "name"
+          ? NAME_FILE
+          : origin
+            ? ROLE_FILE
+            : "request",
     line: origin?.line ?? null,
     ...(origin ? { key: origin.key } : {}),
     code: error.code,
@@ -1116,8 +1385,14 @@ function receiptFromResult(
   result: StoredResult,
   replayed: boolean,
 ): ProfilesImportReceipt {
-  const created = { profiles: 0, roles: 0, sources: 0, reusedSources: 0 };
-  const updated = { profiles: 0, roles: 0 };
+  const created = {
+    profiles: 0,
+    roles: 0,
+    sources: 0,
+    reusedSources: 0,
+    names: 0,
+  };
+  const updated = { profiles: 0, roles: 0, names: 0 };
   const createdProfiles: { key: string; profileId: string; hidden: true }[] =
     [];
   for (const item of result.items) {
@@ -1138,6 +1413,10 @@ function receiptFromResult(
       updated.profiles++;
     else if (item.entity === "person_roles" && item.outcome === "updated")
       updated.roles++;
+    else if (item.entity === "profile_names" && item.outcome === "created")
+      created.names++;
+    else if (item.entity === "profile_names" && item.outcome === "updated")
+      updated.names++;
   }
   return {
     status: "committed",
@@ -1146,6 +1425,7 @@ function receiptFromResult(
     replayed,
     created,
     updated,
+    newNamesPrivate: created.names,
     newProfilesHidden: created.profiles,
     createdProfiles,
   };
@@ -1162,8 +1442,9 @@ function emptyReceipt(): ProfilesImportReceipt {
   return {
     status: "nothing_to_commit",
     replayed: false,
-    created: { profiles: 0, roles: 0, sources: 0, reusedSources: 0 },
-    updated: { profiles: 0, roles: 0 },
+    created: { profiles: 0, roles: 0, sources: 0, reusedSources: 0, names: 0 },
+    updated: { profiles: 0, roles: 0, names: 0 },
+    newNamesPrivate: 0,
     newProfilesHidden: 0,
     createdProfiles: [],
   };

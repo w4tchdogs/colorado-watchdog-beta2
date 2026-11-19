@@ -18,7 +18,8 @@ Headers are matched after lowercasing and replacing spaces and hyphens with unde
 
 | File | Required | Optional |
 | --- | --- | --- |
-| `profile.csv` | `profile_id`, `display_name` | none |
+| `profile.csv` | `profile_id`, `display_name` | `first_name`, `middle_name`, `last_name`, `name_prefix`, `name_suffix`, `preferred_first_name` |
+| `profile_name.csv` | `profile_name_id`, `profile_id`, `name_type`, `published_name` | `first_name`, `middle_name`, `last_name`, `name_prefix`, `name_suffix`, `applies_from`, `applies_until`, `verification_status`, `public_display` |
 | `profile_role.csv` | `role_id`, `profile_id`, `county_fips`, `source_id`, `source_url`, `source_title`, `publisher_classification`, `source_type` | `published_office`, `published_title`, `job_description`, `source_checked_at`, `start_date`, `end_date` |
 
 - A role needs at least one of `published_office`, `published_title` or `job_description`.
@@ -34,7 +35,15 @@ Private evidence files (`profile_evidence*.csv`), claim IDs, research evidence-l
 The first slice defers these imports:
 
 - `profile_county_unit.csv`, `profile_position.csv` and any organization or position links. Rows carrying only those keys cannot become roles until a verified Website mapping exists.
-- Alternate names and name components (`profile_name.csv`, `first_name` and the other name columns). The typed alternate-name schema and its validators stay in PR #261. Name columns in `profile.csv` are listed as not imported.
+
+## Names (migration 0032)
+
+- **Primary components.** A present component column in `profile.csv` sets that component. A blank cell clears it. An absent column leaves it alone. `display_name` is never derived from components. Components update only while the Profile is unchanged since its last import, otherwise the row is a conflict and the Website value is kept.
+- **Alternates.** Each `profile_name.csv` row has its own stable `profile_name_id` (stored as `dash:name:<id>`) and names its Profile by `profile_id`, which may be in the same upload or already imported. `name_type` is one of the 13 types in migration 0032. Several alternates can share one Profile. Dates are `YYYY-MM-DD` and ordered. A row repeating an active name, type and dates on the same Profile is blocked.
+- **Private by default.** Every created alternate is `requires_review` and not public, whatever `verification_status` or `public_display` say. Rows asking for Public or Confirmed are counted in the preview and ignored. Publication is the owner's action in the Names editor.
+- **Preservation.** A private alternate updates only while unchanged since the last import. An owner edit, an approval, a removal or a public alternate turns the row into a conflict and the Website value is kept. A change to a public name is held for the Names editor and its review. The importer has no proposals queue.
+- **Engine.** Name fields and the `profile_names` entity are importer-only in the sync engine and absent from the external sync API allowlist. Migration 0032 also widens the `sync_batch_items` entity and operation checks so a receipt can record a created name.
+- **Evidence.** No evidence, claim or snapshot column is read. Unrecognized columns are listed as not imported.
 
 ## Matching, versions and preservation
 

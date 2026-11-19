@@ -500,6 +500,7 @@ function insertEntity(
       "published_title",
       "job_description",
     ],
+    profile_names: [],
   };
   const columns = allowed[entity].filter((column) =>
     Object.hasOwn(fields, column),

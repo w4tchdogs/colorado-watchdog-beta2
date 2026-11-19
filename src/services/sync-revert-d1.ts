@@ -29,7 +29,15 @@ const MUTABLE: Readonly<Record<SyncEntity, readonly string[]>> = {
     "county_fips",
     "relationship_type",
   ],
-  people: ["display_name"],
+  people: [
+    "display_name",
+    "first_name",
+    "middle_name",
+    "last_name",
+    "name_prefix",
+    "name_suffix",
+    "preferred_first_name",
+  ],
   positions: ["organization_id", "title"],
   role_sources: ["url", "title", "source_type", "publisher_classification"],
   person_roles: [
@@ -43,6 +51,18 @@ const MUTABLE: Readonly<Record<SyncEntity, readonly string[]>> = {
     "published_office",
     "published_title",
     "job_description",
+  ],
+  profile_names: [
+    "person_id",
+    "name_type",
+    "first_name",
+    "middle_name",
+    "last_name",
+    "name_prefix",
+    "name_suffix",
+    "published_name",
+    "applies_from",
+    "applies_until",
   ],
 };
 
@@ -400,7 +420,10 @@ const dependents: Partial<Record<SyncEntity, readonly [SyncEntity, string][]>> =
       ["organization_county_affiliations", "organization_id"],
       ["organizations", "parent_organization_id"],
     ],
-    people: [["person_roles", "person_id"]],
+    people: [
+      ["person_roles", "person_id"],
+      ["profile_names", "person_id"],
+    ],
     positions: [["person_roles", "position_id"]],
     role_sources: [["person_roles", "source_id"]],
   };
@@ -460,6 +483,7 @@ function validEntity(value: unknown): value is SyncEntity {
     "positions",
     "role_sources",
     "person_roles",
+    "profile_names",
   ].includes(String(value));
 }
 function validId(value: unknown): value is string {
