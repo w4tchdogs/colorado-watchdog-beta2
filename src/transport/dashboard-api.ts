@@ -34,7 +34,7 @@ export interface DashboardTransportDependencies {
 }
 
 const MAX_REQUEST_BYTES = 512;
-const VIEW_ID = /^[a-z]{1,32}$/;
+const VIEW_ID = /^[a-z](?:[a-z]|-(?=[a-z])){0,31}$/;
 
 export function createDashboardApiTransport(
   dependencies: DashboardTransportDependencies = {},
