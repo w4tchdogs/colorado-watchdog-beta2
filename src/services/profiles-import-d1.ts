@@ -115,6 +115,14 @@ interface Plan {
   readonly changeCount: number;
 }
 
+/**
+ * Every importer batch is stored under this idempotency key prefix. Mapping
+ * and baseline lookups read only such batches, so a batch from any other sync
+ * client can never supply, shadow or move a stable mapping, even when it uses
+ * a client reference in the importer's namespace.
+ */
+const IMPORT_KEY_PREFIX = "pi:";
+const MAX_USER_KEY = 128 - IMPORT_KEY_PREFIX.length;
 const CHUNK = 80;
 const emptyCounts = (): Record<keyof ProfilesImportCounts, number> => ({
   add: 0,
@@ -154,12 +162,13 @@ export function createD1ProfilesImportService(
       if (
         typeof key !== "string" ||
         key.length < 8 ||
-        key.length > 128 ||
+        key.length > MAX_USER_KEY ||
         !/^[A-Za-z0-9._:-]+$/.test(key)
       )
         throw new ImportInputError("The idempotency key is invalid");
       const digest = readDigest(input);
       const requestId = requestIdFor(digest);
+      const storedKey = `${IMPORT_KEY_PREFIX}${key}`;
       // A retry with the same key answers from the stored receipt, even though
       // the Website no longer matches the original plan after the first commit.
       const existing = await database.first<{
@@ -167,7 +176,7 @@ export function createD1ProfilesImportService(
         result_json: unknown;
       }>(
         "SELECT request_id, result_json FROM sync_batches WHERE actor_account_id = ? AND idempotency_key = ?",
-        [principal.accountId, key],
+        [principal.accountId, storedKey],
       );
       if (existing) {
         if (existing.request_id !== requestId)
@@ -183,7 +192,7 @@ export function createD1ProfilesImportService(
       const result = await commitSyncChangesetD1(
         database,
         principal,
-        key,
+        storedKey,
         { ...planned.request, intent: "commit" },
         {
           authorize: () => options.authorize(principal),
@@ -213,6 +222,14 @@ export function createD1ProfilesImportService(
         throw new ImportInputError(
           "A batch ID and idempotency key are required",
         );
+      // Only a batch this importer committed can be reversed from here.
+      const owned = await database.first(
+        `SELECT 1 AS found FROM sync_batches
+         WHERE id = ? AND actor_account_id = ?
+           AND substr(idempotency_key, 1, ${IMPORT_KEY_PREFIX.length}) = ?`,
+        [batchId, principal.accountId, IMPORT_KEY_PREFIX],
+      );
+      if (!owned) throw new ImportReversalBlockedError();
       const result = await reverseSyncBatchD1(
         database,
         principal,
@@ -303,6 +320,7 @@ async function readMappings(db: AsyncD1Database): Promise<Map<string, Mapped>> {
        JOIN sync_batches b ON b.id = i.batch_id
        LEFT JOIN sync_batch_reversals r ON r.batch_id = i.batch_id
        WHERE r.batch_id IS NULL AND i.outcome IN ('created', 'reused')
+         AND substr(b.idempotency_key, 1, ${IMPORT_KEY_PREFIX.length}) = '${IMPORT_KEY_PREFIX}'
          AND i.client_ref >= '${IMPORT_REF_PREFIX}' AND i.client_ref < 'dash;'
        ORDER BY b.committed_at, i.batch_id, i.item_index
        LIMIT 1000 OFFSET ${offset}`,
@@ -319,8 +337,11 @@ async function readMappings(db: AsyncD1Database): Promise<Map<string, Mapped>> {
     const rows = await db.all<{ entity: string; id: string; version: number }>(
       `SELECT i.entity AS entity, i.target_id AS id, MAX(i.committed_version) AS version
        FROM sync_batch_items i
+       JOIN sync_batches b ON b.id = i.batch_id
        LEFT JOIN sync_batch_reversals r ON r.batch_id = i.batch_id
-       WHERE r.batch_id IS NULL AND i.target_id IN (${marks(part.length)})
+       WHERE r.batch_id IS NULL
+         AND substr(b.idempotency_key, 1, ${IMPORT_KEY_PREFIX.length}) = '${IMPORT_KEY_PREFIX}'
+         AND i.target_id IN (${marks(part.length)})
        GROUP BY i.entity, i.target_id`,
       1000,
       part,

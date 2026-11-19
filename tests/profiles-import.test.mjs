@@ -21,6 +21,7 @@ import {
   createTestHumanIdentityAdapter,
   resolvePrincipal,
 } from "../dist/services/security.js";
+import { commitSyncChangesetD1 } from "../dist/services/sync-commit-d1.js";
 import { createProfilesApiTransport } from "../dist/transport/profiles-api.js";
 import { buildAdamsFixture } from "../scripts/profiles-import-fixture.mjs";
 
@@ -740,5 +741,343 @@ test("reversal removes the hidden Profiles it created and leaves the rest", asyn
       assert.equal(count(table), before[table], table);
     // The stable keys are free again, so the same file previews as adds.
     assert.equal((await service.preview(owner, { files })).profiles.add, 2);
+  });
+});
+
+const unrelatedBatch = (changes) => ({
+  contractVersion: "m2-sync/v1",
+  requestId: crypto.randomUUID(),
+  intent: "commit",
+  changes,
+});
+
+test("stable mappings come only from live importer batches, never a reversed or unrelated one", async () => {
+  await withService(async ({ service, owner, d1, database, count }) => {
+    const files = small();
+    const first = await service.preview(owner, { files });
+    const r1 = await service.commit(owner, "key-map-0000001", {
+      files,
+      digest: first.digest,
+    });
+    const oldAlpha = idFor(database, "P1");
+    assert.ok(oldAlpha);
+
+    // An unrelated sync batch that borrows the importer's reference namespace.
+    const other = await commitSyncChangesetD1(
+      d1,
+      owner,
+      "other-client-key-1",
+      unrelatedBatch([
+        {
+          op: "create_person",
+          entity: "people",
+          clientRef: "dash:profile:PX",
+          fields: { display_name: "Synthetic Unrelated" },
+        },
+        {
+          op: "update_record",
+          entity: "people",
+          targetId: oldAlpha,
+          expectedVersion: 1,
+          fields: { display_name: "Synthetic Alpha Moved By Other Client" },
+        },
+      ]),
+      { authorize: async () => true },
+    );
+    assert.equal(other.status, "committed");
+    const withPx = {
+      profile: csv([
+        PROFILE_HEAD,
+        ["P1", "Synthetic Alpha"],
+        ["P2", "Synthetic Beta"],
+        ["PX", "Synthetic Unrelated"],
+      ]),
+      profileRole: small().profileRole,
+    };
+    const preview = await service.preview(owner, { files: withPx });
+    const byKey = Object.fromEntries(
+      preview.rows.filter((r) => r.kind === "profile").map((r) => [r.key, r]),
+    );
+    assert.equal(
+      byKey.PX.action,
+      "add",
+      "an unrelated batch never supplies a mapping",
+    );
+    assert.equal(byKey.PX.websiteId, undefined);
+    assert.equal(byKey.P1.websiteId, oldAlpha);
+    assert.equal(
+      byKey.P1.action,
+      "conflict",
+      "another client's edit counts as a change since the last import",
+    );
+    // The importer will not reverse a batch it did not commit.
+    await assert.rejects(() =>
+      service.reverse(owner, other.batchId, "key-rev-other-01"),
+    );
+    assert.equal(count("people"), 4);
+
+    // Another client edited the Profile after the import, so the importer refuses to reverse it.
+    await assert.rejects(() =>
+      service.reverse(owner, r1.batchId, "key-rev-import-01"),
+    );
+  });
+});
+
+test("after a reversal the same keys preview as adds and the reversed IDs are never selected", async () => {
+  await withService(async ({ service, owner, database, count }) => {
+    const before = snapshot(count);
+    const files = small();
+    const first = await service.preview(owner, { files });
+    const r1 = await service.commit(owner, "key-rev-000001", {
+      files,
+      digest: first.digest,
+    });
+    const reversedIds = new Set(r1.createdProfiles.map((p) => p.profileId));
+    await service.reverse(owner, r1.batchId, "key-rev-000002");
+    const again = await service.preview(owner, { files });
+    assert.equal(again.profiles.add, 2);
+    assert.equal(again.roles.add, 2);
+    assert.equal(again.sources.add, 1);
+    assert.equal(
+      again.profiles.update +
+        again.profiles.unchanged +
+        again.profiles.conflict,
+      0,
+    );
+    assert.ok(
+      again.rows.every((r) => r.websiteId === undefined),
+      "no reversed mapping is selected",
+    );
+    const r2 = await service.commit(owner, "key-rev-000003", {
+      files,
+      digest: again.digest,
+    });
+    assert.equal(r2.created.profiles, 2);
+    for (const p of r2.createdProfiles)
+      assert.equal(reversedIds.has(p.profileId), false, "new Website IDs");
+    assert.equal(count("people"), before.people + 2);
+    // Exactly one live mapping per key.
+    const live = database
+      .prepare(`SELECT i.client_ref ref, COUNT(*) n FROM sync_batch_items i
+        LEFT JOIN sync_batch_reversals r ON r.batch_id = i.batch_id
+        WHERE r.batch_id IS NULL AND i.client_ref LIKE 'dash:profile:%' GROUP BY i.client_ref`)
+      .all();
+    assert.deepEqual(
+      live.map((r) => r.n),
+      [1, 1],
+    );
+  });
+});
+
+/** Mirrors the reviewed follow-on shape: 5 Profiles, 7 roles, 1 shared source. */
+const followOn = (sourceFields = {}) => {
+  const src = {
+    url: "https://example.invalid/shared-source",
+    title: "Shared synthetic source",
+    ...sourceFields,
+  };
+  const r = (id, profile, office) => [
+    id,
+    profile,
+    "08001",
+    office,
+    "SHARED",
+    src.url,
+    src.title,
+    "official",
+    "official_page",
+    "2026-11-01T00:00:00Z",
+  ];
+  return {
+    profile: csv([
+      PROFILE_HEAD,
+      ["F1", "Synthetic Follow One"],
+      ["F2", "Synthetic Follow Two"],
+      ["F3", "Synthetic Follow Three"],
+      ["F4", "Synthetic Follow Four"],
+      ["F5", "Synthetic Follow Five"],
+    ]),
+    profileRole: csv([
+      ROLE_HEAD,
+      r("FR1", "F1", "Synthetic Office A"),
+      r("FR2", "F1", "Synthetic Office B"),
+      r("FR3", "F1", "Synthetic Office C"),
+      r("FR4", "F2", "Synthetic Office D"),
+      r("FR5", "F3", "Synthetic Office E"),
+      r("FR6", "F4", "Synthetic Office F"),
+      r("FR7", "F5", "Synthetic Office G"),
+    ]),
+  };
+};
+
+test("a follow-on batch keeps three distinct roles on one Profile, reuses the shared source and hides each Profile once", async () => {
+  await withService(async ({ service, owner, database, count }) => {
+    // Pilot batch first: 3 Profiles, 3 roles, the same shared source.
+    const pilotRole = (id, profile) => [
+      id,
+      profile,
+      "08001",
+      `Synthetic Pilot Office ${id}`,
+      "SHARED",
+      "https://example.invalid/shared-source",
+      "Shared synthetic source",
+      "official",
+      "official_page",
+      "2026-11-01T00:00:00Z",
+    ];
+    const pilot = {
+      profile: csv([
+        PROFILE_HEAD,
+        ["A1", "Synthetic Pilot One"],
+        ["A2", "Synthetic Pilot Two"],
+        ["A3", "Synthetic Pilot Three"],
+      ]),
+      profileRole: csv([
+        ROLE_HEAD,
+        pilotRole("AR1", "A1"),
+        pilotRole("AR2", "A2"),
+        pilotRole("AR3", "A3"),
+      ]),
+    };
+    const p0 = await service.preview(owner, { files: pilot });
+    const rp = await service.commit(owner, "key-pilot-00001", {
+      files: pilot,
+      digest: p0.digest,
+    });
+    assert.deepEqual(rp.created, {
+      profiles: 3,
+      roles: 3,
+      sources: 1,
+      reusedSources: 0,
+    });
+    const sourceCount = count("role_sources");
+    const sharedId = database
+      .prepare(
+        "SELECT id FROM role_sources WHERE url = 'https://example.invalid/shared-source'",
+      )
+      .get().id;
+
+    const files = followOn();
+    const preview = await service.preview(owner, { files });
+    assert.equal(preview.canCommit, true, JSON.stringify(preview.issues));
+    assert.equal(preview.profiles.add, 5);
+    assert.equal(preview.roles.add, 7);
+    assert.equal(preview.sources.add, 0);
+    assert.equal(
+      preview.sources.unchanged,
+      1,
+      "the existing shared source is reused",
+    );
+    assert.equal(preview.newProfilesHidden, 5);
+    const receipt = await service.commit(owner, "key-follow-0001", {
+      files,
+      digest: preview.digest,
+    });
+    assert.deepEqual(receipt.created, {
+      profiles: 5,
+      roles: 7,
+      sources: 0,
+      reusedSources: 0,
+    });
+    assert.equal(count("role_sources"), sourceCount, "no second source row");
+    const f1 = idFor(database, "F1");
+    const f1Roles = database
+      .prepare(
+        "SELECT id, published_office o, source_id s FROM person_roles WHERE person_id = ? ORDER BY published_office",
+      )
+      .all(f1);
+    assert.equal(f1Roles.length, 3);
+    assert.equal(new Set(f1Roles.map((r) => r.id)).size, 3);
+    assert.deepEqual(
+      f1Roles.map((r) => r.o),
+      ["Synthetic Office A", "Synthetic Office B", "Synthetic Office C"],
+    );
+    const followRoleSources = database
+      .prepare(
+        "SELECT DISTINCT source_id s FROM person_roles WHERE published_office LIKE 'Synthetic Office %'",
+      )
+      .all();
+    assert.deepEqual(
+      followRoleSources.map((r) => r.s),
+      [sharedId],
+    );
+    // Visibility is applied once per new Profile: 3 pilot + 5 follow-on, one row each, all hidden at version 1.
+    const vis = database
+      .prepare("SELECT person_id, visible, version FROM person_visibility")
+      .all();
+    assert.equal(vis.length, 8);
+    assert.equal(new Set(vis.map((v) => v.person_id)).size, 8);
+    assert.ok(vis.every((v) => v.visible === 0 && v.version === 1));
+    assert.equal(
+      database
+        .prepare("SELECT COUNT(*) c FROM person_visibility WHERE person_id = ?")
+        .get(f1).c,
+      1,
+    );
+    // Re-uploading the follow-on file changes nothing.
+    const again = await service.preview(owner, { files });
+    assert.equal(
+      again.profiles.add +
+        again.roles.add +
+        again.profiles.update +
+        again.roles.update,
+      0,
+    );
+  });
+});
+
+test("a shared source that already exists on the Website but was never imported is reused, not duplicated", async () => {
+  await withService(async ({ service, owner, count, database }) => {
+    database.exec(
+      "UPDATE role_sources SET publisher_classification = 'official', version = version + 1 WHERE id = 'src-keep'",
+    );
+    const existing = database
+      .prepare(
+        "SELECT url, title, source_type, publisher_classification FROM role_sources WHERE id = 'src-keep'",
+      )
+      .get();
+    const row = (id, profile, office) => [
+      id,
+      profile,
+      "08001",
+      office,
+      "KEEP",
+      existing.url,
+      existing.title,
+      "official",
+      existing.source_type,
+      "2026-11-01T00:00:00Z",
+    ];
+    const files = {
+      profile: csv([PROFILE_HEAD, ["F1", "Synthetic Follow One"]]),
+      profileRole: csv([
+        ROLE_HEAD,
+        row("FR1", "F1", "Synthetic Office A"),
+        row("FR2", "F1", "Synthetic Office B"),
+        row("FR3", "F1", "Synthetic Office C"),
+      ]),
+    };
+    const sources = count("role_sources");
+    const preview = await service.preview(owner, { files });
+    assert.equal(preview.canCommit, true, JSON.stringify(preview.issues));
+    const receipt = await service.commit(owner, "key-reuse-00001", {
+      files,
+      digest: preview.digest,
+    });
+    assert.equal(receipt.created.sources, 0);
+    assert.equal(receipt.created.reusedSources, 1);
+    assert.equal(count("role_sources"), sources);
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) c FROM person_roles WHERE source_id = 'src-keep'",
+        )
+        .get().c,
+      4,
+    );
+    assert.equal(
+      database.prepare("SELECT COUNT(*) c FROM person_visibility").get().c,
+      1,
+    );
   });
 });

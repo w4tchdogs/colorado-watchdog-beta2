@@ -63,3 +63,7 @@ Use a synthetic file only. Generate one with `node scripts/profiles-import-fixtu
 12. Record the Worker version, source SHA, receipts and results in the PR. Revoke any temporary access.
 
 The real Adams send stays a separate step. It needs the owner's exact reviewed selection and uses this same workflow after the synthetic run passes.
+
+## Mapping isolation
+
+The importer reads stable-ID mappings only from sync batches it committed itself. Importer batches are stored with the idempotency key prefix `pi:` and mappings use the `dash:profile:`, `dash:role:` and `dash:source:` client references. A mapping is ignored when its batch has a reversal record, when its key lacks the `pi:` prefix, or when the batch belongs to another account. The reverse route refuses any batch that is not an importer batch of the signed-in owner. Tests cover import, reverse and re-preview, an unrelated batch that reuses the `dash:` namespace, and a synthetic 5 Profile, 7 role, 1 shared source follow-on batch.
