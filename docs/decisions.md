@@ -376,3 +376,30 @@ These decisions govern the contract. Implementation, working-database verificati
 - Alternate names use a 13-value controlled vocabulary. New names default to Public Display No and Requires review. A name is public only when it is Confirmed and the owner marks it Public. The database enforces this. Public pages show approved names under four labels and public search matches only approved names. Hidden Profiles are not found by any name. Names attach to a Profile by stable ID only.
 - The Website stores no evidence for names. Raw evidence, evidence files, claim IDs, research evidence-link IDs, review notes and the original research name stay in the private Profiles store, as the November 19 scope decision requires. The earlier proposal to hold source references (`profile_name_sources`) and a research name ID map (`profile_name_source_ids`) in Website D1 is withdrawn, and the editor no longer has a sources field.
 - Migration 0032 holds the name tables because 0031 is County Structure. See [Profile names](architecture/profile-names.md).
+
+## County Structure names and statutory coverage — November 19, 2026
+
+The owner approved the [default names and pending coverage entries](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/259#issuecomment-7014708285) for all 64 counties, then approved the rules below for comparing local units. The defaults apply to the coverage records for the reviewed obligations.
+
+| Coverage obligation | Approved default name |
+| --- | --- |
+| Sheriff services | Sheriff's Office |
+| Human services delivery | Human Services |
+| Human services governance | Board of Human Services |
+| Public health delivery | Public Health Agency |
+| Public health governance | Board of Health |
+| Emergency management | Emergency Management |
+| Veterans services | Veterans Service Office |
+| Weed management plan | Noxious Weed Management Plan |
+| Weed advisory governance | Noxious Weed Advisory Board |
+| Jail services | Jail Services |
+| Road and bridge funding | Road & Bridge Fund |
+| Planning commission | Planning Commission |
+
+- **Local unit records.** Preserve the exact documented label, stable unit ID, unit type and verified reporting parent. Preserve the approved public label and the underlying source wording under the existing public-label rules. Sheriff's Offices remain organizational units. Any elected classification belongs on the individual Profile role.
+- **Comparison names.** Record a canonical function independently of the local label, actual unit type and parent. Normalize apostrophe styles and treat ampersands and the word “and” as equivalent when comparing labels. Retain words such as Office, Department and Division. A name match or a common function alone does not establish shared identity. An organizational merge requires evidence of the same unit and its type. Keep boards and commissions distinct from the operating units they serve.
+- **Functional groupings and hierarchy.** Road and Bridge labels can share a function while retaining department or division types. Keep Public Works distinct when it is a parent. Public health operating agencies can share a function. Keep documented children such as Environmental Health, Fiscal, and Controller's Office distinct and under their verified parents. Jail, Operations Division, and Victims Advocate retain their separate functions under their verified sheriff parents. Count only documented jail facilities, service arrangements or providers toward jail-services coverage. Weed and Pest and Vegetation Management share an operational weed-management category when the retained evidence supports it. Keep the advisory board separate. Administration and Manager's Office can share a broad function. Preserve the documented placement of Procurement and Human Resources. Planning and Zoning remains distinct from the Planning Commission. Attorney's Office, Airports, and Lodging Tax Panel stay distinct.
+- **Consolidated governments.** Record Denver and Broomfield as consolidated city-counties at the county level. Denver's Sheriff Department and Broomfield's Police Department count as their local sheriff-services providers. Keep the local names and preserve the distinction between the providers. Use applicable charter and local evidence to verify each arrangement.
+- **Coverage and verification.** Carry one coverage entry per county and reviewed obligation, counting a county once for each obligation with a documented arrangement. Prefer the documented local name or provider, including shared providers and governing bodies acting in another capacity. Use the approved default when the local name or arrangement has not been documented. Keep provider and verification evidence separate from label approval. A fund, plan, shared provider or service arrangement is represented according to its record type. Keep unresolved county-unit and position links pending in the private audit workflow.
+
+The [offline application proposal](architecture/county-structure.md#proposed-application-of-the-approved-naming-and-coverage-rules) describes how to carry these decisions into the CSV and companion records. Statewide replacement remains on hold.
