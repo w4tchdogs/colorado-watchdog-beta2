@@ -67,6 +67,7 @@ const RECENT_LIMIT = 5;
  */
 const HOSTED_ONLY_MODULES: ReadonlySet<DashboardModuleId> = new Set([
   "profiles",
+  "county-structure",
 ]);
 const stateOf = (module: DashboardModuleDefinition): "active" | "planned" =>
   HOSTED_ONLY_MODULES.has(module.id) ? "planned" : module.state;
