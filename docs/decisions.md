@@ -324,3 +324,19 @@ operator procedure is in [the Profiles foundation guide](research/R0-foundation.
 - Alternate names and uncertain identity claims are primarily internal research/search aids; **public display defaults off until reviewed and approved**. Do not infer marriage or legal name changes from a different published surname. Do not auto-merge similarly named people. The final audit proposes revised CSVs and migration specifications; no source, local SQLite or hosted D1 mutation is implied.
 - The Website Profiles dashboard should extend the existing PR #257 grid for these name fields and typed alternate names, with versioned owner-only writes and public-read restrictions; coordinate with the separate new County Structure implementation. Use synthetic fixtures until approved statewide data is available.
 - **Staging test data decision:** The owner permits use of reviewed real county Profiles for staging acceptance after a scoped preview and evidence/visibility review; synthetic-only fixtures are no longer a standing requirement for that later test phase. This does **not** constitute approval to import unresolved audit cases, to import all 64 counties, or to publish private research material, and no real import has yet been performed.
+
+## Protected Profiles name sync — November 19, 2026
+
+The owner approved these rules for the protected alternate-name sync follow-up to [PR #261](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/261). Use the existing M2/R7/R8 review, changeset and receipt boundary between private Profiles SQLite and Website D1.
+
+1. **Original research Full name.** Keep the exact source value in the private Profiles ledger for traceability.
+2. **Changes to public alternate names.** Hold sync changes to an already-public alternate name for owner review, including evidence-only additions, replacements, detachments and clears. Keep the current public name and owner publication settings in effect while the proposal is pending.
+3. **Pending proposals.** Keep proposals open until resolved. Recheck the current record version when approving a proposal and require a fresh review if the approved version is stale.
+4. **Recovery.** Require explicit approval for each recovery of a reversed sync-created alternate name.
+5. **Removal attribution.** Record the sync account as the actor that performed an automated removal.
+6. **Traceability after reversal.** Retain detached evidence and reversed mapping rows so their original links and Website IDs remain traceable.
+7. **Imported publication flags.** Warn when an incoming v5 row is marked Public or Confirmed. Create the alternate name private with status `requires_review`.
+
+The [v5 evidence-link replay audit](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/240#issuecomment-7001257592) verified all 314 IDs across 136 alternate names on the retained snapshot. Cross-snapshot stability remains unverified. Compare a later export with the retained snapshot before using it to update existing evidence links.
+
+These decisions govern the contract. Implementation, working-database verification, hosted acceptance and real-data sync remain separate work.
