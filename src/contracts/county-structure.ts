@@ -80,7 +80,12 @@ export const COUNTY_STRUCTURE_CAPABILITY = "county_structure.manage";
 export const UNIT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 export const MAX_CSV_BYTES = 1_048_576;
 export const MAX_CSV_ROWS = 20_000;
-export const MAX_TEXT = 4000;
+/**
+ * Limit for each private provenance field (Evidence for relationship, Source
+ * references). Migration 0033 raised it from 4,000 so long source lists, such
+ * as an 8,816 character statewide reference, import and export unchanged.
+ */
+export const MAX_TEXT = 32_768;
 
 export interface AliasRecord {
   readonly name: string;
@@ -90,6 +95,12 @@ export interface AliasRecord {
 /**
  * One structural unit or one display grouping. A grouping has `kind:
  * "display_group"`, no parent, no relationship and no aliases.
+ *
+ * `parentId` is the reporting parent. `displayGroupId` is browse placement
+ * only, with relationship `display_group`: it names either a display grouping
+ * or, for a nested browse placement such as a program listed under CSU
+ * Extension, another unit of the same county. A unit has at most one of the
+ * two, so browse placement never implies a reporting relationship.
  */
 export interface StructureRecord {
   readonly kind: "unit" | "display_group";

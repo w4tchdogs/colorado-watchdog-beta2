@@ -80,15 +80,15 @@ export function resolveRecords(
         displayGroupId: row.parentRef,
         relationship: "display_group",
       });
+    } else if (row.relationshipRaw === "display_group") {
+      // Browse placement beneath another unit: listed under it, with no
+      // reporting relationship to it.
+      records.push({
+        ...row.record,
+        displayGroupId: row.parentRef,
+        relationship: "display_group",
+      });
     } else {
-      if (row.relationshipRaw === "display_group") {
-        issue(
-          "Relationship to parent",
-          "relationship_mismatch",
-          "display_group is only for a row under a display grouping.",
-        );
-        continue;
-      }
       records.push({
         ...row.record,
         parentId: row.parentRef,
@@ -189,12 +189,12 @@ export function validateStructure(
           "parent_kind",
           "A structural parent must be a unit.",
         );
-      if (record.displayGroupId !== null && parent.kind !== "display_group")
+      if (record.displayGroupId !== null && record.kind !== "unit")
         report(
           record.id,
           "Parent office or unit ID",
           "parent_kind",
-          "A display grouping parent must be a grouping.",
+          "Only a unit can be placed under a display grouping or a unit.",
         );
     }
     if (record.kind === "display_group" && parentId !== null)

@@ -72,6 +72,7 @@ interface UnitRow {
   id: string;
   parent_unit_id: string | null;
   display_group_id: string | null;
+  browse_parent_unit_id: string | null;
   name: string;
   organization_type: string;
   display_order: number | null;
@@ -148,7 +149,8 @@ export class D1CountyStructurePublicService implements CountyStructureReader {
       [countyFips],
     );
     const units = await this.database.all<UnitRow>(
-      `SELECT u.id, u.parent_unit_id, u.display_group_id, u.name, u.organization_type,
+      `SELECT u.id, u.parent_unit_id, u.display_group_id, u.browse_parent_unit_id,
+              u.name, u.organization_type,
               u.display_order,
               (SELECT json_group_array(alias)
                  FROM (SELECT alias FROM county_unit_alias a
@@ -229,8 +231,11 @@ export class D1CountyStructurePublicService implements CountyStructureReader {
       }
     }
 
-    // A unit with a shown parent nests under it. Every other shown unit is a
-    // root and takes exactly one browse heading.
+    // A unit with a shown parent nests under it. A unit placed for browsing
+    // under another shown unit (relationship display_group, no reporting
+    // parent) is listed under that unit too. Every other shown unit is a root
+    // and takes exactly one browse heading, so a hidden browse parent never
+    // hides the unit.
     const countyHeadings = new Map(
       groups.map((group) => [headingKey(group.name), group.id]),
     );
@@ -245,9 +250,31 @@ export class D1CountyStructurePublicService implements CountyStructureReader {
     // Separate maps: a heading id and a unit id may look alike.
     const childrenOf = new Map<string, UnitRow[]>();
     const rootsOf = new Map<string, UnitRow[]>();
+    const nestUnder = (unit: UnitRow): string | null =>
+      unit.parent_unit_id ??
+      (unit.browse_parent_unit_id &&
+      visibleIds.has(unit.browse_parent_unit_id) &&
+      !browseCycle(unit)
+        ? unit.browse_parent_unit_id
+        : null);
+    // Defensive: the database refuses browse cycles on update, and imports
+    // validate them, but a cycle must never drop units from the page.
+    const browseCycle = (unit: UnitRow): boolean => {
+      const seen = new Set<string>([unit.id]);
+      let current = byId.get(unit.browse_parent_unit_id ?? "");
+      while (current) {
+        if (seen.has(current.id)) return true;
+        seen.add(current.id);
+        current = byId.get(
+          current.parent_unit_id ?? current.browse_parent_unit_id ?? "",
+        );
+      }
+      return false;
+    };
     for (const unit of visible) {
-      const target = unit.parent_unit_id ? childrenOf : rootsOf;
-      const key = unit.parent_unit_id ?? headingFor(unit);
+      const parent = nestUnder(unit);
+      const target = parent ? childrenOf : rootsOf;
+      const key = parent ?? headingFor(unit);
       const list = target.get(key) ?? [];
       list.push(unit);
       target.set(key, list);
