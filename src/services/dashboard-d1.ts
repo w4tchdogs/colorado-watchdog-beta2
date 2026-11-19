@@ -40,6 +40,7 @@ export const HOSTED_DASHBOARD_MODULES: ReadonlySet<DashboardModuleId> =
     "posts",
     "banners",
     "profiles",
+    "county-structure",
   ]);
 
 export interface HostedDashboardAccounts {
@@ -206,6 +207,11 @@ export function createD1DashboardService(
           // through the protected `/api/admin/profiles/*` routes, which check
           // `profile.manage` and the live human account themselves.
           return { view: "profiles" };
+        case "county-structure":
+          // The module only names the view. Every read and write goes through
+          // the protected `/api/admin/county-structure/*` routes, which check
+          // `county_structure.manage` and the live owner account themselves.
+          return { view: "county-structure" };
         default:
           throw new DashboardViewNotFoundError();
       }

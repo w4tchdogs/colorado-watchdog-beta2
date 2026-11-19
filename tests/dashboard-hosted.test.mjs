@@ -264,7 +264,7 @@ test("the hosted bundle and assets carry no sandbox code, fixtures or switcher",
   });
 });
 
-test("a linked owner gets Overview, My Account, Posts & Stories, Banners and Profiles, with the rest named as planned", async () => {
+test("a linked owner gets Overview, My Account, Posts & Stories, Banners, Profiles and County Structure, with the rest named as planned", async () => {
   await withWorld(async (world) => {
     const jar = await signedIn(world, OWNER);
     const start = await json(await session(world, jar));
@@ -275,6 +275,7 @@ test("a linked owner gets Overview, My Account, Posts & Stories, Banners and Pro
       "posts",
       "banners",
       "profiles",
+      "county-structure",
     ]);
     assert.deepEqual(ids(start.body.planned).sort(), [
       "accounts",
@@ -660,7 +661,14 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
       [...window.document.querySelectorAll("#dash-sidebar a[data-view]")].map(
         (a) => a.textContent,
       ),
-      ["Overview", "My Account", "Posts & Stories", "Banners", "Profiles"],
+      [
+        "Overview",
+        "My Account",
+        "Posts & Stories",
+        "Banners",
+        "Profiles",
+        "County Structure",
+      ],
     );
     const form = $("#menu-signout-form");
     assert.equal(form?.getAttribute("method"), "post");

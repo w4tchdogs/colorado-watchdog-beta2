@@ -1,3 +1,4 @@
+import { emptyCountyStructure } from "../services/county-structure-public.js";
 import { emptyBannerSource } from "./banner.js";
 import {
   type EditorialFilters,
@@ -270,6 +271,7 @@ export function createPublicSite(options: PublicSiteOptions) {
   const preview = options.preview === true;
   const clock = options.now ?? (() => new Date());
   const banners = options.banners ?? emptyBannerSource;
+  const countyStructure = options.countyStructure ?? emptyCountyStructure;
   const SECURITY_HEADERS = securityHeaders(options.bannerOrigins ?? []);
   const editorHeaders = options.allowChatGptEditor
     ? securityHeaders(options.bannerOrigins ?? [], true)
@@ -416,6 +418,7 @@ export function createPublicSite(options: PublicSiteOptions) {
           preview,
           now: clock(),
           banners,
+          countyStructure,
           reportSubmissionsEnabled: options.reportSubmissionsEnabled === true,
           reportGuestEnabled:
             options.reportSubmissionsEnabled === true &&

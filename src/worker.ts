@@ -19,6 +19,8 @@ import { D1BannerPublicService } from "./services/banner-public.js";
 import { R2BannerObjectStorage } from "./services/banner-storage.js";
 import { createD1ContentService } from "./services/content-d1.js";
 import { createContentPublicationService } from "./services/content-publication.js";
+import { D1CountyStructureAdministration } from "./services/county-structure-d1.js";
+import { D1CountyStructurePublicService } from "./services/county-structure-public.js";
 import { createD1AccountServices } from "./services/d1-accounts.js";
 import { createD1WebsiteInspectionService } from "./services/d1-inspection.js";
 import { createD1PublicReadServices } from "./services/d1-public-reads.js";
@@ -49,6 +51,10 @@ import {
   createContentApiTransport,
   createContentTransportOperations,
 } from "./transport/content-api.js";
+import {
+  createCountyStructureApiTransport,
+  isCountyStructurePath,
+} from "./transport/county-structure-api.js";
 import {
   dashboardUnavailable,
   handleDashboardRequest,
@@ -502,6 +508,26 @@ const routes = {
           }),
         }).fetch(request);
       }
+      if (isCountyStructurePath(pathname)) {
+        // Owner-only County Structure management. It exists only with human
+        // sign-in enabled and admits a current human session holding
+        // `county_structure.manage`, so an agent credential is denied.
+        if (signIn.status !== "enabled")
+          return new Response(JSON.stringify({ error: "not_found" }), {
+            status: 404,
+            headers: {
+              "cache-control": "no-store",
+              "content-type": "application/json; charset=utf-8",
+              "x-content-type-options": "nosniff",
+            },
+          });
+        return createCountyStructureApiTransport({
+          resolvePrincipal: accounts.resolvePrincipal,
+          authorize: (principal) =>
+            accounts.hasCapability(principal, "county_structure.manage"),
+          administration: new D1CountyStructureAdministration(database),
+        }).fetch(request);
+      }
       if (isBannerAdminPath(pathname)) {
         // Administration needs both bindings. Without the bucket the transport
         // still authenticates and authorizes, then reports unavailable.
@@ -565,6 +591,7 @@ const routes = {
         assets: bundledSiteAssets,
         allowChatGptEditor:
           siteId === BETA2_SITES_PROJECT_ID && origin === ALPHA1_PUBLIC_ORIGIN,
+        countyStructure: new D1CountyStructurePublicService(database),
         ...(bannerService
           ? { banners: bannerService, bannerDelivery: bannerService }
           : {}),

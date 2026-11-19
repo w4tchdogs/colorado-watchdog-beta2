@@ -1,0 +1,11 @@
+County code,County name,Office or unit ID,Office or unit name,Parent office or unit ID,County Unit,County Sub Unit,County Sub Sub Unit,Organization type,Alternate names,Relationship to parent,Evidence for relationship,Source references,Applies from,Applies until,Display order,Status
+08001,Adams,adams-eo,Elected Official,,Elected Official,,,display_group,,,,,,,1,
+08001,Adams,adams-assessor,Assessor,adams-eo,Elected Official,Assessor,,office,,display_group,,,,,1,
+08001,Adams,adams-clerk,Clerk & Recorder,adams-eo,Elected Official,Clerk & Recorder,,office,"[""Clerk and Recorder"",""C&R""]",display_group,,,,,2,
+08001,Adams,adams-sheriff,Sheriff's Office,,Sheriff's Office,,,office,"[{""name"":""Adams Sheriff"",""kind"":""historical""}]",,"Synthetic evidence, line one.
+Line two, with ""quotes"" and a comma.",https://example.invalid/sheriff,,,2,
+08001,Adams,adams-patrol,Patrol Division,adams-sheriff,Sheriff's Office,Patrol Division,,division,,part_of,,,,,1,
+08001,Adams,adams-detention,Detention Division,adams-sheriff,Sheriff's Office,Detention Division,,division,,part_of,,,,,2,
+08001,Adams,adams-works,Public Works,,Public Works,,,department,,,,,,,3,
+08001,Adams,adams-roads,Road & Bridge,adams-works,Public Works,Road & Bridge,,division,,reports_to,,,,,,
+08003,Alamosa,,,,,,,,,,,,,,,

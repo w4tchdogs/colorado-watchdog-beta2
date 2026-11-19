@@ -306,3 +306,13 @@ operator procedure is in [the Profiles foundation guide](research/R0-foundation.
   [full inventory](research/local-profiles-schema-redesign.md#full-table-and-view-list)
   records the working naming plan and the migration conditions for the three
   empty legacy tables.
+
+## County Structure database and single-file import, November 18, 2026
+
+- The owner selected a new, clean County Structure database in the existing Cloudflare Website D1. There is no second D1. The `organizations` table is not the canonical County Structure, and the County Structure tables do not read from it or write to it. This supersedes the earlier assumption that `organizations` would be extended or reused for county units. The design is in [County Structure](architecture/county-structure.md).
+- The structure is edited and bulk loaded through one file, `county.csv`, with the 17 columns in the [county.csv contract](architecture/county-structure-csv.md). This is separate from, and does not revive, the withdrawn Profiles CSV pipeline. The file has no mapping companion. The Office or unit ID is the stable key and names are never matched.
+- The Sheriff’s Office is normally a top-level County Unit. “Elected Official” is a navigation and display group and not a structural parent. This supersedes the November 17, 2026 navigation rule that placed the Sheriff’s Office under Elected Official. One Profile and role appear in both views through a reviewed classification, with no duplicate Profile or role. Elected status comes only from an explicit reviewed classification, never from a name or from the file.
+- Imports offer merge, replace one county and replace all 64 counties. Each is a preview followed by an explicit commit in one atomic transaction, with a version check, an idempotency key, a receipt, audit history and a reversal that is refused when later changes or Profile references depend on it. A Profile reference blocks removal of a unit.
+- Evidence for relationships and source references are private. They round-trip through the file and appear only in the owner dashboard. No public API or page returns them.
+- The public county page reads only the new tables and shows an empty state until data exists. The Officials structure tab, organization profiles, directory search and the sync planner still read the older data and move in a separate step. Old tables are not dropped here. The ordered retirement plan is in the [assessment](architecture/county-structure.md#migration-and-legacy-retirement-assessment).
+- No real or provisional audit data is part of this change. Migration 0031 is source only until the owner approves a staging migration.
