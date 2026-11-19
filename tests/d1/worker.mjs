@@ -12,6 +12,7 @@ import { runBannerAdminChecks } from "./banner-admin-checks.mjs";
 import { runBannerApiChecks } from "./banner-api-checks.mjs";
 import { runBannerMcpChecks } from "./banner-mcp-checks.mjs";
 import { runBannerPublishChecks } from "./banner-publish-checks.mjs";
+import { runCountyStructureChecks } from "./county-structure-checks.mjs";
 import { runSyncMcpChecks } from "./sync-mcp-checks.mjs";
 
 const json = (value, status = 200) =>
@@ -315,6 +316,17 @@ export default {
           apiChecks: api.checks,
           mcpChecks: mcp.checks,
         });
+      } catch (error) {
+        return json({ success: false, error: String(error) }, 500);
+      }
+    }
+    if (
+      url.pathname === "/county-structure/verify" &&
+      request.method === "POST"
+    ) {
+      try {
+        const structure = await runCountyStructureChecks(env);
+        return json({ success: true, checks: structure.checks });
       } catch (error) {
         return json({ success: false, error: String(error) }, 500);
       }
@@ -890,12 +902,12 @@ export default {
     ).all();
     check(
       "ordered custom migration history and checksums",
-      history.results?.length === 31 &&
+      history.results?.length === 32 &&
         history.results.every(
           (row, index) =>
             row.version === index + 1 &&
             row.name ===
-              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake", "owner_bootstrap_audit", "correct_lake_la_plata_county_names", "banner_homepage_curation", "content_publication", "banner_publications", "human_sign_in", "role_source_publisher_classification", "report_challenge_claims", "unstructured_person_roles", "sync_batch_result_size", "agent_capability_grants", "agent_inspect_grant", "agent_banner_publish_grant", "archived_accounts", "optional_role_source_found_date", "content_revision_checkpoint_label", "profile_visibility", "profile_names"][index]}.sql` &&
+              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake", "owner_bootstrap_audit", "correct_lake_la_plata_county_names", "banner_homepage_curation", "content_publication", "banner_publications", "human_sign_in", "role_source_publisher_classification", "report_challenge_claims", "unstructured_person_roles", "sync_batch_result_size", "agent_capability_grants", "agent_inspect_grant", "agent_banner_publish_grant", "archived_accounts", "optional_role_source_found_date", "content_revision_checkpoint_label", "profile_visibility", "county_structure", "profile_names"][index]}.sql` &&
             /^[0-9a-f]{64}$/.test(row.sha256),
         ),
     );
@@ -1220,8 +1232,10 @@ export default {
           'report_evidence', 'report_status_history', 'report_audit',
           'owner_bootstrap_audit', 'auth_login_transactions', 'auth_sessions', 'report_challenge_claims',
           'person_visibility', 'profile_write_receipts',
-          'profile_legacy_names', 'profile_names', 'profile_name_sources',
-          'profile_name_source_ids', 'profile_name_events')`).all();
+          'county_structure_state', 'county_unit', 'county_unit_display', 'county_unit_alias',
+          'county_role_display', 'county_structure_import', 'county_structure_import_item',
+          'county_structure_history',
+          'profile_legacy_names', 'profile_names', 'profile_name_events')`).all();
     const triggerCoverage = new Map();
     for (const trigger of generationTriggers.results ?? []) {
       const operations = triggerCoverage.get(trigger.tbl_name) ?? new Set();

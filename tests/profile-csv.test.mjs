@@ -5,7 +5,7 @@ import { parseCsv, validateProfileCsv } from "../dist/services/profile-csv.js";
 const PROFILE_HEADER =
   "profile_id,display_name,first_name,middle_name,last_name,name_prefix,name_suffix,preferred_first_name";
 const NAME_HEADER =
-  "profile_name_id,profile_id,name_type,first_name,middle_name,last_name,name_prefix,name_suffix,published_name,applies_from,applies_until,verification_status,public_display,sources";
+  "profile_name_id,profile_id,name_type,first_name,middle_name,last_name,name_prefix,name_suffix,published_name,applies_from,applies_until,verification_status,public_display";
 
 const run = (profileRows, nameRows, known) =>
   validateProfileCsv({
@@ -19,9 +19,9 @@ test("a clean pair of files maps to Website rows and publishes nothing by defaul
   const result = run(
     ["p1,Synthetic One,Synthetic,Q.,One,Dr.,Jr.,Syn", "p2,Synthetic Two,,,,,,"],
     [
-      "n1,p1,nickname,,,,,,Synthetic Nick,,,,,",
-      "n2,p1,married_surname,,,,,,Synthetic Formerly,2010-01-01,2015-12-31,Confirmed,Yes,Filing A | Filing B",
-      "n3,p2,other,,,,,,Synthetic Other,,,Requires review,No,",
+      "n1,p1,nickname,,,,,,Synthetic Nick,,,,",
+      "n2,p1,married_surname,,,,,,Synthetic Formerly,2010-01-01,2015-12-31,Confirmed,Yes",
+      "n3,p2,other,,,,,,Synthetic Other,,,Requires review,No",
     ],
   );
   assert.equal(result.ok, true, JSON.stringify(result.issues));
@@ -32,14 +32,13 @@ test("a clean pair of files maps to Website rows and publishes nothing by defaul
   assert.equal(nick.fields.publicDisplay, false);
   assert.equal(nick.fields.verificationStatus, "requires_review");
   assert.equal(formerly.fields.publicDisplay, true);
-  assert.deepEqual(formerly.fields.sources, ["Filing A", "Filing B"]);
   assert.equal(other.profileId, "p2");
 });
 
 test("a name can point at an existing Website Profile", () => {
   const result = run(
     [],
-    ["n1,existing-1,nickname,,,,,,Synthetic Nick,,,,,"],
+    ["n1,existing-1,nickname,,,,,,Synthetic Nick,,,,"],
     new Set(["existing-1"]),
   );
   assert.equal(result.ok, true);
@@ -48,7 +47,7 @@ test("a name can point at an existing Website Profile", () => {
 test("an unknown Profile reference is an error and is never merged by name", () => {
   const result = run(
     ["p1,Synthetic One,,,,,,"],
-    ["n1,p-unknown,nickname,,,,,,Synthetic One,,,,,"],
+    ["n1,p-unknown,nickname,,,,,,Synthetic One,,,,"],
   );
   assert.equal(result.ok, false);
   assert.deepEqual(codes(result), ["unknown_profile"]);
@@ -75,8 +74,8 @@ test("duplicate and missing IDs are reported with the row number", () => {
       ",Synthetic Blank,,,,,,",
     ],
     [
-      "n1,p1,nickname,,,,,,Synthetic A,,,,,",
-      "n1,p1,nickname,,,,,,Synthetic B,,,,,",
+      "n1,p1,nickname,,,,,,Synthetic A,,,,",
+      "n1,p1,nickname,,,,,,Synthetic B,,,,",
       ",p1,nickname,,,,,,Synthetic C,,,,,",
     ],
   );
@@ -95,12 +94,12 @@ test("unsupported types, bad dates, bad flags and unapproved public names are er
   const result = run(
     ["p1,Synthetic One,,,,,,"],
     [
-      "n1,p1,alias,,,,,,Synthetic A,,,,,",
-      "n2,p1,nickname,,,,,,Synthetic B,2020-02-31,,,,",
-      "n3,p1,nickname,,,,,,Synthetic C,2020-05-01,2019-05-01,,,",
-      "n4,p1,nickname,,,,,,Synthetic D,,,,Maybe,",
-      "n5,p1,nickname,,,,,,Synthetic E,,,Requires review,Yes,",
-      "n6,p1,nickname,,,,,,Synthetic F,,,Probably,No,",
+      "n1,p1,alias,,,,,,Synthetic A,,,,",
+      "n2,p1,nickname,,,,,,Synthetic B,2020-02-31,,,",
+      "n3,p1,nickname,,,,,,Synthetic C,2020-05-01,2019-05-01,,",
+      "n4,p1,nickname,,,,,,Synthetic D,,,,Maybe",
+      "n5,p1,nickname,,,,,,Synthetic E,,,Requires review,Yes",
+      "n6,p1,nickname,,,,,,Synthetic F,,,Probably,No",
     ],
   );
   assert.deepEqual(
@@ -122,8 +121,8 @@ test("the same name, type and dates twice for one Profile is a duplicate", () =>
   const result = run(
     ["p1,Synthetic One,,,,,,"],
     [
-      "n1,p1,nickname,,,,,,Synthetic Nick,,,,,",
-      "n2,p1,nickname,,,,,,  synthetic   nick ,,,,,",
+      "n1,p1,nickname,,,,,,Synthetic Nick,,,,",
+      "n2,p1,nickname,,,,,,  synthetic   nick ,,,,",
     ],
   );
   assert.deepEqual(codes(result), ["duplicate_name"]);
@@ -167,8 +166,8 @@ test("a valid result is all or nothing: one error returns no rows", () => {
   const result = run(
     ["p1,Synthetic One,,,,,,"],
     [
-      "n1,p1,nickname,,,,,,Synthetic Good,,,,,",
-      "n2,p1,bogus,,,,,,Synthetic Bad,,,,,",
+      "n1,p1,nickname,,,,,,Synthetic Good,,,,",
+      "n2,p1,bogus,,,,,,Synthetic Bad,,,,",
     ],
   );
   assert.equal(result.ok, false);

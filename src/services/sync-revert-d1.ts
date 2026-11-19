@@ -288,6 +288,14 @@ export async function reverseSyncBatchD1(
     for (const item of [...items].reverse()) {
       if (item.outcome === "reused") continue;
       if (item.outcome === "created") {
+        // A hidden-at-creation Profile carries a visibility row that would
+        // otherwise block deleting the Profile it describes.
+        if (item.entity === "people")
+          statements.push(
+            db.prepare("DELETE FROM person_visibility WHERE person_id = ?", [
+              item.targetId,
+            ]),
+          );
         statements.push(
           db.prepare(
             `DELETE FROM "${item.entity}" WHERE id = ? AND version = ?`,

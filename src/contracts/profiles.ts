@@ -24,8 +24,6 @@ export const PROFILES_MAX_QUERY_LENGTH = 100;
 export const PROFILES_MAX_NAME_LENGTH = 500;
 export const PROFILES_MAX_NAME_COMPONENT_LENGTH = 200;
 export const PROFILES_MAX_NAME_AFFIX_LENGTH = 50;
-export const PROFILES_MAX_SOURCES_PER_NAME = 50;
-export const PROFILES_MAX_SOURCE_REFERENCE_LENGTH = 500;
 
 /**
  * Controlled alternate-name vocabulary. The meaning of each value is
@@ -184,8 +182,6 @@ export interface AlternateNameFields {
   readonly appliesUntil: string | null;
   readonly verificationStatus: AlternateNameStatus;
   readonly publicDisplay: boolean;
-  /** Private evidence identifiers. The full list replaces the stored list. */
-  readonly sources: readonly string[];
 }
 
 /**
@@ -217,7 +213,7 @@ export type AlternateNameChange =
       readonly expectedVersion: number;
     };
 
-/** An alternate name as the owner sees it. Sources are private evidence. */
+/** An alternate name as the owner sees it. */
 export interface AlternateNameRecord extends AlternateNameFields {
   readonly id: string;
   readonly personId: string;

@@ -1,14 +1,19 @@
 -- Profile names (PROFILES-NAMES-1).
 --
 -- Separates a Profile's primary name into components and adds unlimited,
--- typed, evidence-linked alternate names. It extends the canonical `people`
+-- typed alternate names. It extends the canonical `people`
 -- table and creates no second people database. Nothing is dropped or
 -- rewritten: `people.display_name` stays the approved public name, every
 -- existing row keeps working with display-name-only data, and the person ID,
 -- `person_visibility`, role rows and write receipts are untouched.
 --
--- Migration number: numbered 0031 on this branch. The concurrent COUNTY-DB-1 branch
--- also holds `0031_county_structure.sql` unmerged. The two files share no table. Whichever branch merges second is renamed 0032 and the catalog lists are updated.
+-- Migration number: 0032, the next number after 0031_county_structure.sql.
+-- The two files share no table.
+--
+-- Private research evidence stays in the private Profiles store. This
+-- migration holds no evidence file, claim ID, research evidence-link ID or
+-- review note, and no original research name snapshot. Alternate names carry
+-- only the public-facing name data and the owner's review and visibility state.
 
 -- Primary name components. All are optional and stay blank when unknown. The
 -- Website never splits `display_name` to fill them.
@@ -40,7 +45,7 @@ ALTER TABLE people ADD COLUMN preferred_first_name TEXT CHECK (
 CREATE TABLE profile_legacy_names (
   person_id TEXT PRIMARY KEY REFERENCES people(id) ON UPDATE RESTRICT ON DELETE RESTRICT,
   legacy_full_name TEXT NOT NULL CHECK (length(trim(legacy_full_name)) BETWEEN 1 AND 1000),
-  origin TEXT NOT NULL CHECK (origin IN ('website_display_name', 'research_full_name')),
+  origin TEXT NOT NULL CHECK (origin IN ('website_display_name')),
   captured_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 ) STRICT;
 
@@ -119,30 +124,6 @@ WHEN NEW.person_id <> OLD.person_id
 BEGIN
   SELECT RAISE(ABORT, 'profile_names person_id cannot change');
 END;
-
--- Evidence links. Several sources can support one name without duplicating the
--- name. `source_reference` is the private evidence identifier. The optional
--- `role_source_id` ties a reference to an existing public citation. These rows
--- are private and are never read by a public query.
-CREATE TABLE profile_name_sources (
-  id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 128),
-  profile_name_id TEXT NOT NULL REFERENCES profile_names(id) ON UPDATE RESTRICT ON DELETE RESTRICT,
-  source_reference TEXT NOT NULL CHECK (length(trim(source_reference)) BETWEEN 1 AND 500),
-  role_source_id TEXT REFERENCES role_sources(id) ON UPDATE RESTRICT ON DELETE RESTRICT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  UNIQUE (profile_name_id, source_reference)
-) STRICT;
-
-CREATE INDEX profile_name_sources_name ON profile_name_sources (profile_name_id);
-
--- Stable, idempotent mapping from the research `Profile Name ID` to the
--- Website name record. A source ID maps to exactly one Website name and the
--- reverse, so a retried import finds the same record instead of creating one.
-CREATE TABLE profile_name_source_ids (
-  source_profile_name_id TEXT PRIMARY KEY CHECK (length(source_profile_name_id) BETWEEN 1 AND 128),
-  profile_name_id TEXT NOT NULL UNIQUE REFERENCES profile_names(id) ON UPDATE RESTRICT ON DELETE RESTRICT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-) STRICT;
 
 -- Append-only change receipts for primary and alternate names. Each row keeps
 -- the before and after values, so any edit or removal can be inspected and

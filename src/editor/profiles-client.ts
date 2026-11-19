@@ -10,6 +10,13 @@ import {
   type ProfileSaveResult,
   type ProfileSelectionEntry,
 } from "../contracts/profiles.js";
+import {
+  PROFILES_IMPORT_PREFIX,
+  type ProfilesImportFiles,
+  type ProfilesImportPreview,
+  type ProfilesImportReceipt,
+  type ProfilesImportReversal,
+} from "../contracts/profiles-import.js";
 
 /**
  * Browser client for the protected `/api/admin/profiles/*` routes. It only
@@ -27,6 +34,8 @@ export class ProfilesApiError extends Error {
     readonly status: number,
     readonly code: string,
     readonly issues: readonly ProfileChangeIssue[] = [],
+    /** Import failures carry their own issue list (file, line, code, message). */
+    readonly detail: readonly unknown[] = [],
   ) {
     super(code);
     this.name = "ProfilesApiError";
@@ -47,6 +56,17 @@ export interface ProfilesClient {
     changes: readonly ProfileChange[],
     idempotencyKey: string,
   ): Promise<ProfileSaveResult>;
+  /** Read-only. Sends file text and receives the exact adds, updates and conflicts. */
+  importPreview(files: ProfilesImportFiles): Promise<ProfilesImportPreview>;
+  importCommit(
+    files: ProfilesImportFiles,
+    digest: string,
+    idempotencyKey: string,
+  ): Promise<ProfilesImportReceipt>;
+  importReverse(
+    batchId: string,
+    idempotencyKey: string,
+  ): Promise<ProfilesImportReversal>;
 }
 
 function queryString(query: ProfileQuery, paged: boolean): string {
@@ -85,6 +105,7 @@ export function createProfilesClient(options: {
         response.status,
         typeof body.error === "string" ? body.error : "internal_error",
         Array.isArray(body.issues) ? (body.issues as ProfileChangeIssue[]) : [],
+        Array.isArray(body.issues) ? body.issues : [],
       );
     }
     return body as T;
@@ -102,7 +123,25 @@ export function createProfilesClient(options: {
       },
       body: JSON.stringify({ changes }),
     });
+  const importPost = <T>(name: string, body: unknown, key?: string) =>
+    call<T>(
+      `${PROFILES_IMPORT_PREFIX.slice(PROFILES_API_PREFIX.length)}/${name}`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(key ? { "idempotency-key": key } : {}),
+        },
+        body: JSON.stringify(body),
+      },
+    );
   return {
+    importPreview: (files) =>
+      importPost<ProfilesImportPreview>("preview", { files }),
+    importCommit: (files, digest, key) =>
+      importPost<ProfilesImportReceipt>("commit", { files, digest }, key),
+    importReverse: (batchId, key) =>
+      importPost<ProfilesImportReversal>("reverse", { batchId }, key),
     rows: (query) => call<ProfilePage>(`/rows?${queryString(query, true)}`),
     facets: () => call<ProfileFacets>("/facets"),
     selectAll: (query) => call(`/select-all?${queryString(query, false)}`),

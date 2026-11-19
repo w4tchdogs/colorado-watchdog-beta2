@@ -1,0 +1,23 @@
+.cs-note { color: #4a4a4a; max-width: 62ch; }
+.cs-status { min-height: 1.5em; font-weight: 600; }
+.cs-toolbar { display: flex; gap: 0.75rem; align-items: center; margin-block: 0.75rem; }
+.cs-toolbar select { max-width: 32rem; }
+.cs-columns { display: grid; grid-template-columns: minmax(16rem, 1fr) minmax(18rem, 1.2fr); gap: 1.25rem; align-items: start; }
+@media (max-width: 52rem) { .cs-columns { grid-template-columns: 1fr; } }
+.cs-list { list-style: none; margin: 0; padding-left: 1.1rem; border-left: 1px solid #c9c9c9; }
+.cs-tree > .cs-list { padding-left: 0; border-left: 0; }
+.cs-node { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; width: 100%; text-align: left; margin-block: 0.15rem; padding: 0.35rem 0.5rem; border: 1px solid transparent; background: transparent; cursor: pointer; font: inherit; }
+.cs-node:hover { background: #f1f1f1; }
+.cs-node:focus-visible { outline: 3px solid #1a56db; outline-offset: 1px; }
+.cs-node.is-selected { border-color: #1a56db; background: #eef3ff; }
+.cs-tag { font-size: 0.8em; padding: 0.05rem 0.4rem; border: 1px solid #9a9a9a; border-radius: 0.6rem; }
+.cs-tag-status { border-color: #8a5a00; }
+.cs-field { display: grid; gap: 0.25rem; margin-block: 0.6rem; }
+.cs-field label { font-weight: 600; }
+.cs-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-block: 0.6rem; }
+.cs-danger { color: #8a1c1c; }
+.cs-empty { color: #4a4a4a; }
+.cs-items { border-collapse: collapse; width: 100%; font-size: 0.9em; }
+.cs-items th, .cs-items td { border: 1px solid #c9c9c9; padding: 0.25rem 0.4rem; text-align: left; }
+.cs-issues { color: #8a1c1c; }
+.cs-import, .cs-history { margin-top: 1.5rem; }

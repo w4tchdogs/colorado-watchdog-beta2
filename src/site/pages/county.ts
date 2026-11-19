@@ -23,6 +23,7 @@ import {
 } from "../format.js";
 import { html, path, type SafeHtml, withQuery } from "../html.js";
 import { BadRequest, NotFound, type Page, type SiteContext } from "../types.js";
+import { countyStructureSection } from "./county-structure-section.js";
 
 const ORGANIZATION_PAGE_SIZE = 50;
 const ROLE_PAGE_SIZE = 25;
@@ -159,13 +160,16 @@ export async function countyPage(
     switchTo: "home",
   });
 
+  const structure =
+    await context.countyStructure.getCountyStructure(countyFips);
+
   const body = html`
   <section class="section" aria-labelledby="overview-heading">
     <h2 id="overview-heading">Overview</h2>
     ${
       empty
         ? emptyState(
-            `No records for ${title} yet`,
+            `No profiles for ${title} yet`,
             "No organizations or roles have been documented for this county in the database. That reflects the state of this project's research, not the county's government.",
             html`<a class="button button-quiet" href="/counties">Browse other counties</a>`,
             3,
@@ -179,6 +183,8 @@ export async function countyPage(
           ${notice("These counts describe records in this database. They do not measure staffing, completeness, vacancies or current employment. An organization recorded both as a county organization and as an affiliate is counted in both groups and once in the total.")}`
     }
   </section>
+
+  ${countyStructureSection(title, structure)}
 
   ${
     empty

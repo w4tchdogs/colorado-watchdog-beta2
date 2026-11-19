@@ -106,6 +106,8 @@ assetData["dashboard-app.css"] = Buffer.concat([
   ),
   Buffer.from("\n"),
   await readFile(join(root, "website", "editor", "profiles.css")),
+  Buffer.from("\n"),
+  await readFile(join(root, "website", "editor", "county-structure.css")),
 ]).toString("base64");
 const hosting = JSON.parse(
   await readFile(join(root, ".openai", "hosting.json"), "utf8"),

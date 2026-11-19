@@ -17,8 +17,6 @@ import {
   type AlternateNameType,
   PROFILES_MAX_NAME_AFFIX_LENGTH,
   PROFILES_MAX_NAME_COMPONENT_LENGTH,
-  PROFILES_MAX_SOURCE_REFERENCE_LENGTH,
-  PROFILES_MAX_SOURCES_PER_NAME,
 } from "../contracts/profiles.js";
 
 export const PROFILE_CSV_COLUMNS = [
@@ -46,11 +44,7 @@ export const PROFILE_NAME_CSV_COLUMNS = [
   "applies_until",
   "verification_status",
   "public_display",
-  "sources",
 ] as const;
-
-/** Separator between source references inside the `sources` cell. */
-export const PROFILE_CSV_SOURCE_SEPARATOR = " | ";
 
 export const PROFILE_CSV_MAX_ROWS = 20_000;
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
@@ -76,8 +70,8 @@ export interface ProfileCsvIssue {
     | "date_order"
     | "too_long"
     | "public_not_allowed"
-    | "duplicate_name"
-    | "too_many_sources";
+    | "duplicate_name";
+
   readonly message: string;
 }
 
@@ -446,20 +440,6 @@ export function validateProfileCsv(input: ProfileCsvInput): ProfileCsvResult {
         "A name can be public only when it is Confirmed. Nothing is published by default.",
       );
 
-    const sources = (raw.sources ?? "")
-      .split(PROFILE_CSV_SOURCE_SEPARATOR.trim())
-      .map((value) => value.trim())
-      .filter((value) => value !== "");
-    if (sources.length > PROFILES_MAX_SOURCES_PER_NAME)
-      problem(
-        "sources",
-        "too_many_sources",
-        `A name has at most ${PROFILES_MAX_SOURCES_PER_NAME} sources.`,
-      );
-    for (const source of sources)
-      if (source.length > PROFILES_MAX_SOURCE_REFERENCE_LENGTH)
-        problem("sources", "too_long", "A source reference is too long.");
-
     if (published !== null && ID.test(profileId)) {
       const key = `${profileId}|${type}|${nameKey(published)}|${from ?? ""}|${until ?? ""}`;
       if (activeKeys.has(key))
@@ -497,7 +477,6 @@ export function validateProfileCsv(input: ProfileCsvInput): ProfileCsvResult {
         appliesUntil: until,
         verificationStatus: verification,
         publicDisplay: publicFlag,
-        sources,
       },
     });
   });

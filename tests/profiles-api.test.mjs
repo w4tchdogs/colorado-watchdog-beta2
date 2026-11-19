@@ -265,7 +265,7 @@ async function transportless(call, type) {
   });
 }
 
-test("the names route is owner-only, no-store, validates input and returns private evidence", async () => {
+test("the names route is owner-only, no-store, validates input and returns the owner view", async () => {
   await withApi(async ({ call }) => {
     const path = "/api/admin/profiles/names?profileId=person-a";
     assert.equal((await call(path)).status, 401);
@@ -305,7 +305,6 @@ test("the names route is owner-only, no-store, validates input and returns priva
               appliesUntil: null,
               verificationStatus: "requires_review",
               publicDisplay: false,
-              sources: ["Synthetic private evidence"],
             },
           },
         ],
@@ -319,6 +318,6 @@ test("the names route is owner-only, no-store, validates input and returns priva
     assert.equal(list.names.length, 1);
     assert.equal(list.names[0].publishedName, "Synthetic API Nick");
     assert.equal(list.names[0].publicDisplay, false);
-    assert.deepEqual(list.names[0].sources, ["Synthetic private evidence"]);
+    assert.equal("sources" in list.names[0], false);
   });
 });

@@ -1,3 +1,4 @@
+import type { CountyStructureReader } from "../services/county-structure-public.js";
 import type { ApplicationServices } from "../services/index.js";
 import type { BannerSource } from "./banner.js";
 import type { EditorialSource } from "./editorial-source.js";
@@ -55,6 +56,8 @@ export interface PublicSiteOptions {
   readonly now?: () => Date;
   /** Published banner artwork. Defaults to none, which shows placeholders. */
   readonly banners?: BannerSource;
+  /** Public County Structure reads. Defaults to a reader with no structure. */
+  readonly countyStructure?: CountyStructureReader;
   /** Server-side lookup that delivers only a currently selected verified image. */
   readonly bannerDelivery?: {
     deliver(versionId: string): Promise<{
@@ -97,6 +100,7 @@ export interface SiteContext {
   readonly preview: boolean;
   readonly now: Date;
   readonly banners: BannerSource;
+  readonly countyStructure: CountyStructureReader;
   readonly reportSubmissionsEnabled: boolean;
   readonly reportGuestEnabled: boolean;
   readonly reportChallenge?: { readonly sitekey: string };

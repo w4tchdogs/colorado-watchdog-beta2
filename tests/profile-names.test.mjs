@@ -141,7 +141,6 @@ const alt = (personId, fields = {}) => ({
     appliesUntil: null,
     verificationStatus: "requires_review",
     publicDisplay: false,
-    sources: [],
     ...fields,
   },
 });
@@ -159,7 +158,6 @@ const fieldsOf = (record) => ({
   appliesUntil: record.appliesUntil,
   verificationStatus: record.verificationStatus,
   publicDisplay: record.publicDisplay,
-  sources: record.sources,
 });
 
 const person = (database, id) =>
@@ -359,40 +357,34 @@ test("alternate names are unlimited, typed, soft-removed and restored", async ()
   });
 });
 
-test("an alternate name keeps several private sources and edits replace them", async () => {
+test("the Website stores no evidence for an alternate name", async () => {
   await fixture(async ({ database, service, owner }) => {
-    await service.save(owner, "key-alt-src-001", [
-      alt("person-solo", {
-        sources: ["Synthetic filing A", "Synthetic filing B"],
-      }),
-    ]);
-    const [row] = nameRows(database, "person-solo");
-    assert.equal(
-      database
-        .prepare(
-          "SELECT COUNT(*) c FROM profile_name_sources WHERE profile_name_id = ?",
-        )
-        .get(row.id).c,
-      2,
-    );
-    const list = await service.alternateNames(owner, "person-solo");
-    const record = list.names[0];
-    await service.save(owner, "key-alt-src-002", [
-      {
-        kind: "alternate_name",
-        op: "update",
-        personId: "person-solo",
-        nameId: record.id,
-        expectedVersion: record.version,
-        fields: { ...fieldsOf(record), sources: ["Synthetic filing C"] },
-      },
-    ]);
-    const sources = database
+    const tables = database
       .prepare(
-        "SELECT source_reference FROM profile_name_sources WHERE profile_name_id = ?",
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND (name LIKE 'profile_name%' OR name LIKE 'profile_legacy%') ORDER BY name",
       )
-      .all(row.id);
-    assert.deepEqual(sources, [{ source_reference: "Synthetic filing C" }]);
+      .all()
+      .map((row) => row.name);
+    assert.deepEqual(tables, [
+      "profile_legacy_names",
+      "profile_name_events",
+      "profile_names",
+    ]);
+    const columns = database
+      .prepare("SELECT name FROM pragma_table_info('profile_names')")
+      .all()
+      .map((row) => row.name);
+    assert.equal(
+      columns.some((name) => /source|evidence|claim/.test(name)),
+      false,
+    );
+    // An editor or client that still sends a sources list is refused.
+    await assert.rejects(
+      service.save(owner, "key-alt-src-001", [
+        alt("person-solo", { sources: ["Synthetic filing A"] }),
+      ]),
+    );
+    assert.equal(nameRows(database, "person-solo").length, 0);
   });
 });
 
@@ -563,7 +555,6 @@ test("public pages and search show only confirmed approved names", async () => {
         nameType: "married_surname",
         publishedName: "Synthetic Formerly Named",
         ...approved,
-        sources: ["Synthetic private evidence"],
       }),
       alt("person-multi", {
         publishedName: "Synthetic Hidden Nickname",

@@ -15,6 +15,7 @@ export type DashboardModuleId =
   | "reports"
   | "banners"
   | "profiles"
+  | "county-structure"
   | "accounts"
   | "audit"
   | "status";
@@ -94,6 +95,15 @@ export const DASHBOARD_MODULES: readonly DashboardModuleDefinition[] = [
     group: "administration",
     description: "Search, edit and hide or restore Profiles in a sheet.",
     access: { kind: "capability", capability: "profile.manage" },
+    state: "active",
+  },
+  {
+    id: "county-structure",
+    label: "County Structure",
+    group: "administration",
+    description:
+      "Offices and units for each county, with a single county.csv import and export.",
+    access: { kind: "capability", capability: "county_structure.manage" },
     state: "active",
   },
   {
@@ -195,12 +205,21 @@ export interface DashboardProfilesView {
   readonly view: "profiles";
 }
 
+/**
+ * County Structure keeps its data in its own protected transport and service.
+ * The dashboard view carries no structure data.
+ */
+export interface DashboardCountyStructureView {
+  readonly view: "county-structure";
+}
+
 export type DashboardView =
   | DashboardOverviewView
   | DashboardAccountView
   | DashboardPostsView
   | DashboardBannersView
-  | DashboardProfilesView;
+  | DashboardProfilesView
+  | DashboardCountyStructureView;
 
 export const DASHBOARD_API_PATHS = {
   session: "/internal/dashboard/session",

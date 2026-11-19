@@ -264,7 +264,29 @@ test("the hosted bundle and assets carry no sandbox code, fixtures or switcher",
   });
 });
 
-test("a linked owner gets Overview, My Account, Posts & Stories, Banners and Profiles, with the rest named as planned", async () => {
+test("the hyphenated County Structure view id is accepted and malformed ids are still rejected", async () => {
+  await withWorld(async (world) => {
+    const jar = await signedIn(world, OWNER);
+    const ok = await view(world, jar, "county-structure");
+    assert.equal(ok.status, 200);
+    const body = await ok.json();
+    assert.equal(body.view, "county-structure");
+    for (const bad of [
+      "County-Structure",
+      "-county",
+      "county-",
+      "county--structure",
+      "county_structure",
+      "a".repeat(33),
+      "",
+    ]) {
+      const response = await view(world, jar, bad);
+      assert.equal(response.status, 400, JSON.stringify(bad));
+    }
+  });
+});
+
+test("a linked owner gets Overview, My Account, Posts & Stories, Banners, Profiles and County Structure, with the rest named as planned", async () => {
   await withWorld(async (world) => {
     const jar = await signedIn(world, OWNER);
     const start = await json(await session(world, jar));
@@ -275,6 +297,7 @@ test("a linked owner gets Overview, My Account, Posts & Stories, Banners and Pro
       "posts",
       "banners",
       "profiles",
+      "county-structure",
     ]);
     assert.deepEqual(ids(start.body.planned).sort(), [
       "accounts",
@@ -638,6 +661,13 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
         banners: createBannersView({
           client: createBannerAdminClient({ fetch: fetchLike }),
         }),
+        "county-structure": (context) => {
+          const heading = context.doc.createElement("h1");
+          heading.id = "county-structure-stub";
+          heading.textContent = "County Structure stub";
+          context.container.append(heading);
+          return { destroy() {} };
+        },
       },
       signOut: { action: "/auth/logout" },
     });
@@ -660,7 +690,14 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
       [...window.document.querySelectorAll("#dash-sidebar a[data-view]")].map(
         (a) => a.textContent,
       ),
-      ["Overview", "My Account", "Posts & Stories", "Banners", "Profiles"],
+      [
+        "Overview",
+        "My Account",
+        "Posts & Stories",
+        "Banners",
+        "Profiles",
+        "County Structure",
+      ],
     );
     const form = $("#menu-signout-form");
     assert.equal(form?.getAttribute("method"), "post");
@@ -690,6 +727,10 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
         [],
       );
     }
+    window.location.hash = "#/county-structure";
+    await waitFor("#county-structure-stub");
+    assert.ok($("#county-structure-stub"));
+    assert.equal($("#state-not-found"), null);
     window.location.hash = "#/reports";
     await waitFor("#state-not-found");
     assert.ok($("#state-not-found"));

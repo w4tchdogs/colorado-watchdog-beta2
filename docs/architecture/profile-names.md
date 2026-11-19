@@ -1,10 +1,10 @@
 # Profile names and alternate names (PROFILES-NAMES-1)
 
-Status: Draft, tested locally with synthetic data. Not merged, not deployed and not Hosted-verified. This work is stacked on the Profiles sheet from [PR #257](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/257) and extends that dashboard. It does not replace or duplicate it.
+Status: Tested locally with synthetic data. Not deployed and not Hosted-verified. This work extends the Profiles sheet from [PR #257](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/257). It does not replace or duplicate it.
 
 ## What this adds
 
-Each Profile keeps one primary name in seven fields and any number of typed, evidence-linked alternate names. The Website stores them in the existing Website D1 database. It does not create a second people database. Names are matched to a Profile by stable ID only. Nothing in this work merges people by name.
+Each Profile keeps one primary name in seven fields and any number of typed alternate names. The Website stores them in the existing Website D1 database. It does not create a second people database. Names are matched to a Profile by stable ID only. Nothing in this work merges people by name.
 
 Public pages use the Display Name. A public page shows an alternate name only when the owner has marked it Confirmed and Public. Every new name starts private and requires review.
 
@@ -22,7 +22,7 @@ Public pages use the Display Name. A public page shows an alternate name only wh
 
 A blank optional field is stored as null. The components are Website-only for now. The local Profiles database is not changed by this work, so a sync does not overwrite them.
 
-Migration 0031 backfills nothing into the components. It copies each existing display name into `profile_legacy_names` once, so the original text survives if the owner later edits Display Name. A Profile with a display name only keeps working, and its Names review state reads “display only”.
+Migration 0032 backfills nothing into the components. It copies each existing display name into `profile_legacy_names` once, so the original text survives if the owner later edits Display Name. A Profile with a display name only keeps working, and its Names review state reads “display only”.
 
 ## Alternate names
 
@@ -65,7 +65,7 @@ The label is a presentation choice. It does not say why a name applies. The publ
 
 ### Evidence
 
-Table `profile_name_sources` links one name to up to 50 private source references of up to 500 characters each. The list on an edit replaces the stored list. These references are private. They appear only in the owner API response and never in a public read, search, export, error or log. An optional `role_source_id` can point at an existing role citation.
+The Website stores no evidence for names. Evidence files, claim IDs, research evidence-link IDs, review notes and the original research name stay in the private Profiles store. A name carries only its own values, its review status and its visibility.
 
 ### History
 
@@ -75,7 +75,7 @@ Table `profile_name_sources` links one name to up to 50 private source reference
 
 The Profiles dashboard from PR #257 gains the seven name columns and a Names count column. Person-level fields repeat on every role row of the same Profile. Selecting the count button opens the alternate-name panel for that Profile. Add, edit, remove, restore and undo all stage into the same Save as every other edit, so a primary name change and an alternate name change save in one atomic batch with one preview and one idempotency key. The Public checkbox stays disabled until the status is Confirmed.
 
-The owner API gains `GET /api/admin/profiles/names?profileId=…`. It is owner-only, no-store and returns private evidence. Agents and editors are refused.
+The owner API gains `GET /api/admin/profiles/names?profileId=…`. It is owner-only and no-store. Agents and editors are refused.
 
 ## Public display and search
 
@@ -87,35 +87,29 @@ The owner API gains `GET /api/admin/profiles/names?profileId=…`. It is owner-o
 
 ## CSV import compatibility
 
-`src/services/profile-csv.ts` validates and maps the two files as one logical import. It is pure. It reads no database and writes nothing.
+`src/services/profile-csv.ts` validates and maps name rows. It is pure and reads no database. The dashboard upload that uses it is the follow-up described in [Profiles dashboard CSV import](profiles-import.md).
 
-`profile.csv` columns: `profile_id`, `display_name`, `first_name`, `middle_name`, `last_name`, `name_prefix`, `name_suffix`, `preferred_first_name`.
+`profile.csv` name columns: `first_name`, `middle_name`, `last_name`, `name_prefix`, `name_suffix`, `preferred_first_name` and `display_name`.
 
-`profile_name.csv` columns: `profile_name_id`, `profile_id`, `name_type`, `first_name`, `middle_name`, `last_name`, `name_prefix`, `name_suffix`, `published_name`, `applies_from`, `applies_until`, `verification_status`, `public_display`, `sources`. Several sources go in one cell, separated by a vertical bar.
+`profile_name.csv` columns: `profile_name_id`, `profile_id`, `name_type`, `first_name`, `middle_name`, `last_name`, `name_prefix`, `name_suffix`, `published_name`, `applies_from`, `applies_until`, `verification_status`, `public_display`. There is no evidence column.
 
-The validator reports, with a file, a row and a column: missing or unknown columns, duplicate or missing IDs, a name row whose Profile is in neither file nor the Website, unsupported types, impossible dates, an end before a start, bad Yes or No flags, a public name that is not Confirmed, duplicate names, over-long values and too many sources. One error returns no mapped rows. A name is never matched or merged by its text.
-
-`profile_name_source_ids` stores the file’s name ID next to the stored ID so a re-import updates the same name and does not duplicate it.
-
-Not in this PR: connecting these mapped rows to the M2/R7/R8 planner, commit and revert path. That needs a new entity in about eight files and is the next PR, so the import keeps the existing preview, atomic commit and reversal protections. Until then no CSV import path exists, and no statewide data is imported.
+A name is never matched or merged by its text.
 
 ## Operator instructions
 
 1. Open the Profiles tab and find the Profile. Search covers Display Name, first, last and preferred names, and internal alternate names.
 2. Edit a name component in its cell. The edit is staged. Nothing is saved until Save changes.
-3. To add an alternate name, select the Names count on any row of that Profile. Choose Add, pick the type, enter the name as published, add dates and sources, and leave Public off and Requires review on.
-4. Review the evidence. Set the status to Confirmed only when it supports the name. Then, and only then, tick Public.
+3. To add an alternate name, select the Names count on any row of that Profile. Choose Add, pick the type, enter the name as published, add dates, and leave Public off and Requires review on.
+4. Review the name against the private research. Set the status to Confirmed only when it supports the name. Then, and only then, tick Public.
 5. Select Save changes, check the preview of old and new values, and confirm. A stale version keeps the pending edit and offers to re-apply it.
 6. To retire a name, choose Remove. It leaves public pages at once and can be restored.
 7. To hide a whole Profile, use Visible on Website. A hidden Profile’s names are not found.
 
 ## Migration and recovery plan
 
-Migration 0031 is purely additive. It adds six nullable columns to `people` and five new tables. It changes no existing row’s meaning. No public read changes until the new Worker is deployed.
+Migration 0032 is purely additive. It adds six nullable columns to `people` and three new tables. It changes no existing row’s meaning. No public read changes until the new Worker is deployed.
 
-Numbering: this branch numbers it 0031 because PR #257 holds 0030. The runner needs contiguous numbers. If COUNTY-DB-1 or another branch merges first with 0031, renumber this file to the next number and update the counts listed below. Whichever branch merges second renumbers.
-
-Files that hardcode the migration count and list: `scripts/check.mjs`, `scripts/cloudflare-staging-config.mjs`, `scripts/d1-local-check.mjs`, `scripts/sites-d1-local-check.mjs`, `scripts/verify-cloudflare-staging-d1.mjs`, `src/services/owner-bootstrap.ts` and the tests that assert 31 migrations.
+Numbering: this is migration 0032 because 0031 is `0031_county_structure.sql`. Files that hardcode the migration count and list: `scripts/check.mjs`, `scripts/cloudflare-staging-config.mjs`, `scripts/d1-local-check.mjs`, `scripts/sites-d1-local-check.mjs`, `scripts/verify-cloudflare-staging-d1.mjs`, `src/services/owner-bootstrap.ts` and the tests that assert the migration count.
 
 Order: apply the migration first, verify, then deploy the Worker. The new Worker needs the new tables. The previous Worker keeps working after the migration because it ignores the new columns and tables.
 
@@ -125,9 +119,9 @@ Recovery: take an exported checkpoint before applying. If the migration fails, D
 
 Not done. A staging step needs the owner’s approval and is outside this PR.
 
-1. Confirm the ledger shows migrations 0001 to 0030 with matching checksums.
+1. Confirm the ledger shows migrations 0001 to 0031 with matching checksums.
 2. Export a checkpoint of the staging database.
-3. Apply 0031. Confirm the ledger shows 31 rows and the verifier passes.
+3. Apply 0032. Confirm the ledger shows 32 rows and the verifier passes.
 4. Deploy the Worker built from the merge commit.
 5. Open the Profiles tab as the owner. Confirm the name columns and Names count load.
 6. Add a synthetic alternate name. Confirm it is private. Confirm the public page and public search do not show it.
@@ -137,14 +131,8 @@ Not done. A staging step needs the owner’s approval and is outside this PR.
 10. Confirm an agent or editor account gets 403 from the names route.
 11. Remove the synthetic records using the dashboard.
 
-## Coordination
-
-- PR #257 must merge first. This branch is stacked on its branch.
-- COUNTY-DB-1 also needs a migration number. See the numbering note. The old `organizations` table is not used here as the County Structure model, and the Sheriff’s Office stays a County Unit under that assignment.
-- Both assignments share stable county, Profile and role relationships and nothing else.
-
 ## Limits
 
 - Tested locally on synthetic data only, with sql.js and the Worker build. Not run against a real D1 or a browser.
-- The CSV import path is not wired. Only validation and mapping exist.
+- The dashboard CSV upload is a follow-up PR. Only validation and mapping exist here.
 - Components are Website-only. A later local Profiles database change would need its own mapping.

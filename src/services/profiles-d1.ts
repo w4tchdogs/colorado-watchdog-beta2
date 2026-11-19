@@ -17,8 +17,6 @@ import {
   PROFILES_MAX_PAGE_SIZE,
   PROFILES_MAX_QUERY_LENGTH,
   PROFILES_MAX_SELECT_ALL,
-  PROFILES_MAX_SOURCE_REFERENCE_LENGTH,
-  PROFILES_MAX_SOURCES_PER_NAME,
   type ProfileChange,
   type ProfileChangeIssue,
   type ProfileFacets,
@@ -351,7 +349,6 @@ export function createD1ProfilesService(
     impact: Map<string, { roles: number; counties: string[] }>;
     altNames: Map<string, Row>;
     altByPerson: Map<string, Row[]>;
-    altSources: Map<string, string[]>;
   }> {
     const personIds = new Set<string>();
     const roleIds = new Set<string>();
@@ -430,7 +427,6 @@ export function createD1ProfilesService(
     }
     const altNames = new Map<string, Row>();
     const altByPerson = new Map<string, Row[]>();
-    const altSources = new Map<string, string[]>();
     if (altPersonIds.size) {
       const rows = await database.all<Row>(
         `SELECT id, person_id, name_type, first_name, middle_name, last_name,
@@ -462,21 +458,6 @@ export function createD1ProfilesService(
         );
         for (const row of extra) altNames.set(str(row.id), row);
       }
-      if (altNameIds.size) {
-        const sources = await database.all<Row>(
-          `SELECT profile_name_id, source_reference FROM profile_name_sources
-           WHERE profile_name_id IN (SELECT value FROM json_each(?))
-           ORDER BY profile_name_id, source_reference
-           LIMIT ${PROFILES_NAME_LOAD_LIMIT}`,
-          PROFILES_NAME_LOAD_LIMIT,
-          [JSON.stringify([...altNameIds])],
-        );
-        for (const row of sources) {
-          const list = altSources.get(str(row.profile_name_id)) ?? [];
-          list.push(str(row.source_reference));
-          altSources.set(str(row.profile_name_id), list);
-        }
-      }
     }
     return {
       people,
@@ -485,7 +466,6 @@ export function createD1ProfilesService(
       impact,
       altNames,
       altByPerson,
-      altSources,
     };
   }
 
@@ -897,24 +877,8 @@ export function createD1ProfilesService(
       );
       const truncated = rows.length > PROFILES_NAME_PAGE_LIMIT;
       const page = rows.slice(0, PROFILES_NAME_PAGE_LIMIT);
-      const sources = new Map<string, string[]>();
-      for (let start = 0; start < page.length; start += 20) {
-        const ids = page.slice(start, start + 20).map((row) => str(row.id));
-        const found = await database.all<Row>(
-          `SELECT profile_name_id, source_reference FROM profile_name_sources
-           WHERE profile_name_id IN (SELECT value FROM json_each(?))
-           ORDER BY profile_name_id, source_reference`,
-          PROFILES_MAX_SOURCES_PER_NAME * 20,
-          [JSON.stringify(ids)],
-        );
-        for (const row of found) {
-          const list = sources.get(str(row.profile_name_id)) ?? [];
-          list.push(str(row.source_reference));
-          sources.set(str(row.profile_name_id), list);
-        }
-      }
       const names: AlternateNameRecord[] = page.map((row) => ({
-        ...rowToFields(row, sources.get(str(row.id)) ?? []),
+        ...rowToFields(row),
         id: str(row.id),
         personId: str(row.person_id),
         version: num(row.version),
@@ -1046,14 +1010,6 @@ export function createD1ProfilesService(
         f.verificationStatus,
         f.publicDisplay ? 1 : 0,
       ];
-      const sourceStatements = (nameId: string, sources: readonly string[]) =>
-        sources.map((source) =>
-          database.prepare(
-            `INSERT INTO profile_name_sources (id, profile_name_id, source_reference)
-             VALUES (?, ?, ?)`,
-            [crypto.randomUUID(), nameId, source],
-          ),
-        );
       const personGroups = new Map<
         string,
         {
@@ -1155,7 +1111,6 @@ export function createD1ProfilesService(
                   principal.accountId,
                 ],
               ),
-              ...sourceStatements(nameId, fields.sources),
               nameEvent(change.personId, nameId, "alternate_add", null, fields),
               audit(
                 "profile.name_add",
@@ -1179,12 +1134,7 @@ export function createD1ProfilesService(
             return;
           }
           const row = checked.targets?.altNames.get(change.nameId);
-          const before = row
-            ? rowToFields(
-                row,
-                checked.targets?.altSources.get(change.nameId) ?? [],
-              )
-            : null;
+          const before = row ? rowToFields(row) : null;
           if (change.op === "update") {
             const fields = normalizeAlternateFields(change.fields);
             statements.push(
@@ -1204,11 +1154,6 @@ export function createD1ProfilesService(
                 ],
               ),
               assertion(),
-              database.prepare(
-                "DELETE FROM profile_name_sources WHERE profile_name_id = ?",
-                [change.nameId],
-              ),
-              ...sourceStatements(change.nameId, fields.sources),
               nameEvent(
                 change.personId,
                 change.nameId,
@@ -1451,7 +1396,6 @@ interface AlternateTargets {
   readonly people: Map<string, Row>;
   readonly altNames: Map<string, Row>;
   readonly altByPerson: Map<string, Row[]>;
-  readonly altSources: Map<string, string[]>;
 }
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: reject control characters
@@ -1483,15 +1427,6 @@ export function normalizeAlternateFields(
     const trimmed = value.trim();
     return trimmed === "" ? null : trimmed;
   };
-  const seen = new Set<string>();
-  const sources: string[] = [];
-  for (const raw of fields.sources) {
-    const source = raw.trim();
-    if (source && !seen.has(source)) {
-      seen.add(source);
-      sources.push(source);
-    }
-  }
   return {
     nameType: fields.nameType,
     firstName: optional(fields.firstName),
@@ -1504,7 +1439,6 @@ export function normalizeAlternateFields(
     appliesUntil: optional(fields.appliesUntil),
     verificationStatus: fields.verificationStatus,
     publicDisplay: fields.publicDisplay,
-    sources,
   };
 }
 
@@ -1569,20 +1503,6 @@ function alternateFieldProblem(fields: AlternateNameFields): {
       code: "date_order",
       message: "Applies Until cannot be before Applies From.",
     };
-  if (fields.sources.length > PROFILES_MAX_SOURCES_PER_NAME)
-    return {
-      code: "invalid_value",
-      message: `A name can have at most ${PROFILES_MAX_SOURCES_PER_NAME} source references.`,
-    };
-  for (const source of fields.sources)
-    if (
-      source.length > PROFILES_MAX_SOURCE_REFERENCE_LENGTH ||
-      CONTROL_CHARACTERS.test(source)
-    )
-      return {
-        code: "invalid_value",
-        message: `Each source reference must be at most ${PROFILES_MAX_SOURCE_REFERENCE_LENGTH} characters with no control characters.`,
-      };
   if (fields.publicDisplay && fields.verificationStatus !== "confirmed")
     return {
       code: "public_not_allowed",
@@ -1692,13 +1612,10 @@ function alternateDuplicateIssues(
 function describeAlternate(fields: AlternateNameFields): string {
   return `${fields.nameType}: ${fields.publishedName} (${
     fields.verificationStatus === "confirmed" ? "confirmed" : "requires review"
-  }, ${fields.publicDisplay ? "public" : "private"}, ${fields.sources.length} ${plural(fields.sources.length, "source")})`;
+  }, ${fields.publicDisplay ? "public" : "private"})`;
 }
 
-function rowToFields(
-  row: Row,
-  sources: readonly string[],
-): AlternateNameFields {
+function rowToFields(row: Row): AlternateNameFields {
   return {
     nameType: str(row.name_type) as AlternateNameFields["nameType"],
     firstName: nullable(row.first_name),
@@ -1713,22 +1630,18 @@ function rowToFields(
       row.verification_status,
     ) as AlternateNameFields["verificationStatus"],
     publicDisplay: num(row.public_display) === 1,
-    sources: [...sources].sort(),
   };
 }
 
 function sameFields(a: AlternateNameFields, b: AlternateNameFields): boolean {
-  return (
-    JSON.stringify({ ...a, sources: [...a.sources].sort() }) ===
-    JSON.stringify({ ...b, sources: [...b.sources].sort() })
-  );
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function publicSummary(fields: AlternateNameFields, removed: boolean): string {
   if (removed)
     return "Removes this name from the Profile. It is hidden from every public page and search. The record is kept and can be restored.";
   return fields.publicDisplay
-    ? "Shows this confirmed name on the public Profile page and in public name search, while the Profile is visible. Its sources stay private."
+    ? "Shows this confirmed name on the public Profile page and in public name search, while the Profile is visible."
     : "Private. Not shown on any public page or in public search. Internal reviewers can still search and inspect it.";
 }
 
@@ -1766,7 +1679,6 @@ function validateAlternate(
             appliesUntil: null,
             verificationStatus: "requires_review",
             publicDisplay: false,
-            sources: [],
           },
           removed,
         ),
@@ -1801,8 +1713,7 @@ function validateAlternate(
     return;
   }
   const currentVersion = num(row.version);
-  const sources = targets.altSources.get(change.nameId) ?? [];
-  const current = rowToFields(row, sources);
+  const current = rowToFields(row);
   if (currentVersion !== change.expectedVersion) {
     const entry = {
       ...issue(
@@ -2162,7 +2073,6 @@ const ALTERNATE_FIELD_KEYS = [
   "appliesUntil",
   "verificationStatus",
   "publicDisplay",
-  "sources",
 ];
 
 /** Shape check only. Values are checked against the rules in the service. */
@@ -2195,13 +2105,6 @@ function parseAlternateFields(input: unknown): AlternateNameFields | null {
     typeof raw.publicDisplay !== "boolean"
   )
     return null;
-  const sources = raw.sources === undefined ? [] : raw.sources;
-  if (
-    !Array.isArray(sources) ||
-    sources.length > 200 ||
-    sources.some((value) => typeof value !== "string" || value.length > 1000)
-  )
-    return null;
   return {
     nameType: raw.nameType as AlternateNameFields["nameType"],
     firstName: parts.firstName as string | null,
@@ -2215,13 +2118,11 @@ function parseAlternateFields(input: unknown): AlternateNameFields | null {
     verificationStatus:
       raw.verificationStatus as AlternateNameFields["verificationStatus"],
     publicDisplay: raw.publicDisplay,
-    sources: sources as string[],
   };
 }
 
 function canonicalFields(input: AlternateNameFields): AlternateNameFields {
-  const fields = normalizeAlternateFields(input);
-  return { ...fields, sources: [...fields.sources].sort() };
+  return normalizeAlternateFields(input);
 }
 
 function canonical(changes: readonly ProfileChange[]): unknown[] {

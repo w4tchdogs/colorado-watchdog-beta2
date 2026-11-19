@@ -2682,3 +2682,16 @@ th[aria-sort] .sort-mark {
     display: none;
   }
 }
+
+.structure-tree {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  border-left: 1px solid var(--rule, #c9c9c9);
+}
+.structure-tree .structure-tree { margin-bottom: 0.25rem; }
+.structure-unit { margin-block: 0.4rem; }
+.structure-name { font-weight: 600; }
+.structure-type,
+.structure-aliases { margin-left: 0.5rem; font-size: 0.9em; color: var(--muted, #4a4a4a); }
+.structure-people { list-style: none; margin: 0.2rem 0 0; padding-left: 1.1rem; }

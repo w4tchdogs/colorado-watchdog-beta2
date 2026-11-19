@@ -40,6 +40,7 @@ import {
 import type { DashboardViewFactory } from "./dashboard.js";
 import { clear, el } from "./dom.js";
 import { ProfilesApiError, type ProfilesClient } from "./profiles-client.js";
+import { createImportPanel } from "./profiles-import-view.js";
 
 Tabulator.registerModule([
   AjaxModule,
@@ -337,6 +338,14 @@ export function createProfilesView(options: {
           { class: "cw-profiles-intro" },
           "One row per role. Name columns belong to the person, so a change shows on every role row of that Profile. Edit cells in place or in bulk, open a row's alternate names to add, edit, remove or approve them, then choose Save changes. Edits go to the Website only. The private reviewed Profiles record is edited in its own workflow.",
         ),
+        createImportPanel({
+          doc,
+          client,
+          newKey,
+          onChanged: () => {
+            void reload();
+          },
+        }),
         el(
           doc,
           "form",
@@ -794,9 +803,6 @@ export function createProfilesView(options: {
           : "",
         STATUS_LABEL[f.verificationStatus] ?? f.verificationStatus,
         f.publicDisplay ? "public" : "private",
-        f.sources.length
-          ? `${f.sources.length} ${f.sources.length === 1 ? "source" : "sources"}: ${[...f.sources].sort().join("; ")}`
-          : "no sources",
       ];
       return parts.filter((part) => part).join(" | ");
     }
@@ -814,7 +820,6 @@ export function createProfilesView(options: {
         appliesUntil: record.appliesUntil,
         verificationStatus: record.verificationStatus,
         publicDisplay: record.publicDisplay,
-        sources: record.sources,
       };
     }
 
@@ -914,7 +919,7 @@ export function createProfilesView(options: {
           doc,
           "p",
           {},
-          "A name is private and needs review until you mark it Confirmed and approve public display. Sources are never shown publicly. Changes here are staged with the rest of the sheet and saved together with Save changes, so a failed save never leaves the primary and alternate names half updated.",
+          "A name is private and needs review until you mark it Confirmed and approve public display. Private research evidence stays in the private Profiles workflow and is never stored here. Changes here are staged with the rest of the sheet and saved together with Save changes, so a failed save never leaves the primary and alternate names half updated.",
         ),
       );
       if (list.truncated)
@@ -950,7 +955,6 @@ export function createProfilesView(options: {
               "Dates",
               "Status",
               "Public",
-              "Sources",
               "Actions",
             ].map((title) => el(doc, "th", { scope: "col" }, title)),
           ),
@@ -980,7 +984,6 @@ export function createProfilesView(options: {
             ),
             el(doc, "td", {}, STATUS_LABEL[fields.verificationStatus] ?? ""),
             el(doc, "td", {}, fields.publicDisplay ? "Public" : "Private"),
-            el(doc, "td", {}, String(fields.sources.length)),
             el(
               doc,
               "td",
@@ -1158,7 +1161,6 @@ export function createProfilesView(options: {
                   appliesUntil: null,
                   verificationStatus: "requires_review",
                   publicDisplay: false,
-                  sources: [],
                 },
               }),
             { id: "profiles-names-add" },
@@ -1257,12 +1259,6 @@ export function createProfilesView(options: {
       };
       status.addEventListener("change", syncPublic);
       syncPublic();
-      const sources = el(doc, "textarea", {
-        id: "pn-sources",
-        rows: 3,
-        maxlength: 4000,
-      });
-      sources.value = f.sources.join("\n");
       const error = el(doc, "p", { class: "cw-profiles-error", role: "alert" });
       const optional = (input: HTMLInputElement): string | null =>
         emptyToNull(input.value);
@@ -1289,11 +1285,6 @@ export function createProfilesView(options: {
           el(doc, "label", { for: "pn-public" }, "Show publicly"),
           publicHint,
         ),
-        field(
-          "Source references (one per line, kept private)",
-          sources,
-          "pn-sources",
-        ),
         error,
         button(
           "Stage name",
@@ -1311,14 +1302,6 @@ export function createProfilesView(options: {
               verificationStatus:
                 status.value as AlternateNameFields["verificationStatus"],
               publicDisplay: isPublic.checked,
-              sources: [
-                ...new Set(
-                  sources.value
-                    .split(/\r?\n/)
-                    .map((line) => line.trim())
-                    .filter((line) => line),
-                ),
-              ],
             };
             const problem = nameProblem(fields);
             if (problem) {
