@@ -482,7 +482,9 @@ test("one Sheriff appears in elected and Sheriff views without duplicates", asyn
     ).getCountyStructure("08001");
     assert.equal(pub.electedOfficials.length, 1);
     assert.equal(pub.electedOfficials[0].personId, "p-sheriff");
-    const sheriff = pub.units.find((u) => u.id === "adams-sheriff");
+    const sheriff = pub.groups
+      .flatMap((group) => group.units)
+      .find((u) => u.id === "adams-sheriff");
     assert.equal(sheriff.people.length, 1);
     assert.equal(sheriff.people[0].personId, "p-sheriff");
     assert.equal(
@@ -671,5 +673,276 @@ test("hidden and former units stay off the public section", async () => {
     assert.ok(!page.includes("Public Works"));
     assert.ok(!page.includes("Detention Division"));
     assert.match(page, /Patrol Division/);
+  });
+});
+
+// COUNTY-DB-1 display corrections (#269, #259 reproduction).
+
+const publicView = (ctx, fips = "08001") =>
+  new D1CountyStructurePublicService(ctx.d1).getCountyStructure(fips);
+
+const headingOf = (view, id) => {
+  const hits = [];
+  const walk = (units, heading) => {
+    for (const unit of units) {
+      if (unit.id === id) hits.push(heading);
+      walk(unit.children, heading);
+    }
+  };
+  for (const group of view.groups) walk(group.units, group.name);
+  return hits;
+};
+
+const countOf = (page, text) => page.split(text).length - 1;
+
+test("a unit with no saved heading shows under its type heading, and Other once", async () => {
+  await withStructure(async (ctx) => {
+    await load(
+      ctx,
+      csv([
+        row(ADAMS, { id: "u-dept", name: "Planning", type: "department" }),
+        row(ADAMS, { id: "u-board", name: "Library Board", type: "board" }),
+        row(ADAMS, {
+          id: "u-comm",
+          name: "Zoning Commission",
+          type: "commission",
+        }),
+        row(ADAMS, {
+          id: "u-odd1",
+          name: "Special Project Alpha",
+          type: "program",
+        }),
+        row(ADAMS, {
+          id: "u-odd2",
+          name: "Special Project Beta",
+          type: "other",
+        }),
+      ]),
+    );
+    const view = await publicView(ctx);
+    assert.deepEqual(headingOf(view, "u-dept"), ["Departments"]);
+    assert.deepEqual(headingOf(view, "u-board"), ["Boards"]);
+    assert.deepEqual(headingOf(view, "u-comm"), ["Commissions"]);
+    assert.deepEqual(headingOf(view, "u-odd1"), ["Other"]);
+    assert.deepEqual(headingOf(view, "u-odd2"), ["Other"]);
+    assert.equal(view.groups.filter((g) => g.name === "Other").length, 1);
+    const page = String(countyStructureSection("Adams County", view));
+    for (const name of ["Planning", "Library Board", "Special Project Alpha"])
+      assert.equal(countOf(page, name), 1, name);
+    assert.equal(countOf(page, ">Other<"), 1);
+  });
+});
+
+test("a saved heading wins, and the county's own matching heading is reused", async () => {
+  await withStructure(async (ctx) => {
+    await load(
+      ctx,
+      csv([
+        row(ADAMS, {
+          id: "g-dept",
+          name: "Departments",
+          type: "display_group",
+          order: "1",
+        }),
+        row(ADAMS, {
+          id: "g-eo",
+          name: "Elected Official",
+          type: "display_group",
+          order: "2",
+        }),
+        row(ADAMS, {
+          id: "u-assessor",
+          name: "Assessor",
+          parent: "g-eo",
+          rel: "display_group",
+          type: "office",
+        }),
+        row(ADAMS, { id: "u-works", name: "Public Works", type: "department" }),
+        row(ADAMS, { id: "u-clerk", name: "Clerk", type: "office" }),
+      ]),
+    );
+    const view = await publicView(ctx);
+    assert.deepEqual(headingOf(view, "u-assessor"), ["Elected Official"]);
+    assert.deepEqual(headingOf(view, "u-works"), ["Departments"]);
+    assert.deepEqual(headingOf(view, "u-clerk"), ["Offices"]);
+    assert.equal(view.groups.filter((g) => g.name === "Departments").length, 1);
+  });
+});
+
+test("a verified parent nests once, a held parent stays under Departments, and the Sheriff stays top-level", async () => {
+  await withStructure(async (ctx) => {
+    const rows = adamsRows();
+    rows.push(
+      // Reporting parent held: no parent id, the reason stays in private evidence.
+      row(ADAMS, {
+        id: "adams-rb-held",
+        name: "Road and Bridge",
+        type: "department",
+        evidence: "Synthetic hold: reporting line not verified.",
+      }),
+    );
+    await load(ctx, csv(rows));
+    const view = await publicView(ctx);
+    // Verified nested line: Road & Bridge sits under Public Works, once.
+    assert.deepEqual(headingOf(view, "adams-roads"), ["Departments"]);
+    const works = view.groups
+      .flatMap((g) => g.units)
+      .find((u) => u.id === "adams-works");
+    assert.deepEqual(
+      works.children.map((c) => c.id),
+      ["adams-roads"],
+    );
+    assert.equal(
+      view.groups.flatMap((g) => g.units).some((u) => u.id === "adams-roads"),
+      false,
+    );
+    // Held parent: the unit is a direct child of the Departments heading.
+    const departments = view.groups.find((g) => g.name === "Departments");
+    assert.ok(departments.units.some((u) => u.id === "adams-rb-held"));
+    const held = ctx.database
+      .prepare(
+        "SELECT parent_unit_id, evidence FROM county_unit WHERE id = 'adams-rb-held'",
+      )
+      .get();
+    assert.equal(held.parent_unit_id, null);
+    assert.match(held.evidence, /hold/);
+    // Sheriff's Office: structural root, not under Elected Official.
+    assert.ok(!headingOf(view, "adams-sheriff").includes("Elected Official"));
+    assert.equal(headingOf(view, "adams-sheriff").length, 1);
+    assert.equal(
+      ctx.database
+        .prepare(
+          "SELECT parent_unit_id FROM county_unit WHERE id = 'adams-sheriff'",
+        )
+        .get().parent_unit_id,
+      null,
+    );
+    const page = String(countyStructureSection("Adams County", view));
+    for (const name of [
+      "Road and Bridge",
+      "Sheriff&#39;s Office",
+      "Public Works",
+    ]) {
+      assert.equal(countOf(page, `class="structure-name">${name}<`), 1, name);
+    }
+  });
+});
+
+test("whitespace-only aliases on one unit ID show one public label and stay in private data", async () => {
+  await withStructure(async (ctx) => {
+    await load(
+      ctx,
+      csv([
+        row(ADAMS, {
+          id: "u-hyphen",
+          name: "Health-Human Services",
+          type: "department",
+          aliases:
+            '["Health - Human Services","Health -Human  Services","Public Health"]',
+        }),
+        row(ADAMS, {
+          id: "u-slash",
+          name: "Clerk/Recorder",
+          type: "office",
+          aliases: '["Clerk / Recorder"]',
+        }),
+      ]),
+    );
+    const view = await publicView(ctx);
+    const find = (id) =>
+      view.groups.flatMap((g) => g.units).find((u) => u.id === id);
+    assert.deepEqual(find("u-hyphen").aliases, ["Public Health"]);
+    assert.deepEqual(find("u-slash").aliases, []);
+    const page = String(countyStructureSection("Adams County", view));
+    assert.ok(!page.includes("Health - Human Services"));
+    assert.ok(!page.includes("Clerk / Recorder"));
+    assert.equal(countOf(page, "Also known as"), 1);
+    // Literal spellings stay in the database and round trip through export.
+    assert.equal(
+      ctx.database
+        .prepare(
+          "SELECT count(*) AS n FROM county_unit_alias WHERE unit_id = 'u-hyphen'",
+        )
+        .get().n,
+      3,
+    );
+    const exported = await ctx.service.exportCsv(ctx.owner, "08001");
+    assert.ok(exported.csv.includes("Health - Human Services"));
+    assert.ok(exported.csv.includes("Clerk / Recorder"));
+  });
+});
+
+test("distinct IDs with lookalike names stay separate public units", async () => {
+  await withStructure(async (ctx) => {
+    await load(
+      ctx,
+      csv([
+        row(ADAMS, { id: "u-a", name: "Road-Bridge", type: "department" }),
+        row(ADAMS, { id: "u-b", name: "Road - Bridge", type: "department" }),
+      ]),
+    );
+    const view = await publicView(ctx);
+    assert.deepEqual(headingOf(view, "u-a"), ["Departments"]);
+    assert.deepEqual(headingOf(view, "u-b"), ["Departments"]);
+    assert.equal(unitIds(ctx.database, "08001").length, 2);
+    const page = String(countyStructureSection("Adams County", view));
+    assert.equal(countOf(page, "Road-Bridge"), 1);
+    assert.equal(countOf(page, "Road - Bridge"), 1);
+  });
+});
+
+test("a replacement preview protects linked Profile roles and keeps them when the unit is only re-headed", async () => {
+  await withStructure(async (ctx) => {
+    await load(ctx, csv(adamsRows()));
+    const roleId = addPerson(ctx.database);
+    await ctx.service.addRoleDisplay(ctx.owner, {
+      personRoleId: roleId,
+      listing: "home",
+      unitId: "adams-sheriff",
+    });
+    const without = await importCsv(
+      ctx,
+      csv(
+        adamsRows().filter(
+          (r) => r[2] !== "adams-sheriff" && r[4] !== "adams-sheriff",
+        ),
+      ),
+      "replace_county",
+      "08001",
+    );
+    assert.equal(without.committable, false);
+    const sheriffItem = without.items.find(
+      (i) => i.entityId === "adams-sheriff",
+    );
+    assert.equal(sheriffItem.blocked, true);
+    assert.equal(sheriffItem.profileReferences, 1);
+    // Re-heading the same ID under a saved group keeps the link and commits.
+    const moved = adamsRows().map((r) => [...r]);
+    for (const r of moved) {
+      if (r[2] === "adams-sheriff") {
+        r[4] = "adams-eo";
+        r[5] = "Elected Official";
+        r[6] = "Sheriff's Office";
+        r[10] = "display_group";
+      }
+      if (r[4] === "adams-sheriff") {
+        r[5] = "Elected Official";
+        r[7] = r[6];
+        r[6] = "Sheriff's Office";
+      }
+    }
+    const kept = await importCsv(ctx, csv(moved), "replace_county", "08001");
+    assert.equal(kept.committable, true, JSON.stringify(kept.issues));
+    await commit(ctx, kept);
+    assert.equal(
+      ctx.database
+        .prepare("SELECT count(*) AS n FROM county_role_display")
+        .get().n,
+      1,
+    );
+    assert.equal(
+      ctx.database.prepare("SELECT count(*) AS n FROM person_roles").get().n,
+      1,
+    );
   });
 });

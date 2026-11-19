@@ -6,9 +6,13 @@ import { personIsPublicSql } from "./person-visibility.js";
  *
  * Selects only public columns. It never reads evidence, source references,
  * import receipts or history. A unit shows only while it and every ancestor are
- * `active`. A display grouping such as "Elected Official" lists its top-level
- * units without being their reporting parent. The Elected Officials listing is
- * built from reviewed `county_role_display` rows and never from a title.
+ * `active`. A browse heading such as "Elected Official" or "Departments" lists
+ * top-level units without being their reporting parent. Every shown unit
+ * appears exactly once: under a verified parent when it has one, otherwise
+ * under its heading. A heading is the county's own saved grouping when the unit
+ * has one, then the county's matching grouping, then a generic category from
+ * the unit type, and **Other** when none applies. The Elected Officials listing
+ * is built from reviewed `county_role_display` rows and never from a title.
  */
 
 export interface PublicPerson {
@@ -39,8 +43,8 @@ export interface PublicElectedOfficial extends PublicPerson {
 
 export interface PublicCountyStructure {
   readonly countyFips: string;
+  /** Browse headings. Each shown unit appears once, under one heading. */
   readonly groups: readonly PublicGroup[];
-  readonly units: readonly PublicUnit[];
   readonly electedOfficials: readonly PublicElectedOfficial[];
   /** True when no County Structure has been imported for this county. */
   readonly empty: boolean;
@@ -56,7 +60,6 @@ export const emptyCountyStructure: CountyStructureReader = {
     return {
       countyFips,
       groups: [],
-      units: [],
       electedOfficials: [],
       empty: true,
     };
@@ -88,6 +91,40 @@ const byOrder = (
   return n !== 0 ? n : left.id.localeCompare(right.id, "en");
 };
 
+/**
+ * The comparison key for public labels. Two strings with the same key differ
+ * only in whitespace, including spaces around a hyphen or a slash. The literal
+ * strings stay in the database and the private evidence.
+ */
+export const labelKey = (value: string): string =>
+  value.normalize("NFKC").replace(/\s+/gu, "");
+
+/** One public label per unit: drop aliases that match the name or each other. */
+function publicAliases(name: string, aliases: readonly string[]): string[] {
+  const seen = new Set([labelKey(name)]);
+  const kept: string[] = [];
+  for (const alias of aliases) {
+    const key = labelKey(alias);
+    if (key.length === 0 || seen.has(key)) continue;
+    seen.add(key);
+    kept.push(alias);
+  }
+  return kept;
+}
+
+/** Generic browse headings, in display order, keyed by unit type. */
+const CATEGORIES = [
+  { id: "category:departments", name: "Departments", types: ["department"] },
+  { id: "category:offices", name: "Offices", types: ["office"] },
+  { id: "category:boards", name: "Boards", types: ["board"] },
+  { id: "category:commissions", name: "Commissions", types: ["commission"] },
+] as const;
+const OTHER = { id: "category:other", name: "Other" } as const;
+
+/** Singular/plural and case differences do not make a different heading. */
+const headingKey = (value: string): string =>
+  labelKey(value).toLowerCase().replace(/s$/u, "");
+
 export class D1CountyStructurePublicService implements CountyStructureReader {
   constructor(private readonly database: AsyncD1Database) {}
 
@@ -96,7 +133,6 @@ export class D1CountyStructurePublicService implements CountyStructureReader {
       return {
         countyFips,
         groups: [],
-        units: [],
         electedOfficials: [],
         empty: true,
       };
@@ -193,36 +229,58 @@ export class D1CountyStructurePublicService implements CountyStructureReader {
       }
     }
 
-    const childrenOf = new Map<string | null, UnitRow[]>();
+    // A unit with a shown parent nests under it. Every other shown unit is a
+    // root and takes exactly one browse heading.
+    const countyHeadings = new Map(
+      groups.map((group) => [headingKey(group.name), group.id]),
+    );
+    const headingFor = (unit: UnitRow): string => {
+      if (unit.display_group_id) return unit.display_group_id;
+      const category = CATEGORIES.find((entry) =>
+        (entry.types as readonly string[]).includes(unit.organization_type),
+      );
+      if (!category) return OTHER.id;
+      return countyHeadings.get(headingKey(category.name)) ?? category.id;
+    };
+    // Separate maps: a heading id and a unit id may look alike.
+    const childrenOf = new Map<string, UnitRow[]>();
+    const rootsOf = new Map<string, UnitRow[]>();
     for (const unit of visible) {
-      const key =
-        unit.parent_unit_id ??
-        (unit.display_group_id ? `group:${unit.display_group_id}` : null);
-      const list = childrenOf.get(key) ?? [];
+      const target = unit.parent_unit_id ? childrenOf : rootsOf;
+      const key = unit.parent_unit_id ?? headingFor(unit);
+      const list = target.get(key) ?? [];
       list.push(unit);
-      childrenOf.set(key, list);
+      target.set(key, list);
     }
     const node = (unit: UnitRow): PublicUnit => ({
       id: unit.id,
       name: unit.name,
       organizationType: unit.organization_type,
-      aliases: unit.aliases ? (JSON.parse(unit.aliases) as string[]) : [],
+      aliases: publicAliases(
+        unit.name,
+        unit.aliases ? (JSON.parse(unit.aliases) as string[]) : [],
+      ),
       people: homePeople.get(unit.id) ?? [],
       children: (childrenOf.get(unit.id) ?? []).sort(byOrder).map(node),
     });
 
-    const publicGroups = [...groups].sort(byOrder).map((group) => ({
-      id: group.id,
-      name: group.name,
-      units: (childrenOf.get(`group:${group.id}`) ?? [])
-        .sort(byOrder)
-        .map(node),
-    }));
-    const topLevel = (childrenOf.get(null) ?? []).sort(byOrder).map(node);
+    const unitsUnder = (id: string): PublicUnit[] =>
+      (rootsOf.get(id) ?? []).sort(byOrder).map(node);
+    const publicGroups: PublicGroup[] = [...groups]
+      .sort(byOrder)
+      .map((group) => ({
+        id: group.id,
+        name: group.name,
+        units: unitsUnder(group.id),
+      }));
+    for (const heading of [...CATEGORIES, OTHER]) {
+      const units = unitsUnder(heading.id);
+      if (units.length > 0)
+        publicGroups.push({ id: heading.id, name: heading.name, units });
+    }
     return {
       countyFips,
       groups: publicGroups,
-      units: topLevel,
       electedOfficials,
       empty: groups.length === 0 && units.length === 0,
     };

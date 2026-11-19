@@ -53,11 +53,6 @@ export function countyStructureSection(
   return html`<section class="section" id="structure" aria-labelledby="structure-heading">
     <h2 id="structure-heading">County structure</h2>
     <p class="section-intro">Offices and units of ${title} as recorded in this database. A person can appear under both a unit and an elected listing. It is still one record.</p>
-    ${
-      structure.units.length > 0
-        ? html`<ul class="structure-tree">${structure.units.map(unitItem)}</ul>`
-        : ""
-    }
     ${structure.groups.map(
       (group) => html`<h3 class="subhead">${group.name}</h3>
       <ul class="structure-tree">${group.units.map(unitItem)}</ul>`,
