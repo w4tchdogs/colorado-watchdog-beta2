@@ -1,3 +1,9 @@
+import {
+  ALTERNATE_NAME_TYPES,
+  PROFILES_MAX_NAME_AFFIX_LENGTH,
+  PROFILES_MAX_NAME_COMPONENT_LENGTH,
+  PROFILES_MAX_NAME_LENGTH,
+} from "../contracts/profiles.js";
 import type {
   PlannedSyncItem,
   SyncEntity,
@@ -22,6 +28,7 @@ const CREATE = new Map<string, SyncEntity>([
   ["create_position", "positions"],
   ["register_source", "role_sources"],
   ["create_person_role", "person_roles"],
+  ["create_profile_name", "profile_names"],
 ]);
 const UPDATE_FIELDS: Record<string, readonly string[]> = {
   organizations: [
@@ -31,11 +38,39 @@ const UPDATE_FIELDS: Record<string, readonly string[]> = {
     "parent_organization_id",
     "parent_relationship",
   ],
-  people: ["display_name"],
+  people: [
+    "display_name",
+    "first_name",
+    "middle_name",
+    "last_name",
+    "name_prefix",
+    "name_suffix",
+    "preferred_first_name",
+  ],
   positions: ["title"],
   role_sources: ["title"],
   person_roles: ["start_date", "end_date", "source_checked_at", "source_id"],
   organization_county_affiliations: [],
+  profile_names: [
+    "name_type",
+    "published_name",
+    "first_name",
+    "middle_name",
+    "last_name",
+    "name_prefix",
+    "name_suffix",
+    "applies_from",
+    "applies_until",
+  ],
+};
+/** Component fields and their length limits. Affixes are shorter. */
+const NAME_COMPONENT_LIMITS: Readonly<Record<string, number>> = {
+  first_name: PROFILES_MAX_NAME_COMPONENT_LENGTH,
+  middle_name: PROFILES_MAX_NAME_COMPONENT_LENGTH,
+  last_name: PROFILES_MAX_NAME_COMPONENT_LENGTH,
+  preferred_first_name: PROFILES_MAX_NAME_COMPONENT_LENGTH,
+  name_prefix: PROFILES_MAX_NAME_AFFIX_LENGTH,
+  name_suffix: PROFILES_MAX_NAME_AFFIX_LENGTH,
 };
 const ENUMS: Record<string, readonly string[]> = {
   organization_type: [
@@ -48,6 +83,7 @@ const ENUMS: Record<string, readonly string[]> = {
     "other",
   ],
   parent_relationship: ["reports_to", "grouped_under"],
+  name_type: ALTERNATE_NAME_TYPES,
   relationship_type: ["serves", "partner_for", "shared_service"],
   source_type: ["official_page", "public_document", "other_public"],
   publisher_classification: ["official", "unofficial"],
@@ -74,6 +110,7 @@ const REF_KEYS: Record<
     { id: "position_id", ref: "position_ref", entity: "positions" },
     { id: "source_id", ref: "source_ref", entity: "role_sources" },
   ],
+  profile_names: [{ id: "person_id", ref: "person_ref", entity: "people" }],
 };
 const TABLES: readonly SyncEntity[] = [
   "organizations",
@@ -82,6 +119,7 @@ const TABLES: readonly SyncEntity[] = [
   "positions",
   "role_sources",
   "person_roles",
+  "profile_names",
 ];
 const SAFE_MESSAGES: Record<SyncErrorCode, string> = {
   invalid_request: "The changeset structure is invalid.",
@@ -655,6 +693,14 @@ async function planUpdate(
     add("invalid_field", index);
     valid = false;
   }
+  if (entity === "people" || entity === "profile_names") {
+    if (!validateNameFields(fields, index, undefined, add, true)) valid = false;
+    if (
+      entity === "profile_names" &&
+      !validNameDateOrder(row, fields, index, add)
+    )
+      valid = false;
+  }
   if (
     entity === "positions" &&
     "title" in fields &&
@@ -708,6 +754,7 @@ async function validateCreateFields(
     positions: ["title"],
     role_sources: ["url", "title", "source_type", "publisher_classification"],
     person_roles: ["county_fips"],
+    profile_names: ["name_type", "published_name"],
   };
   for (const field of required[entity])
     if (!Object.hasOwn(f, field)) {
@@ -727,6 +774,8 @@ async function validateCreateFields(
       add("invalid_field", i, ref);
       ok = false;
     }
+  if (entity === "people" || entity === "profile_names")
+    ok = validateNameFields(f, i, ref, add, false) && ok;
   if (entity === "organizations") {
     if (
       f.organization_type === "county_government" &&
@@ -927,6 +976,91 @@ async function validateRoleUpdate(
   );
 }
 
+/**
+ * Name fields on a Profile or an alternate name. A component is a trimmed,
+ * non-empty string within its limit with no control characters. On update a
+ * component may also be null, which clears it. Dates are calendar dates and
+ * the end cannot precede the start within one create.
+ */
+function validateNameFields(
+  f: Record<string, unknown>,
+  i: number,
+  ref: string | undefined,
+  add: (code: SyncErrorCode, i?: number, ref?: string) => void,
+  update: boolean,
+): boolean {
+  let ok = true;
+  for (const [key, max] of Object.entries(NAME_COMPONENT_LIMITS)) {
+    if (!Object.hasOwn(f, key)) continue;
+    const value = f[key];
+    if (value === null && update) continue;
+    if (
+      typeof value !== "string" ||
+      value.length === 0 ||
+      value !== value.trim() ||
+      value.length > max ||
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: reject control characters
+      /[\u0000-\u001f\u007f]/.test(value)
+    ) {
+      add("invalid_field", i, ref);
+      ok = false;
+    }
+  }
+  if (Object.hasOwn(f, "published_name")) {
+    const value = f.published_name;
+    if (
+      typeof value !== "string" ||
+      value.trim().length === 0 ||
+      value !== value.trim() ||
+      value.length > PROFILES_MAX_NAME_LENGTH ||
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: reject control characters
+      /[\u0000-\u001f\u007f]/.test(value)
+    ) {
+      add("invalid_field", i, ref);
+      ok = false;
+    }
+  }
+  for (const key of ["applies_from", "applies_until"]) {
+    if (!Object.hasOwn(f, key)) continue;
+    if (f[key] === null && update) continue;
+    if (!validDate(f[key])) {
+      add("invalid_date", i, ref);
+      ok = false;
+    }
+  }
+  if (
+    typeof f.applies_from === "string" &&
+    typeof f.applies_until === "string" &&
+    validDate(f.applies_from) &&
+    validDate(f.applies_until) &&
+    f.applies_until < f.applies_from
+  ) {
+    add("date_order", i, ref);
+    ok = false;
+  }
+  if (Object.hasOwn(f, "name_type") && typeof f.name_type !== "string") {
+    add("invalid_enum", i, ref);
+    ok = false;
+  }
+  return ok;
+}
+/** An update's dates, merged with the stored ones, must stay in order. */
+function validNameDateOrder(
+  row: Record<string, unknown>,
+  fields: Record<string, unknown>,
+  i: number,
+  add: (code: SyncErrorCode, i?: number, ref?: string) => void,
+): boolean {
+  const pick = (key: string): unknown =>
+    Object.hasOwn(fields, key) ? fields[key] : row[key];
+  const from = pick("applies_from");
+  const until = pick("applies_until");
+  if (typeof from === "string" && typeof until === "string" && until < from) {
+    add("date_order", i);
+    return false;
+  }
+  return true;
+}
 function validateRoleDates(
   f: Record<string, unknown>,
   i: number,
@@ -1147,7 +1281,15 @@ function supportedCreateFields(entity: SyncEntity): string[] {
       "county_fips",
       "relationship_type",
     ],
-    people: ["display_name"],
+    people: [
+      "display_name",
+      "first_name",
+      "middle_name",
+      "last_name",
+      "name_prefix",
+      "name_suffix",
+      "preferred_first_name",
+    ],
     positions: ["organization_id", "organization_ref", "title"],
     role_sources: ["url", "title", "source_type", "publisher_classification"],
     person_roles: [
@@ -1164,6 +1306,19 @@ function supportedCreateFields(entity: SyncEntity): string[] {
       "published_office",
       "published_title",
       "job_description",
+    ],
+    profile_names: [
+      "person_id",
+      "person_ref",
+      "name_type",
+      "published_name",
+      "first_name",
+      "middle_name",
+      "last_name",
+      "name_prefix",
+      "name_suffix",
+      "applies_from",
+      "applies_until",
     ],
   };
   return base[entity];

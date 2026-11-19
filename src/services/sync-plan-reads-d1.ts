@@ -13,6 +13,7 @@ const TABLES = new Set<SyncEntity>([
   "positions",
   "role_sources",
   "person_roles",
+  "profile_names",
 ]);
 const ID_FIELDS: Readonly<Record<string, SyncEntity>> = {
   organization_id: "organizations",

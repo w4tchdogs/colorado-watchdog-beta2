@@ -13,6 +13,7 @@ const ENTITIES = new Set<string>([
   "positions",
   "role_sources",
   "person_roles",
+  "profile_names",
 ]);
 
 /**

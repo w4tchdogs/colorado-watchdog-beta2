@@ -158,3 +158,62 @@ BEFORE DELETE ON profile_name_events
 BEGIN
   SELECT RAISE(ABORT, 'profile_name_events are append-only');
 END;
+
+-- Sync receipts for alternate names. sync_batch_items restricts its entity and
+-- operation columns to the values the engine knew in 0005, so the importer
+-- could not record a created alternate name. The table is a leaf: nothing
+-- references it. Its rows are staged, the table is rebuilt with the two new
+-- values allowed, and the rows are restored unchanged with the same index and
+-- the three generation triggers from 0011.
+CREATE TABLE sync_rebuild_name_items AS SELECT * FROM sync_batch_items;
+DROP TABLE sync_batch_items;
+
+CREATE TABLE sync_batch_items (
+  batch_id TEXT NOT NULL REFERENCES sync_batches(id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+  item_index INTEGER NOT NULL CHECK (item_index >= 0),
+  client_ref TEXT NOT NULL CHECK (length(client_ref) BETWEEN 1 AND 128),
+  entity TEXT NOT NULL CHECK (entity IN (
+    'organizations', 'organization_county_affiliations', 'people',
+    'positions', 'role_sources', 'person_roles', 'profile_names'
+  )),
+  operation TEXT NOT NULL CHECK (operation IN (
+    'create_organization', 'add_county_affiliation', 'create_person',
+    'create_position', 'register_source', 'create_person_role',
+    'create_profile_name', 'update_record'
+  )),
+  target_id TEXT NOT NULL CHECK (length(target_id) BETWEEN 1 AND 128),
+  outcome TEXT NOT NULL CHECK (outcome IN ('created', 'updated', 'reused')),
+  previous_version INTEGER,
+  committed_version INTEGER NOT NULL CHECK (committed_version > 0),
+  inverse_json TEXT NOT NULL CHECK (json_valid(inverse_json) AND length(inverse_json) <= 32768),
+  PRIMARY KEY (batch_id, item_index)
+) STRICT;
+
+INSERT INTO sync_batch_items SELECT * FROM sync_rebuild_name_items;
+DROP TABLE sync_rebuild_name_items;
+
+CREATE INDEX sync_batch_items_target ON sync_batch_items(entity, target_id);
+
+CREATE TRIGGER website_dependency_sync_batch_items_insert
+AFTER INSERT ON sync_batch_items
+BEGIN
+  UPDATE website_dependency_generation
+  SET generation = generation + 1
+  WHERE id = 1;
+END;
+
+CREATE TRIGGER website_dependency_sync_batch_items_update
+AFTER UPDATE ON sync_batch_items
+BEGIN
+  UPDATE website_dependency_generation
+  SET generation = generation + 1
+  WHERE id = 1;
+END;
+
+CREATE TRIGGER website_dependency_sync_batch_items_delete
+AFTER DELETE ON sync_batch_items
+BEGIN
+  UPDATE website_dependency_generation
+  SET generation = generation + 1
+  WHERE id = 1;
+END;

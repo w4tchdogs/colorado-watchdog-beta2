@@ -2,7 +2,7 @@
 // Synthetic Adams-sized fixture for the dashboard Profiles import (SYNC-1).
 // Every name, URL and ID is invented (example.invalid). No real person appears.
 //
-//   node scripts/profiles-import-fixture.mjs --out <folder> [--profiles 262] [--roles 413]
+//   node scripts/profiles-import-fixture.mjs --out <folder> [--profiles 262] [--roles 413] [--names 0]
 //
 // Writes profile.csv and profile_role.csv for the owner to upload on the
 // Cloudflare synthetic acceptance run. Uses the key prefix "SYN" so the rows
@@ -19,6 +19,7 @@ export function buildAdamsFixture({
   profiles = 262,
   roles = 413,
   tag = "SYN",
+  names = 0,
 } = {}) {
   const pad = (n, width) => String(n).padStart(width, "0");
   const profileRows = [line(["profile_id", "display_name"])];
@@ -61,10 +62,33 @@ export function buildAdamsFixture({
       ]),
     );
   }
-  return {
+  const files = {
     profile: `${profileRows.join("\r\n")}\r\n`,
     profileRole: `${roleRows.join("\r\n")}\r\n`,
   };
+  if (names > 0) {
+    const nameRows = [
+      line([
+        "profile_name_id",
+        "profile_id",
+        "name_type",
+        "published_name",
+        "applies_from",
+      ]),
+    ];
+    for (let i = 1; i <= names; i++)
+      nameRows.push(
+        line([
+          `${tag}-N${pad(i, 4)}`,
+          `${tag}-P${pad(((i - 1) % profiles) + 1, 4)}`,
+          i % 2 === 0 ? "nickname" : "spelling_variant",
+          `Synthetic Adams Alternate ${pad(i, 4)}`,
+          "",
+        ]),
+      );
+    return { ...files, profileName: `${nameRows.join("\r\n")}\r\n` };
+  }
+  return files;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
@@ -83,9 +107,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const files = buildAdamsFixture({
     profiles: Number(value("--profiles", "262")),
     roles: Number(value("--roles", "413")),
+    names: Number(value("--names", "0")),
   });
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, "profile.csv"), files.profile);
   writeFileSync(join(out, "profile_role.csv"), files.profileRole);
-  console.log(`Wrote synthetic profile.csv and profile_role.csv to ${out}`);
+  if (files.profileName)
+    writeFileSync(join(out, "profile_name.csv"), files.profileName);
+  console.log(`Wrote synthetic import files to ${out}`);
 }

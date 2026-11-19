@@ -169,7 +169,7 @@ test("reads quoted fields, a byte order mark, CRLF and v6 header aliases", () =>
     "profile.csv",
     "profile_id,display_name,first_name,claim_id\r\nP1,A,Jo,c1\r\n",
   );
-  assert.deepEqual(withExtra.ignoredColumns, ["first_name", "claim_id"]);
+  assert.deepEqual(withExtra.ignoredColumns, ["claim_id"]);
   assert.equal(
     parseImportFile("profile.csv", "profile_id\r\nP1\r\n").issues[0].code,
     "missing_column",
@@ -221,6 +221,7 @@ test("commit is atomic, assigns Website IDs and creates every new Profile hidden
       roles: 2,
       sources: 1,
       reusedSources: 0,
+      names: 0,
     });
     assert.equal(count("people"), 3);
     assert.equal(count("person_roles"), 3);
@@ -416,7 +417,7 @@ test("a re-upload updates through stable IDs and field versions, and preserves e
       files: second,
       digest: preview.digest,
     });
-    assert.deepEqual(receipt.updated, { profiles: 1, roles: 0 });
+    assert.deepEqual(receipt.updated, { profiles: 1, roles: 0, names: 0 });
     assert.equal(count("people"), before.people + 1);
     const name = (id) =>
       database.prepare("SELECT display_name n FROM people WHERE id = ?").get(id)
@@ -949,6 +950,7 @@ test("a follow-on batch keeps three distinct roles on one Profile, reuses the sh
       roles: 3,
       sources: 1,
       reusedSources: 0,
+      names: 0,
     });
     const sourceCount = count("role_sources");
     const sharedId = database
@@ -978,6 +980,7 @@ test("a follow-on batch keeps three distinct roles on one Profile, reuses the sh
       roles: 7,
       sources: 0,
       reusedSources: 0,
+      names: 0,
     });
     assert.equal(count("role_sources"), sourceCount, "no second source row");
     const f1 = idFor(database, "F1");
@@ -1274,5 +1277,616 @@ test("two commits from one preview with different keys cannot both create record
       }),
     );
     assert.equal(snapshot(count).people, baseline.people + 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Names: primary components and typed alternates (profile.csv + profile_name.csv)
+// ---------------------------------------------------------------------------
+
+const NAME_PROFILE_HEAD = [
+  "profile_id",
+  "display_name",
+  "first_name",
+  "middle_name",
+  "last_name",
+  "name_prefix",
+  "name_suffix",
+  "preferred_first_name",
+];
+const NAME_HEAD = [
+  "profile_name_id",
+  "profile_id",
+  "name_type",
+  "published_name",
+  "first_name",
+  "last_name",
+  "applies_from",
+  "applies_until",
+  "verification_status",
+  "public_display",
+];
+const nameRow = (id, profile, type, published, extra = {}) => [
+  id,
+  profile,
+  type,
+  published,
+  extra.first ?? "",
+  extra.last ?? "",
+  extra.from ?? "",
+  extra.until ?? "",
+  extra.status ?? "",
+  extra.public ?? "",
+];
+const namesFiles = () => ({
+  profile: csv([
+    NAME_PROFILE_HEAD,
+    [
+      "P1",
+      "Synthetic Alpha Q Tester",
+      "Alpha",
+      "Q",
+      "Tester",
+      "Dr",
+      "Jr",
+      "Al",
+    ],
+    ["P2", "Synthetic Beta", "Beta", "", "Tester", "", "", ""],
+  ]),
+  profileName: csv([
+    NAME_HEAD,
+    nameRow("N1", "P1", "nickname", "Synthetic Nickname Alpha"),
+    nameRow("N2", "P1", "former_surname", "Alpha Formerly", {
+      first: "Alpha",
+      last: "Formerly",
+      from: "2010-01-01",
+      until: "2015-12-31",
+    }),
+    nameRow("N3", "P2", "spelling_variant", "Synthetic Betta", {
+      status: "Confirmed",
+      public: "Yes",
+    }),
+  ]),
+});
+const nameRowsFor = (database) =>
+  database
+    .prepare(
+      "SELECT id, person_id, name_type, published_name, verification_status, public_display, removed_at, version FROM profile_names ORDER BY published_name",
+    )
+    .all();
+
+test("names: components and several typed alternates on one Profile preview and commit private", async () => {
+  await withService(async ({ service, owner, count, database }) => {
+    const files = namesFiles();
+    const before = snapshot(count);
+    const preview = await service.preview(owner, { files });
+    assert.deepEqual(snapshot(count), before, "preview wrote nothing");
+    assert.equal(preview.canCommit, true, JSON.stringify(preview.issues));
+    assert.equal(preview.profiles.add, 2);
+    assert.equal(preview.names.add, 3);
+    assert.equal(preview.newNamesPrivate, 3);
+    assert.equal(preview.namesPublishRequested, 1);
+    assert.ok(
+      preview.rows
+        .filter((r) => r.kind === "name")
+        .every((r) => r.visibility === "private_pending_review"),
+    );
+    const receipt = await service.commit(owner, "key-names-0001", {
+      files,
+      digest: preview.digest,
+    });
+    assert.equal(receipt.created.names, 3);
+    assert.equal(receipt.newNamesPrivate, 3);
+    const alpha = idFor(database, "P1");
+    const person = database
+      .prepare(
+        "SELECT first_name, middle_name, last_name, name_prefix, name_suffix, preferred_first_name FROM people WHERE id = ?",
+      )
+      .get(alpha);
+    assert.deepEqual(person, {
+      first_name: "Alpha",
+      middle_name: "Q",
+      last_name: "Tester",
+      name_prefix: "Dr",
+      name_suffix: "Jr",
+      preferred_first_name: "Al",
+    });
+    const names = nameRowsFor(database);
+    assert.equal(names.length, 3);
+    assert.equal(names.filter((n) => n.person_id === alpha).length, 2);
+    for (const n of names) {
+      assert.equal(n.public_display, 0, "no imported name is public");
+      assert.equal(n.verification_status, "requires_review");
+      assert.equal(n.removed_at, null);
+    }
+    // A file that asks for Public and Confirmed changed nothing about review.
+    assert.equal(
+      names.find((n) => n.published_name === "Synthetic Betta")
+        .verification_status,
+      "requires_review",
+    );
+  });
+});
+
+test("names: private names stay out of public search and approved names appear", async () => {
+  await withService(async ({ service, profiles, owner, d1, database }) => {
+    const files = {
+      ...namesFiles(),
+      profileRole: csv([ROLE_HEAD, role("R1", "P1")]),
+    };
+    const { digest } = await service.preview(owner, { files });
+    await service.commit(owner, "key-names-0002", { files, digest });
+    const alpha = idFor(database, "P1");
+    // Publish the Profile itself. Its names stay private.
+    await profiles.save(owner, "key-names-pub-01", [
+      {
+        kind: "visibility",
+        personId: alpha,
+        expectedVersion: 1,
+        visible: true,
+      },
+    ]);
+    const runtimes = [
+      ["SQL.js", createServices({ database })],
+      ["D1", createD1PublicReadServices(d1)],
+    ];
+    for (const [label, services] of runtimes) {
+      assert.deepEqual(
+        (await services.searchPeople({ query: "Synthetic Nickname Alpha" }))
+          .items,
+        [],
+        `${label} private alternate is not searchable`,
+      );
+      assert.equal(
+        (await services.searchPeople({ query: "Synthetic Alpha" })).items
+          .length,
+        1,
+        `${label} the published display name is`,
+      );
+    }
+    // Owner review: confirm and publish one name through the Names editor.
+    const list = await profiles.alternateNames(owner, alpha);
+    const nick = list.names.find(
+      (n) => n.publishedName === "Synthetic Nickname Alpha",
+    );
+    await profiles.save(owner, "key-names-approve-1", [
+      {
+        kind: "alternate_name",
+        op: "update",
+        personId: alpha,
+        nameId: nick.id,
+        expectedVersion: nick.version,
+        fields: {
+          nameType: nick.nameType,
+          firstName: nick.firstName,
+          middleName: nick.middleName,
+          lastName: nick.lastName,
+          namePrefix: nick.namePrefix,
+          nameSuffix: nick.nameSuffix,
+          publishedName: nick.publishedName,
+          appliesFrom: nick.appliesFrom,
+          appliesUntil: nick.appliesUntil,
+          verificationStatus: "confirmed",
+          publicDisplay: true,
+        },
+      },
+    ]);
+    for (const [label, services] of runtimes) {
+      assert.deepEqual(
+        (
+          await services.searchPeople({ query: "Synthetic Nickname Alpha" })
+        ).items.map((i) => i.id),
+        [alpha],
+        `${label} approved alternate is searchable`,
+      );
+      assert.deepEqual(
+        (await services.searchPeople({ query: "Alpha Formerly" })).items,
+        [],
+        `${label} the unreviewed alternate stays out`,
+      );
+    }
+  });
+});
+
+test("names: bad IDs, duplicates, unknown Profiles and invalid fields block the commit", async () => {
+  await withService(async ({ service, owner, count }) => {
+    const before = snapshot(count);
+    const files = {
+      profile: csv([PROFILE_HEAD, ["P1", "Synthetic Alpha"]]),
+      profileName: csv([
+        NAME_HEAD,
+        nameRow("N1", "P1", "nickname", "Synthetic Nick"),
+        nameRow("N1", "P1", "nickname", "Synthetic Nick Two"),
+        nameRow("bad id", "P1", "nickname", "Synthetic Bad Id"),
+        nameRow("N3", "P-MISSING", "nickname", "Synthetic Orphan"),
+        nameRow("N4", "P1", "not_a_type", "Synthetic Type"),
+        nameRow("N5", "P1", "nickname", "synthetic nick"),
+        nameRow("N6", "P1", "other", "Synthetic Dates", {
+          from: "2020-02-30",
+        }),
+        nameRow("N7", "P1", "other", "Synthetic Order", {
+          from: "2020-02-01",
+          until: "2019-01-01",
+        }),
+        nameRow("N8", "P1", "other", "Synthetic Flag", { public: "maybe" }),
+      ]),
+    };
+    const preview = await service.preview(owner, { files });
+    assert.equal(preview.canCommit, false);
+    const codes = new Set(preview.issues.map((i) => i.code));
+    for (const code of [
+      "duplicate_key",
+      "invalid_name_id",
+      "missing_profile",
+      "invalid_name_type",
+      "duplicate_name",
+      "invalid_date",
+      "date_order",
+      "invalid_flag",
+    ])
+      assert.ok(codes.has(code), `reports ${code}`);
+    assert.ok(
+      preview.issues.every(
+        (i) => i.file === "profile_name.csv" || i.file === "profile.csv",
+      ),
+    );
+    await assert.rejects(
+      () =>
+        service.commit(owner, "key-names-bad-001", {
+          files,
+          digest: preview.digest,
+        }),
+      (error) => error instanceof ImportValidationError,
+    );
+    assert.deepEqual(snapshot(count), before);
+    assert.equal(count("profile_names"), 0);
+  });
+});
+
+test("names: replay, a second key and a stale preview never duplicate names", async () => {
+  await withService(async ({ service, owner, count, database }) => {
+    const files = namesFiles();
+    const { digest } = await service.preview(owner, { files });
+    const first = await service.commit(owner, "key-names-0003", {
+      files,
+      digest,
+    });
+    const replay = await service.commit(owner, "key-names-0003", {
+      files,
+      digest,
+    });
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.batchId, first.batchId);
+    assert.equal(count("profile_names"), 3);
+    await assert.rejects(
+      () => service.commit(owner, "key-names-0004", { files, digest }),
+      (error) => error instanceof ImportStalePreviewError,
+    );
+    assert.equal(count("profile_names"), 3);
+    // A re-upload of the same files is a clean no-op.
+    const again = await service.preview(owner, { files });
+    assert.equal(again.names.unchanged, 3);
+    assert.equal(again.names.add, 0);
+    assert.equal(again.profiles.unchanged, 2);
+    // Preview made before a Website edit is stale at commit.
+    const files2 = {
+      ...files,
+      profileName: files.profileName.replace(
+        "Synthetic Nickname Alpha",
+        "Synthetic Nickname Alpha Two",
+      ),
+    };
+    const p2 = await service.preview(owner, { files: files2 });
+    assert.equal(p2.names.update, 1);
+    const n1 = idFor(database, "P1");
+    database
+      .prepare(
+        "UPDATE people SET display_name = ?, version = version + 1 WHERE id = ?",
+      )
+      .run("Synthetic Alpha Edited", n1);
+    await assert.rejects(
+      () =>
+        service.commit(owner, "key-names-0005", {
+          files: files2,
+          digest: p2.digest,
+        }),
+      (error) => error instanceof ImportStalePreviewError,
+    );
+  });
+});
+
+test("names: re-import updates private names and primary components, and reversal restores them", async () => {
+  await withService(async ({ service, owner, database }) => {
+    const files = namesFiles();
+    const { digest } = await service.preview(owner, { files });
+    await service.commit(owner, "key-names-0006", { files, digest });
+    const changed = {
+      profile: files.profile.replace(
+        ",Alpha,Q,Tester,Dr,Jr,Al",
+        ",Alpha,,Tester,Dr,III,Al",
+      ),
+      profileName: files.profileName.replace(
+        "Synthetic Nickname Alpha",
+        "Synthetic Nickname Renamed",
+      ),
+    };
+    const preview = await service.preview(owner, { files: changed });
+    assert.equal(preview.canCommit, true, JSON.stringify(preview.issues));
+    assert.equal(preview.profiles.update, 1);
+    assert.equal(preview.names.update, 1);
+    const fields = preview.rows
+      .find((r) => r.kind === "profile" && r.action === "update")
+      .fields.map((f) => f.field)
+      .sort();
+    assert.deepEqual(fields, ["middle_name", "name_suffix"]);
+    const receipt = await service.commit(owner, "key-names-0007", {
+      files: changed,
+      digest: preview.digest,
+    });
+    assert.equal(receipt.updated.names, 1);
+    assert.equal(receipt.updated.profiles, 1);
+    const alpha = idFor(database, "P1");
+    const row = () =>
+      database
+        .prepare(
+          "SELECT middle_name, name_suffix, display_name FROM people WHERE id = ?",
+        )
+        .get(alpha);
+    assert.deepEqual(row(), {
+      middle_name: null,
+      name_suffix: "III",
+      display_name: "Synthetic Alpha Q Tester",
+    });
+    assert.ok(
+      nameRowsFor(database).some(
+        (n) => n.published_name === "Synthetic Nickname Renamed",
+      ),
+    );
+    const reversal = await service.reverse(
+      owner,
+      receipt.batchId,
+      "key-names-rev-0001",
+    );
+    assert.equal(reversal.status, "reverted");
+    assert.deepEqual(row(), {
+      middle_name: "Q",
+      name_suffix: "Jr",
+      display_name: "Synthetic Alpha Q Tester",
+    });
+    assert.ok(
+      nameRowsFor(database).some(
+        (n) => n.published_name === "Synthetic Nickname Alpha",
+      ),
+    );
+  });
+});
+
+test("names: reversing a first import removes the Profiles and names it created", async () => {
+  await withService(async ({ service, owner, count, database }) => {
+    const files = namesFiles();
+    const { digest } = await service.preview(owner, { files });
+    const receipt = await service.commit(owner, "key-names-0014", {
+      files,
+      digest,
+    });
+    assert.equal(count("profile_names"), 3);
+    const reversal = await service.reverse(
+      owner,
+      receipt.batchId,
+      "key-names-rev-0003",
+    );
+    assert.equal(reversal.status, "reverted");
+    assert.equal(nameRowsFor(database).length, 0);
+    assert.equal(count("people"), 1, "only the seeded Profile remains");
+    const again = await service.reverse(
+      owner,
+      receipt.batchId,
+      "key-names-rev-0003",
+    );
+    assert.equal(again.status, "reverted", "a retry with the same key replays");
+  });
+});
+
+test("names: owner edits, approvals and public names survive a re-import and changes are held", async () => {
+  await withService(async ({ service, profiles, owner, database }) => {
+    const files = namesFiles();
+    const { digest } = await service.preview(owner, { files });
+    await service.commit(owner, "key-names-0008", { files, digest });
+    const alpha = idFor(database, "P1");
+    const list = await profiles.alternateNames(owner, alpha);
+    const nick = list.names.find(
+      (n) => n.publishedName === "Synthetic Nickname Alpha",
+    );
+    const former = list.names.find((n) => n.publishedName === "Alpha Formerly");
+    const keep = (n, over) => ({
+      nameType: n.nameType,
+      firstName: n.firstName,
+      middleName: n.middleName,
+      lastName: n.lastName,
+      namePrefix: n.namePrefix,
+      nameSuffix: n.nameSuffix,
+      publishedName: n.publishedName,
+      appliesFrom: n.appliesFrom,
+      appliesUntil: n.appliesUntil,
+      verificationStatus: n.verificationStatus,
+      publicDisplay: n.publicDisplay,
+      ...over,
+    });
+    // Approve and publish the nickname. Owner-edit the former name's text.
+    await profiles.save(owner, "key-names-own-001", [
+      {
+        kind: "alternate_name",
+        op: "update",
+        personId: alpha,
+        nameId: nick.id,
+        expectedVersion: nick.version,
+        fields: keep(nick, {
+          verificationStatus: "confirmed",
+          publicDisplay: true,
+        }),
+      },
+      {
+        kind: "alternate_name",
+        op: "update",
+        personId: alpha,
+        nameId: former.id,
+        expectedVersion: former.version,
+        fields: keep(former, { publishedName: "Alpha Owner Edited" }),
+      },
+    ]);
+    const snapshotNames = () => JSON.stringify(nameRowsFor(database));
+    const before = snapshotNames();
+    const changed = {
+      ...files,
+      profileName: files.profileName
+        .replace("Synthetic Nickname Alpha", "Synthetic Nickname Hijack")
+        .replace("Alpha Formerly", "Alpha Importer Text"),
+    };
+    const preview = await service.preview(owner, { files: changed });
+    const nameRowsReport = preview.rows.filter((r) => r.kind === "name");
+    const publicRow = nameRowsReport.find((r) => r.key === "N1");
+    assert.equal(publicRow.action, "conflict");
+    assert.equal(publicRow.visibility, "stays_public");
+    assert.match(publicRow.reason, /public/i);
+    assert.equal(nameRowsReport.find((r) => r.key === "N2").action, "conflict");
+    assert.equal(preview.names.update, 0);
+    assert.equal(preview.canCommit, true);
+    await service.commit(owner, "key-names-0009", {
+      files: changed,
+      digest: preview.digest,
+    });
+    assert.equal(snapshotNames(), before, "nothing the owner decided changed");
+  });
+});
+
+test("names: a Website name that is already recorded is reported, not duplicated", async () => {
+  await withService(async ({ service, owner, database }) => {
+    const base = {
+      profile: csv([PROFILE_HEAD, ["P1", "Synthetic Alpha"]]),
+      profileName: csv([
+        NAME_HEAD,
+        nameRow("N1", "P1", "nickname", "Synthetic Nick"),
+      ]),
+    };
+    const { digest } = await service.preview(owner, { files: base });
+    await service.commit(owner, "key-names-0010", { files: base, digest });
+    const clash = {
+      ...base,
+      profileName: csv([
+        NAME_HEAD,
+        nameRow("N1", "P1", "nickname", "Synthetic Nick"),
+        nameRow("N9", "P1", "nickname", "synthetic nick"),
+      ]),
+    };
+    const preview = await service.preview(owner, { files: clash });
+    assert.equal(preview.canCommit, false);
+    assert.ok(preview.issues.some((i) => i.code === "duplicate_name"));
+    assert.equal(nameRowsFor(database).length, 1);
+  });
+});
+
+test("names: the existing two-file import and omitted name columns are unchanged", async () => {
+  await withService(async ({ service, owner, database }) => {
+    const files = small();
+    const { digest, names } = await service.preview(owner, { files });
+    assert.equal(names.add + names.update + names.conflict, 0);
+    const receipt = await service.commit(owner, "key-names-0011", {
+      files,
+      digest,
+    });
+    assert.equal(receipt.created.names, 0);
+    const alpha = idFor(database, "P1");
+    // A later file that adds component columns fills them in.
+    const richer = {
+      ...files,
+      profile: csv([
+        ["profile_id", "display_name", "last_name"],
+        ["P1", "Synthetic Alpha", "Alpha"],
+        ["P2", "Synthetic Beta", ""],
+      ]),
+    };
+    const p = await service.preview(owner, { files: richer });
+    assert.equal(p.profiles.update, 1);
+    assert.equal(p.profiles.unchanged, 1);
+    await service.commit(owner, "key-names-0012", {
+      files: richer,
+      digest: p.digest,
+    });
+    assert.equal(
+      database.prepare("SELECT last_name FROM people WHERE id = ?").get(alpha)
+        .last_name,
+      "Alpha",
+    );
+    // And the original file, without the column, leaves it alone.
+    const original = await service.preview(owner, { files });
+    assert.equal(original.profiles.update, 0);
+  });
+});
+
+test("names: an unknown file or non-text name file is rejected", async () => {
+  await withService(async ({ service, owner }) => {
+    await assert.rejects(
+      () => service.preview(owner, { files: { ...small(), extra: "x" } }),
+      /Unexpected file/,
+    );
+    await assert.rejects(
+      () => service.preview(owner, { files: { ...small(), profileName: 5 } }),
+      /profile_name\.csv must be text/,
+    );
+  });
+});
+
+test("names: a published Profile with a county-coded role and no unit link is in county Profile lists but not County Structure", async () => {
+  await withService(async ({ service, profiles, owner, d1, database }) => {
+    const files = small();
+    const runtimes = () => [
+      ["SQL.js", createServices({ database })],
+      ["D1", createD1PublicReadServices(d1)],
+    ];
+    const structureBefore = JSON.stringify(
+      await runtimes()[0][1].getCountyStructure({ countyFips: "08001" }),
+    );
+    const { digest } = await service.preview(owner, { files });
+    await service.commit(owner, "key-names-0013", { files, digest });
+    const alpha = idFor(database, "P1");
+    await profiles.save(owner, "key-names-pub-02", [
+      {
+        kind: "visibility",
+        personId: alpha,
+        expectedVersion: 1,
+        visible: true,
+      },
+    ]);
+    for (const [label, services] of runtimes()) {
+      assert.deepEqual(
+        (await services.searchPeople({ query: "Synthetic Alpha" })).items.map(
+          (i) => i.id,
+        ),
+        [alpha],
+        `${label} search`,
+      );
+      assert.ok(
+        (await services.browsePeople({})).items.some((i) => i.id === alpha),
+        `${label} browse`,
+      );
+      const entries = (
+        await services.listCountyRoleEntries({ countyFips: "08001" })
+      ).items;
+      assert.ok(
+        entries.some(
+          (i) => i.role.person_id === alpha || i.person?.id === alpha,
+        ),
+        `${label} county Profile list`,
+      );
+      const structure = await services.getCountyStructure({
+        countyFips: "08001",
+      });
+      assert.equal(
+        JSON.stringify(structure),
+        structureBefore,
+        `${label} structure`,
+      );
+      assert.equal(JSON.stringify(structure).includes(alpha), false);
+    }
   });
 });

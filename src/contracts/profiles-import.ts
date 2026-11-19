@@ -1,4 +1,5 @@
 import { PROFILES_API_PREFIX } from "./profiles.js";
+import type { PersonNameComponentField } from "./sync.js";
 
 /**
  * Dashboard Profiles CSV import contract (SYNC-1).
@@ -25,11 +26,34 @@ export const IMPORT_REF = {
   profile: "dash:profile:",
   role: "dash:role:",
   source: "dash:source:",
+  name: "dash:name:",
 } as const;
 
 export const PROFILE_FILE = "profile.csv" as const;
 export const ROLE_FILE = "profile_role.csv" as const;
-export type ProfilesImportFileName = typeof PROFILE_FILE | typeof ROLE_FILE;
+export const NAME_FILE = "profile_name.csv" as const;
+export type ProfilesImportFileName =
+  | typeof PROFILE_FILE
+  | typeof ROLE_FILE
+  | typeof NAME_FILE;
+
+/**
+ * Primary name components accepted in profile.csv, with their length limits.
+ * An absent column leaves that component untouched. A present column with a
+ * blank cell clears it, unless the Profile changed on the Website after its
+ * last import.
+ */
+export const PROFILE_NAME_COMPONENT_COLUMNS: readonly {
+  readonly column: PersonNameComponentField;
+  readonly max: number;
+}[] = [
+  { column: "first_name", max: 200 },
+  { column: "middle_name", max: 200 },
+  { column: "last_name", max: 200 },
+  { column: "name_prefix", max: 50 },
+  { column: "name_suffix", max: 50 },
+  { column: "preferred_first_name", max: 200 },
+];
 
 /**
  * Accepted file contract. Headers are matched after lowercasing and replacing
@@ -38,7 +62,34 @@ export type ProfilesImportFileName = typeof PROFILE_FILE | typeof ROLE_FILE;
  */
 export const PROFILE_FILE_COLUMNS = {
   required: ["profile_id", "display_name"],
-  optional: [] as readonly string[],
+  optional: [
+    "first_name",
+    "middle_name",
+    "last_name",
+    "name_prefix",
+    "name_suffix",
+    "preferred_first_name",
+  ] as readonly string[],
+} as const;
+/**
+ * Typed alternate names. Each row has its own stable ID and names its
+ * Profile by the stable profile_id. verification_status and public_display
+ * are read only to warn: an imported alternate is always created private and
+ * pending review, whatever the file says. No evidence or claim column is read.
+ */
+export const NAME_FILE_COLUMNS = {
+  required: ["profile_name_id", "profile_id", "name_type", "published_name"],
+  optional: [
+    "first_name",
+    "middle_name",
+    "last_name",
+    "name_prefix",
+    "name_suffix",
+    "applies_from",
+    "applies_until",
+    "verification_status",
+    "public_display",
+  ],
 } as const;
 export const ROLE_FILE_COLUMNS = {
   required: [
@@ -69,6 +120,7 @@ export const HEADER_ALIASES: Readonly<Record<string, string>> = {
 export interface ProfilesImportFiles {
   readonly profile: string;
   readonly profileRole?: string;
+  readonly profileName?: string;
 }
 
 export type ImportAction =
@@ -77,11 +129,17 @@ export type ImportAction =
   | "unchanged"
   | "conflict"
   | "blocked";
-export type ImportRecordKind = "profile" | "role" | "source";
+export type ImportRecordKind = "profile" | "role" | "source" | "name";
 export type ImportVisibility =
   | "hidden_on_create"
   | "stays_hidden"
   | "stays_visible"
+  /** A new alternate name: private and pending explicit owner review. */
+  | "private_pending_review"
+  /** An existing alternate name that is not public. It stays private. */
+  | "stays_private"
+  /** An existing alternate name the owner made public. A change is held. */
+  | "stays_public"
   | "not_applicable";
 
 export interface ImportIssue {
@@ -124,7 +182,12 @@ export interface ProfilesImportPreview {
   readonly profiles: ProfilesImportCounts;
   readonly roles: ProfilesImportCounts;
   readonly sources: ProfilesImportCounts;
+  readonly names: ProfilesImportCounts;
   readonly newProfilesHidden: number;
+  /** New alternate names created private and pending review. */
+  readonly newNamesPrivate: number;
+  /** Rows whose file marks the name Public or Confirmed. Both are ignored. */
+  readonly namesPublishRequested: number;
   readonly rows: readonly ImportRowReport[];
   readonly rowsTruncated: boolean;
   readonly issues: readonly ImportIssue[];
@@ -148,8 +211,14 @@ export interface ProfilesImportReceipt {
     readonly roles: number;
     readonly sources: number;
     readonly reusedSources: number;
+    readonly names: number;
   };
-  readonly updated: { readonly profiles: number; readonly roles: number };
+  readonly updated: {
+    readonly profiles: number;
+    readonly roles: number;
+    readonly names: number;
+  };
+  readonly newNamesPrivate: number;
   readonly newProfilesHidden: number;
   readonly createdProfiles: readonly {
     readonly key: string;

@@ -97,6 +97,7 @@ const SAFE_MESSAGES: Readonly<Record<string, string>> = {
   invalid_idempotency_key: "The idempotency key is invalid.",
   idempotency_mismatch:
     "This idempotency key is already associated with a different request.",
+  unsupported_field: "A field is not allowed for this operation.",
   commit_conflict:
     "The changeset conflicted with current Website data; no changes were applied.",
 };
@@ -114,7 +115,15 @@ const ENTITY_COLUMNS: Readonly<Record<SyncEntity, readonly string[]>> = {
     "county_fips",
     "relationship_type",
   ],
-  people: ["display_name"],
+  people: [
+    "display_name",
+    "first_name",
+    "middle_name",
+    "last_name",
+    "name_prefix",
+    "name_suffix",
+    "preferred_first_name",
+  ],
   positions: ["organization_id", "title"],
   role_sources: ["url", "title", "source_type", "publisher_classification"],
   person_roles: [
@@ -129,6 +138,18 @@ const ENTITY_COLUMNS: Readonly<Record<SyncEntity, readonly string[]>> = {
     "published_title",
     "job_description",
   ],
+  profile_names: [
+    "person_id",
+    "name_type",
+    "first_name",
+    "middle_name",
+    "last_name",
+    "name_prefix",
+    "name_suffix",
+    "published_name",
+    "applies_from",
+    "applies_until",
+  ],
 };
 
 const UPDATE_COLUMNS: Readonly<Record<SyncEntity, readonly string[]>> = {
@@ -140,10 +161,29 @@ const UPDATE_COLUMNS: Readonly<Record<SyncEntity, readonly string[]>> = {
     "parent_relationship",
   ],
   organization_county_affiliations: [],
-  people: ["display_name"],
+  people: [
+    "display_name",
+    "first_name",
+    "middle_name",
+    "last_name",
+    "name_prefix",
+    "name_suffix",
+    "preferred_first_name",
+  ],
   positions: ["title"],
   role_sources: ["title"],
   person_roles: ["start_date", "end_date", "source_checked_at", "source_id"],
+  profile_names: [
+    "name_type",
+    "published_name",
+    "first_name",
+    "middle_name",
+    "last_name",
+    "name_prefix",
+    "name_suffix",
+    "applies_from",
+    "applies_until",
+  ],
 };
 
 /**
@@ -223,6 +263,10 @@ export async function commitSyncChangesetD1(
   const reserved = idempotencyKey.startsWith(IMPORTER_BATCH_KEY_PREFIX);
   if (reserved !== (options.importerBatch === true))
     return rejected(requestId, error("invalid_idempotency_key"));
+  // Alternate names and primary name components are written only by the
+  // Profiles dashboard importer. No other sync caller can set them.
+  if (!options.importerBatch && usesImporterOnlyFields(request.changes))
+    return rejected(requestId, error("unsupported_field"));
 
   const fingerprint = await fingerprintRequest(request);
   const generation =
@@ -796,6 +840,24 @@ function resolveFields(
     }
   }
   return fields;
+}
+
+const IMPORTER_ONLY_PERSON_FIELDS = [
+  "first_name",
+  "middle_name",
+  "last_name",
+  "name_prefix",
+  "name_suffix",
+  "preferred_first_name",
+];
+function usesImporterOnlyFields(changes: readonly SyncChange[]): boolean {
+  return changes.some((change) => {
+    if (change.entity === "profile_names") return true;
+    if (change.entity !== "people" || !isRecord(change.fields)) return false;
+    return IMPORTER_ONLY_PERSON_FIELDS.some((field) =>
+      Object.hasOwn(change.fields, field),
+    );
+  });
 }
 
 function validateStructure(
