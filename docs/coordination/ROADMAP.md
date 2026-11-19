@@ -94,6 +94,12 @@ that show the state of profiles, departments and grievances.
   Browse-all is merged in BROWSE-1; hosted populated behavior is still open.
 - **Remaining:** the remaining VIS follow-ups, hosted verification of the merged browse-all and banner carousel work, and the final deployed visual parity check (VIS-20).
 
+### November 18, 2026 data prerequisite update
+
+All 64 shared-CSV county processing closeouts are recorded ([Clear Creek closeout](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/240#issuecomment-6994380145)); this does **not** establish independent audit completion, import to the owner's working Windows SQLite, or hosted Profiles sync. Statewide Profile and County Structure audits remain conditional/provisional ([Profile audit](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/240#issuecomment-6995896476), [County audit](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/240#issuecomment-6994791267)). Before SYNC-1/SYNC-2 real data import: finalize those audits using existing Google Drive research-table CSV exports, resolve or explicitly hold duplicate and county-mapping questions, approve consolidated data, and validate the working database.
+
+Owner's new Website design: one dashboard-importable `county.csv` for **new canonical County Structure tables**, distinct from obsolete Website `organizations`; structurally independent elected-official display classifications; separate primary Profile name columns and unlimited typed alternate names in `profile_name.csv`. See [binding decisions](../decisions.md#county-structure-import-and-organizational-display--november-18-2026) and [CURRENT](CURRENT.md) for assignment status. These are approved requirements, not completed features. Cloudflare staging Profiles sheet v0030 is deployed but functional acceptance remains open ([PR #257 receipt](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/257#issuecomment-6995747320)).
+
 ## Shared foundations
 
 Several goals depend on the same hosted groundwork. These come first.
