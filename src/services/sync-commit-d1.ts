@@ -159,6 +159,12 @@ export async function commitSyncChangesetD1(
     authorize?: D1SyncAuthorizer;
     now?: () => Date;
     diagnostic?: (value: D1SyncCommitDiagnostic) => void;
+    /**
+     * Creates every new Profile hidden in the same atomic batch, so a Profile
+     * is never publicly readable between its creation and an explicit
+     * publication. Existing Profiles and their visibility are never touched.
+     */
+    createdPeopleHidden?: boolean;
   } = {},
 ): Promise<D1SyncCommitResult> {
   const now = options.now ?? (() => new Date());
@@ -298,6 +304,19 @@ export async function commitSyncChangesetD1(
       );
     } else if (planned.outcome === "updated") {
       statements.push(updateEntityStatement(database, planned));
+    }
+  }
+  if (options.createdPeopleHidden) {
+    for (const planned of itemPlans) {
+      if (planned.outcome !== "created" || planned.item.entity !== "people")
+        continue;
+      statements.push(
+        database.prepare(
+          `INSERT INTO person_visibility (person_id, visible, changed_by_account_id)
+           VALUES (?, 0, ?)`,
+          [planned.websiteId, principal.accountId],
+        ),
+      );
     }
   }
 

@@ -1,5 +1,6 @@
 import { exactSameOrigin } from "../auth/http.js";
 import { PROFILES_API_PREFIX } from "../contracts/profiles.js";
+import { PROFILES_IMPORT_MAX_BYTES } from "../contracts/profiles-import.js";
 import { StorageUnavailableError } from "../contracts/storage.js";
 import {
   ProfilesConflictError,
@@ -8,6 +9,14 @@ import {
   type ProfilesService,
   ProfilesValidationError,
 } from "../services/profiles-d1.js";
+import {
+  ImportIdempotencyError,
+  ImportInputError,
+  ImportReversalBlockedError,
+  ImportStalePreviewError,
+  ImportValidationError,
+  type ProfilesImportService,
+} from "../services/profiles-import-d1.js";
 import {
   AuthorizationError,
   type TrustedPrincipal,
@@ -22,7 +31,10 @@ import {
  * idempotency key. Business rules, the live permission recheck, expected
  * versions and atomic writes stay in the service.
  *
- * Routes: GET rows, facets and select-all. POST preview and save.
+ * Routes: GET rows, facets and select-all. POST preview and save. The CSV
+ * import (SYNC-1) adds POST import/preview, import/commit and import/reverse
+ * under the same checks. Preview is read-only and commit needs the digest of
+ * the preview the owner reviewed plus an idempotency key.
  */
 export const MAX_PROFILES_JSON_BYTES = 256 * 1024;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -42,9 +54,24 @@ export interface ProfilesTransportDependencies {
   readonly authorize?: (principal: TrustedPrincipal) => Promise<boolean>;
   /** Absent means the database binding is unavailable. */
   readonly service?: ProfilesService;
+  /** Absent means the CSV import is unavailable. */
+  readonly importService?: ProfilesImportService;
 }
 
-type Op = "rows" | "facets" | "selectAll" | "preview" | "save";
+type Op =
+  | "rows"
+  | "facets"
+  | "selectAll"
+  | "preview"
+  | "save"
+  | "importPreview"
+  | "importCommit"
+  | "importReverse";
+const IMPORT_OPS: readonly Op[] = [
+  "importPreview",
+  "importCommit",
+  "importReverse",
+];
 
 function match(
   pathname: string,
@@ -60,6 +87,9 @@ function match(
     "select-all": ["selectAll", "GET"],
     preview: ["preview", "POST"],
     save: ["save", "POST"],
+    "import/preview": ["importPreview", "POST"],
+    "import/commit": ["importCommit", "POST"],
+    "import/reverse": ["importReverse", "POST"],
   };
   const route = Object.hasOwn(routes, name) ? routes[name] : undefined;
   if (!route) return { kind: "none" };
@@ -84,13 +114,17 @@ async function handle(
   if (matched.kind === "method")
     return json(405, { error: "method_not_allowed" }, { allow: matched.allow });
   const write = request.method === "POST";
+  const isImport = IMPORT_OPS.includes(matched.op);
+  const limit = isImport
+    ? PROFILES_IMPORT_MAX_BYTES + 4096
+    : MAX_PROFILES_JSON_BYTES;
   if (write) {
     if (url.search !== "") return json(400, { error: "unexpected_query" });
     const declared = request.headers.get("content-length");
     if (declared !== null) {
       if (!/^\d+$/.test(declared))
         return json(400, { error: "invalid_request" });
-      if (Number(declared) > MAX_PROFILES_JSON_BYTES)
+      if (Number(declared) > limit)
         return json(413, { error: "request_too_large" });
     }
     const type = request.headers
@@ -124,6 +158,28 @@ async function handle(
   if (!service) return json(503, { error: "profiles_unavailable" });
 
   try {
+    if (isImport) {
+      const importService = dependencies.importService;
+      if (!importService) return json(503, { error: "profiles_unavailable" });
+      const input = await readObject(request, limit);
+      if (!input) return json(400, { error: "invalid_json" });
+      if (matched.op === "importPreview")
+        return json(200, {
+          ...(await importService.preview(principal, input)),
+        });
+      const key = request.headers.get("idempotency-key");
+      if (!key) return json(400, { error: "idempotency_key_required" });
+      if (matched.op === "importCommit")
+        return json(200, {
+          ...(await importService.commit(principal, key, input)),
+        });
+      const batchId = (input as { batchId?: unknown }).batchId;
+      if (typeof batchId !== "string")
+        return json(400, { error: "invalid_request" });
+      return json(200, {
+        ...(await importService.reverse(principal, batchId, key)),
+      });
+    }
     switch (matched.op) {
       case "rows":
         return json(200, {
@@ -151,6 +207,9 @@ async function handle(
           ...(await service.save(principal, key, body.changes)),
         });
       }
+      default:
+        // Import operations returned above.
+        return json(404, { error: "not_found" });
     }
   } catch (error) {
     return failure(error);
@@ -177,6 +236,22 @@ function params(url: URL): Record<string, string> {
   return out;
 }
 
+async function readObject(
+  request: Request,
+  limit: number,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const text = await request.text();
+    if (new TextEncoder().encode(text).byteLength > limit) return null;
+    const value: unknown = JSON.parse(text);
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function readBody(
   request: Request,
 ): Promise<{ changes: unknown } | null> {
@@ -201,8 +276,16 @@ async function readBody(
 function failure(error: unknown): Response {
   if (error instanceof AuthorizationError)
     return json(403, { error: "forbidden" });
-  if (error instanceof ProfilesInputError)
+  if (error instanceof ProfilesInputError || error instanceof ImportInputError)
     return json(400, { error: "invalid_request", message: error.message });
+  if (error instanceof ImportValidationError)
+    return json(422, { error: "validation_failed", issues: error.issues });
+  if (error instanceof ImportStalePreviewError)
+    return json(409, { error: "stale_preview" });
+  if (error instanceof ImportIdempotencyError)
+    return json(409, { error: "idempotency_conflict" });
+  if (error instanceof ImportReversalBlockedError)
+    return json(409, { error: "reversal_blocked" });
   if (error instanceof ProfilesConflictError)
     return json(409, { error: "stale_version", issues: error.issues });
   if (error instanceof ProfilesValidationError)

@@ -1,0 +1,65 @@
+# Profiles dashboard CSV import (SYNC-1)
+
+The owner uploads reviewed CSV files in the Profiles tab, inspects the exact adds, updates, conflicts and visibility, then commits. The whole workflow runs in the browser. It follows the [dashboard CSV import decision](../decisions.md#dashboard-csv-imports--november-19-2026) and extends the [Profiles sheet](profiles-sheet.md) from PR #257.
+
+## Flow
+
+1. **Upload.** The browser reads each chosen file as text and sends it. It never parses, matches or decides anything.
+2. **Preview.** `POST /api/admin/profiles/import/preview` is read-only. The server parses and validates the files, matches rows to existing Website records, runs the shared sync planner as a dry run and returns the plan with a digest.
+3. **Inspect.** The panel shows counts and every row with its action, Website ID, field differences and visibility. Blocking issues name the file, line and key.
+4. **Commit.** `POST /api/admin/profiles/import/commit` carries the reviewed digest and an idempotency key. The server recomputes the plan, refuses with `409 stale_preview` if it differs, and otherwise writes through the shared sync commit engine in one atomic batch.
+5. **Reverse.** `POST /api/admin/profiles/import/reverse` reverses a committed batch through the shared reversal path.
+
+Access is the existing owner `profile.manage` capability on a signed-in human session. An agent credential never passes. Every POST needs the exact page origin and a JSON body. Commit and reverse need an `Idempotency-Key` header. Nothing here adds a new capability, table or migration.
+
+## Supported file contract (`profiles-import/v1`)
+
+Headers are matched after lowercasing and replacing spaces and hyphens with underscores. `county_code` is accepted for `county_fips`. Columns not listed below are shown in the preview as not imported and are never written.
+
+| File | Required | Optional |
+| --- | --- | --- |
+| `profile.csv` | `profile_id`, `display_name` | none |
+| `profile_role.csv` | `role_id`, `profile_id`, `county_fips`, `source_id`, `source_url`, `source_title`, `publisher_classification`, `source_type` | `published_office`, `published_title`, `job_description`, `source_checked_at`, `start_date`, `end_date` |
+
+- A role needs at least one of `published_office`, `published_title` or `job_description`.
+- `publisher_classification` is `official` or `unofficial`. `source_type` is `official_page`, `public_document` or `other_public`.
+- The Website holds one source per role. Role rows repeat their source fields and a source is registered once per `source_id`. A source URL that already exists with identical metadata is reused.
+- Keys (`profile_id`, `role_id`, `source_id`) are the private export keys. They are 1 to 100 letters, digits, dots, colons, underscores or hyphens.
+- `profile_role.csv` is optional. Without it only Profiles are previewed.
+
+This is the contract the Profiles Audit handoff on [Issue #141](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/141#issuecomment-7000870240) describes for the first slice. Not accepted yet, and deferred with a clear message rather than guessed:
+
+- `profile_county_unit.csv`, `profile_position.csv` and any organization or position links. Rows carrying only those keys cannot become roles until a verified Website mapping exists.
+- Evidence and citation files (`profile_evidence*.csv`). Claim IDs, raw evidence and private review metadata stay in the private audit.
+- Alternate names and name components (`profile_name.csv`, `first_name` and the other name columns). The typed alternate-name schema and its validators stay in PR #261. Name columns in `profile.csv` are listed as not imported.
+
+## Matching, versions and preservation
+
+- **Stable keys.** Each created record is stored with a namespaced client reference (`dash:profile:<id>`, `dash:role:<id>`, `dash:source:<id>`) on its committed sync item. A later upload of the same key matches the Website record that commit created. Matching is never by name or label. A reversed batch releases its keys.
+- **Updates.** A mapped Profile or role is updated only when it has not changed since the last import. Each update carries the current version as `expectedVersion`, and the shared engine rechecks it inside the batch. Updatable fields are `display_name`, `start_date`, `end_date`, `source_checked_at` and a source `title`.
+- **Conflicts.** A mapped record whose version moved past its last import and whose value differs from the file is reported as a conflict and skipped. Role fields the sync contract cannot change (office, title, duties, county, source) are also reported as conflicts. The Website value is kept.
+- **Absent records.** Records the file does not mention are never touched. The preview counts them.
+- **Visibility.** Existing Profiles keep their visibility. New Profiles are created hidden in the same atomic batch, so a Profile is never publicly readable before an explicit publication. Public reads omit hidden Profiles through the #257 visibility predicate. Reversal removes the visibility row it created.
+
+## Receipts and retries
+
+A commit returns the batch ID, counts and the hidden Profiles it created. Retrying the same key with the same reviewed digest returns the stored receipt with `replayed: true` and writes nothing. The same key with a different digest returns `409 idempotency_conflict`.
+
+## Cloudflare synthetic acceptance checklist
+
+Use a synthetic file only. Generate one with `node scripts/profiles-import-fixture.mjs --out <folder>` (262 Profiles, 413 roles, 138 sources, all `example.invalid`). Do not send real Adams data until this passes and the owner approves the reviewed pilot scope.
+
+1. Deploy this branch to the Cloudflare staging Worker that has migration 0030 or later applied. Confirm the verifier reports the expected migration count. This change adds no migration.
+2. Sign in as the owner. Open Dashboard, Profiles, Import CSV. Confirm the panel is absent for an editor and that the routes answer 401 or 403 without an owner session.
+3. Upload `profile.csv` and `profile_role.csv`. Choose Preview. Confirm 262 Profiles, 413 roles and 138 sources are adds, zero blocking issues, and 262 new Profiles are shown as created hidden. Confirm the preview wrote nothing (Profiles tab row count unchanged, no new sync batch).
+4. Commit. Confirm the receipt shows 262 Profiles, 413 roles and 138 sources and that all 262 are hidden.
+5. Public readback. In a signed-out browser confirm none of the 262 names appear in search, browse, the Adams county page, role listings or by direct Profile URL (404).
+6. Same-key retry. Repeat the commit request with the same key (browser network replay or the same panel session). Confirm `replayed: true` and unchanged counts.
+7. Stale preview. Preview again, edit one synthetic Profile name in the Profiles sheet, then commit the earlier preview. Confirm `stale_preview` and no new batch.
+8. Stable update. Change one display name in the CSV and one `source_checked_at`, add one new row, and preview. Confirm one Profile update, one role update, one add and everything else unchanged. Commit and confirm the Website IDs did not change.
+9. Preserve owner edits. Edit a synthetic Profile name in the sheet, upload a file that renames the same Profile, preview and confirm a conflict. Publish one synthetic Profile in the sheet, re-upload and confirm it stays visible.
+10. Missing dependency. Upload a `profile_role.csv` row with an unknown `profile_id` and another with a blank `source_url`. Confirm both are blocking and Commit stays disabled.
+11. Reverse. Reverse the first batch. Confirm the Profiles, roles, sources and visibility rows it created are gone and the Profiles tab count returns to the starting total.
+12. Record the Worker version, source SHA, receipts and results in the PR. Revoke any temporary access.
+
+The real Adams send stays a separate step. It needs the owner's exact reviewed selection and uses this same workflow after the synthetic run passes.
