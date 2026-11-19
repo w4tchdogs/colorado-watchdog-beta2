@@ -169,7 +169,7 @@ export async function countyPage(
     ${
       empty
         ? emptyState(
-            `No records for ${title} yet`,
+            `No profiles for ${title} yet`,
             "No organizations or roles have been documented for this county in the database. That reflects the state of this project's research, not the county's government.",
             html`<a class="button button-quiet" href="/counties">Browse other counties</a>`,
             3,

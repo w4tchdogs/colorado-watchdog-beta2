@@ -221,7 +221,7 @@ test("county directory lists all 64 counties and every county page loads", async
       const county = await get(preview, href);
       assert.equal(county.status, 200, href);
       assert.match(county.$("h1").textContent, / County$/);
-      assert.match(county.main(), /No records for .+ yet/);
+      assert.match(county.main(), /No profiles for .+ yet/);
       assert.match(county.main(), /not the county's government/);
     }
     assert.ok(page.$("#county-directory > .county-index-grid"));
