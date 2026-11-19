@@ -48,7 +48,12 @@ import {
 } from "./officials-directory.js";
 import { OrganizationProfileInputError } from "./organization-profile.js";
 import { PersonProfileInputError } from "./person-profile.js";
-import { personIsPublicSql } from "./person-visibility.js";
+import {
+  PUBLIC_ALTERNATE_NAMES_SQL,
+  personIsPublicSql,
+  publicPersonNameMatchSql,
+  toPublicAlternateName,
+} from "./person-visibility.js";
 
 type Row = Record<string, unknown>;
 const ID = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -281,6 +286,13 @@ export function createD1PublicReadServices(
         : { table: "organizations", column: "name" };
     const publicOnly =
       kind === "people" ? ` AND ${personIsPublicSql("people.id")}` : "";
+    // People match on the display name or a public alternate name only.
+    const nameMatch =
+      kind === "people"
+        ? publicPersonNameMatchSql(cfg.column, "people.id")
+        : `${cfg.column} LIKE ? ESCAPE '\\'`;
+    const pattern = `%${escapeLike(query)}%`;
+    const patterns = kind === "people" ? [pattern, pattern] : [pattern];
     const cursor = input.cursor ?? null;
     let afterName: string | null = null;
     let afterId: string | null = null;
@@ -309,19 +321,19 @@ export function createD1PublicReadServices(
         throw new DirectorySearchInputError("Invalid cursor");
       }
       const cur = await first<Row>(
-        `SELECT ${cfg.column} name FROM ${cfg.table} WHERE id=? AND ${cfg.column} LIKE ? ESCAPE '\\'${publicOnly}`,
+        `SELECT ${cfg.column} name FROM ${cfg.table} WHERE id=? AND ${nameMatch}${publicOnly}`,
         afterId,
-        `%${escapeLike(query)}%`,
+        ...patterns,
       );
       if (!cur) throw new DirectorySearchInputError("Stale cursor");
       afterName = str(cur.name);
     }
     const rows = await all<Row>(
       `SELECT id,${cfg.column} name,version${kind === "organizations" ? ",organization_type" : ""} FROM ${cfg.table}
-      WHERE ${cfg.column} LIKE ? ESCAPE '\\'${publicOnly} AND (? IS NULL OR ${cfg.column} COLLATE NOCASE>? COLLATE NOCASE OR
+      WHERE ${nameMatch}${publicOnly} AND (? IS NULL OR ${cfg.column} COLLATE NOCASE>? COLLATE NOCASE OR
       (${cfg.column} COLLATE NOCASE=? COLLATE NOCASE AND id COLLATE BINARY>? COLLATE BINARY))
       ORDER BY ${cfg.column} COLLATE NOCASE,id COLLATE BINARY LIMIT ?`,
-      `%${escapeLike(query)}%`,
+      ...patterns,
       afterName,
       afterName,
       afterName,
@@ -432,6 +444,11 @@ export function createD1PublicReadServices(
         id: str(person.id),
         displayName: str(person.display_name),
         version: num(person.version),
+        alternateNames: (
+          await all<Row>(PUBLIC_ALTERNATE_NAMES_SQL, personId)
+        ).map((row) =>
+          toPublicAlternateName(row.name_type, row.published_name),
+        ),
       },
       items,
       hasMore: rows.length > limit,

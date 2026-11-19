@@ -306,3 +306,12 @@ operator procedure is in [the Profiles foundation guide](research/R0-foundation.
   [full inventory](research/local-profiles-schema-redesign.md#full-table-and-view-list)
   records the working naming plan and the migration conditions for the three
   empty legacy tables.
+
+## Profile names and alternate names, November 18, 2026
+
+- A Profile has one primary name in seven fields (Display Name, First, Middle, Last, Name Prefix, Name Suffix, Preferred First Name) on `people`, plus any number of typed alternate names in `profile_names`. Display Name is the public heading. The components are Website-only for now.
+- Alternate names use a 13-value controlled vocabulary and link to private evidence. New names default to Public Display No and Requires review. A name is public only when it is Confirmed and the owner marks it Public. The database enforces this.
+- Public pages show approved names under four labels: Also known as, Formerly known as, Professional name and Published as. Public search matches only approved names. Hidden Profiles are not found by any name.
+- Names attach to a Profile by stable ID only. No import or edit merges people by name.
+- Migration 0031 holds the name tables. The renumbering rule is that whichever branch merges second takes the next number. The old `organizations` table is not the County Structure model.
+- The two Profile CSV files are one logical import. Validation and mapping are in `profile-csv.ts`. Connecting them to the M2/R7/R8 sync path is a separate follow-up PR. See [Profile names](architecture/profile-names.md).

@@ -1,17 +1,29 @@
 import {
+  ALTERNATE_NAME_STATUSES,
+  ALTERNATE_NAME_TYPES,
+  type AlternateNameChange,
+  type AlternateNameFields,
+  type AlternateNameList,
+  type AlternateNameRecord,
   PROFILE_FIELDS,
+  PROFILE_NAME_COMPONENT_COLUMNS,
   PROFILE_SORT_FIELDS,
   PROFILES_DEFAULT_PAGE_SIZE,
   PROFILES_MAX_CHANGES,
+  PROFILES_MAX_NAME_AFFIX_LENGTH,
+  PROFILES_MAX_NAME_COMPONENT_LENGTH,
   PROFILES_MAX_NAME_LENGTH,
   PROFILES_MAX_PAGE,
   PROFILES_MAX_PAGE_SIZE,
   PROFILES_MAX_QUERY_LENGTH,
   PROFILES_MAX_SELECT_ALL,
+  PROFILES_MAX_SOURCE_REFERENCE_LENGTH,
+  PROFILES_MAX_SOURCES_PER_NAME,
   type ProfileChange,
   type ProfileChangeIssue,
   type ProfileFacets,
   type ProfileImpact,
+  type ProfileNameReview,
   type ProfilePage,
   type ProfilePreview,
   type ProfilePreviewItem,
@@ -70,15 +82,24 @@ export class ProfilesInputError extends Error {
 
 type Row = Record<string, unknown>;
 
-/** Writable columns, each checked against the reviewed sync allowlist. */
+/**
+ * Writable columns. The reviewed sync can replace `display_name`, so that
+ * column must stay inside the sync allowlist. The primary-name components are
+ * Website-only until the Profiles import extends the sync allowlist, so no
+ * sync reads or writes them and they are not asserted against it.
+ */
+const NAME_COMPONENT_WRITES = Object.values(
+  PROFILE_NAME_COMPONENT_COLUMNS,
+) as readonly string[];
 const FIELD_WRITES: Readonly<
   Record<"people" | "person_roles", readonly string[]>
 > = {
-  people: ["display_name"],
+  people: ["display_name", ...NAME_COMPONENT_WRITES],
   person_roles: ["start_date", "end_date", "source_checked_at"],
 };
 for (const [entity, columns] of Object.entries(FIELD_WRITES)) {
   for (const column of columns) {
+    if (entity === "people" && NAME_COMPONENT_WRITES.includes(column)) continue;
     if (!SYNC_UPDATE_FIELDS[entity]?.includes(column)) {
       throw new Error(`Profiles field ${entity}.${column} is not syncable`);
     }
@@ -86,11 +107,32 @@ for (const [entity, columns] of Object.entries(FIELD_WRITES)) {
 }
 
 const FIELD_LABELS: Readonly<Record<string, string>> = {
-  display_name: "Full Name",
+  display_name: "Display Name",
+  first_name: "First Name",
+  middle_name: "Middle Name",
+  last_name: "Last Name",
+  preferred_first_name: "Preferred First Name",
+  name_prefix: "Name Prefix",
+  name_suffix: "Name Suffix",
   start_date: "Employment Start",
   end_date: "Employment End",
   source_checked_at: "Date Reviewed",
 };
+
+/** Optional components may be cleared. `display_name` is always required. */
+const COMPONENT_LIMITS: Readonly<Record<string, number>> = {
+  first_name: PROFILES_MAX_NAME_COMPONENT_LENGTH,
+  middle_name: PROFILES_MAX_NAME_COMPONENT_LENGTH,
+  last_name: PROFILES_MAX_NAME_COMPONENT_LENGTH,
+  preferred_first_name: PROFILES_MAX_NAME_COMPONENT_LENGTH,
+  name_prefix: PROFILES_MAX_NAME_AFFIX_LENGTH,
+  name_suffix: PROFILES_MAX_NAME_AFFIX_LENGTH,
+};
+
+/** D1 caps a result set at 1000 rows. */
+const PROFILES_NAME_LOAD_LIMIT = 1000;
+/** Names one editor response carries. One more row is read to detect overflow. */
+const PROFILES_NAME_PAGE_LIMIT = 500;
 
 const COUNTY_EXPRESSION = "COALESCE(pr.county_fips, o.county_fips)";
 const OFFICE_EXPRESSION = "COALESCE(pr.published_office, o.name)";
@@ -105,9 +147,21 @@ const FROM_CLAUSE = `
   LEFT JOIN organizations parent ON parent.id = o.parent_organization_id
   LEFT JOIN counties c ON c.fips = ${COUNTY_EXPRESSION}`;
 
+const ALT_COUNT_SQL =
+  "SELECT COUNT(*) FROM profile_names an WHERE an.person_id = p.id AND an.removed_at IS NULL";
+const ALT_PENDING_SQL =
+  "SELECT COUNT(*) FROM profile_names an WHERE an.person_id = p.id AND an.removed_at IS NULL AND an.verification_status = 'requires_review'";
+
 const SORT_EXPRESSIONS: Readonly<Record<string, string>> = {
   profileId: "p.id",
-  fullName: "p.display_name COLLATE NOCASE",
+  displayName: "p.display_name COLLATE NOCASE",
+  firstName: "p.first_name COLLATE NOCASE",
+  middleName: "p.middle_name COLLATE NOCASE",
+  lastName: "p.last_name COLLATE NOCASE",
+  preferredFirstName: "p.preferred_first_name COLLATE NOCASE",
+  namePrefix: "p.name_prefix COLLATE NOCASE",
+  nameSuffix: "p.name_suffix COLLATE NOCASE",
+  alternateNameCount: `(${ALT_COUNT_SQL})`,
   visible: "COALESCE(pv.visible, 1)",
   createdOn: "p.created_at",
   county: "c.name COLLATE NOCASE",
@@ -122,7 +176,11 @@ const SORT_EXPRESSIONS: Readonly<Record<string, string>> = {
 const ROW_COLUMNS = `
   pr.id AS role_id, p.id AS profile_id, p.version AS profile_version,
   pr.version AS role_version, COALESCE(pv.version, 0) AS visibility_version,
-  p.display_name, COALESCE(pv.visible, 1) AS visible, p.created_at AS created_on,
+  p.display_name, p.first_name, p.middle_name, p.last_name,
+  p.preferred_first_name, p.name_prefix, p.name_suffix,
+  (${ALT_COUNT_SQL}) AS alternate_name_count,
+  (${ALT_PENDING_SQL}) AS alternate_names_pending,
+  COALESCE(pv.visible, 1) AS visible, p.created_at AS created_on,
   ${COUNTY_EXPRESSION} AS county_fips, c.name AS county,
   parent.name AS county_unit,
   CASE WHEN parent.id IS NOT NULL THEN o.name END AS county_sub_unit,
@@ -155,6 +213,11 @@ export interface ProfilesService {
     readonly entries: readonly ProfileSelectionEntry[];
     readonly truncated: boolean;
   }>;
+  /** Every alternate name of one Profile, removed ones included and flagged. */
+  alternateNames(
+    principal: TrustedPrincipal,
+    profileId: string,
+  ): Promise<AlternateNameList | null>;
   preview(
     principal: TrustedPrincipal,
     changes: unknown,
@@ -194,11 +257,31 @@ export function createD1ProfilesService(
       const pattern = `%${query.query.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
       conditions.push(
         `(p.display_name LIKE ? ESCAPE '\\'
+          OR p.first_name LIKE ? ESCAPE '\\'
+          OR p.last_name LIKE ? ESCAPE '\\'
+          OR p.preferred_first_name LIKE ? ESCAPE '\\'
+          OR EXISTS (
+            SELECT 1 FROM profile_names sn
+            WHERE sn.person_id = p.id AND sn.removed_at IS NULL
+              AND (sn.published_name LIKE ? ESCAPE '\\'
+                   OR sn.first_name LIKE ? ESCAPE '\\'
+                   OR sn.last_name LIKE ? ESCAPE '\\'))
           OR ${OFFICE_EXPRESSION} LIKE ? ESCAPE '\\'
           OR ${POSITION_EXPRESSION} LIKE ? ESCAPE '\\'
           OR pr.job_description LIKE ? ESCAPE '\\')`,
       );
-      values.push(pattern, pattern, pattern, pattern);
+      values.push(
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+      );
     }
     if (query.countyFips) {
       conditions.push(`${COUNTY_EXPRESSION} = ?`);
@@ -220,7 +303,7 @@ export function createD1ProfilesService(
 
   function orderClause(query: ProfileQuery): string {
     const expression =
-      SORT_EXPRESSIONS[query.sort] ?? SORT_EXPRESSIONS.fullName;
+      SORT_EXPRESSIONS[query.sort] ?? SORT_EXPRESSIONS.displayName;
     const direction = query.direction === "desc" ? "DESC" : "ASC";
     return `ORDER BY ${expression} ${direction}, pr.id COLLATE BINARY ASC`;
   }
@@ -232,7 +315,16 @@ export function createD1ProfilesService(
       profileVersion: num(row.profile_version),
       roleVersion: num(row.role_version),
       visibilityVersion: num(row.visibility_version),
-      fullName: str(row.display_name),
+      displayName: str(row.display_name),
+      firstName: nullable(row.first_name),
+      middleName: nullable(row.middle_name),
+      lastName: nullable(row.last_name),
+      preferredFirstName: nullable(row.preferred_first_name),
+      namePrefix: nullable(row.name_prefix),
+      nameSuffix: nullable(row.name_suffix),
+      alternateNameCount: num(row.alternate_name_count),
+      alternateNamesPendingReview: num(row.alternate_names_pending),
+      nameReview: nameReview(row),
       visible: num(row.visible) === 1,
       createdOn: str(row.created_on),
       countyFips: nullable(row.county_fips),
@@ -257,13 +349,21 @@ export function createD1ProfilesService(
     roles: Map<string, Row>;
     visibility: Map<string, Row>;
     impact: Map<string, { roles: number; counties: string[] }>;
+    altNames: Map<string, Row>;
+    altByPerson: Map<string, Row[]>;
+    altSources: Map<string, string[]>;
   }> {
     const personIds = new Set<string>();
     const roleIds = new Set<string>();
     const visibilityIds = new Set<string>();
+    const altPersonIds = new Set<string>();
+    const altNameIds = new Set<string>();
     for (const change of changes) {
       if (change.kind === "visibility") visibilityIds.add(change.personId);
-      else if (change.entity === "people") personIds.add(change.targetId);
+      else if (change.kind === "alternate_name") {
+        altPersonIds.add(change.personId);
+        if (change.op !== "add") altNameIds.add(change.nameId);
+      } else if (change.entity === "people") personIds.add(change.targetId);
       else roleIds.add(change.targetId);
     }
     const people = new Map<string, Row>();
@@ -280,11 +380,16 @@ export function createD1ProfilesService(
       );
       for (const row of rows) roles.set(str(row.id), row);
     }
-    const profileIds = new Set<string>([...personIds, ...visibilityIds]);
+    const profileIds = new Set<string>([
+      ...personIds,
+      ...visibilityIds,
+      ...altPersonIds,
+    ]);
     if (profileIds.size) {
       const list = JSON.stringify([...profileIds]);
       const rows = await database.all<Row>(
-        `SELECT p.id, p.display_name, p.version,
+        `SELECT p.id, p.display_name, p.first_name, p.middle_name, p.last_name,
+                p.preferred_first_name, p.name_prefix, p.name_suffix, p.version,
                 COALESCE(pv.visible, 1) AS visible,
                 COALESCE(pv.version, 0) AS visibility_version,
                 EXISTS (
@@ -323,13 +428,72 @@ export function createD1ProfilesService(
           counties: nullable(row.counties)?.split(",").sort() ?? [],
         });
     }
-    return { people, roles, visibility, impact };
+    const altNames = new Map<string, Row>();
+    const altByPerson = new Map<string, Row[]>();
+    const altSources = new Map<string, string[]>();
+    if (altPersonIds.size) {
+      const rows = await database.all<Row>(
+        `SELECT id, person_id, name_type, first_name, middle_name, last_name,
+                name_prefix, name_suffix, published_name, applies_from,
+                applies_until, verification_status, public_display,
+                removed_at, version
+         FROM profile_names WHERE person_id IN (SELECT value FROM json_each(?))
+         ORDER BY person_id, id LIMIT ${PROFILES_NAME_LOAD_LIMIT}`,
+        PROFILES_NAME_LOAD_LIMIT,
+        [JSON.stringify([...altPersonIds])],
+      );
+      for (const row of rows) {
+        altNames.set(str(row.id), row);
+        const list = altByPerson.get(str(row.person_id)) ?? [];
+        list.push(row);
+        altByPerson.set(str(row.person_id), list);
+      }
+      // A name the load cap cut off is still read by ID for its own change.
+      const missing = [...altNameIds].filter((id) => !altNames.has(id));
+      if (missing.length) {
+        const extra = await database.all<Row>(
+          `SELECT id, person_id, name_type, first_name, middle_name, last_name,
+                  name_prefix, name_suffix, published_name, applies_from,
+                  applies_until, verification_status, public_display,
+                  removed_at, version
+           FROM profile_names WHERE id IN (SELECT value FROM json_each(?))`,
+          PROFILES_MAX_CHANGES + 1,
+          [JSON.stringify(missing)],
+        );
+        for (const row of extra) altNames.set(str(row.id), row);
+      }
+      if (altNameIds.size) {
+        const sources = await database.all<Row>(
+          `SELECT profile_name_id, source_reference FROM profile_name_sources
+           WHERE profile_name_id IN (SELECT value FROM json_each(?))
+           ORDER BY profile_name_id, source_reference
+           LIMIT ${PROFILES_NAME_LOAD_LIMIT}`,
+          PROFILES_NAME_LOAD_LIMIT,
+          [JSON.stringify([...altNameIds])],
+        );
+        for (const row of sources) {
+          const list = altSources.get(str(row.profile_name_id)) ?? [];
+          list.push(str(row.source_reference));
+          altSources.set(str(row.profile_name_id), list);
+        }
+      }
+    }
+    return {
+      people,
+      roles,
+      visibility,
+      impact,
+      altNames,
+      altByPerson,
+      altSources,
+    };
   }
 
   async function validate(input: unknown): Promise<{
     readonly changes: readonly ProfileChange[];
     readonly preview: ProfilePreview;
     readonly stale: readonly ProfileChangeIssue[];
+    readonly targets: AlternateTargets | null;
   }> {
     const parsed = parseChanges(input);
     if (parsed.issues.length)
@@ -337,6 +501,7 @@ export function createD1ProfilesService(
         changes: [],
         preview: { ok: false, items: [], issues: parsed.issues },
         stale: [],
+        targets: null,
       };
     const changes = parsed.changes;
     const targets = await loadFieldTargets(changes);
@@ -352,8 +517,21 @@ export function createD1ProfilesService(
         proposed.set(change.targetId, current);
       }
     }
+    const duplicateIssues = alternateDuplicateIssues(changes, targets);
     const checkedAt = now();
     changes.forEach((change, index) => {
+      if (change.kind === "alternate_name") {
+        validateAlternate(
+          change,
+          index,
+          targets,
+          duplicateIssues.get(index),
+          issues,
+          stale,
+          items,
+        );
+        return;
+      }
       if (change.kind === "visibility") {
         const row = targets.visibility.get(change.personId);
         if (!row) {
@@ -433,6 +611,7 @@ export function createD1ProfilesService(
           return;
         }
         const currentVersion = num(row.version);
+        const currentValue = nullable(row[change.field]);
         if (currentVersion !== change.expectedVersion) {
           const entry = {
             ...issue(
@@ -441,16 +620,20 @@ export function createD1ProfilesService(
               `${label} changed since it was read.`,
             ),
             currentVersion,
-            currentValue: str(row.display_name),
+            currentValue,
           };
           issues.push(entry);
           stale.push(entry);
           return;
         }
+        const required = change.field === "display_name";
+        const limit = required
+          ? PROFILES_MAX_NAME_LENGTH
+          : (COMPONENT_LIMITS[change.field] ?? 0);
         const value = change.value === null ? "" : change.value.trim();
         if (
-          !value ||
-          value.length > PROFILES_MAX_NAME_LENGTH ||
+          (required && !value) ||
+          value.length > limit ||
           // biome-ignore lint/suspicious/noControlCharactersInRegex: reject control characters
           /[\u0000-\u001f\u007f]/.test(value)
         ) {
@@ -458,12 +641,15 @@ export function createD1ProfilesService(
             issue(
               index,
               "invalid_value",
-              `${label} must be 1 to ${PROFILES_MAX_NAME_LENGTH} characters with no control characters.`,
+              required
+                ? `${label} must be 1 to ${limit} characters with no control characters.`
+                : `${label} must be at most ${limit} characters with no control characters, or blank.`,
             ),
           );
           return;
         }
-        if (value === str(row.display_name)) {
+        const normalized = value === "" ? null : value;
+        if (normalized === currentValue) {
           issues.push(issue(index, "no_change", `${label} is unchanged.`));
           return;
         }
@@ -471,21 +657,24 @@ export function createD1ProfilesService(
           roles: 0,
           counties: [],
         };
+        const where = `${detail.roles} role ${plural(detail.roles, "row")}${
+          detail.counties.length ? ` in ${detail.counties.join(", ")}` : ""
+        }`;
         items.push({
           index,
           label,
           field: change.field,
           targetId: change.targetId,
-          before: str(row.display_name),
-          after: value,
+          before: currentValue,
+          after: normalized,
           impact: {
             shared: true,
             profileId: change.targetId,
             roleRows: detail.roles,
             counties: detail.counties,
-            summary: `The display name is shared by this Profile's ${detail.roles} role ${plural(detail.roles, "row")}${
-              detail.counties.length ? ` in ${detail.counties.join(", ")}` : ""
-            } and by every public page that shows the person. The private reviewed Profiles record is not changed.`,
+            summary: required
+              ? `The display name is shared by this Profile's ${where} and by every public page that shows the person. The private reviewed Profiles record is not changed.`
+              : `This is a person-level name part shared by this Profile's ${where}. It changes the Profile, never one role row, and does not change the display name or any public page. The private reviewed Profiles record is not changed.`,
           },
         });
         return;
@@ -586,6 +775,7 @@ export function createD1ProfilesService(
       changes,
       preview: { ok: issues.length === 0, items, issues },
       stale,
+      targets,
     };
   }
 
@@ -676,13 +866,69 @@ export function createD1ProfilesService(
             roleVersion: entry.roleVersion,
             visibilityVersion: entry.visibilityVersion,
             visible: entry.visible,
-            fullName: entry.fullName,
+            displayName: entry.displayName,
             employmentStart: entry.employmentStart,
             employmentEnd: entry.employmentEnd,
             dateReviewed: entry.dateReviewed,
           };
         }),
         truncated: num(countRow?.total) > PROFILES_MAX_SELECT_ALL,
+      };
+    },
+    async alternateNames(principal, profileId) {
+      await require(principal);
+      if (typeof profileId !== "string" || !ID.test(profileId))
+        throw new ProfilesInputError("Invalid profileId");
+      const person = await database.first<Row>(
+        "SELECT id, display_name, version FROM people WHERE id = ?",
+        [profileId],
+      );
+      if (!person) return null;
+      const rows = await database.all<Row>(
+        `SELECT id, person_id, name_type, first_name, middle_name, last_name,
+                name_prefix, name_suffix, published_name, applies_from,
+                applies_until, verification_status, public_display,
+                removed_at, version, created_at, updated_at
+         FROM profile_names WHERE person_id = ?
+         ORDER BY (removed_at IS NOT NULL), created_at, id COLLATE BINARY
+         LIMIT ${PROFILES_NAME_PAGE_LIMIT + 1}`,
+        PROFILES_NAME_PAGE_LIMIT + 1,
+        [profileId],
+      );
+      const truncated = rows.length > PROFILES_NAME_PAGE_LIMIT;
+      const page = rows.slice(0, PROFILES_NAME_PAGE_LIMIT);
+      const sources = new Map<string, string[]>();
+      for (let start = 0; start < page.length; start += 20) {
+        const ids = page.slice(start, start + 20).map((row) => str(row.id));
+        const found = await database.all<Row>(
+          `SELECT profile_name_id, source_reference FROM profile_name_sources
+           WHERE profile_name_id IN (SELECT value FROM json_each(?))
+           ORDER BY profile_name_id, source_reference`,
+          PROFILES_MAX_SOURCES_PER_NAME * 20,
+          [JSON.stringify(ids)],
+        );
+        for (const row of found) {
+          const list = sources.get(str(row.profile_name_id)) ?? [];
+          list.push(str(row.source_reference));
+          sources.set(str(row.profile_name_id), list);
+        }
+      }
+      const names: AlternateNameRecord[] = page.map((row) => ({
+        ...rowToFields(row, sources.get(str(row.id)) ?? []),
+        id: str(row.id),
+        personId: str(row.person_id),
+        version: num(row.version),
+        removed: row.removed_at !== null && row.removed_at !== undefined,
+        removedAt: nullable(row.removed_at),
+        createdAt: str(row.created_at),
+        updatedAt: str(row.updated_at),
+      }));
+      return {
+        profileId: str(person.id),
+        displayName: str(person.display_name),
+        profileVersion: num(person.version),
+        names,
+        truncated,
       };
     },
     async preview(principal, changes) {
@@ -719,7 +965,11 @@ export function createD1ProfilesService(
       const statements: D1BatchStatement[] = [];
       const results: {
         index: number;
-        entity: "people" | "person_roles" | "person_visibility";
+        entity:
+          | "people"
+          | "person_roles"
+          | "person_visibility"
+          | "profile_names";
         targetId: string;
         field: string;
         newVersion: number;
@@ -757,6 +1007,61 @@ export function createD1ProfilesService(
       const previewIndexes = new Set(
         checked.preview.items.map((item) => item.index),
       );
+      const nameEvent = (
+        personId: string,
+        nameId: string | null,
+        action: string,
+        before: unknown,
+        after: unknown,
+      ) =>
+        database.prepare(
+          `INSERT INTO profile_name_events
+             (id, person_id, profile_name_id, action, actor_account_id, before_json, after_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [
+            crypto.randomUUID(),
+            personId,
+            nameId,
+            action,
+            principal.accountId,
+            before === null ? null : JSON.stringify(before),
+            after === null ? null : JSON.stringify(after),
+          ],
+        );
+      const nameColumnsSql = `name_type, first_name, middle_name, last_name,
+        name_prefix, name_suffix, published_name, applies_from, applies_until,
+        verification_status, public_display`;
+      const nameValues = (
+        f: AlternateNameFields,
+      ): (string | number | null)[] => [
+        f.nameType,
+        f.firstName,
+        f.middleName,
+        f.lastName,
+        f.namePrefix,
+        f.nameSuffix,
+        f.publishedName,
+        f.appliesFrom,
+        f.appliesUntil,
+        f.verificationStatus,
+        f.publicDisplay ? 1 : 0,
+      ];
+      const sourceStatements = (nameId: string, sources: readonly string[]) =>
+        sources.map((source) =>
+          database.prepare(
+            `INSERT INTO profile_name_sources (id, profile_name_id, source_reference)
+             VALUES (?, ?, ?)`,
+            [crypto.randomUUID(), nameId, source],
+          ),
+        );
+      const personGroups = new Map<
+        string,
+        {
+          expected: number;
+          columns: [string, string | null][];
+          indexes: number[];
+        }
+      >();
       // One UPDATE per role row so its version advances once per save.
       const roleGroups = new Map<
         string,
@@ -834,34 +1139,162 @@ export function createD1ProfilesService(
           });
           return;
         }
-        if (change.entity === "people") {
-          statements.push(
-            database.prepare(
-              `UPDATE people SET display_name = ?, version = version + 1,
-                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-               WHERE id = ? AND version = ?`,
-              [
-                (change.value ?? "").trim(),
-                change.targetId,
-                change.expectedVersion,
-              ],
-            ),
-            assertion(),
-            audit(
-              "profile.update",
-              "person",
-              change.targetId,
-              "Edited a Profile display name",
-              { profileId: change.targetId, field: "display_name" },
-            ),
-          );
+        if (change.kind === "alternate_name") {
+          const idNow = (): string => `pn_${crypto.randomUUID()}`;
+          if (change.op === "add") {
+            const fields = normalizeAlternateFields(change.fields);
+            const nameId = idNow();
+            statements.push(
+              database.prepare(
+                `INSERT INTO profile_names (id, person_id, ${nameColumnsSql}, created_by_account_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                  nameId,
+                  change.personId,
+                  ...nameValues(fields),
+                  principal.accountId,
+                ],
+              ),
+              ...sourceStatements(nameId, fields.sources),
+              nameEvent(change.personId, nameId, "alternate_add", null, fields),
+              audit(
+                "profile.name_add",
+                "person",
+                change.personId,
+                "Added an alternate name to a Profile",
+                {
+                  profileId: change.personId,
+                  nameId,
+                  nameType: fields.nameType,
+                },
+              ),
+            );
+            results.push({
+              index,
+              entity: "profile_names",
+              targetId: nameId,
+              field: "alternate_name",
+              newVersion: 1,
+            });
+            return;
+          }
+          const row = checked.targets?.altNames.get(change.nameId);
+          const before = row
+            ? rowToFields(
+                row,
+                checked.targets?.altSources.get(change.nameId) ?? [],
+              )
+            : null;
+          if (change.op === "update") {
+            const fields = normalizeAlternateFields(change.fields);
+            statements.push(
+              database.prepare(
+                `UPDATE profile_names SET
+                   name_type = ?, first_name = ?, middle_name = ?, last_name = ?,
+                   name_prefix = ?, name_suffix = ?, published_name = ?,
+                   applies_from = ?, applies_until = ?, verification_status = ?,
+                   public_display = ?, version = version + 1,
+                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                 WHERE id = ? AND person_id = ? AND version = ? AND removed_at IS NULL`,
+                [
+                  ...nameValues(fields),
+                  change.nameId,
+                  change.personId,
+                  change.expectedVersion,
+                ],
+              ),
+              assertion(),
+              database.prepare(
+                "DELETE FROM profile_name_sources WHERE profile_name_id = ?",
+                [change.nameId],
+              ),
+              ...sourceStatements(change.nameId, fields.sources),
+              nameEvent(
+                change.personId,
+                change.nameId,
+                "alternate_update",
+                before,
+                fields,
+              ),
+              audit(
+                "profile.name_update",
+                "person",
+                change.personId,
+                "Edited an alternate name on a Profile",
+                {
+                  profileId: change.personId,
+                  nameId: change.nameId,
+                  nameType: fields.nameType,
+                },
+              ),
+            );
+          } else {
+            const removing = change.op === "remove";
+            statements.push(
+              database.prepare(
+                removing
+                  ? `UPDATE profile_names SET
+                       removed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                       removed_by_account_id = ?, public_display = 0,
+                       version = version + 1,
+                       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                     WHERE id = ? AND person_id = ? AND version = ? AND removed_at IS NULL`
+                  : `UPDATE profile_names SET
+                       removed_at = NULL, removed_by_account_id = NULL,
+                       public_display = 0, version = version + 1,
+                       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                     WHERE id = ? AND person_id = ? AND version = ? AND removed_at IS NOT NULL`,
+                removing
+                  ? [
+                      principal.accountId,
+                      change.nameId,
+                      change.personId,
+                      change.expectedVersion,
+                    ]
+                  : [change.nameId, change.personId, change.expectedVersion],
+              ),
+              assertion(),
+              nameEvent(
+                change.personId,
+                change.nameId,
+                removing ? "alternate_remove" : "alternate_restore",
+                before,
+                removing
+                  ? null
+                  : before
+                    ? { ...before, publicDisplay: false }
+                    : null,
+              ),
+              audit(
+                removing ? "profile.name_remove" : "profile.name_restore",
+                "person",
+                change.personId,
+                removing
+                  ? "Removed an alternate name from a Profile"
+                  : "Restored an alternate name on a Profile",
+                { profileId: change.personId, nameId: change.nameId },
+              ),
+            );
+          }
           results.push({
             index,
-            entity: "people",
-            targetId: change.targetId,
-            field: change.field,
+            entity: "profile_names",
+            targetId: change.nameId,
+            field: "alternate_name",
             newVersion: change.expectedVersion + 1,
           });
+          return;
+        }
+        if (change.entity === "people") {
+          const group = personGroups.get(change.targetId) ?? {
+            expected: change.expectedVersion,
+            columns: [],
+            indexes: [],
+          };
+          const text = (change.value ?? "").trim();
+          group.columns.push([change.field, text === "" ? null : text]);
+          group.indexes.push(index);
+          personGroups.set(change.targetId, group);
           return;
         }
         const group = roleGroups.get(change.targetId) ?? {
@@ -876,6 +1309,61 @@ export function createD1ProfilesService(
         group.indexes.push(index);
         roleGroups.set(change.targetId, group);
       });
+      for (const [personId, group] of personGroups) {
+        const columns = [...group.columns].sort(([a], [b]) =>
+          a.localeCompare(b),
+        );
+        for (const [column] of columns)
+          if (!FIELD_WRITES.people.includes(column))
+            throw new ProfilesInputError("Unsupported field");
+        const row = checked.targets?.people.get(personId);
+        const beforeValues: Record<string, string | null> = {};
+        const afterValues: Record<string, string | null> = {};
+        for (const [column, value] of columns) {
+          beforeValues[column] = nullable(row?.[column]);
+          afterValues[column] = value;
+        }
+        const only = columns.length === 1 ? columns[0]?.[0] : undefined;
+        statements.push(
+          database.prepare(
+            `UPDATE people SET ${columns
+              .map(([column]) => `"${column}" = ?`)
+              .join(", ")}, version = version + 1,
+               updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             WHERE id = ? AND version = ?`,
+            [...columns.map(([, value]) => value), personId, group.expected],
+          ),
+          assertion(),
+          audit(
+            "profile.update",
+            "person",
+            personId,
+            only === "display_name"
+              ? "Edited a Profile display name"
+              : "Edited Profile name fields",
+            {
+              profileId: personId,
+              field: columns.map(([column]) => column).join(","),
+            },
+          ),
+          nameEvent(
+            personId,
+            null,
+            "primary_update",
+            beforeValues,
+            afterValues,
+          ),
+        );
+        for (const [position, index] of group.indexes.entries()) {
+          results.push({
+            index,
+            entity: "people",
+            targetId: personId,
+            field: group.columns[position]?.[0] ?? "",
+            newVersion: group.expected + 1,
+          });
+        }
+      }
       for (const [roleId, group] of roleGroups) {
         const columns = [...group.columns].sort(([a], [b]) =>
           a.localeCompare(b),
@@ -959,6 +1447,445 @@ export function createD1ProfilesService(
   };
 }
 
+interface AlternateTargets {
+  readonly people: Map<string, Row>;
+  readonly altNames: Map<string, Row>;
+  readonly altByPerson: Map<string, Row[]>;
+  readonly altSources: Map<string, string[]>;
+}
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: reject control characters
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+
+function nameReview(row: Row): ProfileNameReview {
+  if (num(row.alternate_names_pending) > 0) return "alternate_names_pending";
+  const hasComponent = [
+    row.first_name,
+    row.middle_name,
+    row.last_name,
+    row.preferred_first_name,
+    row.name_prefix,
+    row.name_suffix,
+  ].some((value) => value !== null && value !== undefined && value !== "");
+  return hasComponent ? "components_entered" : "display_only";
+}
+
+/**
+ * Trims every alternate-name text field and turns a blank optional component
+ * or date into null. It never splits, merges or rewrites the text, so accents,
+ * punctuation and Unicode are kept exactly as entered.
+ */
+export function normalizeAlternateFields(
+  fields: AlternateNameFields,
+): AlternateNameFields {
+  const optional = (value: string | null): string | null => {
+    if (value === null) return null;
+    const trimmed = value.trim();
+    return trimmed === "" ? null : trimmed;
+  };
+  const seen = new Set<string>();
+  const sources: string[] = [];
+  for (const raw of fields.sources) {
+    const source = raw.trim();
+    if (source && !seen.has(source)) {
+      seen.add(source);
+      sources.push(source);
+    }
+  }
+  return {
+    nameType: fields.nameType,
+    firstName: optional(fields.firstName),
+    middleName: optional(fields.middleName),
+    lastName: optional(fields.lastName),
+    namePrefix: optional(fields.namePrefix),
+    nameSuffix: optional(fields.nameSuffix),
+    publishedName: fields.publishedName.trim(),
+    appliesFrom: optional(fields.appliesFrom),
+    appliesUntil: optional(fields.appliesUntil),
+    verificationStatus: fields.verificationStatus,
+    publicDisplay: fields.publicDisplay,
+    sources,
+  };
+}
+
+/** The first problem with normalized alternate-name values, or null. */
+function alternateFieldProblem(fields: AlternateNameFields): {
+  readonly code: ProfileChangeIssue["code"];
+  readonly message: string;
+} | null {
+  if (!(ALTERNATE_NAME_TYPES as readonly string[]).includes(fields.nameType))
+    return { code: "invalid_value", message: "Choose a supported name type." };
+  if (
+    !(ALTERNATE_NAME_STATUSES as readonly string[]).includes(
+      fields.verificationStatus,
+    )
+  )
+    return {
+      code: "invalid_value",
+      message: "Choose Confirmed or Requires review.",
+    };
+  const text: [string, string | null, number, boolean][] = [
+    ["Name as published", fields.publishedName, PROFILES_MAX_NAME_LENGTH, true],
+    ["First Name", fields.firstName, PROFILES_MAX_NAME_COMPONENT_LENGTH, false],
+    [
+      "Middle Name",
+      fields.middleName,
+      PROFILES_MAX_NAME_COMPONENT_LENGTH,
+      false,
+    ],
+    ["Last Name", fields.lastName, PROFILES_MAX_NAME_COMPONENT_LENGTH, false],
+    ["Name Prefix", fields.namePrefix, PROFILES_MAX_NAME_AFFIX_LENGTH, false],
+    ["Name Suffix", fields.nameSuffix, PROFILES_MAX_NAME_AFFIX_LENGTH, false],
+  ];
+  for (const [label, value, limit, required] of text) {
+    if (
+      (required && !value) ||
+      (value !== null &&
+        (value.length > limit || CONTROL_CHARACTERS.test(value)))
+    )
+      return {
+        code: "invalid_value",
+        message: required
+          ? `${label} must be 1 to ${limit} characters with no control characters.`
+          : `${label} must be at most ${limit} characters with no control characters, or blank.`,
+      };
+  }
+  for (const [label, value] of [
+    ["Applies From", fields.appliesFrom],
+    ["Applies Until", fields.appliesUntil],
+  ] as const) {
+    if (value !== null && !validDate(value))
+      return {
+        code: "invalid_value",
+        message: `${label} must be a date such as 2026-03-14, or blank.`,
+      };
+  }
+  if (
+    fields.appliesFrom &&
+    fields.appliesUntil &&
+    fields.appliesUntil < fields.appliesFrom
+  )
+    return {
+      code: "date_order",
+      message: "Applies Until cannot be before Applies From.",
+    };
+  if (fields.sources.length > PROFILES_MAX_SOURCES_PER_NAME)
+    return {
+      code: "invalid_value",
+      message: `A name can have at most ${PROFILES_MAX_SOURCES_PER_NAME} source references.`,
+    };
+  for (const source of fields.sources)
+    if (
+      source.length > PROFILES_MAX_SOURCE_REFERENCE_LENGTH ||
+      CONTROL_CHARACTERS.test(source)
+    )
+      return {
+        code: "invalid_value",
+        message: `Each source reference must be at most ${PROFILES_MAX_SOURCE_REFERENCE_LENGTH} characters with no control characters.`,
+      };
+  if (fields.publicDisplay && fields.verificationStatus !== "confirmed")
+    return {
+      code: "public_not_allowed",
+      message:
+        "Only a confirmed name can be shown publicly. Mark it Confirmed first.",
+    };
+  return null;
+}
+
+function nameKey(
+  type: string,
+  publishedName: string,
+  from: string | null,
+  until: string | null,
+): string {
+  return JSON.stringify([
+    type,
+    publishedName.toLowerCase(),
+    from ?? "",
+    until ?? "",
+  ]);
+}
+
+/**
+ * Applies the requested operations in order to each Profile's active names and
+ * reports a name that would collide with another. The unique index is the
+ * final guard. This pass gives the owner the reason before anything is sent.
+ */
+function alternateDuplicateIssues(
+  changes: readonly ProfileChange[],
+  targets: AlternateTargets,
+): Map<number, ProfileChangeIssue> {
+  const found = new Map<number, ProfileChangeIssue>();
+  const state = new Map<string, Map<string, string>>();
+  const known = (personId: string): Map<string, string> => {
+    let keys = state.get(personId);
+    if (!keys) {
+      keys = new Map();
+      for (const row of targets.altByPerson.get(personId) ?? []) {
+        if (row.removed_at !== null && row.removed_at !== undefined) continue;
+        keys.set(
+          nameKey(
+            str(row.name_type),
+            str(row.published_name),
+            nullable(row.applies_from),
+            nullable(row.applies_until),
+          ),
+          str(row.id),
+        );
+      }
+      state.set(personId, keys);
+    }
+    return keys;
+  };
+  const drop = (keys: Map<string, string>, id: string) => {
+    for (const [key, owner] of keys) if (owner === id) keys.delete(key);
+  };
+  changes.forEach((change, index) => {
+    if (change.kind !== "alternate_name") return;
+    const keys = known(change.personId);
+    let owner = `add:${index}`;
+    let key: string | null = null;
+    if (change.op === "add" || change.op === "update") {
+      const fields = normalizeAlternateFields(change.fields);
+      if (alternateFieldProblem(fields)) return;
+      key = nameKey(
+        fields.nameType,
+        fields.publishedName,
+        fields.appliesFrom,
+        fields.appliesUntil,
+      );
+      if (change.op === "update") {
+        owner = change.nameId;
+        drop(keys, owner);
+      }
+    } else if (change.op === "remove") {
+      drop(keys, change.nameId);
+      return;
+    } else {
+      const row = targets.altNames.get(change.nameId);
+      if (!row) return;
+      owner = change.nameId;
+      key = nameKey(
+        str(row.name_type),
+        str(row.published_name),
+        nullable(row.applies_from),
+        nullable(row.applies_until),
+      );
+    }
+    const existing = keys.get(key);
+    if (existing !== undefined && existing !== owner) {
+      found.set(
+        index,
+        issue(
+          index,
+          "duplicate_name",
+          "This Profile already has that name with the same type and dates.",
+        ),
+      );
+      return;
+    }
+    keys.set(key, owner);
+  });
+  return found;
+}
+
+function describeAlternate(fields: AlternateNameFields): string {
+  return `${fields.nameType}: ${fields.publishedName} (${
+    fields.verificationStatus === "confirmed" ? "confirmed" : "requires review"
+  }, ${fields.publicDisplay ? "public" : "private"}, ${fields.sources.length} ${plural(fields.sources.length, "source")})`;
+}
+
+function rowToFields(
+  row: Row,
+  sources: readonly string[],
+): AlternateNameFields {
+  return {
+    nameType: str(row.name_type) as AlternateNameFields["nameType"],
+    firstName: nullable(row.first_name),
+    middleName: nullable(row.middle_name),
+    lastName: nullable(row.last_name),
+    namePrefix: nullable(row.name_prefix),
+    nameSuffix: nullable(row.name_suffix),
+    publishedName: str(row.published_name),
+    appliesFrom: nullable(row.applies_from),
+    appliesUntil: nullable(row.applies_until),
+    verificationStatus: str(
+      row.verification_status,
+    ) as AlternateNameFields["verificationStatus"],
+    publicDisplay: num(row.public_display) === 1,
+    sources: [...sources].sort(),
+  };
+}
+
+function sameFields(a: AlternateNameFields, b: AlternateNameFields): boolean {
+  return (
+    JSON.stringify({ ...a, sources: [...a.sources].sort() }) ===
+    JSON.stringify({ ...b, sources: [...b.sources].sort() })
+  );
+}
+
+function publicSummary(fields: AlternateNameFields, removed: boolean): string {
+  if (removed)
+    return "Removes this name from the Profile. It is hidden from every public page and search. The record is kept and can be restored.";
+  return fields.publicDisplay
+    ? "Shows this confirmed name on the public Profile page and in public name search, while the Profile is visible. Its sources stay private."
+    : "Private. Not shown on any public page or in public search. Internal reviewers can still search and inspect it.";
+}
+
+function validateAlternate(
+  change: AlternateNameChange,
+  index: number,
+  targets: AlternateTargets,
+  duplicate: ProfileChangeIssue | undefined,
+  issues: ProfileChangeIssue[],
+  stale: ProfileChangeIssue[],
+  items: ProfilePreviewItem[],
+): void {
+  const person = targets.people.get(change.personId);
+  if (!person) {
+    issues.push(issue(index, "not_found", "That Profile no longer exists."));
+    return;
+  }
+  const impact = (fields: AlternateNameFields | null, removed: boolean) => ({
+    shared: true,
+    profileId: change.personId,
+    roleRows: 0,
+    counties: [] as string[],
+    summary: fields
+      ? publicSummary(fields, removed)
+      : publicSummary(
+          {
+            nameType: "other",
+            firstName: null,
+            middleName: null,
+            lastName: null,
+            namePrefix: null,
+            nameSuffix: null,
+            publishedName: "",
+            appliesFrom: null,
+            appliesUntil: null,
+            verificationStatus: "requires_review",
+            publicDisplay: false,
+            sources: [],
+          },
+          removed,
+        ),
+  });
+  if (change.op === "add") {
+    const fields = normalizeAlternateFields(change.fields);
+    const problem = alternateFieldProblem(fields);
+    if (problem) {
+      issues.push(issue(index, problem.code, problem.message));
+      return;
+    }
+    if (duplicate) {
+      issues.push(duplicate);
+      return;
+    }
+    items.push({
+      index,
+      label: "Alternate name (add)",
+      field: "alternate_name",
+      targetId: change.personId,
+      before: null,
+      after: describeAlternate(fields),
+      impact: impact(fields, false),
+    });
+    return;
+  }
+  const row = targets.altNames.get(change.nameId);
+  if (!row || str(row.person_id) !== change.personId) {
+    issues.push(
+      issue(index, "not_found", "That alternate name no longer exists."),
+    );
+    return;
+  }
+  const currentVersion = num(row.version);
+  const sources = targets.altSources.get(change.nameId) ?? [];
+  const current = rowToFields(row, sources);
+  if (currentVersion !== change.expectedVersion) {
+    const entry = {
+      ...issue(
+        index,
+        "stale_version",
+        "This alternate name changed since it was read.",
+      ),
+      currentVersion,
+      currentValue: current.publishedName,
+    };
+    issues.push(entry);
+    stale.push(entry);
+    return;
+  }
+  const removed = row.removed_at !== null && row.removed_at !== undefined;
+  if (change.op === "remove") {
+    if (removed) {
+      issues.push(issue(index, "no_change", "That name is already removed."));
+      return;
+    }
+    items.push({
+      index,
+      label: "Alternate name (remove)",
+      field: "alternate_name",
+      targetId: change.nameId,
+      before: describeAlternate(current),
+      after: null,
+      impact: impact(current, true),
+    });
+    return;
+  }
+  if (change.op === "restore") {
+    if (!removed) {
+      issues.push(issue(index, "no_change", "That name is not removed."));
+      return;
+    }
+    if (duplicate) {
+      issues.push(duplicate);
+      return;
+    }
+    items.push({
+      index,
+      label: "Alternate name (restore)",
+      field: "alternate_name",
+      targetId: change.nameId,
+      before: null,
+      after: describeAlternate({ ...current, publicDisplay: false }),
+      impact: impact({ ...current, publicDisplay: false }, false),
+    });
+    return;
+  }
+  if (removed) {
+    issues.push(
+      issue(index, "invalid_value", "Restore the name before editing it."),
+    );
+    return;
+  }
+  if (change.op !== "update") return;
+  const fields = normalizeAlternateFields(change.fields);
+  const problem = alternateFieldProblem(fields);
+  if (problem) {
+    issues.push(issue(index, problem.code, problem.message));
+    return;
+  }
+  if (sameFields(fields, current)) {
+    issues.push(issue(index, "no_change", "The alternate name is unchanged."));
+    return;
+  }
+  if (duplicate) {
+    issues.push(duplicate);
+    return;
+  }
+  items.push({
+    index,
+    label: "Alternate name (edit)",
+    field: "alternate_name",
+    targetId: change.nameId,
+    before: describeAlternate(current),
+    after: describeAlternate(fields),
+    impact: impact(fields, false),
+  });
+}
+
 function issue(
   index: number,
   code: ProfileChangeIssue["code"],
@@ -1004,7 +1931,7 @@ export function parseQuery(input: unknown): ProfileQuery {
   const visibility = text("visibility", 10) || "all";
   if (!["all", "visible", "hidden"].includes(visibility))
     throw new ProfilesInputError("Invalid visibility");
-  const sort = text("sort", 40) || "fullName";
+  const sort = text("sort", 40) || "displayName";
   if (!PROFILE_SORT_FIELDS.includes(sort))
     throw new ProfilesInputError("Invalid sort");
   const direction = text("direction", 4) || "asc";
@@ -1098,6 +2025,79 @@ export function parseChanges(input: unknown): {
       });
       return;
     }
+    if (entry.kind === "alternate_name") {
+      const op = entry.op;
+      const personOk =
+        typeof entry.personId === "string" && ID.test(entry.personId);
+      const parsedFields =
+        op === "add" || op === "update"
+          ? parseAlternateFields(entry.fields)
+          : null;
+      const nameOk = typeof entry.nameId === "string" && ID.test(entry.nameId);
+      let allowedKeys: string[] = [];
+      if (op === "add") allowedKeys = ["kind", "op", "personId", "fields"];
+      else if (op === "update")
+        allowedKeys = [
+          "kind",
+          "op",
+          "personId",
+          "nameId",
+          "expectedVersion",
+          "fields",
+        ];
+      else if (op === "remove" || op === "restore")
+        allowedKeys = ["kind", "op", "personId", "nameId", "expectedVersion"];
+      const needsName = op === "update" || op === "remove" || op === "restore";
+      if (
+        allowedKeys.length === 0 ||
+        keys.some((key) => !allowedKeys.includes(key)) ||
+        !personOk ||
+        (needsName &&
+          (!nameOk || !Number.isInteger(version) || (version as number) < 1)) ||
+        ((op === "add" || op === "update") && !parsedFields)
+      ) {
+        issues.push(
+          issue(index, "invalid_value", "Invalid alternate-name change."),
+        );
+        return;
+      }
+      if (needsName) {
+        const key = `alternate_name:${entry.nameId as string}`;
+        if (seen.has(key)) {
+          issues.push(
+            issue(index, "duplicate_target", "That name is already changed."),
+          );
+          return;
+        }
+        seen.add(key);
+      }
+      if (op === "add" && parsedFields) {
+        changes.push({
+          kind: "alternate_name",
+          op: "add",
+          personId: entry.personId as string,
+          fields: parsedFields,
+        });
+      } else if (op === "update" && parsedFields) {
+        changes.push({
+          kind: "alternate_name",
+          op: "update",
+          personId: entry.personId as string,
+          nameId: entry.nameId as string,
+          expectedVersion: version as number,
+          fields: parsedFields,
+        });
+      } else {
+        changes.push({
+          kind: "alternate_name",
+          op: op as "remove" | "restore",
+          personId: entry.personId as string,
+          nameId: entry.nameId as string,
+          expectedVersion: version as number,
+        });
+      }
+      return;
+    }
     const allowed = [
       "kind",
       "entity",
@@ -1150,18 +2150,103 @@ export function parseChanges(input: unknown): {
   return { changes: issues.length ? [] : changes, issues };
 }
 
+const ALTERNATE_FIELD_KEYS = [
+  "nameType",
+  "firstName",
+  "middleName",
+  "lastName",
+  "namePrefix",
+  "nameSuffix",
+  "publishedName",
+  "appliesFrom",
+  "appliesUntil",
+  "verificationStatus",
+  "publicDisplay",
+  "sources",
+];
+
+/** Shape check only. Values are checked against the rules in the service. */
+function parseAlternateFields(input: unknown): AlternateNameFields | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const raw = input as Record<string, unknown>;
+  if (Object.keys(raw).some((key) => !ALTERNATE_FIELD_KEYS.includes(key)))
+    return null;
+  const optional = (value: unknown): string | null | undefined =>
+    value === undefined || value === null
+      ? null
+      : typeof value === "string" && value.length <= 1000
+        ? value
+        : undefined;
+  const parts = {
+    firstName: optional(raw.firstName),
+    middleName: optional(raw.middleName),
+    lastName: optional(raw.lastName),
+    namePrefix: optional(raw.namePrefix),
+    nameSuffix: optional(raw.nameSuffix),
+    appliesFrom: optional(raw.appliesFrom),
+    appliesUntil: optional(raw.appliesUntil),
+  };
+  if (Object.values(parts).some((value) => value === undefined)) return null;
+  if (
+    typeof raw.nameType !== "string" ||
+    typeof raw.publishedName !== "string" ||
+    raw.publishedName.length > 1000 ||
+    typeof raw.verificationStatus !== "string" ||
+    typeof raw.publicDisplay !== "boolean"
+  )
+    return null;
+  const sources = raw.sources === undefined ? [] : raw.sources;
+  if (
+    !Array.isArray(sources) ||
+    sources.length > 200 ||
+    sources.some((value) => typeof value !== "string" || value.length > 1000)
+  )
+    return null;
+  return {
+    nameType: raw.nameType as AlternateNameFields["nameType"],
+    firstName: parts.firstName as string | null,
+    middleName: parts.middleName as string | null,
+    lastName: parts.lastName as string | null,
+    namePrefix: parts.namePrefix as string | null,
+    nameSuffix: parts.nameSuffix as string | null,
+    publishedName: raw.publishedName,
+    appliesFrom: parts.appliesFrom as string | null,
+    appliesUntil: parts.appliesUntil as string | null,
+    verificationStatus:
+      raw.verificationStatus as AlternateNameFields["verificationStatus"],
+    publicDisplay: raw.publicDisplay,
+    sources: sources as string[],
+  };
+}
+
+function canonicalFields(input: AlternateNameFields): AlternateNameFields {
+  const fields = normalizeAlternateFields(input);
+  return { ...fields, sources: [...fields.sources].sort() };
+}
+
 function canonical(changes: readonly ProfileChange[]): unknown[] {
   return changes.map((change) =>
-    change.kind === "visibility"
-      ? ["v", change.personId, change.expectedVersion, change.visible]
-      : [
-          "f",
-          change.entity,
-          change.targetId,
-          change.field,
-          change.expectedVersion,
-          change.value === null ? null : change.value.trim(),
-        ],
+    change.kind === "alternate_name"
+      ? [
+          "a",
+          change.op,
+          change.personId,
+          "nameId" in change ? change.nameId : null,
+          "expectedVersion" in change ? change.expectedVersion : null,
+          change.op === "add" || change.op === "update"
+            ? canonicalFields(change.fields)
+            : null,
+        ]
+      : change.kind === "visibility"
+        ? ["v", change.personId, change.expectedVersion, change.visible]
+        : [
+            "f",
+            change.entity,
+            change.targetId,
+            change.field,
+            change.expectedVersion,
+            change.value === null ? null : change.value.trim(),
+          ],
   );
 }
 

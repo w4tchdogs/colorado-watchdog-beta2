@@ -21,6 +21,8 @@ const allowed = new Set([
   "tests/cloudflare-staging-config.test.mjs",
   "tests/profiles-api.test.mjs",
   "tests/profiles-d1.test.mjs",
+  "tests/profile-names.test.mjs",
+  "tests/profile-csv.test.mjs",
   "tests/profiles-view.test.mjs",
   "scripts/verify-cloudflare-staging-d1.mjs",
   "scripts/banners.mjs",
@@ -178,6 +180,7 @@ const allowed = new Set([
   "src/services/person-profile.ts",
   "src/services/person-visibility.ts",
   "src/services/profiles-d1.ts",
+  "src/services/profile-csv.ts",
   "src/services/audit.ts",
   "src/services/accounts.ts",
   "src/account-admin.ts",
@@ -227,6 +230,7 @@ const allowed = new Set([
   "website/migrations/0029_content_revision_checkpoint_label.sql",
   "website/migrations/0030_profile_visibility.sql",
   "website/migrations/0030_profile_visibility.sql",
+  "website/migrations/0031_profile_names.sql",
   "src/auth/config.ts",
   "src/auth/http.ts",
   "src/auth/identity.ts",
@@ -323,6 +327,7 @@ const allowed = new Set([
   "tests/dashboard-banners-ui.test.mjs",
   "docs/architecture/dashboard.md",
   "docs/architecture/profiles-sheet.md",
+  "docs/architecture/profile-names.md",
   "src/editor/markdown.ts",
   "src/editor/preview.ts",
   "src/editor-dev/sandbox.ts",
@@ -534,7 +539,7 @@ for (const file of files) {
   const bytes = staged ? git("show", `:${file}`) : readFileSync(file);
   // Large files have scoped limits: the lockfile, bundled county geometry, the
   // repository copy of the Fable revision 4 assessment, the banner
-  // administration service, and the local research CLI and identity planner.
+  // administration service, the Profiles service and editor view, and the local research CLI and identity planner.
   const sizeLimit =
     file === "package-lock.json"
       ? 256 * 1024
@@ -542,6 +547,8 @@ for (const file of files) {
         ? 1024 * 1024
         : file === "docs/architecture/fable-assessment-rev4.md" ||
             file === "src/services/banner-admin-d1.ts" ||
+            file === "src/services/profiles-d1.ts" ||
+            file === "src/editor/profiles-view.ts" ||
             file === "research/__main__.py" ||
             file === "research/identity.py"
           ? 96 * 1024

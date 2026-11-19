@@ -85,6 +85,7 @@ test("person profiles preserve stored roles, county relationships, citations, an
       id: "person-one",
       displayName: "Synthetic Alex Example",
       version: 4,
+      alternateNames: [],
     });
     assert.deepEqual(
       profile.items.map(({ role }) => role.id),
@@ -226,6 +227,7 @@ test("empty profiles, unknown people, invalid input, and read-only service behav
         id: "person-empty",
         displayName: "Synthetic Person Without Roles",
         version: 1,
+        alternateNames: [],
       },
       items: [],
       hasMore: false,
@@ -371,6 +373,7 @@ test("profile HTTP endpoint validates requests and returns public pages", async 
         id: "person-one",
         displayName: "Synthetic Alex Example",
         version: 4,
+        alternateNames: [],
       },
       items: [
         {
@@ -419,6 +422,7 @@ test("profile HTTP endpoint validates requests and returns public pages", async 
         id: "person-empty",
         displayName: "Synthetic Person Without Roles",
         version: 1,
+        alternateNames: [],
       },
       items: [],
       hasMore: false,

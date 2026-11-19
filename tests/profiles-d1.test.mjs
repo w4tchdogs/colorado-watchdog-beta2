@@ -124,13 +124,13 @@ const query = (extra = {}) => ({
   county: null,
   office: null,
   visibility: "all",
-  sort: "fullName",
+  sort: "displayName",
   direction: "asc",
   page: 1,
   pageSize: 50,
   ...extra,
 });
-const names = (page) => page.rows.map((row) => row.fullName);
+const names = (page) => page.rows.map((row) => row.displayName);
 const visibility = (personId, visible, expectedVersion = 0) => ({
   kind: "visibility",
   personId,
@@ -207,7 +207,7 @@ test("lists one row per role across two counties with server-side sort, filter a
     // Unknown dates stay blank and shared fields repeat on every row.
     const multi = all.rows.filter((r) => r.profileId === "person-multi");
     assert.equal(multi.length, 2);
-    assert.equal(multi[0].fullName, multi[1].fullName);
+    assert.equal(multi[0].displayName, multi[1].displayName);
     assert.equal(
       all.rows.find((r) => r.roleId === "role-multi-b").employmentStart,
       null,
@@ -291,7 +291,7 @@ test("inline name edit and bulk date change save, retry safely and reload", asyn
       (r) => r.profileId === "person-multi",
     );
     assert.deepEqual(
-      reloaded.map((r) => r.fullName),
+      reloaded.map((r) => r.displayName),
       Array(2).fill("Synthetic Multi Renamed"),
     );
     assert.deepEqual(
@@ -645,7 +645,7 @@ test("upgrading from migration 29 keeps every existing Profile visible and chang
       assert.equal(
         database.prepare("SELECT MAX(version) v FROM schema_migrations").get()
           .v,
-        30,
+        31,
       );
       assert.equal(
         database.prepare("SELECT COUNT(*) c FROM person_visibility").get().c,

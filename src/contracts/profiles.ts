@@ -22,6 +22,220 @@ export const PROFILES_MAX_SELECT_ALL = 1_000;
 export const PROFILES_MAX_CHANGES = 500;
 export const PROFILES_MAX_QUERY_LENGTH = 100;
 export const PROFILES_MAX_NAME_LENGTH = 500;
+export const PROFILES_MAX_NAME_COMPONENT_LENGTH = 200;
+export const PROFILES_MAX_NAME_AFFIX_LENGTH = 50;
+export const PROFILES_MAX_SOURCES_PER_NAME = 50;
+export const PROFILES_MAX_SOURCE_REFERENCE_LENGTH = 500;
+
+/**
+ * Controlled alternate-name vocabulary. The meaning of each value is
+ * documented in docs/architecture/profile-names.md. A value says how the name
+ * is documented, never an unstated conclusion: a different surname in a source
+ * is not by itself a `married_surname`, a `birth_surname` or a
+ * `legal_name_change`. Use `other` or `historical_published` with
+ * `requires_review` until the evidence supports a specific type.
+ */
+export const ALTERNATE_NAME_TYPES = [
+  "nickname",
+  "preferred",
+  "middle_name_used",
+  "birth_surname",
+  "married_surname",
+  "former_surname",
+  "legal_name_change",
+  "professional_name",
+  "initials",
+  "historical_published",
+  "spelling_variant",
+  "transliteration",
+  "other",
+] as const;
+export type AlternateNameType = (typeof ALTERNATE_NAME_TYPES)[number];
+
+/**
+ * Label and meaning for each alternate-name type. The meanings are the
+ * vocabulary the owner agreed to and are repeated in
+ * docs/architecture/profile-names.md. Every meaning describes how a name is
+ * documented. None of them lets the Website infer a life event.
+ */
+export const ALTERNATE_NAME_TYPE_INFO: Readonly<
+  Record<
+    AlternateNameType,
+    { readonly label: string; readonly meaning: string }
+  >
+> = {
+  nickname: {
+    label: "Nickname",
+    meaning:
+      "An informal given name or short form the person is documented as using.",
+  },
+  preferred: {
+    label: "Preferred name",
+    meaning:
+      "A name the person is documented as preferring, apart from the primary Preferred First Name.",
+  },
+  middle_name_used: {
+    label: "Middle name used",
+    meaning:
+      "The person is documented as going by a middle name in place of the first name.",
+  },
+  birth_surname: {
+    label: "Birth surname",
+    meaning: "A source states this is the surname the person was born with.",
+  },
+  married_surname: {
+    label: "Married surname",
+    meaning:
+      "A source states this surname was taken or used because of a marriage.",
+  },
+  former_surname: {
+    label: "Former surname",
+    meaning:
+      "A source states this is a surname the person used before the current one, without saying why.",
+  },
+  legal_name_change: {
+    label: "Legal name change",
+    meaning: "A source documents a legal change of name.",
+  },
+  professional_name: {
+    label: "Professional name",
+    meaning: "A name used in a professional or official role.",
+  },
+  initials: {
+    label: "Initials",
+    meaning: "The name as initials, such as J. R. Doe.",
+  },
+  historical_published: {
+    label: "Historical published name",
+    meaning:
+      "A name as it appeared in a dated publication when the reason for the difference is not documented.",
+  },
+  spelling_variant: {
+    label: "Spelling variant",
+    meaning: "The same name spelled differently across sources.",
+  },
+  transliteration: {
+    label: "Transliteration",
+    meaning: "The name rendered from another alphabet or accented form.",
+  },
+  other: {
+    label: "Other",
+    meaning:
+      "Any documented name that fits no other type. Use with Requires review when unsure.",
+  },
+};
+
+export const ALTERNATE_NAME_STATUSES = [
+  "requires_review",
+  "confirmed",
+] as const;
+export type AlternateNameStatus = (typeof ALTERNATE_NAME_STATUSES)[number];
+
+/** Public label for an approved alternate name, by type. */
+export type AlternateNamePublicLabel =
+  | "Also known as"
+  | "Formerly known as"
+  | "Professional name"
+  | "Published as";
+
+export const ALTERNATE_NAME_PUBLIC_LABELS: Readonly<
+  Record<AlternateNameType, AlternateNamePublicLabel>
+> = {
+  nickname: "Also known as",
+  preferred: "Also known as",
+  middle_name_used: "Also known as",
+  birth_surname: "Formerly known as",
+  married_surname: "Formerly known as",
+  former_surname: "Formerly known as",
+  legal_name_change: "Formerly known as",
+  professional_name: "Professional name",
+  initials: "Also known as",
+  historical_published: "Published as",
+  spelling_variant: "Published as",
+  transliteration: "Published as",
+  other: "Also known as",
+};
+
+export type ProfileNameReview =
+  | "display_only"
+  | "components_entered"
+  | "alternate_names_pending";
+
+/** Editable primary-name columns on `people`, by grid field ID. */
+export const PROFILE_NAME_COMPONENT_COLUMNS = {
+  firstName: "first_name",
+  middleName: "middle_name",
+  lastName: "last_name",
+  preferredFirstName: "preferred_first_name",
+  namePrefix: "name_prefix",
+  nameSuffix: "name_suffix",
+} as const;
+
+export interface AlternateNameFields {
+  readonly nameType: AlternateNameType;
+  readonly firstName: string | null;
+  readonly middleName: string | null;
+  readonly lastName: string | null;
+  readonly namePrefix: string | null;
+  readonly nameSuffix: string | null;
+  /** The exact documented name ("Full Name as Published"). */
+  readonly publishedName: string;
+  readonly appliesFrom: string | null;
+  readonly appliesUntil: string | null;
+  readonly verificationStatus: AlternateNameStatus;
+  readonly publicDisplay: boolean;
+  /** Private evidence identifiers. The full list replaces the stored list. */
+  readonly sources: readonly string[];
+}
+
+/**
+ * One alternate-name operation. `add` needs no expected version. `update`,
+ * `remove` and `restore` carry the name's version. `remove` is a reversible
+ * soft removal, and `restore` undoes it. The server checks that the Profile
+ * still exists in the same atomic batch as every other change.
+ */
+export type AlternateNameChange =
+  | {
+      readonly kind: "alternate_name";
+      readonly op: "add";
+      readonly personId: string;
+      readonly fields: AlternateNameFields;
+    }
+  | {
+      readonly kind: "alternate_name";
+      readonly op: "update";
+      readonly personId: string;
+      readonly nameId: string;
+      readonly expectedVersion: number;
+      readonly fields: AlternateNameFields;
+    }
+  | {
+      readonly kind: "alternate_name";
+      readonly op: "remove" | "restore";
+      readonly personId: string;
+      readonly nameId: string;
+      readonly expectedVersion: number;
+    };
+
+/** An alternate name as the owner sees it. Sources are private evidence. */
+export interface AlternateNameRecord extends AlternateNameFields {
+  readonly id: string;
+  readonly personId: string;
+  readonly version: number;
+  readonly removed: boolean;
+  readonly removedAt: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface AlternateNameList {
+  readonly profileId: string;
+  readonly displayName: string;
+  readonly profileVersion: number;
+  readonly names: readonly AlternateNameRecord[];
+  /** True when the Profile has more names than one response carries. */
+  readonly truncated: boolean;
+}
 
 export type ProfileFieldStatus = "editable" | "read-only" | "unavailable";
 export type ProfileFieldScope = "profile" | "role";
@@ -46,6 +260,9 @@ export interface ProfileFieldDefinition {
   };
 }
 
+const NAME_COMPONENT_OWNER =
+  "Website only for now. Edited here and left blank when unknown. The Website never derives a component from the display name. The reviewed sync does not read or write it until the Profiles import extends the sync allowlist.";
+
 const PRIVATE_WORKFLOW =
   "Private Profiles database. Not stored on the Website and never synced to it.";
 
@@ -62,13 +279,13 @@ export const PROFILE_FIELDS: readonly ProfileFieldDefinition[] = [
     sortable: true,
   },
   {
-    id: "fullName",
-    label: "Full Name",
+    id: "displayName",
+    label: "Display Name",
     status: "editable",
     scope: "profile",
     source: "people.display_name",
     owner:
-      "Shared. The Website value is edited here. The private reviewed Profiles record is edited through its own workflow. A later reviewed sync replaces the Website value only through a preview and the expected-version check.",
+      "Shared. The approved public-facing name. Edited here on the Website. A later reviewed sync replaces it only through a preview and the expected-version check. It is never rebuilt from the name components.",
     defaultVisible: true,
     sortable: true,
     write: { entity: "people", column: "display_name" },
@@ -134,63 +351,89 @@ export const PROFILE_FIELDS: readonly ProfileFieldDefinition[] = [
   {
     id: "firstName",
     label: "First Name",
-    status: "unavailable",
+    status: "editable",
     scope: "profile",
-    source: "No Website column",
-    owner:
-      "Private Profiles database. The Website stores one display name, so no component is derived from it.",
-    reason:
-      "The Website keeps only the full display name. Verified name components are not on main.",
-    defaultVisible: false,
-    sortable: false,
+    source: "people.first_name",
+    owner: NAME_COMPONENT_OWNER,
+    defaultVisible: true,
+    sortable: true,
+    write: { entity: "people", column: "first_name" },
   },
   {
     id: "middleName",
     label: "Middle Name",
-    status: "unavailable",
+    status: "editable",
     scope: "profile",
-    source: "No Website column",
-    owner:
-      "Private Profiles database. The Website stores one display name, so no component is derived from it.",
-    reason:
-      "The Website keeps only the full display name. Verified name components are not on main.",
-    defaultVisible: false,
-    sortable: false,
+    source: "people.middle_name",
+    owner: NAME_COMPONENT_OWNER,
+    defaultVisible: true,
+    sortable: true,
+    write: { entity: "people", column: "middle_name" },
   },
   {
     id: "lastName",
     label: "Last Name",
-    status: "unavailable",
+    status: "editable",
     scope: "profile",
-    source: "No Website column",
+    source: "people.last_name",
+    owner: NAME_COMPONENT_OWNER,
+    defaultVisible: true,
+    sortable: true,
+    write: { entity: "people", column: "last_name" },
+  },
+  {
+    id: "preferredFirstName",
+    label: "Preferred First Name",
+    status: "editable",
+    scope: "profile",
+    source: "people.preferred_first_name",
+    owner: NAME_COMPONENT_OWNER,
+    defaultVisible: false,
+    sortable: true,
+    write: { entity: "people", column: "preferred_first_name" },
+  },
+  {
+    id: "namePrefix",
+    label: "Name Prefix",
+    status: "editable",
+    scope: "profile",
+    source: "people.name_prefix",
+    owner: NAME_COMPONENT_OWNER,
+    defaultVisible: false,
+    sortable: true,
+    write: { entity: "people", column: "name_prefix" },
+  },
+  {
+    id: "nameSuffix",
+    label: "Name Suffix",
+    status: "editable",
+    scope: "profile",
+    source: "people.name_suffix",
+    owner: NAME_COMPONENT_OWNER,
+    defaultVisible: false,
+    sortable: true,
+    write: { entity: "people", column: "name_suffix" },
+  },
+  {
+    id: "alternateNameCount",
+    label: "Alternate Names",
+    status: "read-only",
+    scope: "profile",
+    source: "Count of active profile_names rows for the Profile",
     owner:
-      "Private Profiles database. The Website stores one display name, so no component is derived from it.",
-    reason:
-      "The Website keeps only the full display name. Verified name components are not on main.",
-    defaultVisible: false,
-    sortable: false,
+      "Website. Alternate names are added, edited and removed in the alternate-name editor, not in the grid.",
+    defaultVisible: true,
+    sortable: true,
   },
   {
-    id: "alternateName1",
-    label: "Alternate Name 1",
-    status: "unavailable",
+    id: "nameReview",
+    label: "Name Review",
+    status: "read-only",
     scope: "profile",
-    source: "No Website column",
-    owner: PRIVATE_WORKFLOW,
-    reason:
-      "The Website has no alternate-name table, so Search covers the display name only.",
-    defaultVisible: false,
-    sortable: false,
-  },
-  {
-    id: "alternateName2",
-    label: "Alternate Name 2",
-    status: "unavailable",
-    scope: "profile",
-    source: "No Website column",
-    owner: PRIVATE_WORKFLOW,
-    reason:
-      "The Website has no alternate-name table, so Search covers the display name only.",
+    source:
+      "Derived from the name components and the review status of the alternate names",
+    owner:
+      "Website. Display name only, components entered, or alternate names awaiting review. Computed, never stored.",
     defaultVisible: false,
     sortable: false,
   },
@@ -381,7 +624,17 @@ export interface ProfileRow {
   readonly roleVersion: number;
   /** 0 when the Profile has no visibility row (visible by default). */
   readonly visibilityVersion: number;
-  readonly fullName: string;
+  readonly displayName: string;
+  readonly firstName: string | null;
+  readonly middleName: string | null;
+  readonly lastName: string | null;
+  readonly preferredFirstName: string | null;
+  readonly namePrefix: string | null;
+  readonly nameSuffix: string | null;
+  /** Active (not removed) alternate names, any status. */
+  readonly alternateNameCount: number;
+  readonly alternateNamesPendingReview: number;
+  readonly nameReview: ProfileNameReview;
   readonly visible: boolean;
   readonly createdOn: string;
   readonly countyFips: string | null;
@@ -427,7 +680,7 @@ export interface ProfileSelectionEntry {
   readonly roleVersion: number;
   readonly visibilityVersion: number;
   readonly visible: boolean;
-  readonly fullName: string;
+  readonly displayName: string;
   readonly employmentStart: string | null;
   readonly employmentEnd: string | null;
   readonly dateReviewed: string | null;
@@ -447,7 +700,8 @@ export type ProfileChange =
       readonly personId: string;
       readonly expectedVersion: number;
       readonly visible: boolean;
-    };
+    }
+  | AlternateNameChange;
 
 export type ProfileErrorCode =
   | "invalid_value"
@@ -457,7 +711,9 @@ export type ProfileErrorCode =
   | "stale_version"
   | "not_eligible"
   | "no_change"
-  | "date_order";
+  | "date_order"
+  | "duplicate_name"
+  | "public_not_allowed";
 
 export interface ProfileChangeIssue {
   readonly index: number;
@@ -498,7 +754,11 @@ export interface ProfileSaveResult {
   readonly replayed: boolean;
   readonly items: readonly {
     readonly index: number;
-    readonly entity: "people" | "person_roles" | "person_visibility";
+    readonly entity:
+      | "people"
+      | "person_roles"
+      | "person_visibility"
+      | "profile_names";
     readonly targetId: string;
     readonly field: string;
     readonly newVersion: number;

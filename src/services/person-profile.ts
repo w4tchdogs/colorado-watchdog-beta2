@@ -11,7 +11,11 @@ import type {
   PersonProfileRole,
 } from "../contracts/person-profile.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
-import { personIsPublicSql } from "./person-visibility.js";
+import {
+  PUBLIC_ALTERNATE_NAMES_SQL,
+  personIsPublicSql,
+  toPublicAlternateName,
+} from "./person-visibility.js";
 
 export class PersonProfileInputError extends Error {
   constructor(message: string) {
@@ -129,11 +133,16 @@ export function getPersonProfile(
     }),
   );
   const lastItem = items.at(-1);
+  const alternateNames = database
+    .prepare(PUBLIC_ALTERNATE_NAMES_SQL)
+    .all(input.personId)
+    .map((row) => toPublicAlternateName(row.name_type, row.published_name));
   return {
     person: {
       id: asString(person.id),
       displayName: asString(person.display_name),
       version: asNumber(person.version),
+      alternateNames,
     },
     items,
     hasMore,

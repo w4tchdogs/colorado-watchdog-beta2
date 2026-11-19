@@ -1,4 +1,7 @@
-import type { PersonProfileRole } from "../../contracts/person-profile.js";
+import type {
+  PersonProfileAlternateName,
+  PersonProfileRole,
+} from "../../contracts/person-profile.js";
 import {
   countyLink,
   END_DATE_NOTE,
@@ -53,6 +56,24 @@ function roleCard(entry: PersonProfileRole): SafeHtml {
   </li>`;
 }
 
+/**
+ * Approved alternate names, grouped by label. Each is shown as a published
+ * name, never as an established conclusion about who the person is.
+ */
+function alternateNames(
+  entries: readonly PersonProfileAlternateName[],
+): SafeHtml | "" {
+  if (entries.length === 0) return "";
+  const labels = [...new Set(entries.map((entry) => entry.label))];
+  return html`<dl class="alternate-names">${labels.map(
+    (label) =>
+      html`<div><dt>${label}</dt><dd>${entries
+        .filter((entry) => entry.label === label)
+        .map((entry) => entry.name)
+        .join("; ")}</dd></div>`,
+  )}</dl>`;
+}
+
 export async function personPage(
   context: SiteContext,
   personId: string,
@@ -81,6 +102,7 @@ export async function personPage(
   <header class="page-header profile-header">
     <p class="eyebrow">Person</p>
     <h1>${name}</h1>
+    ${alternateNames(profile.person.alternateNames)}
     <div class="page-meta">${recordId(profile.person.id)}</div>
     ${back ? html`<p class="back-link"><a href="${back}">Back to directory results</a></p>` : ""}
     <p class="lede">This profile lists the roles documented for this record. Another record with the same name is a different documented person unless evidence shows otherwise.</p>
