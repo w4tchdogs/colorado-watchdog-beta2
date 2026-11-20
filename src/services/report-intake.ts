@@ -1,9 +1,11 @@
+import { isReportGrievanceCatalogId } from "../contracts/report-grievance-catalog.js";
 import {
   countWords,
   deriveLegacyFields,
   GRIEVANCE_TYPES,
   IDENTIFICATION_BASES,
   isValidEventDate,
+  MAX_GRIEVANCE_CHARACTERS,
   MAX_GRIEVANCE_WORDS,
   MAX_GRIEVANCES,
   MAX_HEADLINE_LENGTH,
@@ -64,6 +66,7 @@ function validGrievance(item: unknown, now: Date): item is ReportGrievance {
   const g = item as Record<string, unknown>;
   const allowed = [
     "type",
+    "catalogId",
     "details",
     "date",
     "countyId",
@@ -72,10 +75,21 @@ function validGrievance(item: unknown, now: Date): item is ReportGrievance {
     "identificationBasis",
   ];
   if (Object.keys(g).some((key) => !allowed.includes(key))) return false;
-  if (!GRIEVANCE_TYPES.some((type) => type.id === g.type)) return false;
+  const hasLegacyType = Object.hasOwn(g, "type");
+  const hasCatalogId = Object.hasOwn(g, "catalogId");
+  if (
+    hasLegacyType === hasCatalogId ||
+    (hasLegacyType && !GRIEVANCE_TYPES.some((type) => type.id === g.type)) ||
+    (hasCatalogId && !isReportGrievanceCatalogId(g.catalogId))
+  )
+    return false;
   if (typeof g.details !== "string") return false;
   const words = countWords(g.details);
-  if (words < 1 || words > MAX_GRIEVANCE_WORDS || g.details.length > 4000)
+  if (
+    words < 1 ||
+    words > MAX_GRIEVANCE_WORDS ||
+    g.details.length > MAX_GRIEVANCE_CHARACTERS
+  )
     return false;
   if (!isValidEventDate(g.date, now)) return false;
   if (

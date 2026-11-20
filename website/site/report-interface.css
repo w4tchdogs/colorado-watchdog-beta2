@@ -408,6 +408,118 @@
   min-width: 0;
 }
 
+.report-grievance-sort-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.report-grievance-sort-controls button[aria-pressed="true"] {
+  border-color: var(--report-ink);
+  background: var(--report-ink);
+  color: var(--report-surface);
+}
+
+.report-grievance-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--report-line);
+  background: var(--report-paper);
+}
+
+.report-grievance-catalog-table {
+  width: 100%;
+  min-width: 42rem;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.report-grievance-catalog-table th {
+  padding: 0;
+  border-bottom: 2px solid var(--report-line);
+  background: var(--report-surface);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.report-grievance-catalog-table th[aria-sort="ascending"],
+.report-grievance-catalog-table th[aria-sort="descending"] {
+  box-shadow: inset 0 -3px 0 var(--report-red);
+}
+
+.report-grievance-catalog-table .county-sort-button {
+  min-height: 2.75rem;
+  padding: 0.65rem 0.75rem;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  text-transform: inherit;
+}
+
+.report-grievance-catalog-table .county-sort-button:hover {
+  background: var(--report-paper);
+}
+
+.report-grievance-catalog-table .county-sort-arrow::before {
+  content: "↕";
+  color: var(--report-muted);
+  font-size: 0.75rem;
+}
+
+.report-grievance-catalog-table
+  th[aria-sort="ascending"]
+  .county-sort-arrow::before {
+  content: "▲";
+  color: var(--report-red);
+  font-size: 0.65rem;
+}
+
+.report-grievance-catalog-table
+  th[aria-sort="descending"]
+  .county-sort-arrow::before {
+  content: "▼";
+  color: var(--report-red);
+  font-size: 0.65rem;
+}
+
+.report-grievance-catalog-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--report-line);
+  vertical-align: top;
+}
+
+.report-grievance-catalog-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.report-grievance-select {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  min-width: 15rem;
+  font-weight: 700;
+}
+
+.report-interface .report-grievance-select input {
+  flex: 0 0 1.25rem;
+  width: 1.25rem;
+  min-height: 1.25rem;
+  margin: 0.15rem 0 0;
+  padding: 0;
+}
+
+.report-grievance-description {
+  margin: 0;
+  color: var(--report-muted);
+}
+
+.report-grievance-card > legend {
+  max-width: 100%;
+}
+
 .report-picker .report-field,
 .report-date-row .report-field,
 .report-event-details .report-field,

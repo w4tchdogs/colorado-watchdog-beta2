@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
+import { REPORT_GRIEVANCE_CATALOG } from "../dist/contracts/report-grievance-catalog.js";
 import { mountReportInterface } from "../dist/site/report-interface.js";
 
 const NOW = new Date("2026-11-13T12:00:00Z");
@@ -122,6 +123,12 @@ function harness(overrides = {}) {
     $(id).value = value;
     fire($(id), "change");
   };
+  const selectCatalog = (inventoryId) => {
+    const checkbox = $(`report-grievance-${inventoryId}`);
+    if (checkbox.checked) return;
+    checkbox.checked = true;
+    fire(checkbox, "change");
+  };
   const tick = async () => {
     for (let i = 0; i < 4; i += 1)
       await new Promise((resolve) => setImmediate(resolve));
@@ -156,6 +163,7 @@ function harness(overrides = {}) {
     calls,
     $,
     change,
+    selectCatalog,
     fire,
     tick,
     submit,
@@ -203,6 +211,7 @@ test("listed employee: filters, search, individually selectable roles and prior-
   await h.tick();
   // A person with two roles needs an explicit choice, and prior roles show apart.
   await h.choose("Jordan Example");
+  h.selectCatalog(1);
   const headings = [...document.querySelectorAll(".report-role-group")].map(
     (e) => e.textContent,
   );
@@ -242,6 +251,7 @@ test("a failing directory shows a recoverable message and the unlisted path stil
 test("event date: year window, optional month and day, leap-day cleanup", async () => {
   const h = harness();
   const { $ } = h;
+  h.selectCatalog(1);
   const years = [...$("report-event-year").options].map((o) => o.value);
   assert.deepEqual(years.slice(0, 3), ["", "2026", "2025"]);
   assert.equal(years.at(-1), "2016");
@@ -270,7 +280,90 @@ test("event date: year window, optional month and day, leap-day cleanup", async 
   assert.equal($("report-g0-month").value, "6");
 });
 
-test("grievance cards: add up to five, copy the first card, edit independently, remove", async () => {
+test("catalog table exposes all 61 rows and stable commonality and alphabetical orders", () => {
+  const { document } = harness();
+  const rows = () => [
+    ...document.querySelectorAll(".report-grievance-catalog-table tbody tr"),
+  ];
+  const ids = () =>
+    rows().map((row) => Number(row.querySelector("input").value));
+  assert.equal(rows().length, 61);
+  assert.ok(rows().every((row) => row.querySelectorAll("td").length === 3));
+  assert.ok(
+    [...document.querySelectorAll(".report-grievance-select input")].every(
+      (checkbox) =>
+        checkbox.type === "checkbox" && checkbox.getAttribute("aria-label"),
+    ),
+  );
+  assert.ok(
+    [...document.querySelectorAll(".report-grievance-select input")].every(
+      (checkbox) =>
+        checkbox.tabIndex === 0 &&
+        checkbox.labels.length === 1 &&
+        checkbox.labels[0].textContent.includes(
+          checkbox.getAttribute("aria-label").slice(7),
+        ),
+    ),
+  );
+  const headers = [
+    ...document.querySelectorAll(".report-grievance-catalog-table th"),
+  ];
+  assert.equal(headers.length, 3);
+  assert.ok(
+    headers.every(
+      (header) =>
+        header.scope === "col" &&
+        header.getAttribute("aria-sort") === "none" &&
+        header.querySelector("button").type === "button" &&
+        header.querySelector("button").tabIndex === 0 &&
+        header
+          .querySelector("button")
+          .getAttribute("aria-label")
+          .includes("A to Z"),
+    ),
+  );
+  const byId = (a, b) => a.inventoryId - b.inventoryId;
+  const expectedCommon = [...REPORT_GRIEVANCE_CATALOG]
+    .sort((a, b) => b.commonalityScore - a.commonalityScore || byId(a, b))
+    .map((entry) => entry.inventoryId);
+  const expectedUncommon = [...REPORT_GRIEVANCE_CATALOG]
+    .sort((a, b) => a.commonalityScore - b.commonalityScore || byId(a, b))
+    .map((entry) => entry.inventoryId);
+  assert.deepEqual(ids(), expectedCommon);
+  document.querySelector('button[aria-pressed="false"]').click();
+  assert.deepEqual(ids(), expectedUncommon);
+  document.querySelector('button[aria-pressed="false"]').click();
+  assert.deepEqual(ids(), expectedCommon);
+
+  const collator = new Intl.Collator("en", {
+    numeric: true,
+    sensitivity: "base",
+  });
+  for (const [key, label] of [
+    ["title", "Grievance"],
+    ["description", "Description"],
+    ["type", "Type"],
+  ]) {
+    const header = [
+      ...document.querySelectorAll(".report-grievance-catalog-table th"),
+    ].find((cell) => cell.textContent.includes(label));
+    const sort = header.querySelector("button");
+    sort.click();
+    const ascending = [...REPORT_GRIEVANCE_CATALOG]
+      .sort((a, b) => collator.compare(a[key], b[key]) || byId(a, b))
+      .map((entry) => entry.inventoryId);
+    assert.deepEqual(ids(), ascending, `${label} A–Z`);
+    assert.equal(header.getAttribute("aria-sort"), "ascending");
+    sort.click();
+    const descending = [...REPORT_GRIEVANCE_CATALOG]
+      .sort((a, b) => collator.compare(b[key], a[key]) || byId(a, b))
+      .map((entry) => entry.inventoryId);
+    assert.deepEqual(ids(), descending, `${label} Z–A`);
+    assert.equal(header.getAttribute("aria-sort"), "descending");
+  }
+});
+
+test("catalog selection creates up to five detail cards and deselection frees a slot", async () => {
   const h = harness();
   const { $, document } = h;
   h.change("report-county", "08001");
@@ -278,41 +371,50 @@ test("grievance cards: add up to five, copy the first card, edit independently, 
   h.change("report-event-month", "6");
   $("report-position").value = "Fictional Clerk";
   h.fire($("report-position"), "input");
-  const add = [...document.querySelectorAll("button")].find((b) =>
-    /Add another grievance/.test(b.textContent),
-  );
-  add.click();
+  h.selectCatalog(1);
+  h.selectCatalog(2);
   assert.equal(document.querySelectorAll(".report-grievance-card").length, 2);
   // The new card starts from the first card's date and event context.
   assert.equal($("report-g1-year").value, "2025");
   assert.equal($("report-g1-month").value, "6");
   assert.equal($("report-g1-county").value, "08001");
   assert.equal($("report-g1-position").value, "Fictional Clerk");
+  assert.equal($("report-g1-details").maxLength, 4000);
   // Editing the second card leaves the first unchanged.
   h.change("report-g1-county", "08069");
   h.change("report-g1-year", "2024");
   assert.equal($("report-county").value, "08001");
   assert.equal($("report-event-year").value, "2025");
-  // Type help appears with the type.
-  h.change("report-g1-type", "retaliation");
-  assert.match(
-    $("report-g1-type-help").textContent,
-    /Describe the concern raised and the alleged response/,
-  );
-  assert.equal($("report-g1-type-help").hidden, false);
   // Live word count, including the over-limit state.
   $("report-g1-details").value = "one two three";
   h.fire($("report-g1-details"), "input");
-  assert.equal($("report-g1-count").textContent, "3 / 250 words");
+  assert.match(
+    $("report-g1-count").textContent,
+    /^3 \/ 250 words · 13 \/ 4000 characters$/,
+  );
   $("report-g1-details").value = Array(251).fill("w").join(" ");
   h.fire($("report-g1-details"), "input");
   assert.equal($("report-g1-count").classList.contains("is-over"), true);
-  // Up to five cards.
-  for (let i = 0; i < 3; i += 1) add.click();
+  // Up to five cards; a sixth check is refused without evicting a selection.
+  h.selectCatalog(3);
+  h.selectCatalog(4);
+  h.selectCatalog(5);
+  const sixth = $("report-grievance-6");
+  sixth.checked = true;
+  h.fire(sixth, "change");
   assert.equal(document.querySelectorAll(".report-grievance-card").length, 5);
-  assert.equal(add.disabled, true);
-  assert.match(add.textContent, /Maximum of 5 grievances/);
-  // Remove the second card: numbering follows and the add button returns.
+  assert.equal(sixth.checked, false);
+  assert.match(
+    $("report-grievance-selection-status").textContent,
+    /Maximum of 5/,
+  );
+  // Deselecting one item removes its details and makes room for another.
+  const firstCheckbox = $("report-grievance-1");
+  firstCheckbox.checked = false;
+  h.fire(firstCheckbox, "change");
+  h.selectCatalog(6);
+  assert.equal(document.querySelectorAll(".report-grievance-card").length, 5);
+  // Remove one remaining card with its control.
   document
     .querySelectorAll(".report-grievance-card")[1]
     .querySelector("button.report-button-quiet")
@@ -322,19 +424,32 @@ test("grievance cards: add up to five, copy the first card, edit independently, 
   ];
   assert.deepEqual(
     legends.map((l) => l.textContent),
-    ["Grievance 1", "Grievance 2", "Grievance 3", "Grievance 4"],
+    [
+      "Grievance 1: Wrong or unfair decision by an office",
+      "Grievance 2: Waiting too long for a response, action, or decision",
+      "Grievance 3: Problem caused by a law or regulation",
+      "Grievance 4: Unfair or inconsistent enforcement",
+    ],
   );
-  assert.equal(add.disabled, false);
-  // Removing down to one card hides Remove.
-  for (let i = 0; i < 3; i += 1)
+  // Every selected card can be removed, including the last one.
+  for (let i = 0; i < 4; i += 1)
     document
       .querySelector(".report-grievance-card:last-child .report-button-quiet")
       .click();
-  assert.equal(document.querySelectorAll(".report-grievance-card").length, 1);
-  assert.equal(
-    document.querySelector(".report-grievance-card .report-button-quiet")
-      .hidden,
-    true,
+  assert.equal(document.querySelectorAll(".report-grievance-card").length, 0);
+});
+
+test("an empty catalog selection is a linked, accessible validation error", async () => {
+  const h = harness();
+  await h.submit();
+  const link = h.document.querySelector(
+    '.report-error-summary a[href="#report-grievance-1"]',
+  );
+  assert.ok(link);
+  assert.equal(h.$("report-grievance-1").getAttribute("aria-invalid"), "true");
+  assert.match(
+    h.$("report-grievance-selection-error").textContent,
+    /Select at least one/,
   );
 });
 
@@ -343,9 +458,8 @@ test("removing the first card moves the next card's event details into step 1", 
   const { $, document } = h;
   h.change("report-county", "08001");
   h.change("report-event-year", "2025");
-  [...document.querySelectorAll("button")]
-    .find((b) => /Add another grievance/.test(b.textContent))
-    .click();
+  h.selectCatalog(1);
+  h.selectCatalog(2);
   h.change("report-g1-county", "08069");
   h.change("report-g1-year", "2023");
   document.querySelector(".report-grievance-card .report-button-quiet").click();
@@ -364,19 +478,31 @@ test("submits structured grievances with different event counties and shows them
   h.change("report-event-month", "3");
   $("report-position").value = "Fictional Clerk";
   h.fire($("report-position"), "input");
-  h.change("report-g0-type", "delay-or-failure-to-perform");
+  h.selectCatalog(1);
   $("report-g0-details").value = "First fictional grievance details.";
   h.fire($("report-g0-details"), "input");
-  [...document.querySelectorAll("button")]
-    .find((b) => /Add another grievance/.test(b.textContent))
-    .click();
+  h.selectCatalog(4);
   h.change("report-g1-county", "08069");
   h.change("report-g1-year", "2020");
-  h.change("report-g1-type", "other");
   h.change("report-g1-role", "r-jordan-prior");
   $("report-g1-details").value = "Second fictional grievance details.";
   h.fire($("report-g1-details"), "input");
   $("report-headline").value = "A synthetic headline";
+  const descriptionHeader = [
+    ...document.querySelectorAll(".report-grievance-catalog-table th"),
+  ].find((cell) => cell.textContent.includes("Description"));
+  descriptionHeader.querySelector("button").click();
+  descriptionHeader.querySelector("button").click();
+  assert.equal($("report-grievance-1").checked, true);
+  assert.equal($("report-grievance-4").checked, true);
+  assert.equal(
+    $("report-g0-details").value,
+    "First fictional grievance details.",
+  );
+  assert.equal(
+    $("report-g1-details").value,
+    "Second fictional grievance details.",
+  );
   document.querySelector('button[aria-controls="report-step-3"]').click();
   const review = $("report-step-3").textContent;
   assert.match(review, /Grievance 1/);
@@ -385,7 +511,17 @@ test("submits structured grievances with different event counties and shows them
   assert.match(review, /Adams/);
   assert.match(review, /Larimer/);
   assert.match(review, /Fictional Deputy/);
+  assert.match(review, /Difficulty getting a service or poor service/);
+  assert.match(review, /Waiting too long for a response, action, or decision/);
+  assert.match(review, /TypeService/g);
   assert.match(review, /A synthetic headline/);
+  document.querySelector('button[aria-controls="report-step-2"]').click();
+  assert.equal(
+    $("report-g0-details").value,
+    "First fictional grievance details.",
+  );
+  assert.equal($("report-g1-role").value, "r-jordan-prior");
+  document.querySelector('button[aria-controls="report-step-3"]').click();
   $("report-certification").checked = true;
   await h.submit();
   assert.equal(calls.submissions.length, 1);
@@ -395,7 +531,7 @@ test("submits structured grievances with different event counties and shows them
   assert.deepEqual(sent.subject, { kind: "person", id: "p-jordan" });
   assert.equal(sent.grievances.length, 2);
   assert.deepEqual(sent.grievances[0], {
-    type: "delay-or-failure-to-perform",
+    catalogId: 1,
     details: "First fictional grievance details.",
     date: { year: 2026, month: 3 },
     countyId: "08001",
@@ -404,6 +540,7 @@ test("submits structured grievances with different event counties and shows them
     identificationBasis: "contributor",
   });
   assert.equal(sent.grievances[1].countyId, "08069");
+  assert.equal(sent.grievances[1].catalogId, 4);
   // The card copied month 3 from the first card. Changing its year kept that month.
   assert.deepEqual(sent.grievances[1].date, { year: 2020, month: 3 });
   assert.equal(sent.grievances[1].subject.roleId, "r-jordan-prior");
@@ -418,7 +555,7 @@ test("unlisted employee path sends the name and office and flags private review"
   $("report-unlisted-office").value = "Fictional Unlisted Office";
   h.change("report-county", "08003");
   h.change("report-event-year", "2025");
-  h.change("report-g0-type", "other");
+  h.selectCatalog(1);
   $("report-g0-details").value = "Unlisted fictional grievance.";
   h.fire($("report-g0-details"), "input");
   document.querySelector('button[aria-controls="report-step-3"]').click();
@@ -441,6 +578,7 @@ test("unlisted employee path sends the name and office and flags private review"
 test("validation: empty and incomplete entries are reported with links and nothing is sent", async () => {
   const h = harness();
   const { $, document, calls } = h;
+  h.selectCatalog(1);
   await h.submit();
   assert.equal(calls.submissions.length, 0);
   const links = [...document.querySelectorAll(".report-error-summary a")].map(
@@ -450,7 +588,6 @@ test("validation: empty and incomplete entries are reported with links and nothi
     "#report-employee-search",
     "#report-county",
     "#report-event-year",
-    "#report-g0-type",
     "#report-g0-details",
   ])
     assert.ok(links.includes(id), id);
@@ -462,7 +599,7 @@ test("validation: empty and incomplete entries are reported with links and nothi
   $("report-unlisted-office").value = "Office";
   h.change("report-county", "08001");
   h.change("report-event-year", "2026");
-  h.change("report-g0-type", "other");
+  h.selectCatalog(1);
   $("report-g0-details").value = Array(251).fill("w").join(" ");
   $("report-certification").checked = true;
   await h.submit();
@@ -470,6 +607,13 @@ test("validation: empty and incomplete entries are reported with links and nothi
   assert.equal($("report-g0-details").getAttribute("aria-invalid"), "true");
   assert.match($("report-g0-details-error").textContent, /250 words or fewer/);
   assert.equal($("report-step-2").hidden, false);
+  $("report-g0-details").value = "x".repeat(4001);
+  await h.submit();
+  assert.equal(calls.submissions.length, 0);
+  assert.match(
+    $("report-g0-details-error").textContent,
+    /4,000 characters or fewer/,
+  );
 });
 
 test("a synthetic 503 keeps every entry and the retry reuses the idempotency key", async () => {
@@ -480,14 +624,11 @@ test("a synthetic 503 keeps every entry and the retry reuses the idempotency key
   $("report-unlisted-office").value = "Office";
   h.change("report-county", "08001");
   h.change("report-event-year", "2026");
-  h.change("report-g0-type", "other");
+  h.selectCatalog(1);
   $("report-g0-details").value = "A fictional grievance for recovery.";
   h.fire($("report-g0-details"), "input");
-  [...document.querySelectorAll("button")]
-    .find((b) => /Add another grievance/.test(b.textContent))
-    .click();
+  h.selectCatalog(4);
   h.change("report-g1-county", "08069");
-  h.change("report-g1-type", "other");
   $("report-g1-details").value = "A second fictional grievance.";
   h.fire($("report-g1-details"), "input");
   $("report-certification").checked = true;
@@ -515,6 +656,7 @@ test("a synthetic 503 keeps every entry and the retry reuses the idempotency key
 test("fixing a field removes its error link, including the event county", async () => {
   const h = harness();
   const { $, document } = h;
+  h.selectCatalog(1);
   await h.submit();
   const link = () =>
     document.querySelector('.report-error-summary a[href="#report-county"]');

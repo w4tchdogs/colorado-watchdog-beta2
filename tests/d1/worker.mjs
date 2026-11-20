@@ -183,7 +183,7 @@ export default {
           identificationBasis: "documented",
         },
         {
-          type: "other",
+          catalogId: 4,
           details: "A second fictional event in a different county.",
           date: { year: thisYear - 1 },
           countyId: "08003",
@@ -275,6 +275,7 @@ export default {
         structuredReplay.receipt.recoveryKey === undefined &&
         JSON.stringify(structuredCommit.report.grievances) ===
           JSON.stringify(grievances) &&
+        structuredCommit.report.grievances[1].catalogId === 4 &&
         structuredCommit.report.headline === "A synthetic headline" &&
         structuredCommit.report.countyId === "08001" &&
         structuredRow.county_fips === "08001" &&

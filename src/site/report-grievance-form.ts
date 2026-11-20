@@ -1,14 +1,17 @@
 import type { CountyRegistryEntry } from "../contracts/county-registry.js";
 import {
+  REPORT_GRIEVANCE_CATALOG,
+  reportGrievanceCatalogEntry,
+} from "../contracts/report-grievance-catalog.js";
+import {
   countWords,
   daysInMonth,
   eventYears,
   formatEventDate,
-  GRIEVANCE_TYPES,
-  grievanceTypeLabel,
   IDENTIFICATION_BASES,
   type IdentificationBasis,
   isValidEventDate,
+  MAX_GRIEVANCE_CHARACTERS,
   MAX_GRIEVANCE_WORDS,
   MAX_GRIEVANCES,
   MAX_HEADLINE_LENGTH,
@@ -19,6 +22,8 @@ import {
   type ReportEventDate,
   type ReportEventSubject,
   type ReportGrievance,
+  reportGrievanceTitle,
+  reportGrievanceType,
 } from "../contracts/report-grievances.js";
 import { button, connectError, fieldError, node } from "./report-dom.js";
 
@@ -96,12 +101,10 @@ interface EventControls {
 }
 
 interface Card {
-  readonly key: number;
+  readonly catalogId: number;
   readonly root: HTMLElement;
   readonly legend: HTMLElement;
   readonly remove: HTMLButtonElement;
-  readonly type: HTMLSelectElement;
-  readonly typeError: HTMLElement;
   readonly details: HTMLTextAreaElement;
   readonly detailsError: HTMLElement;
   readonly date: DateControls;
@@ -488,12 +491,166 @@ export function createGrievanceForm(
   const cardIntro = node(document, "p", "report-confidentiality");
   cardIntro.textContent =
     "One to five grievances, up to 250 words each. Types organize allegations. They are not legal findings. Distinguish what you observed from information provided by others and your opinions.";
-  const cardList = node(document, "div", "report-grievance-list");
-  const addCard = button(
+  const catalogControls = node(
     document,
-    "+ Add another grievance",
+    "div",
+    "report-grievance-sort-controls",
+  );
+  catalogControls.setAttribute("role", "group");
+  catalogControls.setAttribute("aria-label", "Commonality order");
+  const commonalityLabel = node(document, "span");
+  commonalityLabel.textContent = "Commonality order";
+  const mostCommon = button(
+    document,
+    "Most common first",
     "report-button report-button-quiet",
   );
+  const leastCommon = button(
+    document,
+    "Least common first",
+    "report-button report-button-quiet",
+  );
+  mostCommon.type = "button";
+  leastCommon.type = "button";
+  mostCommon.setAttribute("aria-pressed", "true");
+  leastCommon.setAttribute("aria-pressed", "false");
+  catalogControls.append(commonalityLabel, mostCommon, leastCommon);
+  const catalogScroll = node(document, "div", "report-grievance-table-scroll");
+  const catalogTable = node(
+    document,
+    "table",
+    "report-grievance-catalog-table",
+  );
+  const catalogCaption = node(document, "caption");
+  catalogCaption.textContent =
+    "Choose up to five grievances. Use the sorting controls to find an item.";
+  const catalogHead = node(document, "thead");
+  const catalogHeaderRow = node(document, "tr");
+  const catalogBody = node(document, "tbody");
+  const catalogRows = new Map<
+    number,
+    {
+      entry: (typeof REPORT_GRIEVANCE_CATALOG)[number];
+      row: HTMLTableRowElement;
+      checkbox: HTMLInputElement;
+    }
+  >();
+  let catalogSort: {
+    key: "commonality" | "title" | "description" | "type";
+    direction: "ascending" | "descending";
+  } = {
+    key: "commonality",
+    direction: "descending",
+  };
+  const collator = new Intl.Collator("en", {
+    numeric: true,
+    sensitivity: "base",
+  });
+  const columns = [
+    ["title", "Grievance"],
+    ["description", "Description"],
+    ["type", "Type"],
+  ] as const;
+  const catalogHeaders = new Map<string, HTMLTableCellElement>();
+  for (const [key, title] of columns) {
+    const th = node(document, "th");
+    th.scope = "col";
+    th.classList.add("is-sortable");
+    const sortButton = button(document, "", "county-sort-button");
+    sortButton.type = "button";
+    const label = node(document, "span");
+    label.textContent = title;
+    const arrow = node(document, "span", "county-sort-arrow");
+    arrow.setAttribute("aria-hidden", "true");
+    sortButton.append(label, arrow);
+    sortButton.addEventListener("click", () => {
+      catalogSort = {
+        key,
+        direction:
+          catalogSort.key === key && catalogSort.direction === "ascending"
+            ? "descending"
+            : "ascending",
+      };
+      updateCatalogSort();
+    });
+    th.append(sortButton);
+    catalogHeaders.set(key, th);
+    catalogHeaderRow.append(th);
+  }
+  catalogHead.append(catalogHeaderRow);
+  catalogTable.append(catalogCaption, catalogHead, catalogBody);
+  catalogScroll.append(catalogTable);
+  const selectionStatus = node(document, "p", "report-field-hint");
+  selectionStatus.id = "report-grievance-selection-status";
+  selectionStatus.setAttribute("role", "status");
+  selectionStatus.setAttribute("aria-live", "polite");
+  const selectionError = fieldError(document, "report-grievance-selection");
+  for (const entry of REPORT_GRIEVANCE_CATALOG) {
+    const row = node(document, "tr");
+    const titleCell = node(document, "td");
+    const titleLabel = node(document, "label", "report-grievance-select");
+    const checkbox = node(document, "input");
+    checkbox.type = "checkbox";
+    checkbox.id = `report-grievance-${entry.inventoryId}`;
+    checkbox.value = String(entry.inventoryId);
+    checkbox.setAttribute("aria-label", `Select ${entry.title}`);
+    connectError(checkbox, selectionStatus, selectionError);
+    titleLabel.append(checkbox, document.createTextNode(entry.title));
+    titleCell.append(titleLabel);
+    const descriptionCell = node(document, "td");
+    descriptionCell.textContent = entry.description;
+    const typeCell = node(document, "td");
+    typeCell.textContent = entry.type;
+    row.append(titleCell, descriptionCell, typeCell);
+    catalogRows.set(entry.inventoryId, { entry, row, checkbox });
+    catalogBody.append(row);
+  }
+  const updateCatalogSort = () => {
+    const { key, direction } = catalogSort;
+    const sign = direction === "ascending" ? 1 : -1;
+    const sorted = [...catalogRows.values()].sort((left, right) => {
+      if (key === "commonality") {
+        return (
+          (left.entry.commonalityScore - right.entry.commonalityScore) * sign ||
+          left.entry.inventoryId - right.entry.inventoryId
+        );
+      }
+      const leftValue = key === "title" ? left.entry.title : left.entry[key];
+      const rightValue = key === "title" ? right.entry.title : right.entry[key];
+      return (
+        collator.compare(leftValue, rightValue) * sign ||
+        left.entry.inventoryId - right.entry.inventoryId
+      );
+    });
+    catalogBody.replaceChildren(...sorted.map(({ row }) => row));
+    for (const [key, th] of catalogHeaders) {
+      const active = catalogSort.key === key;
+      th.setAttribute("aria-sort", active ? catalogSort.direction : "none");
+      const sortButton = th.querySelector("button");
+      sortButton?.setAttribute(
+        "aria-label",
+        `Sort ${columns.find(([column]) => column === key)?.[1]} ${active && direction === "ascending" ? "Z to A" : "A to Z"}`,
+      );
+    }
+    mostCommon.setAttribute(
+      "aria-pressed",
+      String(key === "commonality" && direction === "descending"),
+    );
+    leastCommon.setAttribute(
+      "aria-pressed",
+      String(key === "commonality" && direction === "ascending"),
+    );
+  };
+  mostCommon.addEventListener("click", () => {
+    catalogSort = { key: "commonality", direction: "descending" };
+    updateCatalogSort();
+  });
+  leastCommon.addEventListener("click", () => {
+    catalogSort = { key: "commonality", direction: "ascending" };
+    updateCatalogSort();
+  });
+  updateCatalogSort();
+  const cardList = node(document, "div", "report-grievance-list");
 
   const cards: Card[] = [];
   let sequence = 0;
@@ -565,65 +722,58 @@ export function createGrievanceForm(
 
   const renumber = () => {
     cards.forEach((card, index) => {
-      card.legend.textContent = `Grievance ${index + 1}`;
-      card.remove.hidden = cards.length < 2;
+      const entry = reportGrievanceCatalogEntry(card.catalogId);
+      card.legend.textContent = `Grievance ${index + 1}: ${entry?.title ?? "Unknown item"}`;
       card.remove.setAttribute("aria-label", `Remove grievance ${index + 1}`);
     });
-    addCard.disabled = cards.length >= MAX_GRIEVANCES;
-    addCard.textContent =
-      cards.length >= MAX_GRIEVANCES
-        ? `Maximum of ${MAX_GRIEVANCES} grievances`
-        : "+ Add another grievance";
+    selectionStatus.textContent = `${cards.length} of ${MAX_GRIEVANCES} grievances selected. Select up to ${MAX_GRIEVANCES}.`;
+    if (cards.length > 0) {
+      selectionError.textContent = "";
+      selectionError.hidden = true;
+      const errorControl = catalogRows.values().next().value?.checkbox;
+      const form = catalogTable.closest("form");
+      if (errorControl) {
+        errorControl.removeAttribute("aria-invalid");
+        const summary = form?.querySelector<HTMLElement>(
+          ".report-error-summary",
+        );
+        summary
+          ?.querySelector(`a[href="#${errorControl.id}"]`)
+          ?.parentElement?.remove();
+        if (summary && !summary.querySelector("li")) summary.hidden = true;
+      }
+    }
   };
 
-  const addGrievance = (focus: boolean) => {
-    if (cards.length >= MAX_GRIEVANCES) return;
+  const addGrievance = (catalogId: number, focus: boolean) => {
+    if (cards.length >= MAX_GRIEVANCES) return false;
+    const entry = reportGrievanceCatalogEntry(catalogId);
+    if (!entry) return false;
     const key = sequence++;
     const prefix = `report-g${key}`;
     const root = node(document, "fieldset", "report-grievance-card");
     const legend = node(document, "legend");
-    const type = node(document, "select");
-    type.id = `${prefix}-type`;
-    const placeholder = node(document, "option");
-    placeholder.value = "";
-    placeholder.textContent = "Choose a type";
-    type.append(placeholder);
-    for (const item of GRIEVANCE_TYPES) {
-      const option = node(document, "option");
-      option.value = item.id;
-      option.textContent = item.label;
-      type.append(option);
-    }
-    const typeHelp = node(document, "p", "report-field-hint");
-    typeHelp.id = `${prefix}-type-help`;
-    typeHelp.hidden = true;
-    const typeError = fieldError(document, type.id);
-    connectError(type, typeHelp, typeError);
-    type.addEventListener("change", () => {
-      const found = GRIEVANCE_TYPES.find((item) => item.id === type.value);
-      typeHelp.textContent = found?.help ?? "";
-      typeHelp.hidden = !found;
-    });
-    const typeField = labelled(
+    legend.textContent = `Grievance ${cards.length + 1}: ${entry.title}`;
+    const catalogDescription = node(
       document,
-      "Grievance type · required",
-      type,
-      typeHelp,
+      "p",
+      "report-grievance-description",
     );
-    typeField.append(typeError);
+    catalogDescription.textContent = entry.description;
 
     const details = node(document, "textarea");
     details.id = `${prefix}-details`;
     details.rows = 6;
+    details.maxLength = MAX_GRIEVANCE_CHARACTERS;
     details.autocomplete = "off";
     const count = node(document, "p", "report-word-count");
     count.id = `${prefix}-count`;
-    count.textContent = `0 / ${MAX_GRIEVANCE_WORDS} words`;
+    count.textContent = `0 / ${MAX_GRIEVANCE_WORDS} words · 0 / ${MAX_GRIEVANCE_CHARACTERS} characters`;
     const detailsError = fieldError(document, details.id);
     connectError(details, count, detailsError);
     details.addEventListener("input", () => {
       const words = countWords(details.value);
-      count.textContent = `${words} / ${MAX_GRIEVANCE_WORDS} words`;
+      count.textContent = `${words} / ${MAX_GRIEVANCE_WORDS} words · ${details.value.length} / ${MAX_GRIEVANCE_CHARACTERS} characters`;
       count.classList.toggle("is-over", words > MAX_GRIEVANCE_WORDS);
     });
     const detailsField = labelled(
@@ -651,12 +801,10 @@ export function createGrievanceForm(
       "report-button report-button-quiet",
     );
     const card: Card = {
-      key,
+      catalogId,
       root,
       legend,
       remove,
-      type,
-      typeError,
       details,
       detailsError,
       date,
@@ -681,19 +829,24 @@ export function createGrievanceForm(
     });
     remove.addEventListener("click", () => {
       const index = cards.indexOf(card);
-      if (index < 0 || cards.length < 2) return;
+      if (index < 0) return;
       cards.splice(index, 1);
       root.remove();
+      const checkbox = catalogRows.get(catalogId)?.checkbox;
+      if (checkbox) checkbox.checked = false;
       if (index === 0) {
-        mirrorFromFirstCard();
-        chosenRoleId = first().role.value || chosenRoleId;
+        if (cards[0]) {
+          mirrorFromFirstCard();
+          chosenRoleId = first().role.value || chosenRoleId;
+        }
       }
       renumber();
-      (cards[Math.min(index, cards.length - 1)] as Card).type.focus();
+      refreshRoleSelects();
+      catalogRows.get(catalogId)?.checkbox.focus();
     });
     root.append(
       legend,
-      typeField,
+      catalogDescription,
       detailsField,
       date.element,
       disclosure,
@@ -706,22 +859,47 @@ export function createGrievanceForm(
       eventParts.controls.county.value = source.event.county.value;
       eventParts.controls.position.value = source.event.position.value;
       eventParts.controls.basis.value = source.event.basis.value;
+    } else {
+      date.set(eventDate.get());
+      eventParts.controls.county.value = events.controls.county.value;
+      eventParts.controls.position.value = events.controls.position.value;
+      eventParts.controls.basis.value = events.controls.basis.value;
     }
     cards.push(card);
     cardList.append(root);
+    const checkbox = catalogRows.get(catalogId)?.checkbox;
+    if (checkbox) checkbox.checked = true;
     refreshRoleSelects();
     if (source && cards.length > 1) roleSelect.value = source.role.value;
     renumber();
-    if (focus) type.focus();
+    if (cards.length === 1) mirrorToFirstCard();
+    if (focus) details.focus();
+    return true;
   };
-  addCard.addEventListener("click", () => addGrievance(true));
+  for (const { entry, checkbox } of catalogRows.values()) {
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) {
+        if (!addGrievance(entry.inventoryId, false)) {
+          checkbox.checked = false;
+          selectionStatus.textContent = `Maximum of ${MAX_GRIEVANCES} grievances selected. Remove one before selecting another.`;
+          checkbox.focus();
+        }
+      } else {
+        const card = cards.find((item) => item.catalogId === entry.inventoryId);
+        if (card) card.remove.click();
+      }
+    });
+  }
 
   const sources: HTMLElement[] = [];
   const step2Head: HTMLElement[] = [
     headlineField,
     cardIntro,
+    catalogControls,
+    catalogScroll,
+    selectionStatus,
+    selectionError,
     cardList,
-    addCard,
   ];
 
   // ---- Directory picker behavior ----
@@ -931,8 +1109,6 @@ export function createGrievanceForm(
     void runSearch();
   }
 
-  addGrievance(false);
-
   // ---- Reading and checking the form ----
   const readCard = (card: Card, index: number): ReportGrievance => {
     const date = card.date.get();
@@ -951,7 +1127,7 @@ export function createGrievanceForm(
     const eventControls = index === 0 ? events.controls : card.event;
     const position = eventControls.position.value.trim();
     return {
-      type: card.type.value as ReportGrievance["type"],
+      catalogId: card.catalogId,
       details: card.details.value.trim(),
       date: date as ReportEventDate,
       countyId: eventControls.county.value,
@@ -994,6 +1170,24 @@ export function createGrievanceForm(
           : "Enter the employee’s office or department.",
       );
     }
+    const selectionMessage =
+      cards.length < 1
+        ? "Select at least one grievance."
+        : cards.length > MAX_GRIEVANCES
+          ? `Select no more than ${MAX_GRIEVANCES} grievances.`
+          : undefined;
+    selectionError.textContent = selectionMessage ?? "";
+    selectionError.hidden = !selectionMessage;
+    if (selectionMessage) {
+      const firstCheckbox = catalogRows.values().next().value?.checkbox;
+      if (firstCheckbox) {
+        problems.push({
+          control: firstCheckbox,
+          error: selectionError,
+          message: selectionMessage,
+        });
+      }
+    }
     cards.forEach((card, index) => {
       const eventControls = index === 0 ? events.controls : card.event;
       const dateControls = index === 0 ? eventDate : card.date;
@@ -1014,11 +1208,6 @@ export function createGrievanceForm(
             ? undefined
             : "Enter a valid event date.",
       );
-      add(
-        card.type,
-        card.typeError,
-        card.type.value ? undefined : "Choose a grievance type.",
-      );
       const words = countWords(card.details.value);
       add(
         card.details,
@@ -1027,7 +1216,9 @@ export function createGrievanceForm(
           ? "Describe the grievance."
           : words > MAX_GRIEVANCE_WORDS
             ? `Use ${MAX_GRIEVANCE_WORDS} words or fewer.`
-            : undefined,
+            : card.details.value.length > MAX_GRIEVANCE_CHARACTERS
+              ? `Use ${MAX_GRIEVANCE_CHARACTERS.toLocaleString("en-US")} characters or fewer.`
+              : undefined,
       );
       add(
         eventControls.position,
@@ -1066,7 +1257,8 @@ export function createGrievanceForm(
           "Date",
           entry.date.year ? formatEventDate(entry.date) : "Not selected",
         ],
-        ["Type", entry.type ? grievanceTypeLabel(entry.type) : "Not selected"],
+        ["Grievance", reportGrievanceTitle(entry)],
+        ["Type", reportGrievanceType(entry)],
         [
           "Subject",
           entry.subject.kind === "listed"

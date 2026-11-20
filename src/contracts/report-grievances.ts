@@ -1,3 +1,4 @@
+import { reportGrievanceCatalogEntry } from "./report-grievance-catalog.js";
 import type { ReportSubmission } from "./report-intake.js";
 
 /**
@@ -77,6 +78,7 @@ export type GrievanceTypeId = (typeof GRIEVANCE_TYPES)[number]["id"];
 
 export const MAX_GRIEVANCES = 5;
 export const MAX_GRIEVANCE_WORDS = 250;
+export const MAX_GRIEVANCE_CHARACTERS = 4000;
 export const MAX_HEADLINE_LENGTH = 180;
 export const MAX_POSITION_LENGTH = 200;
 export const MAX_UNLISTED_NAME_LENGTH = 200;
@@ -109,8 +111,7 @@ export type ReportEventSubject =
       readonly office: string;
     };
 
-export interface ReportGrievance {
-  readonly type: GrievanceTypeId;
+interface ReportGrievanceContext {
   readonly details: string;
   readonly date: ReportEventDate;
   /** The county where the event happened. Not a directory filter. */
@@ -118,6 +119,37 @@ export interface ReportGrievance {
   readonly subject: ReportEventSubject;
   readonly position?: string;
   readonly identificationBasis: IdentificationBasis;
+}
+
+/** A historical grievance retains its original category identifier. */
+export interface LegacyReportGrievance extends ReportGrievanceContext {
+  readonly type: GrievanceTypeId;
+}
+
+/** A new catalog grievance stores the exact inventory crosswalk ID. */
+export interface CatalogReportGrievance extends ReportGrievanceContext {
+  readonly catalogId: number;
+}
+
+export type ReportGrievance = LegacyReportGrievance | CatalogReportGrievance;
+
+export function reportGrievanceTitle(grievance: ReportGrievance): string {
+  if ("catalogId" in grievance) {
+    return (
+      reportGrievanceCatalogEntry(grievance.catalogId)?.title ??
+      `Unknown catalog item ${grievance.catalogId}`
+    );
+  }
+  return grievanceTypeLabel(grievance.type);
+}
+
+export function reportGrievanceType(grievance: ReportGrievance): string {
+  if ("catalogId" in grievance) {
+    return (
+      reportGrievanceCatalogEntry(grievance.catalogId)?.type ?? "Unknown type"
+    );
+  }
+  return grievanceTypeLabel(grievance.type);
 }
 
 export function countWords(value: string): number {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { REPORT_GRIEVANCE_CATALOG } from "../dist/contracts/report-grievance-catalog.js";
 import {
   countWords,
   denverYear,
@@ -7,6 +8,8 @@ import {
   formatEventDate,
   GRIEVANCE_TYPES,
   isValidEventDate,
+  reportGrievanceTitle,
+  reportGrievanceType,
 } from "../dist/contracts/report-grievances.js";
 import { createReportApiModule } from "../dist/report-api.js";
 import { createServices } from "../dist/services/index.js";
@@ -54,6 +57,47 @@ test("13 grievance types carry help text and the word count ignores extra whites
   assert.ok(GRIEVANCE_TYPES.every((type) => type.label && type.help));
   assert.equal(countWords("  one  two\nthree\t"), 3);
   assert.equal(countWords("   "), 0);
+});
+
+test("catalog has exactly Inventory IDs 1–61 with complete public copy and valid scores", () => {
+  assert.equal(REPORT_GRIEVANCE_CATALOG.length, 61);
+  assert.deepEqual(
+    REPORT_GRIEVANCE_CATALOG.map((entry) => entry.inventoryId).sort(
+      (a, b) => a - b,
+    ),
+    Array.from({ length: 61 }, (_, index) => index + 1),
+  );
+  assert.ok(
+    REPORT_GRIEVANCE_CATALOG.every(
+      (entry) =>
+        entry.title.trim() &&
+        entry.description.trim() &&
+        entry.type.trim() &&
+        entry.subgroup.trim() &&
+        Number.isInteger(entry.commonalityScore) &&
+        entry.commonalityScore >= 1 &&
+        entry.commonalityScore <= 10,
+    ),
+  );
+  assert.equal(
+    REPORT_GRIEVANCE_CATALOG.some((entry) => entry.inventoryId >= 62),
+    false,
+  );
+  assert.match(
+    REPORT_GRIEVANCE_CATALOG.find((entry) => entry.inventoryId === 18)
+      .description,
+    /do not exist/,
+  );
+  assert.match(
+    REPORT_GRIEVANCE_CATALOG.find((entry) => entry.inventoryId === 35)
+      .description,
+    /improperly closed session/,
+  );
+  assert.match(
+    REPORT_GRIEVANCE_CATALOG.find((entry) => entry.inventoryId === 61)
+      .description,
+    /do not exist/,
+  );
 });
 
 test("the year window is the Denver year and the ten before it", () => {
@@ -137,6 +181,58 @@ test("structured intake derives legacy fields, stores every grievance and replay
   );
 });
 
+test("catalog IDs are server-validated and round-trip with their public title and type", async () => {
+  const store = new MemoryReportIntakeStore();
+  const first = grievance();
+  const { type: _legacyType, ...firstContext } = first;
+  const second = grievance({
+    countyId: "synthetic-county-2",
+    date: { year: 2025 },
+  });
+  const { type: _legacyType2, ...secondContext } = second;
+  const catalogRows = [
+    { ...firstContext, catalogId: 1 },
+    { ...secondContext, catalogId: 4 },
+  ];
+  const result = await submitReport(
+    store,
+    structured(catalogRows),
+    reporter,
+    NOW,
+  );
+  const id = store.reportIdForReference(result.receipt.reference);
+  const { report } = await getReportForStaff(store, id, editor);
+  assert.deepEqual(report.grievances, catalogRows);
+  assert.equal(
+    reportGrievanceTitle(report.grievances[0]),
+    "Difficulty getting a service or poor service",
+  );
+  assert.equal(reportGrievanceType(report.grievances[0]), "Service");
+  assert.equal(
+    reportGrievanceTitle(report.grievances[1]),
+    "Waiting too long for a response, action, or decision",
+  );
+  assert.equal(reportGrievanceType(report.grievances[1]), "Service");
+  await assert.rejects(
+    submitReport(
+      new MemoryReportIntakeStore(),
+      structured([{ ...firstContext, catalogId: 62 }]),
+      reporter,
+      NOW,
+    ),
+    /invalid/i,
+  );
+  await assert.rejects(
+    submitReport(
+      new MemoryReportIntakeStore(),
+      structured([{ ...firstContext, catalogId: 1, type: "other" }]),
+      reporter,
+      NOW,
+    ),
+    /invalid/i,
+  );
+});
+
 test("structured intake rejects every invalid grievance field", async () => {
   const bad = {
     "no grievances": [],
@@ -144,6 +240,7 @@ test("structured intake rejects every invalid grievance field", async () => {
     "unknown type": [grievance({ type: "made-up" })],
     "empty details": [grievance({ details: "   " })],
     "251 words": [grievance({ details: Array(251).fill("word").join(" ") })],
+    "4001 characters": [grievance({ details: "x".repeat(4001) })],
     "no year": [grievance({ date: {} })],
     "day without month": [grievance({ date: { year: 2026, day: 3 } })],
     "impossible date": [grievance({ date: { year: 2026, month: 2, day: 30 } })],
