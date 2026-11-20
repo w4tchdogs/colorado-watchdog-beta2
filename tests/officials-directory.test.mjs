@@ -57,7 +57,12 @@ const ids = (page) => page.items.map((item) => item.person.id);
 
 test("browsing needs no search term and counts only stored people", async () => {
   await withDatabase(true, async (runner, database) => {
-    const people = database.prepare("SELECT COUNT(*) AS n FROM people").get().n;
+    // Only Profiles meeting the publication rule are public (migration 0034).
+    const people = database
+      .prepare(
+        "SELECT COUNT(*) AS n FROM profile_publication_ready r WHERE NOT EXISTS (SELECT 1 FROM person_visibility v WHERE v.person_id = r.person_id AND v.visible = 0)",
+      )
+      .get().n;
     const first = await listOfficials(runner);
     assert.equal(first.total, people);
     assert.equal(first.page, 1);
@@ -82,11 +87,10 @@ test("browsing needs no search term and counts only stored people", async () => 
     assert.equal(seen.length, people);
     assert.equal(new Set(seen).size, people);
 
-    // A person with no role record is listed, with no role invented.
+    // A Profile with no role does not meet the publication rule, so it is
+    // not public and is not listed.
     const unlisted = await listOfficials(runner, { query: "Harper Unlisted" });
-    assert.equal(unlisted.total, 1);
-    assert.equal(unlisted.items[0].role, null);
-    assert.equal(unlisted.items[0].matchingRoleCount, 0);
+    assert.equal(unlisted.total, 0);
   });
   await withDatabase(false, async (runner) => {
     const empty = await listOfficials(runner);

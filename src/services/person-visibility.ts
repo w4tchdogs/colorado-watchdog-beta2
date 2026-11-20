@@ -15,11 +15,17 @@ import {
  * answer as not found. Staff-only reads (sync planning, audit, the owner
  * Profiles sheet) deliberately do not use it.
  *
+ * The Profile must also meet the publication rule in the
+ * `profile_publication_ready` view (migration 0034): a nonblank display name
+ * and at least one role with a county, a source and an office, position or
+ * duties. Triggers already hide a Profile that stops meeting it, and this
+ * check keeps an incomplete Profile private on every public read regardless.
+ *
  * `idExpression` is a trusted SQL expression naming a people ID column. It is
  * never built from request input.
  */
 export function personIsPublicSql(idExpression: string): string {
-  return `NOT EXISTS (SELECT 1 FROM person_visibility hidden_pv WHERE hidden_pv.person_id = ${idExpression} AND hidden_pv.visible = 0)`;
+  return `(NOT EXISTS (SELECT 1 FROM person_visibility hidden_pv WHERE hidden_pv.person_id = ${idExpression} AND hidden_pv.visible = 0) AND EXISTS (SELECT 1 FROM profile_publication_ready ready_pv WHERE ready_pv.person_id = ${idExpression}))`;
 }
 
 /**

@@ -293,10 +293,22 @@ export const PROFILE_FIELDS: readonly ProfileFieldDefinition[] = [
     scope: "profile",
     source: "person_visibility.visible (no row means visible)",
     owner:
-      "Website only. Changed by an explicit hide or restore action. No sync ever reads or replaces it.",
+      "Website only. Changed by an explicit hide or restore action. No sync ever reads or replaces it. Disabled while the Profile does not meet the publication rule.",
     defaultVisible: true,
     sortable: true,
     write: { entity: "person_visibility", column: "visible" },
+  },
+  {
+    id: "publicationStatus",
+    label: "Status",
+    status: "read-only",
+    scope: "profile",
+    source:
+      "Visible on Website and the publication rule (profile_publication_ready, migration 0034)",
+    owner:
+      "Website. Computed, never stored. Says Visible, Hidden, or Hidden with what is missing, such as Hidden · Missing role.",
+    defaultVisible: true,
+    sortable: false,
   },
   {
     id: "promotionReviewedBy",
@@ -342,6 +354,18 @@ export const PROFILE_FIELDS: readonly ProfileFieldDefinition[] = [
     owner:
       "Website. Set when the Website record was created, not the private research date.",
     defaultVisible: false,
+    sortable: true,
+  },
+  {
+    id: "lastUploaded",
+    label: "Last Uploaded",
+    status: "read-only",
+    scope: "profile",
+    source:
+      "Latest committed dashboard Profiles import (sync_batches.committed_at) that created or changed the Profile, a role or an alternate name",
+    owner:
+      "Website. Read from committed import receipts. Previews, failed commits, unchanged rows and same-key retries leave it alone. Blank when no upload is recorded.",
+    defaultVisible: true,
     sortable: true,
   },
   {
@@ -599,7 +623,12 @@ export const PROFILE_SORT_FIELDS = PROFILE_FIELDS.filter(
   (field) => field.sortable,
 ).map((field) => field.id);
 
-export type ProfileVisibilityFilter = "all" | "visible" | "hidden";
+/** `incomplete` lists Profiles that do not meet the publication rule. */
+export type ProfileVisibilityFilter =
+  | "all"
+  | "visible"
+  | "hidden"
+  | "incomplete";
 export type ProfileSortDirection = "asc" | "desc";
 
 export interface ProfileQuery {
@@ -614,7 +643,10 @@ export interface ProfileQuery {
 }
 
 export interface ProfileRow {
-  readonly roleId: string;
+  /** Stable grid key: the role ID, or `profile:<id>` for a roleless Profile. */
+  readonly rowKey: string;
+  /** Null on the one row of a Profile that has no role. */
+  readonly roleId: string | null;
   readonly profileId: string;
   readonly profileVersion: number;
   readonly roleVersion: number;
@@ -632,7 +664,16 @@ export interface ProfileRow {
   readonly alternateNamesPendingReview: number;
   readonly nameReview: ProfileNameReview;
   readonly visible: boolean;
+  /** True when the Profile meets the publication rule. */
+  readonly publicationReady: boolean;
+  /** What is missing, such as "role" or "source". Empty when ready. */
+  readonly missingForPublication: readonly string[];
+  /** `incomplete` when the Website hid the Profile automatically. */
+  readonly hiddenReason: "incomplete" | null;
+  readonly publicationStatus: string;
   readonly createdOn: string;
+  /** Commit time of the latest import that changed it, or null. */
+  readonly lastUploaded: string | null;
   readonly countyFips: string | null;
   readonly county: string | null;
   readonly countyUnit: string | null;
@@ -644,8 +685,8 @@ export interface ProfileRow {
   readonly employmentEnd: string | null;
   readonly affiliation: string | null;
   readonly dateReviewed: string | null;
-  readonly roleCreatedOn: string;
-  readonly roleUpdatedOn: string;
+  readonly roleCreatedOn: string | null;
+  readonly roleUpdatedOn: string | null;
   readonly profileUpdatedOn: string;
 }
 
@@ -670,12 +711,14 @@ export interface ProfileFacets {
  * stable IDs, the versions to expect and the values the change replaces.
  */
 export interface ProfileSelectionEntry {
-  readonly roleId: string;
+  readonly rowKey: string;
+  readonly roleId: string | null;
   readonly profileId: string;
   readonly profileVersion: number;
   readonly roleVersion: number;
   readonly visibilityVersion: number;
   readonly visible: boolean;
+  readonly publicationReady: boolean;
   readonly displayName: string;
   readonly employmentStart: string | null;
   readonly employmentEnd: string | null;

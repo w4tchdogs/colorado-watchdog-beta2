@@ -13,6 +13,7 @@ import { runBannerApiChecks } from "./banner-api-checks.mjs";
 import { runBannerMcpChecks } from "./banner-mcp-checks.mjs";
 import { runBannerPublishChecks } from "./banner-publish-checks.mjs";
 import { runCountyStructureChecks } from "./county-structure-checks.mjs";
+import { runPublicationChecks } from "./publication-checks.mjs";
 import { runSyncMcpChecks } from "./sync-mcp-checks.mjs";
 
 const json = (value, status = 200) =>
@@ -35,6 +36,26 @@ export default {
         new AsyncD1Database(env.DB),
         async (actor) => actor.accountId === staff.accountId,
       );
+      // Seeded roles. Report subjects must be public, and a Profile is public
+      // only with a qualifying role (migration 0034), so the fixture people get
+      // their roles first and are published again, as an owner would.
+      await env.DB.batch([
+        env.DB.prepare(
+          "INSERT OR IGNORE INTO organizations (id, name, organization_type, county_fips) VALUES ('d1-report-org', 'Synthetic Report Office', 'office', '08001')",
+        ),
+        env.DB.prepare(
+          "INSERT OR IGNORE INTO positions (id, organization_id, title) VALUES ('d1-report-position', 'd1-report-org', 'Synthetic Clerk')",
+        ),
+        env.DB.prepare(
+          "INSERT OR IGNORE INTO role_sources (id, url, title, source_type) VALUES ('d1-report-source', 'https://example.invalid/roles', 'Synthetic roster', 'other_public')",
+        ),
+        env.DB.prepare(
+          "INSERT OR IGNORE INTO person_roles (id, person_id, position_id, source_id, source_checked_at) VALUES ('d1-report-role-a1', 'd1-backfill-person-a', 'd1-report-position', 'd1-report-source', '2026-11-01'), ('d1-report-role-a2', 'd1-backfill-person-a', 'd1-report-position', 'd1-report-source', '2026-11-02'), ('d1-report-role-b1', 'd1-backfill-person-b', 'd1-report-position', 'd1-report-source', '2026-11-03')",
+        ),
+        env.DB.prepare(
+          "DELETE FROM person_visibility WHERE person_id IN ('d1-backfill-person-a', 'd1-backfill-person-b') AND hidden_reason = 'incomplete'",
+        ),
+      ]);
       const submission = {
         countyId: "08001",
         subject: { kind: "person", id: "d1-backfill-person-a" },
@@ -144,21 +165,8 @@ export default {
         first.receipt.reference,
         first.receipt.recoveryKey,
       );
-      // Structured grievances: seeded roles, per-grievance counties, exact readback.
-      await env.DB.batch([
-        env.DB.prepare(
-          "INSERT OR IGNORE INTO organizations (id, name, organization_type) VALUES ('d1-report-org', 'Synthetic Report Office', 'office')",
-        ),
-        env.DB.prepare(
-          "INSERT OR IGNORE INTO positions (id, organization_id, title) VALUES ('d1-report-position', 'd1-report-org', 'Synthetic Clerk')",
-        ),
-        env.DB.prepare(
-          "INSERT OR IGNORE INTO role_sources (id, url, title, source_type) VALUES ('d1-report-source', 'https://example.invalid/roles', 'Synthetic roster', 'other_public')",
-        ),
-        env.DB.prepare(
-          "INSERT OR IGNORE INTO person_roles (id, person_id, position_id, source_id, source_checked_at) VALUES ('d1-report-role-a1', 'd1-backfill-person-a', 'd1-report-position', 'd1-report-source', '2026-11-01'), ('d1-report-role-a2', 'd1-backfill-person-a', 'd1-report-position', 'd1-report-source', '2026-11-02'), ('d1-report-role-b1', 'd1-backfill-person-b', 'd1-report-position', 'd1-report-source', '2026-11-03')",
-        ),
-      ]);
+      // Structured grievances: per-grievance counties, exact readback. The
+      // roles are seeded at the start of this check.
       const thisYear = new Date().getUTCFullYear();
       const grievances = [
         {
@@ -327,6 +335,14 @@ export default {
       try {
         const structure = await runCountyStructureChecks(env);
         return json({ success: true, checks: structure.checks });
+      } catch (error) {
+        return json({ success: false, error: String(error) }, 500);
+      }
+    }
+    if (url.pathname === "/publication/verify" && request.method === "POST") {
+      try {
+        const publication = await runPublicationChecks(env);
+        return json({ success: true, checks: publication.checks });
       } catch (error) {
         return json({ success: false, error: String(error) }, 500);
       }
@@ -902,12 +918,12 @@ export default {
     ).all();
     check(
       "ordered custom migration history and checksums",
-      history.results?.length === 33 &&
+      history.results?.length === 34 &&
         history.results.every(
           (row, index) =>
             row.version === index + 1 &&
             row.name ===
-              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake", "owner_bootstrap_audit", "correct_lake_la_plata_county_names", "banner_homepage_curation", "content_publication", "banner_publications", "human_sign_in", "role_source_publisher_classification", "report_challenge_claims", "unstructured_person_roles", "sync_batch_result_size", "agent_capability_grants", "agent_inspect_grant", "agent_banner_publish_grant", "archived_accounts", "optional_role_source_found_date", "content_revision_checkpoint_label", "profile_visibility", "county_structure", "profile_names", "county_structure_v4_contract"][index]}.sql` &&
+              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake", "owner_bootstrap_audit", "correct_lake_la_plata_county_names", "banner_homepage_curation", "content_publication", "banner_publications", "human_sign_in", "role_source_publisher_classification", "report_challenge_claims", "unstructured_person_roles", "sync_batch_result_size", "agent_capability_grants", "agent_inspect_grant", "agent_banner_publish_grant", "archived_accounts", "optional_role_source_found_date", "content_revision_checkpoint_label", "profile_visibility", "county_structure", "profile_names", "county_structure_v4_contract", "profile_publication_rule"][index]}.sql` &&
             /^[0-9a-f]{64}$/.test(row.sha256),
         ),
     );

@@ -23,12 +23,12 @@ test("named profiles can be browsed before any search term is entered", async ()
     assert.equal(page.$("#site-nav a[aria-current]").textContent, "Officials");
     assert.equal(rows(page).length, 25);
     assert.deepEqual(tabCounts(page), [
-      ["Named profiles", "46", "page"],
+      ["Named profiles", "45", "page"],
       ["County structure", null, null],
     ]);
     assert.match(page.$(".directory-status").textContent, /All counties\./);
-    assert.match(page.$(".directory-status").textContent, /46 profiles match/);
-    assert.match(page.$(".result-range").textContent, /Showing 1 to 25 of 46/);
+    assert.match(page.$(".directory-status").textContent, /45 profiles match/);
+    assert.match(page.$(".result-range").textContent, /Showing 1 to 25 of 45/);
     // The Beta-1 style address is accepted as-is.
     const legacy = await get(
       preview,
@@ -263,9 +263,9 @@ test("search covers names, titles and organizations, and same names stay separat
     const short = await get(preview, "/officials?q=a");
     assert.equal(short.status, 200);
     assert.match(short.main(), /That search is too short/);
+    // The roleless fictional Profile is not public (migration 0034).
     const unlisted = await get(preview, "/officials?q=Harper");
-    assert.match(rows(unlisted)[0].textContent, /No documented role/);
-    assert.equal(rows(unlisted)[0].querySelector(".status-chip"), null);
+    assert.equal(rows(unlisted).length, 0);
   });
 });
 
@@ -277,14 +277,14 @@ test("sorting and pagination work across the whole result set", async () => {
     assert.equal(first.$('.directory-pager a[rel="prev"]'), null);
     assert.match(first.$(".pager-status").textContent, /Page 1 of 2/);
     const second = await get(preview, next);
-    assert.equal(rows(second).length, 21);
+    assert.equal(rows(second).length, 20);
     assert.equal(
       second.$('.directory-pager a[rel="prev"]').getAttribute("href"),
       "/officials",
     );
     assert.equal(second.$('.directory-pager a[rel="next"]'), null);
     assert.equal(
-      new Set([...rowNames(first), ...rowNames(second)]).size <= 46,
+      new Set([...rowNames(first), ...rowNames(second)]).size <= 45,
       true,
     );
     const profileLinks = (page) =>
@@ -294,7 +294,7 @@ test("sorting and pagination work across the whole result set", async () => {
       );
     assert.equal(
       new Set([...profileLinks(first), ...profileLinks(second)]).size,
-      46,
+      45,
     );
     // A profile opened from page 2 remembers page 2.
     assert.match(

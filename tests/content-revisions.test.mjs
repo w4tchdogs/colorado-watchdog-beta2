@@ -451,7 +451,9 @@ test("restoring a revision with a missing relationship target rolls back atomica
       relationships: { personIds: [] },
     });
     // person-3 is no longer linked, so only history refers to it.
-    database.exec("DELETE FROM people WHERE id = 'person-3'");
+    database.exec(
+      "DELETE FROM person_roles WHERE person_id = 'person-3'; DELETE FROM person_visibility WHERE person_id = 'person-3'; DELETE FROM people WHERE id = 'person-3'",
+    );
     const before = service.getDraft(author, draft.id);
     const revisions = revisionCount(database);
     const audits = auditCount(database);
@@ -731,7 +733,7 @@ test("revisions persist across database close and reopen", async () => {
 test("migration 0010 snapshots an already-populated version-9 database", async () => {
   const database = await openWebsiteDatabase();
   const migrations = loadWebsiteMigrations();
-  assert.equal(migrations.length, 33);
+  assert.equal(migrations.length, 34);
   migrateWebsiteDatabase(database, migrations.slice(0, 9));
   assert.equal(
     database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
@@ -777,7 +779,7 @@ test("migration 0010 snapshots an already-populated version-9 database", async (
       .map((row) => row.version),
     [
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-      22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
+      22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
     ],
   );
   // The accepted current records are unchanged.
