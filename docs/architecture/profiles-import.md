@@ -44,6 +44,8 @@ The first slice defers these imports:
 
 - `profile_county_unit.csv`, `profile_position.csv` and any organization or position links. Rows carrying only those keys cannot become roles until a verified Website mapping exists.
 
+The initial launch Profiles already have private sources. Include launch Profiles with retained private evidence without screening for a single citation link on `profile.csv` or on the workbook's Profiles tab. For new Profiles after launch, check the evidence citation in the private Profiles store before export. Keep Profile-level citations and evidence in that store.
+
 ## Names (migration 0032)
 
 - **Primary components.** A present component column in `profile.csv` sets that component. A blank cell clears it. An absent column leaves it alone. `display_name` is never derived from components. Components update only while the Profile is unchanged since its last import, otherwise the row is a conflict and the Website value is kept.
