@@ -18,6 +18,7 @@ import {
   ImportValidationError,
   type ProfilesImportService,
 } from "../services/profiles-import-d1.js";
+import { ProfilesWorkbookError } from "../services/profiles-import-xlsx.js";
 import {
   AuthorizationError,
   type TrustedPrincipal,
@@ -35,7 +36,7 @@ import {
  * Routes: GET rows, facets, select-all and names (one Profile's alternate
  * names). POST preview and save. Alternate-name writes travel through the
  * same preview and save, so a Profile's primary and alternate names are saved
- * in one atomic batch. The CSV import (SYNC-1) adds POST import/preview,
+ * in one atomic batch. The Profiles import (SYNC-1) adds POST import/preview,
  * import/commit and import/reverse under the same checks. Preview is
  * read-only and commit needs the digest of the preview the owner reviewed
  * plus an idempotency key.
@@ -58,7 +59,7 @@ export interface ProfilesTransportDependencies {
   readonly authorize?: (principal: TrustedPrincipal) => Promise<boolean>;
   /** Absent means the database binding is unavailable. */
   readonly service?: ProfilesService;
-  /** Absent means the CSV import is unavailable. */
+  /** Absent means the Profiles import is unavailable. */
   readonly importService?: ProfilesImportService;
 }
 
@@ -318,6 +319,8 @@ function failure(error: unknown): Response {
     );
   if (error instanceof AuthorizationError)
     return json(403, { error: "forbidden" });
+  if (error instanceof ProfilesWorkbookError)
+    return json(400, { error: "invalid_workbook", message: error.message });
   if (error instanceof ProfilesInputError || error instanceof ImportInputError)
     return json(400, { error: "invalid_request", message: error.message });
   if (error instanceof ImportValidationError)

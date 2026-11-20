@@ -1,18 +1,19 @@
-import type {
-  ImportRowReport,
-  ProfilesImportCounts,
-  ProfilesImportFiles,
-  ProfilesImportPreview,
-  ProfilesImportReceipt,
+import {
+  type ImportRowReport,
+  PROFILES_WORKBOOK_MAX_BYTES,
+  type ProfilesImportCounts,
+  type ProfilesImportPreview,
+  type ProfilesImportReceipt,
+  type ProfilesImportSource,
 } from "../contracts/profiles-import.js";
 import { clear, el } from "./dom.js";
 import { ProfilesApiError, type ProfilesClient } from "./profiles-client.js";
 
 /**
- * Owner CSV import panel inside the Profiles tab (SYNC-1).
+ * Owner import panel inside the Profiles tab (SYNC-1).
  *
  * Choose files, Preview, inspect the exact adds, updates, conflicts and
- * visibility, then Commit. The browser reads file text and sends it. It never
+ * visibility, then Commit. The browser reads and sends the files. It never
  * parses, matches or decides: the server previews read-only, binds the commit
  * to the reviewed digest, and writes through the shared sync service. New
  * Profiles are created hidden, so nothing becomes public until the owner
@@ -27,7 +28,7 @@ export function createImportPanel(options: {
 }): HTMLElement {
   const { doc, client } = options;
   let preview: ProfilesImportPreview | null = null;
-  let files: ProfilesImportFiles | null = null;
+  let files: ProfilesImportSource | null = null;
   /** One key per reviewed digest, so a retry after a network failure replays. */
   let commitKey: { digest: string; key: string } | null = null;
   let receipt: ProfilesImportReceipt | null = null;
@@ -49,6 +50,13 @@ export function createImportPanel(options: {
     accept: ".csv,text/csv",
     id: "import-name-file",
   });
+  const workbookInput = el(doc, "input", {
+    type: "file",
+    accept:
+      ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    id: "import-workbook-file",
+  });
+  const csvInputs = [profileInput, roleInput, nameInput];
   const status = el(doc, "p", {
     class: "cw-import-status",
     role: "status",
@@ -79,6 +87,7 @@ export function createImportPanel(options: {
   };
   const setBusy = (value: boolean) => {
     busy = value;
+    for (const input of [workbookInput, ...csvInputs]) input.disabled = value;
     for (const control of [
       previewButton,
       commitButton,
@@ -117,6 +126,7 @@ export function createImportPanel(options: {
 
   function failureText(error: unknown): string {
     if (error instanceof ProfilesApiError) {
+      if (error.code === "invalid_workbook") return error.message;
       if (error.status === 409 && error.code === "stale_preview")
         return "The Website or the files changed since this preview. Nothing was written. Preview again.";
       if (error.status === 409 && error.code === "reversal_profile_deleted")
@@ -142,25 +152,73 @@ export function createImportPanel(options: {
     return file ? await file.text() : null;
   }
 
+  async function readWorkbook(file: File): Promise<string> {
+    if (!/\.xlsx$/i.test(file.name))
+      throw new ProfilesApiError(
+        400,
+        "invalid_workbook",
+        [],
+        [],
+        "Choose an .xlsx workbook.",
+      );
+    if (file.size > PROFILES_WORKBOOK_MAX_BYTES)
+      throw new ProfilesApiError(413, "request_too_large");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const chunks: string[] = [];
+    for (let offset = 0; offset < bytes.length; offset += 0x8000)
+      chunks.push(
+        String.fromCharCode(...bytes.subarray(offset, offset + 0x8000)),
+      );
+    return btoa(chunks.join(""));
+  }
+
+  for (const input of [workbookInput, ...csvInputs]) {
+    input.addEventListener("change", () => {
+      if (input.files?.length) {
+        for (const other of input === workbookInput
+          ? csvInputs
+          : [workbookInput])
+          other.value = "";
+      }
+      if (!preview || receipt) return;
+      files = null;
+      preview = null;
+      readdProfileId = undefined;
+      render();
+      refreshControls();
+      say("The file selection changed. Preview it before committing.");
+    });
+  }
+
   previewButton.addEventListener("click", async () => {
     if (busy) return;
-    const profile = await readFile(profileInput);
-    if (profile === null) {
-      say("Choose profile.csv first.");
+    const workbook = workbookInput.files?.[0];
+    if (workbook && csvInputs.some((input) => input.files?.length)) {
+      say("Choose one Excel workbook or CSV files.");
       return;
     }
-    const role = await readFile(roleInput);
-    const names = await readFile(nameInput);
-    files = {
-      profile,
-      ...(role !== null ? { profileRole: role } : {}),
-      ...(names !== null ? { profileName: names } : {}),
-    };
+    if (!workbook && !profileInput.files?.[0]) {
+      say("Choose profile.csv or an Excel workbook first.");
+      return;
+    }
+    files = null;
     receipt = null;
     readdProfileId = undefined;
     setBusy(true);
     say("Reading the files. Nothing is written during a preview.");
     try {
+      if (workbook) {
+        files = { workbook: await readWorkbook(workbook) };
+      } else {
+        const [profile, role, names] = await Promise.all(
+          csvInputs.map(readFile),
+        );
+        files = {
+          profile: profile ?? "",
+          ...(role !== null ? { profileRole: role } : {}),
+          ...(names !== null ? { profileName: names } : {}),
+        };
+      }
       preview = await client.importPreview(files);
       render();
       say(
@@ -280,14 +338,15 @@ export function createImportPanel(options: {
   }
 
   function readdButton(profileId: string, label: string): HTMLButtonElement {
+    const format = files && "workbook" in files ? "Excel" : "CSV";
     const control = el(
       doc,
       "button",
       {
         type: "button",
-        "aria-label": `Preview re-add from CSV for ${label}`,
+        "aria-label": `Preview re-add from ${format} for ${label}`,
       },
-      "Re-add from CSV",
+      `Re-add from ${format}`,
     );
     control.addEventListener("click", async () => {
       if (busy || !files) return;
@@ -481,17 +540,24 @@ export function createImportPanel(options: {
     doc,
     "details",
     { class: "cw-profiles-import", id: "profiles-import" },
-    el(doc, "summary", {}, "Import CSV"),
+    el(doc, "summary", {}, "Import Profiles"),
     el(
       doc,
       "p",
       {},
-      "Upload reviewed profile.csv, and optionally profile_role.csv with its source columns and profile_name.csv with typed alternate names. profile.csv can carry first, middle, last, prefix, suffix and preferred first names. Preview changes nothing. New Profiles are created hidden and new alternate names are created private.",
+      "Choose an Excel workbook with Profiles, Roles and Alternate Names tabs, or choose CSV files. Preview changes nothing. New Profiles are created hidden and new alternate names are created private.",
     ),
     el(
       doc,
       "div",
       { class: "cw-import-fields" },
+      el(
+        doc,
+        "label",
+        { for: "import-workbook-file" },
+        "Excel workbook (.xlsx)",
+      ),
+      workbookInput,
       el(doc, "label", { for: "import-profile-file" }, "profile.csv"),
       profileInput,
       el(

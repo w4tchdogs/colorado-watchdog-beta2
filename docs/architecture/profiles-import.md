@@ -1,10 +1,10 @@
-# Profiles dashboard CSV import (SYNC-1)
+# Profiles dashboard import (SYNC-1)
 
-The owner uploads reviewed CSV files in the Profiles tab, inspects the exact adds, updates, conflicts and visibility, then commits. The whole workflow runs in the browser. It follows the [dashboard CSV import decision](../decisions.md#dashboard-csv-imports--november-19-2026) and extends the [Profiles sheet](profiles-sheet.md) from PR #257.
+The owner selects reviewed CSV files or one Excel workbook in the Profiles tab, inspects the exact adds, updates, conflicts and visibility, then commits. It follows the [dashboard import decision](../decisions.md#dashboard-csv-imports--november-19-2026) and extends the [Profiles sheet](profiles-sheet.md) from PR #257.
 
 ## Flow
 
-1. **Upload.** The browser reads each chosen file as text and sends it. It never parses, matches or decides anything.
+1. **Upload.** The browser sends CSV text or a base64-encoded Excel workbook. It does not parse or match records.
 2. **Preview.** `POST /api/admin/profiles/import/preview` is read-only. The server parses and validates the files, matches rows to existing Website records, runs the shared sync planner as a dry run and returns the plan with a digest.
 3. **Inspect.** The panel shows counts and every row with its action, Website ID, field differences and visibility. Blocking issues name the file, line and key.
 4. **Commit.** `POST /api/admin/profiles/import/commit` carries the reviewed digest and an idempotency key. The server recomputes the plan, refuses with `409 stale_preview` if it differs, and otherwise writes through the shared sync commit engine in one atomic batch.
@@ -21,6 +21,14 @@ Headers are matched after lowercasing and replacing spaces and hyphens with unde
 | `profile.csv` | `profile_id`, `display_name` | `first_name`, `middle_name`, `last_name`, `name_prefix`, `name_suffix`, `preferred_first_name` |
 | `profile_name.csv` | `profile_name_id`, `profile_id`, `name_type`, `published_name` | `first_name`, `middle_name`, `last_name`, `name_prefix`, `name_suffix`, `applies_from`, `applies_until`, `verification_status`, `public_display` |
 | `profile_role.csv` | `role_id`, `profile_id`, `county_fips`, `source_id`, `source_url`, `source_title`, `publisher_classification`, `source_type` | `published_office`, `published_title`, `job_description`, `source_checked_at`, `start_date`, `end_date` |
+
+### Excel workbook
+
+- Put `profile.csv` columns on **Profiles**, `profile_role.csv` columns on **Roles**, and `profile_name.csv` columns on **Alternate Names**. Use the first row for headers and store stable IDs as text.
+- **Profiles** is required. The Roles and Alternate Names tabs may be omitted or supplied with headers only. An empty Alternate Names tab leaves existing names unchanged.
+- Choose one `.xlsx` file of up to 3 MiB. Each worksheet may contain up to 20,000 data rows and 64 columns. The records are subject to the same combined 4 MiB limit as the CSV inputs after conversion. Use the supported columns and include the selected role source citation fields.
+- The server accepts literal values. Replace formulas with values before upload. Excel dates in date fields are normalized to ISO format. A Colorado FIPS code such as `8001` is restored to `08001` if Excel dropped the leading zero.
+- The preview and commit routes accept `workbook` in place of `files` in the JSON body. The workbook is parsed into the same input contract before the shared preview and commit logic runs. Row validation uses the corresponding CSV filename and line in the converted input.
 
 - A role needs at least one of `published_office`, `published_title` or `job_description`.
 - `publisher_classification` is `official` or `unofficial`. `source_type` is `official_page`, `public_document` or `other_public`.

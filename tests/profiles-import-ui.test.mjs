@@ -6,12 +6,14 @@ import { migrateWebsiteDatabase } from "../dist/database/migrations.js";
 import { openWebsiteDatabase } from "../dist/database/sqlite.js";
 import { createProfilesClient } from "../dist/editor/profiles-client.js";
 import { createD1ProfilesService } from "../dist/services/profiles-d1.js";
+import { readCsv } from "../dist/services/profiles-import-csv.js";
 import { createD1ProfilesImportService } from "../dist/services/profiles-import-d1.js";
 import {
   createTestHumanIdentityAdapter,
   resolvePrincipal,
 } from "../dist/services/security.js";
 import { createProfilesApiTransport } from "../dist/transport/profiles-api.js";
+import { buildProfilesWorkbook } from "./support/profiles-workbook.mjs";
 
 const ORIGIN = "https://watchdog.invalid";
 
@@ -116,18 +118,24 @@ const ROLE_CSV =
   "R1,P1,08001,Synthetic Recorder,S1,https://example.invalid/s1,Source one,official,official_page\r\n" +
   "R2,P2,08001,Synthetic Assessor,S1,https://example.invalid/s1,Source one,official,official_page\r\n";
 
-test("the owner runs upload, preview, inspect and commit entirely in the Profiles tab", async () => {
+for (const format of ["CSV", "XLSX"])
+  test(`the owner uploads and commits ${format} in the Profiles tab`, () =>
+    runImport(format));
+
+async function createImportTest() {
   const database = await openWebsiteDatabase();
   migrateWebsiteDatabase(database);
   database.exec(SEED);
   const adapter = createTestHumanIdentityAdapter({ owner: "owner" });
   const authorize = async (p) => p.accountId === "acct-owner";
   const d1 = d1Over(database);
+  const service = createD1ProfilesImportService(d1, { authorize });
+  const resolve = (request) => resolvePrincipal(database, request, adapter);
   const transport = createProfilesApiTransport({
-    resolvePrincipal: (request) => resolvePrincipal(database, request, adapter),
+    resolvePrincipal: resolve,
     authorize,
     service: createD1ProfilesService(d1, { authorize }),
-    importService: createD1ProfilesImportService(d1, { authorize }),
+    importService: service,
   });
   const client = createProfilesClient({
     fetch: (path, init = {}) =>
@@ -142,6 +150,25 @@ test("the owner runs upload, preview, inspect and commit entirely in the Profile
         }),
       ),
   });
+  const owner = await resolve(
+    new Request(ORIGIN, { headers: { "x-test-human-subject": "owner" } }),
+  );
+  const count = (table) =>
+    database.prepare(`SELECT COUNT(*) c FROM ${table}`).get().c;
+  return { database, client, service, owner, count };
+}
+
+async function withWorkbookService(run) {
+  const setup = await createImportTest();
+  try {
+    await run(setup);
+  } finally {
+    setup.database.close();
+  }
+}
+
+async function runImport(format) {
+  const { database, client } = await createImportTest();
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   let keys = 0;
@@ -179,8 +206,23 @@ test("the owner runs upload, preview, inspect and commit entirely in the Profile
       () => $(".cw-import-status").textContent.includes("Choose profile.csv"),
       "needs a file",
     );
-    choose("#import-profile-file", PROFILE_CSV);
-    choose("#import-role-file", ROLE_CSV);
+    if (format === "XLSX") {
+      const rows = (csv) => readCsv(csv).records.map((record) => record.cells);
+      const bytes = buildProfilesWorkbook({
+        Profiles: rows(PROFILE_CSV),
+        Roles: rows(ROLE_CSV),
+        "Alternate Names": [
+          ["profile_name_id", "profile_id", "name_type", "published_name"],
+        ],
+      });
+      Object.defineProperty($("#import-workbook-file"), "files", {
+        configurable: true,
+        value: [new File([bytes], "profiles.xlsx")],
+      });
+    } else {
+      choose("#import-profile-file", PROFILE_CSV);
+      choose("#import-role-file", ROLE_CSV);
+    }
     click($("#import-preview"));
     await waitFor(() => $("#import-preview-result"), "preview result");
     assert.match(
@@ -198,6 +240,12 @@ test("the owner runs upload, preview, inspect and commit entirely in the Profile
       "two Profiles, two roles, one source row shown",
     );
     assert.equal($("#import-commit").hasAttribute("disabled"), false);
+    if (format === "XLSX") {
+      $("#import-workbook-file").dispatchEvent(new window.Event("change"));
+      assert.equal($("#import-commit").hasAttribute("disabled"), true);
+      click($("#import-preview"));
+      await waitFor(() => $("#import-preview-result"), "new workbook preview");
+    }
     click($("#import-commit"));
     await waitFor(() => $("#import-receipt"), "receipt");
     assert.match(
@@ -229,4 +277,105 @@ test("the owner runs upload, preview, inspect and commit entirely in the Profile
   function $$rows() {
     return Array.from(container.querySelectorAll(".cw-import-rows tbody tr"));
   }
+}
+
+const csv = (rows) => `${rows.map((row) => row.join(",")).join("\r\n")}\r\n`;
+const snapshot = (count) =>
+  [
+    "people",
+    "person_roles",
+    "role_sources",
+    "profile_names",
+    "person_visibility",
+    "sync_batches",
+    "audit_events",
+  ].map(count);
+
+test("XLSX and CSV share the reviewed preview, privacy, receipt and reversal", async () => {
+  await withWorkbookService(async ({ service, owner, count }) => {
+    const files = { profile: PROFILE_CSV, profileRole: ROLE_CSV };
+    files.profileName = csv([
+      ["profile_name_id", "profile_id", "name_type", "published_name"],
+      ["N1", "P1", "nickname", "Synthetic Alias"],
+    ]);
+    const rows = (text) => readCsv(text).records.map((r) => r.cells);
+    const roles = rows(files.profileRole);
+    roles[1][2] = 8001;
+    const workbook = buildProfilesWorkbook({
+      Profiles: rows(files.profile),
+      Roles: roles,
+      "Alternate Names": rows(files.profileName),
+    }).toString("base64");
+    const before = snapshot(count);
+    const visibilityBefore = count("person_visibility");
+    const preview = await service.preview(owner, { workbook });
+    const { digest: csvDigest, ...csvPreview } = await service.preview(owner, {
+      files,
+    });
+    const { digest: workbookDigest, ...workbookPreview } = preview;
+    assert.deepEqual(workbookPreview, csvPreview);
+    assert.match(csvDigest, /^[a-f0-9]{64}$/);
+    assert.equal(preview.canCommit, true);
+    assert.equal(preview.newProfilesHidden, 2);
+    assert.equal(preview.newNamesPrivate, 1);
+    assert.deepEqual(snapshot(count), before);
+    const request = { workbook, digest: workbookDigest };
+    const receipt = await service.commit(owner, "workbook-commit", request);
+    const replay = await service.commit(owner, "workbook-commit", request);
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.batchId, receipt.batchId);
+    assert.equal(count("person_visibility"), visibilityBefore + 2);
+    assert.equal(count("profile_names"), 1);
+
+    const emptyNames = buildProfilesWorkbook({
+      Profiles: rows(files.profile),
+      Roles: roles,
+      "Alternate Names": [rows(files.profileName)[0]],
+    }).toString("base64");
+    const unchanged = await service.preview(owner, { workbook: emptyNames });
+    assert.equal(unchanged.names.add + unchanged.names.update, 0);
+    assert.equal(count("profile_names"), 1);
+    await service.reverse(owner, receipt.batchId, "workbook-reverse");
+    assert.equal(count("people"), before[0]);
+    assert.equal(count("profile_names"), 0);
+  });
+});
+
+test("XLSX rejects mixed inputs, unexpected tabs and formulas without writing", async () => {
+  await withWorkbookService(async ({ service, owner, count }) => {
+    const profiles = [
+      ["profile_id", "display_name"],
+      ["P1", "Synthetic Alpha"],
+    ];
+    const workbook = buildProfilesWorkbook({ Profiles: profiles }).toString(
+      "base64",
+    );
+    const before = snapshot(count);
+    await assert.rejects(
+      service.preview(owner, { files: { profile: PROFILE_CSV }, workbook }),
+      /Choose one Excel workbook or CSV files/,
+    );
+    await assert.rejects(
+      service.preview(owner, {
+        workbook: buildProfilesWorkbook({
+          Profiles: profiles,
+          Notes: [["fictional notes"]],
+        }).toString("base64"),
+      }),
+      /Use one Profiles tab/,
+    );
+    await assert.rejects(
+      service.preview(owner, {
+        workbook: buildProfilesWorkbook(
+          { Profiles: profiles },
+          {
+            "xl/worksheets/sheet1.xml":
+              '<worksheet><sheetData><row r="1"><c r="A1"><f>1+1</f><v>2</v></c></row></sheetData></worksheet>',
+          },
+        ).toString("base64"),
+      }),
+      /Replace them with values/,
+    );
+    assert.deepEqual(snapshot(count), before);
+  });
 });

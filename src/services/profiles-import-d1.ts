@@ -32,6 +32,10 @@ import {
   validateProfileRows,
   validateRoleRows,
 } from "./profiles-import-csv.js";
+import {
+  ProfilesWorkbookError,
+  readProfilesWorkbook,
+} from "./profiles-import-xlsx.js";
 import { AuthorizationError, type TrustedPrincipal } from "./security.js";
 import {
   commitSyncChangesetD1,
@@ -159,7 +163,7 @@ export function createD1ProfilesImportService(
   }
 
   async function plan(input: unknown): Promise<Plan> {
-    const files = parseFiles(input);
+    const files = await parseFiles(input);
     const readd = (input as { readdProfileId?: unknown }).readdProfileId;
     if (
       readd !== undefined &&
@@ -283,11 +287,18 @@ export function createD1ProfilesImportService(
   };
 }
 
-function parseFiles(input: unknown): ProfilesImportFiles {
+async function parseFiles(input: unknown): Promise<ProfilesImportFiles> {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new ImportInputError("The request needs a files object");
   const body = input as Record<string, unknown>;
-  const files = body.files;
+  let files = body.files;
+  if (Object.hasOwn(body, "workbook")) {
+    if (Object.hasOwn(body, "files") || typeof body.workbook !== "string")
+      throw new ProfilesWorkbookError(
+        "Choose one Excel workbook or CSV files.",
+      );
+    files = await readProfilesWorkbook(body.workbook);
+  }
   if (!files || typeof files !== "object" || Array.isArray(files))
     throw new ImportInputError("The request needs a files object");
   const f = files as Record<string, unknown>;
@@ -303,6 +314,10 @@ function parseFiles(input: unknown): ProfilesImportFiles {
   const size = (text: unknown) =>
     typeof text === "string" ? new TextEncoder().encode(text).byteLength : 0;
   const bytes = size(f.profile) + size(f.profileRole) + size(f.profileName);
+  if (bytes > PROFILES_IMPORT_MAX_BYTES && Object.hasOwn(body, "workbook"))
+    throw new ProfilesWorkbookError(
+      "The workbook's import data exceeds 4 MiB. Preview a smaller set of rows.",
+    );
   if (bytes > PROFILES_IMPORT_MAX_BYTES)
     throw new ImportInputError("The files are too large");
   return {
