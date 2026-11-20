@@ -1270,10 +1270,10 @@ export default {
       },
     );
     check(
-      "generation triggers cover all 29 dependency tables",
-      generationTriggers.results?.length === 87 &&
-        dependencyTables.results?.length === 29 &&
-        triggerCoverage.size === 29 &&
+      "generation triggers cover all 30 dependency tables",
+      generationTriggers.results?.length === 90 &&
+        dependencyTables.results?.length === 30 &&
+        triggerCoverage.size === 30 &&
         completeCoverage,
     );
     await env.DB.prepare(`INSERT INTO accounts (id, kind, role, display_name)

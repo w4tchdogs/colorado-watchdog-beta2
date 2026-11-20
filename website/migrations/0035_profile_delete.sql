@@ -67,3 +67,22 @@ BEFORE DELETE ON profile_deleted_targets
 BEGIN
   SELECT RAISE(ABORT, 'profile_deleted_targets are append-only');
 END;
+
+-- Import planning depends on retired IDs, just as it depends on receipts.
+CREATE TRIGGER website_dependency_profile_deleted_targets_insert
+AFTER INSERT ON profile_deleted_targets
+BEGIN
+  UPDATE website_dependency_generation SET generation = generation + 1 WHERE id = 1;
+END;
+
+CREATE TRIGGER website_dependency_profile_deleted_targets_update
+AFTER UPDATE ON profile_deleted_targets
+BEGIN
+  UPDATE website_dependency_generation SET generation = generation + 1 WHERE id = 1;
+END;
+
+CREATE TRIGGER website_dependency_profile_deleted_targets_delete
+AFTER DELETE ON profile_deleted_targets
+BEGIN
+  UPDATE website_dependency_generation SET generation = generation + 1 WHERE id = 1;
+END;

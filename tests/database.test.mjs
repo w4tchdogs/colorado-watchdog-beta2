@@ -561,6 +561,7 @@ test("Website schema includes M0, M1-A, M2-D and M2-E tables without Profiles re
       "person_roles",
       "person_visibility",
       "positions",
+      "profile_deleted_targets",
       "profile_legacy_names",
       "profile_name_events",
       "profile_names",
