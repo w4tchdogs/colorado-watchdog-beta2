@@ -411,3 +411,8 @@ The [offline application proposal](architecture/county-structure.md#proposed-app
 - Visible on Website is disabled while a Profile is incomplete and the dashboard shows what is missing. The server enforces the same rule for single and bulk visibility changes against the final saved state.
 - A visible Profile that becomes incomplete is hidden automatically with the reason recorded. Existing incomplete records previously treated as visible are hidden the same way. Restoring the missing information enables the checkbox, and the Profile stays hidden until the owner publishes it.
 - Implemented by migration 0034 and the [Profiles sheet](architecture/profiles-sheet.md#publication-rule-migration-0034).
+
+## Single-Profile Website deletion — November 20, 2026
+
+- The offline Profiles master is authoritative. The owner can permanently remove one Website copy through the dashboard, with a reviewed dependency preview and an audit receipt. Deletion does not propagate to the offline master.
+- Preserve shared sources and existing audit history. Retain the original import receipts. Routine CSV imports skip an intentionally deleted Profile, and an owner can explicitly re-add a corrected copy from a new preview. See [PR #293](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/293).
