@@ -10,10 +10,17 @@
 .cs-node:hover { background: #f1f1f1; }
 .cs-node:focus-visible { outline: 3px solid #1a56db; outline-offset: 1px; }
 .cs-node.is-selected { border-color: #1a56db; background: #eef3ff; }
+.cs-tree.is-dragging .cs-node[draggable="true"] { cursor: grabbing; }
+.cs-drop-top { margin: 0.5rem 0; padding: 0.6rem; border: 2px dashed #677692; border-radius: 0.35rem; }
+.cs-tree:not(.is-dragging) .cs-drop-top { display: none; }
+.cs-tree .is-drop-target { outline: 2px solid #1a56db; outline-offset: -2px; background: #eef3ff; }
 .cs-tag { font-size: 0.8em; padding: 0.05rem 0.4rem; border: 1px solid #9a9a9a; border-radius: 0.6rem; }
 .cs-tag-status { border-color: #8a5a00; }
 .cs-field { display: grid; gap: 0.25rem; margin-block: 0.6rem; }
+.cs-field[hidden] { display: none; }
 .cs-field label { font-weight: 600; }
+.cs-hierarchy-form { padding-inline-start: 1rem; border-inline-start: 3px solid #1a56db; }
+.cs-hierarchy-form h3 { margin-block-start: 0; }
 .cs-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-block: 0.6rem; }
 .cs-danger { color: #8a1c1c; }
 .cs-empty { color: #4a4a4a; }

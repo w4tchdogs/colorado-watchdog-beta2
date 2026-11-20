@@ -96,7 +96,7 @@ interface CreateFields {
   readonly name: string;
   readonly organizationType?: OrganizationType;
   readonly parentId?: string | null;
-  readonly relationship?: "part_of" | "reports_to";
+  readonly relationship?: ParentRelationship;
   readonly status?: UnitStatus;
   readonly displayOrder?: number | null;
   readonly aliases?: readonly { name: string; kind?: string }[];
@@ -1611,7 +1611,10 @@ function applyEdit(
           "The parent does not exist in this county.",
           "parent_missing",
         );
-      if (parent.kind === "display_group") {
+      if (
+        parent.kind === "display_group" ||
+        edit.relationship === "display_group"
+      ) {
         displayGroupId = parent.id;
         relationship = "display_group";
       } else {
