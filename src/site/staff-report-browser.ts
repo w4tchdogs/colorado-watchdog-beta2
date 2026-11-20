@@ -1,7 +1,8 @@
 import {
   formatEventDate,
-  GRIEVANCE_TYPES,
   type ReportGrievance,
+  reportGrievanceTitle,
+  reportGrievanceType,
 } from "../contracts/report-grievances.js";
 
 type EmployeeNames = Record<
@@ -237,12 +238,14 @@ function start(root: HTMLElement): void {
         const card = document.createElement("article");
         card.className = "staff-grievance";
         card.append(
-          text("h3", `Grievance ${index + 1}`),
-          pair(
-            "Type",
-            GRIEVANCE_TYPES.find((type) => type.id === item.type)?.label ??
-              item.type,
+          text(
+            "h3",
+            `Grievance ${index + 1}${"catalogId" in item ? `: ${reportGrievanceTitle(item)}` : ""}`,
           ),
+          pair("Type", reportGrievanceType(item)),
+          ...("catalogId" in item
+            ? [pair("Inventory ID", String(item.catalogId))]
+            : []),
           pair("Event date", formatEventDate(item.date)),
           pair(
             "County at the event",

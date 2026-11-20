@@ -35,7 +35,7 @@ const structured = {
       identificationBasis: "documented",
     },
     {
-      type: "other",
+      catalogId: 4,
       details: "Second fictional grievance.",
       date: { year: 2025 },
       countyId: "08069",
@@ -108,6 +108,8 @@ test("staff detail shows every stored grievance with its own date, county, role 
   assert.match(text, /A synthetic headline/);
   assert.match(text, /Grievance 1/);
   assert.match(text, /Grievance 2/);
+  assert.match(text, /Waiting too long for a response, action, or decision/);
+  assert.match(text, /Inventory ID: 4/);
   assert.match(text, /Retaliation for raising a concern/);
   assert.match(text, /March 4, 2026/);
   assert.match(text, /Adams \(08001\)/);

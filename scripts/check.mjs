@@ -117,6 +117,7 @@ const allowed = new Set([
   "src/site/report-dom.ts",
   "src/site/report-grievance-form.ts",
   "src/site/report-directory.ts",
+  "src/contracts/report-grievance-catalog.ts",
   "src/contracts/report-grievances.ts",
   "src/site/report-browser.ts",
   "src/site/staff-report-browser.ts",

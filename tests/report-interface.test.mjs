@@ -85,7 +85,11 @@ function fillGrievance(
     document.getElementById("report-event-year"),
     String(year ?? thisYear),
   );
-  change(document.getElementById("report-g0-type"), "other");
+  const checkbox = document.getElementById("report-grievance-1");
+  if (!checkbox.checked) {
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new window.Event("change", { bubbles: true }));
+  }
   document.getElementById("report-g0-details").value =
     details ?? "A fictional concern described for interface testing.";
 }
@@ -196,6 +200,11 @@ test("guest steps preserve entries, focus validation errors, certify and issue a
   assert.equal(document.activeElement.id, "report-step-2-heading");
   stepButton(3).click();
   assert.equal(document.activeElement.id, "report-step-3-heading");
+  const firstGrievance = document.getElementById("report-grievance-1");
+  firstGrievance.checked = true;
+  firstGrievance.dispatchEvent(
+    new dom.window.Event("change", { bubbles: true }),
+  );
   await submit(form, dom.window);
   assert.equal(calls.submissions.length, 0);
   assert.equal(document.activeElement.className, "report-error-summary");
@@ -755,6 +764,14 @@ test("includes responsive rules, visible keyboard focus, and no upload control",
     demoNotice: "<script>not markup</script>",
   });
   assert.match(css, /@media \(max-width: 40rem\)/);
+  assert.match(
+    css,
+    /\.report-grievance-table-scroll\s*\{[^}]*overflow-x: auto/s,
+  );
+  assert.match(
+    css,
+    /\.report-grievance-catalog-table\s*\{[^}]*min-width: 42rem/s,
+  );
   assert.match(siteCss, /:focus-visible/);
   assert.equal(document.querySelector("script"), null);
   assert.match(
