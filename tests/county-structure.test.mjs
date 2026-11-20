@@ -7,6 +7,7 @@ import { parseCountyCsv } from "../dist/services/county-structure-csv.js";
 import {
   CountyStructureConflictError,
   CountyStructureValidationError,
+  D1CountyStructureAdministration,
 } from "../dist/services/county-structure-d1.js";
 import { D1CountyStructurePublicService } from "../dist/services/county-structure-public.js";
 import { countyStructureSection } from "../dist/site/pages/county-structure-section.js";
@@ -186,6 +187,159 @@ test("the dashboard summary reads top-level units, sub-units and the display gro
     container.querySelector(".cs-counts").textContent,
     "8 entries: 2 top-level units, 5 sub-units (under a unit or a display group) and 1 display group. 0 linked Profiles, 0 needing review.",
   );
+});
+
+test("the County Structure hierarchy adds units in-page and confirms pointer and keyboard moves", async () => {
+  await withStructure(async (ctx) => {
+    await load(ctx, csv(adamsRows()));
+    const service = new D1CountyStructureAdministration(ctx.d1);
+    const dom = new JSDOM('<!doctype html><div id="c"></div>');
+    const { document } = dom.window;
+    const container = document.getElementById("c");
+    const writes = [];
+    let lastEdit;
+    const client = {
+      counties: () => service.listCounties(ctx.owner),
+      county: (fips) => service.getCounty(ctx.owner, fips),
+      imports: async () => ({ imports: [] }),
+      linkedRoles: async () => ({ roles: [] }),
+      edit: (expectedVersion, edit) => {
+        writes.push(edit);
+        lastEdit = service.edit(ctx.owner, { expectedVersion, edit });
+        return lastEdit;
+      },
+    };
+    dom.window.prompt = () => assert.fail("The editor opened a native prompt");
+    const view = createCountyStructureView({ client })({
+      doc: document,
+      container,
+      data: { view: "county-structure" },
+      session: {},
+      hrefFor: () => "#",
+      announce: () => {},
+    });
+    const settled = () => new Promise((resolve) => setImmediate(resolve));
+    const select = (query, value) => {
+      const control = document.querySelector(query);
+      control.value = value;
+      control.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    };
+    const click = (label) => {
+      const button = Array.from(document.querySelectorAll("button")).find(
+        (item) => item.textContent === label,
+      );
+      assert.ok(button, label);
+      button.click();
+    };
+    const node = (id) =>
+      Array.from(document.querySelectorAll("[data-unit-id]")).find(
+        (item) => item.dataset.unitId === id,
+      );
+    const dragEvent = (target, type) =>
+      target.dispatchEvent(
+        new dom.window.Event(type, { bubbles: true, cancelable: true }),
+      );
+    const placement = (id) =>
+      ctx.database
+        .prepare(
+          "SELECT parent_unit_id, browse_parent_unit_id, display_group_id, parent_relationship FROM county_unit WHERE id = ?",
+        )
+        .get(id);
+    const submit = () =>
+      document.querySelector(".cs-hierarchy-form button[type=submit]");
+    async function add(label, name, relationship) {
+      click(label);
+      const input = document.getElementById("cs-create-name");
+      assert.equal(document.activeElement, input);
+      input.value = name;
+      if (relationship) select("#cs-create-relationship", relationship);
+      submit().click();
+      await lastEdit;
+      await settled();
+      assert.equal(document.querySelector(".cs-hierarchy-form"), null);
+      assert.match(document.activeElement.textContent, new RegExp(name));
+      return document.activeElement.dataset.unitId;
+    }
+
+    try {
+      await settled();
+      select("#cs-county", ADAMS[0]);
+      await settled();
+      const newGroup = await add("Add display group", "Boards");
+      assert.equal(node(newGroup).draggable, false);
+      const grouped = await add("Add unit to group", "Advisory Board");
+      assert.equal(placement(grouped).display_group_id, newGroup);
+      const root = await add("Add top-level unit", "Operations");
+      assert.equal(placement(root).parent_unit_id, null);
+      const child = await add("Add sub-unit", "Budget", "display_group");
+      assert.deepEqual(placement(child), {
+        parent_unit_id: null,
+        browse_parent_unit_id: root,
+        display_group_id: null,
+        parent_relationship: null,
+      });
+
+      dragEvent(node("adams-works"), "dragstart");
+      assert.equal(dragEvent(node("adams-roads"), "dragover"), true);
+      dragEvent(node("adams-roads"), "drop");
+      assert.equal(document.querySelector(".cs-hierarchy-form"), null);
+      dragEvent(node("adams-works"), "dragend");
+
+      dragEvent(node("adams-roads"), "dragstart");
+      assert.equal(dragEvent(node("adams-sheriff"), "dragover"), false);
+      assert.equal(
+        node("adams-sheriff").classList.contains("is-drop-target"),
+        true,
+      );
+      dragEvent(node("adams-sheriff"), "drop");
+      assert.equal(
+        document.getElementById("cs-move-destination").value,
+        "adams-sheriff",
+      );
+      assert.equal(submit().disabled, true);
+      assert.equal(writes.length, 4);
+      assert.equal(placement("adams-roads").parent_unit_id, "adams-works");
+      select("#cs-move-relationship", "display_group");
+      submit().click();
+      await lastEdit;
+      await settled();
+      assert.equal(placement("adams-roads").parent_unit_id, null);
+      assert.equal(
+        placement("adams-roads").browse_parent_unit_id,
+        "adams-sheriff",
+      );
+      assert.equal(document.activeElement, node("adams-roads"));
+
+      click("Move unit");
+      select("#cs-move-destination", "");
+      click("Cancel");
+      assert.equal(writes.length, 5);
+      assert.equal(document.activeElement, node("adams-roads"));
+
+      click("Move unit");
+      select("#cs-move-destination", "adams-works");
+      select("#cs-move-relationship", "reports_to");
+      submit().click();
+      await lastEdit;
+      await settled();
+      assert.equal(placement("adams-roads").parent_unit_id, "adams-works");
+      assert.equal(placement("adams-roads").parent_relationship, "reports_to");
+
+      dragEvent(node("adams-roads"), "dragstart");
+      const top = document.querySelector(".cs-drop-top");
+      assert.equal(dragEvent(top, "dragover"), false);
+      dragEvent(top, "drop");
+      submit().click();
+      await lastEdit;
+      await settled();
+      assert.equal(placement("adams-roads").parent_unit_id, null);
+      assert.equal(placement("adams-roads").browse_parent_unit_id, null);
+      assert.equal(writes.length, 7);
+    } finally {
+      view.destroy();
+      dom.window.close();
+    }
+  });
 });
 
 test("the dashboard previews and commits role attachments for the selected county", async () => {

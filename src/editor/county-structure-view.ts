@@ -6,6 +6,7 @@ import {
   type ImportMode,
   type ImportSummary,
   ORGANIZATION_TYPES,
+  type ParentRelationship,
   type PreparedImport,
   type StructureRecord,
   UNIT_STATUSES,
@@ -71,6 +72,12 @@ function formatIssue(issue: CsvIssue): string {
 const typeLabel = (record: StructureRecord): string =>
   record.kind === "display_group" ? "Display group" : record.organizationType;
 
+const RELATIONSHIP_LABELS: Readonly<Record<ParentRelationship, string>> = {
+  part_of: "Part of",
+  reports_to: "Reports to",
+  display_group: "Browse only",
+};
+
 export function createCountyStructureView(options: {
   readonly client: CountyStructureClient;
   readonly newKey?: () => string;
@@ -87,6 +94,9 @@ export function createCountyStructureView(options: {
     let selectedCounty: string | null = null;
     let detail: CountyDetailResponse | null = null;
     let selectedId: string | null = null;
+    let countyLoad = 0;
+    let drag: { unit: UnitNode; targets: ReadonlySet<string> } | null = null;
+    let dropTarget: HTMLElement | null = null;
     let prepared: PreparedImport | null = null;
     let commitKey: string | null = null;
     let recent: readonly ImportSummary[] = [];
@@ -111,7 +121,10 @@ export function createCountyStructureView(options: {
       "aria-label": "County",
     });
     const counts = el(doc, "p", { class: "cs-counts" });
-    const tree = el(doc, "div", { class: "cs-tree" });
+    const tree = el(doc, "section", {
+      class: "cs-tree",
+      "aria-labelledby": "cs-hierarchy-title",
+    });
     const editor = el(doc, "div", { class: "cs-editor" });
     const importPanel = el(doc, "div", { class: "cs-import" });
     const attachmentPanel = el(doc, "div", {
@@ -183,19 +196,26 @@ export function createCountyStructureView(options: {
     }
 
     async function loadCounty(fips: string | null): Promise<void> {
-      if (fips !== selectedCounty) invalidateAttachmentPreview();
+      const request = ++countyLoad;
+      if (fips !== selectedCounty) {
+        invalidateAttachmentPreview();
+        detail = null;
+      }
       selectedCounty = fips;
       renderAttachmentPreview();
       selectedId = null;
       if (!fips) {
-        detail = null;
         renderAll();
         return;
       }
+      if (!detail) renderAll();
       try {
-        detail = await client.county(fips);
+        const result = await client.county(fips);
+        if (destroyed || request !== countyLoad) return;
+        detail = result;
         version = detail.version;
       } catch (error) {
+        if (destroyed || request !== countyLoad) return;
         detail = null;
         say(describe(error));
       }
@@ -446,8 +466,71 @@ export function createCountyStructureView(options: {
     }
 
     // ---------------------------------------------------------- tree
+    function focusUnit(id: string): void {
+      for (const button of Array.from(
+        tree.querySelectorAll<HTMLButtonElement>("button[data-unit-id]"),
+      )) {
+        if (button.dataset.unitId === id) {
+          button.focus();
+          break;
+        }
+      }
+    }
+
+    function moveTargets(unit: UnitNode): UnitNode[] {
+      if (!detail || unit.record.countyFips !== detail.county.fips) return [];
+      const subtree = new Set(flatten([unit]).map((node) => node.record.id));
+      return flatten(detail.roots).filter(
+        (node) => !subtree.has(node.record.id),
+      );
+    }
+
+    function highlightDrop(target: HTMLElement | null): void {
+      dropTarget?.classList.remove("is-drop-target");
+      dropTarget = target;
+      dropTarget?.classList.add("is-drop-target");
+    }
+
+    function endDrag(): void {
+      highlightDrop(null);
+      drag = null;
+      tree.classList.remove("is-dragging");
+    }
+
+    function receiveDrop(target: HTMLElement, parentId: string | null): void {
+      target.addEventListener("dragover", (event) => {
+        if (!drag || (parentId !== null && !drag.targets.has(parentId))) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        if (dropTarget !== target) highlightDrop(target);
+      });
+      target.addEventListener("dragleave", (event) => {
+        const next = event.relatedTarget;
+        const NodeConstructor = doc.defaultView?.Node;
+        if (
+          dropTarget === target &&
+          !(
+            NodeConstructor &&
+            next instanceof NodeConstructor &&
+            target.contains(next)
+          )
+        ) {
+          highlightDrop(null);
+        }
+      });
+      target.addEventListener("drop", (event) => {
+        if (!drag || (parentId !== null && !drag.targets.has(parentId))) return;
+        event.preventDefault();
+        const unit = drag.unit;
+        endDrag();
+        openMove(unit, parentId);
+      });
+    }
+
     function renderTree(): void {
+      endDrag();
       clear(tree);
+      tree.append(el(doc, "h3", { id: "cs-hierarchy-title" }, "Hierarchy"));
       if (!detail) {
         tree.append(
           el(
@@ -469,6 +552,19 @@ export function createCountyStructureView(options: {
           ),
         );
       }
+      const top = el(doc, "div", { class: "cs-drop-top" }, "Move to top level");
+      receiveDrop(top, null);
+      tree.append(top);
+      if (detail.counts.units > 0) {
+        tree.append(
+          el(
+            doc,
+            "p",
+            { class: "cs-note" },
+            "Drag a unit onto its destination or select it and choose Move unit.",
+          ),
+        );
+      }
       const list = (nodes: readonly UnitNode[]): HTMLElement => {
         const ul = el(doc, "ul", { class: "cs-list", role: "group" });
         for (const node of nodes) {
@@ -480,10 +576,19 @@ export function createCountyStructureView(options: {
               type: "button",
               class: `cs-node${record.id === selectedId ? " is-selected" : ""}`,
               "data-unit-id": record.id,
+              draggable: record.kind === "unit" ? "true" : null,
               "aria-pressed": record.id === selectedId ? "true" : "false",
             },
             record.name,
             el(doc, "span", { class: "cs-tag" }, typeLabel(record)),
+            record.relationship
+              ? el(
+                  doc,
+                  "span",
+                  { class: "cs-tag" },
+                  RELATIONSHIP_LABELS[record.relationship],
+                )
+              : "",
             record.status === "active"
               ? ""
               : el(
@@ -505,7 +610,25 @@ export function createCountyStructureView(options: {
             selectedId = record.id;
             renderTree();
             void renderEditor();
+            focusUnit(record.id);
           });
+          if (record.kind === "unit") {
+            button.addEventListener("dragstart", (event) => {
+              drag = {
+                unit: node,
+                targets: new Set(
+                  moveTargets(node).map(({ record }) => record.id),
+                ),
+              };
+              tree.classList.add("is-dragging");
+              if (event.dataTransfer) {
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", record.id);
+              }
+            });
+            button.addEventListener("dragend", endDrag);
+          }
+          receiveDrop(button, record.id);
           const item = el(doc, "li", {}, button);
           if (node.children.length > 0) item.append(list(node.children));
           ul.append(item);
@@ -516,20 +639,17 @@ export function createCountyStructureView(options: {
       const addGroup = el(
         doc,
         "button",
-        { type: "button" },
+        { type: "button", id: "cs-add-group" },
         "Add display group",
       );
-      addGroup.addEventListener(
-        "click",
-        () => void promptCreate(null, "group"),
-      );
+      addGroup.addEventListener("click", () => openCreate("group", null));
       const addTop = el(
         doc,
         "button",
-        { type: "button" },
+        { type: "button", id: "cs-add-top" },
         "Add top-level unit",
       );
-      addTop.addEventListener("click", () => void promptCreate(null, "unit"));
+      addTop.addEventListener("click", () => openCreate("unit", null));
       tree.append(el(doc, "div", { class: "cs-actions" }, addTop, addGroup));
     }
 
@@ -548,45 +668,262 @@ export function createCountyStructureView(options: {
     async function runEdit(
       edit: { op: string; [key: string]: unknown },
       done: string,
+      expectedVersion = version,
+      focusEdited = false,
     ): Promise<void> {
+      const county = selectedCounty;
       try {
-        const result = await client.edit(version, edit);
+        const result = await client.edit(expectedVersion, edit);
         version = result.structureVersion;
         say(done);
-        const keep = selectedId;
+        const keep = focusEdited ? result.entityId : selectedId;
         await refresh();
-        if (keep && detail && findNode(detail.roots, keep)) {
+        if (
+          keep &&
+          detail?.county.fips === county &&
+          findNode(detail.roots, keep)
+        ) {
           selectedId = keep;
           renderTree();
-          await renderEditor();
+          void renderEditor();
+          if (focusEdited) focusUnit(keep);
         }
       } catch (error) {
         say(describe(error));
       }
     }
 
-    async function promptCreate(
-      parentId: string | null,
-      kind: "unit" | "group",
-    ): Promise<void> {
-      if (!selectedCounty) return;
-      const name =
-        typeof globalThis.prompt === "function"
-          ? globalThis.prompt(
-              kind === "group" ? "Display group name" : "Unit name",
-            )
-          : null;
-      if (!name?.trim()) return;
-      await runEdit(
-        {
-          op: kind === "group" ? "create_group" : "create_unit",
-          countyFips: selectedCounty,
-          name: name.trim(),
-          ...(kind === "unit" ? { organizationType: "office" } : {}),
-          ...(parentId ? { parentId, relationship: "part_of" } : {}),
-        },
-        "Added.",
+    function relationshipSelect(id: string): HTMLSelectElement {
+      return el(
+        doc,
+        "select",
+        { id },
+        el(doc, "option", { value: "" }, "Choose a relationship"),
+        ...Object.entries(RELATIONSHIP_LABELS).map(([value, label]) =>
+          el(doc, "option", { value }, label),
+        ),
       );
+    }
+
+    function placementText(
+      parent: StructureRecord | null,
+      relationship: string,
+    ): string {
+      if (!parent) return "Top level";
+      if (relationship === "display_group")
+        return `Browse only under ${parent.name}`;
+      if (relationship === "reports_to") return `Reports to ${parent.name}`;
+      if (relationship === "part_of") return `Part of ${parent.name}`;
+      return `Choose how to place the unit under ${parent.name}.`;
+    }
+
+    function openCreate(
+      kind: "unit" | "group",
+      parent: StructureRecord | null,
+    ): void {
+      if (!detail) return;
+      const { county, version: expectedVersion } = detail;
+      const form = el(doc, "form", { class: "cs-hierarchy-form" });
+      const name = el(doc, "input", {
+        id: "cs-create-name",
+        type: "text",
+        required: true,
+        maxlength: 300,
+      });
+      const type = el(
+        doc,
+        "select",
+        { id: "cs-create-type" },
+        ...ORGANIZATION_TYPES.map((value) =>
+          el(doc, "option", { value, selected: value === "office" }, value),
+        ),
+      );
+      const relationship = relationshipSelect("cs-create-relationship");
+      relationship.required = parent?.kind === "unit";
+      const summary = el(doc, "p", { class: "cs-note" });
+      const placement = () =>
+        parent?.kind === "display_group" ? "display_group" : relationship.value;
+      const updateSummary = () => {
+        summary.textContent = placementText(parent, placement());
+      };
+      updateSummary();
+      relationship.addEventListener("change", updateSummary);
+      const submit = el(doc, "button", { type: "submit" }, "Add");
+      const cancel = el(doc, "button", { type: "button" }, "Cancel");
+      cancel.addEventListener("click", () => {
+        void renderEditor();
+        if (selectedId) focusUnit(selectedId);
+        else
+          tree
+            .querySelector<HTMLButtonElement>(
+              kind === "group" ? "#cs-add-group" : "#cs-add-top",
+            )
+            ?.focus();
+      });
+      name.addEventListener("input", () => name.setCustomValidity(""));
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (submit.disabled || selectedCounty !== county.fips) return;
+        const value = name.value.trim();
+        if (!value) {
+          name.setCustomValidity("Enter a name.");
+          name.reportValidity();
+          return;
+        }
+        if (!relationship.reportValidity()) return;
+        submit.disabled = true;
+        cancel.disabled = true;
+        await runEdit(
+          {
+            op: kind === "group" ? "create_group" : "create_unit",
+            countyFips: county.fips,
+            name: value,
+            ...(kind === "unit" ? { organizationType: type.value } : {}),
+            ...(parent
+              ? { parentId: parent.id, relationship: placement() }
+              : {}),
+          },
+          "Added.",
+          expectedVersion,
+          true,
+        );
+        submit.disabled = false;
+        cancel.disabled = false;
+      });
+      form.append(
+        el(doc, "h3", {}, kind === "group" ? "Add display group" : "Add unit"),
+        el(doc, "p", { class: "cs-note" }, county.name),
+        field(doc, "Name", name.id, name),
+        kind === "unit" ? field(doc, "Type", type.id, type) : "",
+        relationship.required
+          ? field(doc, "Relationship", relationship.id, relationship)
+          : "",
+        summary,
+        el(doc, "div", { class: "cs-actions" }, submit, cancel),
+      );
+      clear(editor);
+      editor.append(form);
+      name.focus();
+    }
+
+    function openMove(
+      unit: UnitNode,
+      destination = unit.record.parentId ?? unit.record.displayGroupId,
+    ): void {
+      if (!detail || unit.record.kind !== "unit") return;
+      const { county, version: expectedVersion } = detail;
+      const record = unit.record;
+      if (record.countyFips !== county.fips) return;
+      const targets = new Map(
+        moveTargets(unit).map(({ record }) => [record.id, record]),
+      );
+      if (destination !== null && !targets.has(destination)) return;
+      const previous = record.parentId ?? record.displayGroupId;
+      const form = el(doc, "form", { class: "cs-hierarchy-form" });
+      const parent = el(
+        doc,
+        "select",
+        { id: "cs-move-destination" },
+        el(doc, "option", { value: "" }, "Top level"),
+        ...Array.from(targets.values(), (candidate) =>
+          el(
+            doc,
+            "option",
+            { value: candidate.id },
+            candidate.kind === "display_group"
+              ? `${candidate.name} (display group)`
+              : candidate.name,
+          ),
+        ),
+      );
+      parent.value = destination ?? "";
+      const relationship = relationshipSelect("cs-move-relationship");
+      const relationshipField = field(
+        doc,
+        "Relationship",
+        relationship.id,
+        relationship,
+      );
+      const summary = el(doc, "p", { class: "cs-note", "aria-live": "polite" });
+      const submit = el(doc, "button", { type: "submit" }, "Move");
+      const cancel = el(doc, "button", { type: "button" }, "Cancel");
+      const target = () => targets.get(parent.value) ?? null;
+      const placement = () =>
+        target()?.kind === "display_group"
+          ? "display_group"
+          : relationship.value;
+      const updatePreview = () => {
+        const next = target();
+        const relation = next ? placement() : "";
+        const unchanged =
+          (next?.id ?? null) === previous &&
+          relation === (record.relationship ?? "");
+        submit.disabled = unchanged || (next !== null && !relation);
+        summary.textContent = placementText(next, relation);
+      };
+      const selectDestination = () => {
+        relationship.required = target()?.kind === "unit";
+        relationshipField.hidden = !relationship.required;
+        relationship.value =
+          parent.value === previous ? (record.relationship ?? "") : "";
+        updatePreview();
+      };
+      selectDestination();
+      parent.addEventListener("change", selectDestination);
+      relationship.addEventListener("change", updatePreview);
+      cancel.addEventListener("click", () => {
+        void renderEditor();
+        focusUnit(record.id);
+      });
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (submit.disabled || selectedCounty !== county.fips) return;
+        const parentId = target()?.id ?? null;
+        const relation = placement();
+        submit.disabled = true;
+        cancel.disabled = true;
+        parent.disabled = true;
+        relationship.disabled = true;
+        await runEdit(
+          {
+            op: "move",
+            id: record.id,
+            parentId,
+            ...(parentId ? { relationship: relation } : {}),
+          },
+          "Moved.",
+          expectedVersion,
+          true,
+        );
+        cancel.disabled = false;
+        parent.disabled = false;
+        relationship.disabled = false;
+        updatePreview();
+      });
+      form.append(
+        el(doc, "h3", {}, `Move ${record.name}`),
+        el(
+          doc,
+          "p",
+          { class: "cs-note" },
+          `Current placement: ${placementText(
+            previous ? (targets.get(previous) ?? null) : null,
+            record.relationship ?? "",
+          )}`,
+        ),
+        field(doc, "Destination", parent.id, parent),
+        relationshipField,
+        summary,
+        el(doc, "div", { class: "cs-actions" }, submit, cancel),
+      );
+      selectedId = record.id;
+      renderTree();
+      clear(editor);
+      editor.append(form);
+      (destination !== previous && relationship.required
+        ? relationship
+        : parent
+      ).focus();
     }
 
     async function renderEditor(): Promise<void> {
@@ -652,36 +989,6 @@ export function createCountyStructureView(options: {
         { id: "cs-sources", rows: "2" },
         record.sources ?? "",
       );
-      const parentSelect = el(doc, "select", { id: "cs-parent" });
-      const everyone = flatten(detail.roots);
-      const blocked = new Set(
-        flatten([node]).map((descendant) => descendant.record.id),
-      );
-      parentSelect.append(
-        el(doc, "option", { value: "" }, "Top level"),
-        ...everyone
-          .filter((candidate) => !blocked.has(candidate.record.id))
-          .filter(
-            (candidate) =>
-              !(isGroup && candidate.record.kind !== "display_group"),
-          )
-          .map((candidate) =>
-            el(
-              doc,
-              "option",
-              {
-                value: candidate.record.id,
-                selected:
-                  candidate.record.id ===
-                  (record.parentId ?? record.displayGroupId),
-              },
-              candidate.record.kind === "display_group"
-                ? `${candidate.record.name} (display group)`
-                : candidate.record.name,
-            ),
-          ),
-      );
-
       const save = el(doc, "button", { type: "button" }, "Save changes");
       save.addEventListener("click", () => {
         void runEdit(
@@ -702,25 +1009,8 @@ export function createCountyStructureView(options: {
           "Saved.",
         );
       });
-      const move = el(doc, "button", { type: "button" }, "Move");
-      move.addEventListener("click", () => {
-        const parentId = parentSelect.value || null;
-        // Keep a browse placement under a unit as browse placement when the
-        // owner moves within it, so Move never invents a reporting parent.
-        const keepBrowse =
-          parentId !== null &&
-          parentId === record.displayGroupId &&
-          record.relationship === "display_group";
-        void runEdit(
-          {
-            op: "move",
-            id: record.id,
-            parentId,
-            ...(keepBrowse ? { relationship: "display_group" } : {}),
-          },
-          "Moved.",
-        );
-      });
+      const move = el(doc, "button", { type: "button" }, "Move unit");
+      move.addEventListener("click", () => openMove(node));
       const hide = el(
         doc,
         "button",
@@ -733,11 +1023,13 @@ export function createCountyStructureView(options: {
           "Hidden.",
         );
       });
-      const addChild = el(doc, "button", { type: "button" }, "Add sub-unit");
-      addChild.addEventListener(
-        "click",
-        () => void promptCreate(record.id, "unit"),
+      const addChild = el(
+        doc,
+        "button",
+        { type: "button" },
+        isGroup ? "Add unit to group" : "Add sub-unit",
       );
+      addChild.addEventListener("click", () => openCreate("unit", record));
       const remove = el(
         doc,
         "button",
@@ -758,8 +1050,7 @@ export function createCountyStructureView(options: {
         field(doc, "Evidence (private)", "cs-evidence", evidenceInput),
         field(doc, "Source references (private)", "cs-sources", sourcesInput),
         el(doc, "div", { class: "cs-actions" }, save, hide, remove),
-        field(doc, "Move under", "cs-parent", parentSelect),
-        el(doc, "div", { class: "cs-actions" }, move, isGroup ? "" : addChild),
+        el(doc, "div", { class: "cs-actions" }, isGroup ? "" : move, addChild),
       );
 
       if (!isGroup) {
