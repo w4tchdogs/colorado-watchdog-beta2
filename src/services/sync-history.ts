@@ -414,6 +414,20 @@ function externalDependents(
 function applyInverse(database: WebsiteDatabase, item: Inverse): void {
   if (item.outcome === "reused") return;
   if (item.outcome === "created") {
+    // Removing the roles of a created Profile can leave an automatic
+    // visibility row (migration 0034), and a hidden-at-creation Profile has
+    // one. Either would block deleting the Profile it describes.
+    if (
+      item.entity === "people" &&
+      database
+        .prepare(
+          "SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = 'person_visibility'",
+        )
+        .get()
+    )
+      database
+        .prepare("DELETE FROM person_visibility WHERE person_id = ?")
+        .run(item.targetId);
     database
       .prepare(`DELETE FROM "${item.entity}" WHERE id = ? AND version = ?`)
       .run(item.targetId, item.committedVersion);

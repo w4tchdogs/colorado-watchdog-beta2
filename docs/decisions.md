@@ -403,3 +403,11 @@ The owner approved the [default names and pending coverage entries](https://gith
 - **Coverage and verification.** Carry one coverage entry per county and reviewed obligation, counting a county once for each obligation with a documented arrangement. Prefer the documented local name or provider, including shared providers and governing bodies acting in another capacity. Use the approved default when the local name or arrangement has not been documented. Keep provider and verification evidence separate from label approval. A fund, plan, shared provider or service arrangement is represented according to its record type. Keep unresolved county-unit and position links pending in the private audit workflow.
 
 The [offline application proposal](architecture/county-structure.md#proposed-application-of-the-approved-naming-and-coverage-rules) describes how to carry these decisions into the CSV and companion records. Statewide replacement remains on hold.
+
+## Profile publication rule — November 19, 2026
+
+- A Profile may be visible on the Website only with a nonblank display name and at least one role with a valid county, a source and an office, position or duties. Text-only roles qualify. A verified County Structure attachment and an alternate name are optional.
+- New Profiles stay hidden on import. A valid `profile.csv` row without a role is a hidden draft and must be findable in the owner Profiles tab.
+- Visible on Website is disabled while a Profile is incomplete and the dashboard shows what is missing. The server enforces the same rule for single and bulk visibility changes against the final saved state.
+- A visible Profile that becomes incomplete is hidden automatically with the reason recorded. Existing incomplete records previously treated as visible are hidden the same way. Restoring the missing information enables the checkbox, and the Profile stays hidden until the owner publishes it.
+- Implemented by migration 0034 and the [Profiles sheet](architecture/profiles-sheet.md#publication-rule-migration-0034).

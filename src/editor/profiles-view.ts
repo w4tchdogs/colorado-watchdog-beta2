@@ -81,7 +81,9 @@ const ROW_KEY: Readonly<Record<string, RowKey>> = {
   alternateNameCount: "alternateNameCount",
   nameReview: "nameReview",
   visible: "visible",
+  publicationStatus: "publicationStatus",
   createdOn: "createdOn",
+  lastUploaded: "lastUploaded",
   county: "county",
   countyUnit: "countyUnit",
   countySubUnit: "countySubUnit",
@@ -174,12 +176,14 @@ function localError(field: string, value: string | null): string | null {
 
 function toSelection(row: ProfileRow): ProfileSelectionEntry {
   return {
+    rowKey: row.rowKey,
     roleId: row.roleId,
     profileId: row.profileId,
     profileVersion: row.profileVersion,
     roleVersion: row.roleVersion,
     visibilityVersion: row.visibilityVersion,
     visible: row.visible,
+    publicationReady: row.publicationReady,
     displayName: row.displayName,
     employmentStart: row.employmentStart,
     employmentEnd: row.employmentEnd,
@@ -240,6 +244,12 @@ export function createProfilesView(options: {
       el(doc, "option", { value: "all" }, "All"),
       el(doc, "option", { value: "visible" }, "Visible"),
       el(doc, "option", { value: "hidden" }, "Hidden"),
+      el(
+        doc,
+        "option",
+        { value: "incomplete" },
+        "Missing information (cannot be visible)",
+      ),
     );
     const counts = el(doc, "p", {
       class: "cw-profiles-counts",
@@ -423,8 +433,8 @@ export function createProfilesView(options: {
       return "Something went wrong. Your edits are kept.";
     }
 
-    function rowFor(roleId: string): ProfileRow | undefined {
-      return base.get(roleId);
+    function rowFor(rowKey: string): ProfileRow | undefined {
+      return base.get(rowKey);
     }
 
     /** Server values with this browser's staged edits laid over them. */
@@ -468,14 +478,14 @@ export function createProfilesView(options: {
       if (!table) return;
       for (const row of table.getRows()) {
         const data = row.getData() as unknown as ProfileRow;
-        const fresh = base.get(data.roleId);
+        const fresh = base.get(data.rowKey);
         if (fresh)
           void row.update(overlay(fresh) as unknown as Record<string, unknown>);
       }
     }
 
     function refreshStatus(): void {
-      counts.textContent = `${total} ${total === 1 ? "role" : "roles"} match. Page ${query.page}.`;
+      counts.textContent = `${total} ${total === 1 ? "row" : "rows"} match. Page ${query.page}. A Profile with no role has one row.`;
       refreshSelectionState();
       const dirty = staged.size;
       stagedStatus.textContent = dirty
@@ -521,12 +531,14 @@ export function createProfilesView(options: {
       const column = COLUMN_FOR_FIELD[fieldId];
       if (!column) return;
       const profileLevel = fieldId in PERSON_NAME_COLUMNS;
+      // A roleless Profile row has no role fields to edit.
+      if (!profileLevel && row.roleId === null) return;
       const required = fieldId === "displayName";
       const before = (row[ROW_KEY[fieldId] as RowKey] ?? null) as string | null;
       const change: ProfileChange = {
         kind: "field",
         entity: profileLevel ? "people" : "person_roles",
-        targetId: profileLevel ? row.profileId : row.roleId,
+        targetId: profileLevel ? row.profileId : (row.roleId as string),
         field: column,
         expectedVersion: profileLevel ? row.profileVersion : row.roleVersion,
         value: required ? (value ?? "").trim() : clean,
@@ -563,7 +575,7 @@ export function createProfilesView(options: {
     function onCellEdited(cell: TabulatorCell): void {
       const data = cell.getRow().getData() as unknown as ProfileRow;
       const fieldId = cell.getField();
-      const original = rowFor(data.roleId);
+      const original = rowFor(data.rowKey);
       if (!original) return;
       const raw = cell.getValue();
       const value = raw === null || raw === undefined ? null : String(raw);
@@ -577,8 +589,8 @@ export function createProfilesView(options: {
             ?.getRows()
             .find(
               (row) =>
-                (row.getData() as unknown as ProfileRow).roleId ===
-                sibling.roleId,
+                (row.getData() as unknown as ProfileRow).rowKey ===
+                sibling.rowKey,
             )
             ?.update({ [fieldId]: shown });
       }
@@ -624,6 +636,7 @@ export function createProfilesView(options: {
           profiles.set(entry.profileId, entry);
       let staging = 0;
       let skipped = 0;
+      let incomplete = 0;
       for (const entry of profiles.values()) {
         const current =
           (
@@ -635,9 +648,16 @@ export function createProfilesView(options: {
           skipped += 1;
           continue;
         }
+        // The server refuses to publish an incomplete Profile. Staging it
+        // would only fail the whole save, so it is left out and counted.
+        if (visible && !entry.publicationReady) {
+          incomplete += 1;
+          continue;
+        }
         stageVisibilityFor(
           {
-            ...(base.get(entry.roleId) ?? ({} as ProfileRow)),
+            ...(base.get(entry.rowKey) ?? ({} as ProfileRow)),
+            rowKey: entry.rowKey,
             roleId: entry.roleId,
             profileId: entry.profileId,
             profileVersion: entry.profileVersion,
@@ -653,7 +673,7 @@ export function createProfilesView(options: {
       refreshTableRows();
       refreshStatus();
       announce(
-        `${visible ? "Restore" : "Hide"} staged for ${staging} ${staging === 1 ? "Profile" : "Profiles"} from ${selected.size} selected role ${selected.size === 1 ? "row" : "rows"}.${skipped ? ` ${skipped} already ${visible ? "visible" : "hidden"}.` : ""} Choose Save changes to apply.`,
+        `${visible ? "Restore" : "Hide"} staged for ${staging} ${staging === 1 ? "Profile" : "Profiles"} from ${selected.size} selected role ${selected.size === 1 ? "row" : "rows"}.${skipped ? ` ${skipped} already ${visible ? "visible" : "hidden"}.` : ""}${incomplete ? ` ${incomplete} not restored because ${incomplete === 1 ? "it is" : "they are"} missing required information. See the Status column.` : ""} Choose Save changes to apply.`,
       );
     }
 
@@ -717,6 +737,7 @@ export function createProfilesView(options: {
           }
           let count = 0;
           for (const entry of selected.values()) {
+            if (entry.roleId === null) continue;
             const key = `person_roles:${entry.roleId}:${spec.column}`;
             const before =
               (staged.get(key)?.before as string | null | undefined) ??
@@ -758,7 +779,7 @@ export function createProfilesView(options: {
     // ------------------------------------------------------ selection
     function selectCurrentPage(): void {
       for (const row of base.values())
-        selected.set(row.roleId, toSelection(row));
+        selected.set(row.rowKey, toSelection(row));
       refreshSelectionState();
       announce(`Selected ${base.size} role rows on this page.`);
     }
@@ -766,7 +787,7 @@ export function createProfilesView(options: {
     async function selectAllMatching(): Promise<void> {
       try {
         const result = await client.selectAll(query);
-        for (const entry of result.entries) selected.set(entry.roleId, entry);
+        for (const entry of result.entries) selected.set(entry.rowKey, entry);
         refreshSelectionState();
         announce(
           result.truncated
@@ -1706,7 +1727,7 @@ export function createProfilesView(options: {
       total = page.total;
       query = { ...query, page: page.page };
       base.clear();
-      for (const row of page.rows) base.set(row.roleId, row);
+      for (const row of page.rows) base.set(row.rowKey, row);
       queueMicrotask(() => {
         refreshStatus();
         markErrors();
@@ -1741,15 +1762,15 @@ export function createProfilesView(options: {
             const row = cell.getRow().getData() as unknown as ProfileRow;
             const input = el(doc, "input", {
               type: "checkbox",
-              "data-select-role": row.roleId,
-              "aria-label": `Select role row for ${row.displayName}${row.position ? `, ${row.position}` : ""}`,
+              "data-select-role": row.rowKey,
+              "aria-label": `Select ${row.roleId ? "role row" : "Profile row"} for ${row.displayName}${row.position ? `, ${row.position}` : ""}`,
             });
-            input.checked = selected.has(row.roleId);
+            input.checked = selected.has(row.rowKey);
             input.addEventListener("change", () => {
-              const source = base.get(row.roleId);
+              const source = base.get(row.rowKey);
               if (!source) return;
-              if (input.checked) selected.set(row.roleId, toSelection(source));
-              else selected.delete(row.roleId);
+              if (input.checked) selected.set(row.rowKey, toSelection(source));
+              else selected.delete(row.rowKey);
               refreshSelectionState();
             });
             return input;
@@ -1800,13 +1821,24 @@ export function createProfilesView(options: {
           ...common,
           formatter: (cell) => {
             const row = cell.getRow().getData() as unknown as ProfileRow;
+            const blocked = !row.publicationReady && !row.visible;
+            const missing = row.missingForPublication.join(", ");
             const input = el(doc, "input", {
               type: "checkbox",
-              "aria-label": `Visible on Website for ${row.displayName}`,
+              "aria-label": blocked
+                ? `Visible on Website for ${row.displayName}, unavailable: missing ${missing}`
+                : `Visible on Website for ${row.displayName}`,
+              ...(blocked
+                ? { title: `Cannot be visible yet. Missing ${missing}.` }
+                : {}),
             });
             input.checked = row.visible;
+            // An incomplete Profile cannot be published. Once the missing
+            // information is restored the box is enabled and stays unchecked
+            // until the owner publishes.
+            input.disabled = blocked;
             input.addEventListener("change", () => {
-              const source = base.get(row.roleId);
+              const source = base.get(row.rowKey);
               if (!source) return;
               stageVisibilityFor(source, input.checked);
               // One Profile, one checkbox: every role row of the person follows.
@@ -1825,7 +1857,7 @@ export function createProfilesView(options: {
           ...common,
           formatter: (cell) => {
             const row = cell.getRow().getData() as unknown as ProfileRow;
-            const source = base.get(row.roleId);
+            const source = base.get(row.rowKey);
             const open = button(
               `${row.alternateNameCount} ${row.alternateNameCount === 1 ? "name" : "names"}`,
               () => {
@@ -1844,6 +1876,14 @@ export function createProfilesView(options: {
         return {
           ...common,
           editor: "input",
+          // A roleless Profile row has no role to edit.
+          ...(definition.scope === "role"
+            ? {
+                editable: (cell: TabulatorCell) =>
+                  (cell.getRow().getData() as unknown as ProfileRow).roleId !==
+                  null,
+              }
+            : {}),
           editorParams: {
             elementAttributes: {
               "aria-label": definition.label,
@@ -1959,7 +1999,7 @@ export function createProfilesView(options: {
     buildPicker();
     refreshStatus();
     table = new Tabulator(gridHost, {
-      index: "roleId",
+      index: "rowKey",
       columns: columnDefinitions(),
       layout: "fitData",
       height: "70vh",

@@ -222,17 +222,12 @@ test("empty profiles, unknown people, invalid input, and read-only service behav
         .get().count,
     };
 
-    assert.deepEqual(getPersonProfile(database, { personId: "person-empty" }), {
-      person: {
-        id: "person-empty",
-        displayName: "Synthetic Person Without Roles",
-        version: 1,
-        alternateNames: [],
-      },
-      items: [],
-      hasMore: false,
-      nextCursor: null,
-    });
+    // A Profile without a qualifying role does not meet the publication
+    // rule (migration 0034), so its public page answers as not found.
+    assert.equal(
+      getPersonProfile(database, { personId: "person-empty" }),
+      null,
+    );
     assert.equal(
       getPersonProfile(database, { personId: "missing-person" }),
       null,
@@ -276,7 +271,7 @@ test("profile pagination caps result sets at 100 role records", async () => {
   await fixture(async (database) => {
     database
       .prepare(
-        "INSERT INTO organizations(id,name,organization_type) VALUES (?, ?, ?)",
+        "INSERT INTO organizations(id,name,organization_type,county_fips) VALUES (?, ?, ?, '08001')",
       )
       .run("large-org", "Synthetic Large Organization", "office");
     database
@@ -416,18 +411,9 @@ test("profile HTTP endpoint validates requests and returns public pages", async 
     const empty = await request(
       "https://watchdog.test/api/people/person-empty",
     );
-    assert.equal(empty.status, 200);
-    assert.deepEqual(await empty.json(), {
-      person: {
-        id: "person-empty",
-        displayName: "Synthetic Person Without Roles",
-        version: 1,
-        alternateNames: [],
-      },
-      items: [],
-      hasMore: false,
-      nextCursor: null,
-    });
+    // Not public without a qualifying role (migration 0034).
+    assert.equal(empty.status, 404);
+    assert.deepEqual(await empty.json(), { error: "not_found" });
     const unknown = await request(
       "https://watchdog.test/api/people/missing-person",
     );

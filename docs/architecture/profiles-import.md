@@ -26,7 +26,7 @@ Headers are matched after lowercasing and replacing spaces and hyphens with unde
 - `publisher_classification` is `official` or `unofficial`. `source_type` is `official_page`, `public_document` or `other_public`.
 - The Website holds one source per role. Role rows repeat their source fields and a source is registered once per `source_id`. A source URL that already exists with identical metadata is reused.
 - Keys (`profile_id`, `role_id`, `source_id`) are the private export keys. They are 1 to 100 letters, digits, dots, colons, underscores or hyphens.
-- `profile_role.csv` is optional. Without it only Profiles are previewed.
+- `profile_role.csv` is optional. Without it only Profiles are previewed. A valid Profile row without a role is saved as a hidden draft. It appears in the Profiles tab as one row with the status Hidden · Missing role and cannot be made visible until it has a qualifying role (see the publication rule in [profiles-sheet.md](profiles-sheet.md#publication-rule-migration-0034)).
 
 This is the contract the Profiles Audit handoff on [Issue #141](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/141#issuecomment-7000870240) describes for the first slice.
 
@@ -55,7 +55,7 @@ The first slice defers these imports:
 
 ## Receipts and retries
 
-A commit returns the batch ID, counts and the hidden Profiles it created. Retrying the same key with the same reviewed digest returns the stored receipt with `replayed: true` and writes nothing. The same key with a different digest returns `409 idempotency_conflict`.
+A commit returns the batch ID, counts and the hidden Profiles it created. Its commit time is the Last Uploaded date shown in the Profiles tab for every Profile the batch created or updated directly, through a role or through an alternate name. A reversed batch no longer counts. Retrying the same key with the same reviewed digest returns the stored receipt with `replayed: true` and writes nothing. The same key with a different digest returns `409 idempotency_conflict`.
 
 ## Cloudflare synthetic acceptance checklist
 

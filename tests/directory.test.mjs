@@ -7,6 +7,7 @@ import { CountyOverviewInputError } from "../dist/services/county-overview.js";
 import { DirectoryInputError } from "../dist/services/directory.js";
 import { DirectorySearchInputError } from "../dist/services/directory-search.js";
 import { createServices } from "../dist/services/index.js";
+import { qualifyPeople } from "./publication-fixture.mjs";
 
 async function fixture(callback) {
   const database = await openWebsiteDatabase();
@@ -102,6 +103,7 @@ function seedSearchRecords(database) {
   for (const organization of organizations) {
     insertOrganization.run(...organization);
   }
+  qualifyPeople(database);
   database
     .prepare(
       `INSERT INTO organization_county_affiliations
@@ -646,6 +648,7 @@ for (const { table, column, method } of [
          VALUES (?, ?${organization ? ", 'partner'" : ""})`,
       );
       insert.run("z-first", "Alpha Synthetic");
+      if (!organization) qualifyPeople(database);
       assert.deepEqual(
         (await browse({})).items.map((item) => item.id),
         ["z-first"],
@@ -655,6 +658,7 @@ for (const { table, column, method } of [
         insert.run(id, index % 2 ? "Fictional Same" : "fictional same");
       }
       insert.run("last", "Élan Fictional");
+      if (!organization) qualifyPeople(database);
 
       const first = await browse({});
       const middle = await browse({ cursor: first.nextCursor });
@@ -704,6 +708,15 @@ for (const { table, column, method } of [
         )
         .run("Renamed Synthetic", middle.items.at(-1).id);
       await assert.rejects(browse({ cursor: middle.nextCursor }), /stale/);
+      if (!organization) {
+        // Removing the last role auto-hides the Profile (migration 0034).
+        database
+          .prepare("DELETE FROM person_roles WHERE person_id = ?")
+          .run(first.items.at(-1).id);
+        database
+          .prepare("DELETE FROM person_visibility WHERE person_id = ?")
+          .run(first.items.at(-1).id);
+      }
       database
         .prepare(`DELETE FROM ${table} WHERE id = ?`)
         .run(first.items.at(-1).id);

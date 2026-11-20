@@ -231,7 +231,7 @@ test("the grid pages, searches across pages and labels row selection separately 
   await mount(async ({ $, rows, cell, container }) => {
     assert.equal($("h1").textContent, "Profiles");
     assert.equal(rows().length, 2, "page size 2");
-    assert.match($(".cw-profiles-counts").textContent, /4 roles match/);
+    assert.match($(".cw-profiles-counts").textContent, /4 rows match/);
     assert.ok(
       $(".tabulator").getAttribute("role") === "grid" || $("[role=grid]"),
     );
@@ -250,7 +250,7 @@ test("the grid pages, searches across pages and labels row selection separately 
     search.value = "Office Only";
     search.dispatchEvent(new window.Event("input", { bubbles: true }));
     await waitFor(
-      () => /1 role match/.test($(".cw-profiles-counts").textContent),
+      () => /1 row match/.test($(".cw-profiles-counts").textContent),
       "search result",
     );
     assert.equal(rows().length, 1);
@@ -331,7 +331,7 @@ test("selecting both roles of one person stages one visibility change, hides and
     search.dispatchEvent(new window.Event("input", { bubbles: true }));
     await waitFor(
       () =>
-        /2 roles match/.test($(".cw-profiles-counts").textContent) &&
+        /2 rows match/.test($(".cw-profiles-counts").textContent) &&
         rows().length === 2,
       "multi rows",
     );
@@ -422,7 +422,7 @@ test("bulk set applies one role field to every selected row and saves it", async
     search.dispatchEvent(new window.Event("input", { bubbles: true }));
     await waitFor(
       () =>
-        /2 roles match/.test($(".cw-profiles-counts").textContent) &&
+        /2 rows match/.test($(".cw-profiles-counts").textContent) &&
         rows().length === 2,
       "multi rows",
     );
@@ -563,5 +563,71 @@ test("the names button opens the alternate-name editor, and adds stage into the 
       database.prepare("SELECT COUNT(*) c FROM profile_names").get().c,
       0,
     );
+  });
+});
+
+test("a roleless Profile has one row with its status, and Visible stays disabled until it is complete", async () => {
+  await mount(async ({ $, $$, click, rows, cell, database, announcements }) => {
+    database.exec(`
+      INSERT INTO people (id, display_name) VALUES ('person-draft', 'Synthetic Draft Profile');
+      INSERT INTO person_visibility (person_id, visible, changed_by_account_id) VALUES ('person-draft', 0, 'acct-owner');
+    `);
+    const search = $("#profiles-search");
+    search.value = "Draft Profile";
+    search.dispatchEvent(new window.Event("input", { bubbles: true }));
+    await waitFor(
+      () =>
+        /1 row match/.test($(".cw-profiles-counts").textContent) &&
+        rows().length === 1,
+      "draft row",
+    );
+    const [row] = rows();
+    assert.match(
+      cell(row, "displayName").textContent,
+      /Synthetic Draft Profile/,
+    );
+    assert.equal(
+      cell(row, "publicationStatus").textContent,
+      "Hidden · Missing role",
+    );
+    const box = cell(row, "visible").querySelector("input");
+    assert.equal(box.disabled, true);
+    assert.equal(box.checked, false);
+    assert.match(box.getAttribute("title"), /Missing role/);
+    assert.match(box.getAttribute("aria-label"), /unavailable: missing role/);
+    assert.match(
+      row.querySelector("input[data-select-role]").getAttribute("aria-label"),
+      /^Select Profile row for Synthetic Draft Profile/,
+    );
+    // Bulk restore leaves an incomplete Profile out and says why.
+    const select = row.querySelector("input[data-select-role]");
+    select.checked = true;
+    select.dispatchEvent(new window.Event("change", { bubbles: true }));
+    click($("#profiles-restore"));
+    assert.ok(
+      announcements.some((a) =>
+        /1 not restored because it is missing required information/.test(a),
+      ),
+      announcements.join(" | "),
+    );
+    assert.match($(".cw-profiles-staged").textContent, /No unsaved changes/);
+
+    // Once a qualifying role exists the box is enabled and still unchecked.
+    database.exec(`
+      INSERT INTO person_roles (id, person_id, source_id, county_fips, published_title)
+        VALUES ('role-draft', 'person-draft', 'src-a', '08001', 'Synthetic Title');
+    `);
+    search.value = "Draft Profile ";
+    search.dispatchEvent(new window.Event("input", { bubbles: true }));
+    await waitFor(
+      () =>
+        rows().length === 1 &&
+        cell(rows()[0], "publicationStatus").textContent === "Hidden",
+      "ready row",
+    );
+    const ready = cell(rows()[0], "visible").querySelector("input");
+    assert.equal(ready.disabled, false);
+    assert.equal(ready.checked, false);
+    assert.ok($$(".tabulator-row").length >= 1);
   });
 });

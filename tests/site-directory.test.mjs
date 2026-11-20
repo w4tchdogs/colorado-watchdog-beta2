@@ -46,7 +46,8 @@ test("people directory browses, searches and bounds its pages", async () => {
     const next = first.$('.pager a[rel="next"]').getAttribute("href");
     assert.match(next, /^\/people\?query=fictional&cursor=/);
     const second = await get(preview, next);
-    assert.equal(second.$$(".record-row").length, 21);
+    // The roleless fictional Profile is not public (migration 0034).
+    assert.equal(second.$$(".record-row").length, 20);
     assert.equal(second.$('.pager a[rel="next"]'), null);
     assert.equal(
       second.$(".pager a").getAttribute("href"),
@@ -54,7 +55,7 @@ test("people directory browses, searches and bounds its pages", async () => {
     );
     const hrefs = (page) =>
       page.$$(".record-title a").map((a) => a.getAttribute("href"));
-    assert.equal(new Set([...hrefs(first), ...hrefs(second)]).size, 46);
+    assert.equal(new Set([...hrefs(first), ...hrefs(second)]).size, 45);
   });
 });
 
@@ -142,9 +143,9 @@ test("person profile shows role history, counties and dates without citations", 
       /County organization of/,
     );
 
+    // A Profile without a qualifying role is not public.
     const empty = await get(preview, "/people/demo-person-no-roles");
-    assert.equal(empty.status, 200);
-    assert.match(empty.main(), /No documented roles/);
+    assert.equal(empty.status, 404);
 
     assert.equal(
       (await get(preview, "/people/demo-person-jordan-a?afterRoleId=bad%20id"))

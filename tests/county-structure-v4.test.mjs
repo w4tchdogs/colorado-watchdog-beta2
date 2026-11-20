@@ -471,7 +471,7 @@ test("migration 0033 keeps existing County Structure rows, versions and provenan
   try {
     const all = loadWebsiteMigrations();
     const before = all.filter((migration) => migration.version < 33);
-    assert.equal(all.length, before.length + 1);
+    assert.equal(all.filter((migration) => migration.version === 33).length, 1);
     migrateWebsiteDatabase(database, before);
     database.exec(`
       INSERT INTO accounts (id, kind, role, display_name) VALUES ('cs-owner', 'human', 'owner', 'Synthetic Owner');

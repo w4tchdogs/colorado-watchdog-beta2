@@ -34,6 +34,7 @@ import { StorageUnavailableError } from "../contracts/storage.js";
 import type { AsyncD1Database, D1BatchStatement } from "../database/d1.js";
 import { assertCredentialFree } from "./audit.js";
 import { AuthorizationError, type TrustedPrincipal } from "./security.js";
+import { IMPORTER_BATCH_KEY_PREFIX } from "./sync-commit-d1.js";
 import { SYNC_UPDATE_FIELDS } from "./sync-planner.js";
 
 /**
@@ -136,10 +137,53 @@ const COUNTY_EXPRESSION = "COALESCE(pr.county_fips, o.county_fips)";
 const OFFICE_EXPRESSION = "COALESCE(pr.published_office, o.name)";
 const POSITION_EXPRESSION = "COALESCE(pr.published_title, pos.title)";
 
+/**
+ * Last Uploaded: the commit time of the latest dashboard Profiles import
+ * (`pi:` batch, committed, not reversed) that created or updated the Profile,
+ * one of its roles or one of its alternate names. Previews, failed commits,
+ * same-key retries and unchanged rows write no created or updated item, so
+ * they never move the date.
+ */
+const LAST_UPLOAD_SQL = `
+  SELECT person_id, MAX(committed_at) AS last_uploaded FROM (
+    SELECT CASE i.entity
+             WHEN 'people' THEN i.target_id
+             WHEN 'person_roles' THEN (SELECT ur.person_id FROM person_roles ur WHERE ur.id = i.target_id)
+             WHEN 'profile_names' THEN (SELECT un.person_id FROM profile_names un WHERE un.id = i.target_id)
+           END AS person_id,
+           b.committed_at
+    FROM sync_batch_items i
+    JOIN sync_batches b ON b.id = i.batch_id
+    LEFT JOIN sync_batch_reversals rv ON rv.batch_id = b.id
+    WHERE rv.batch_id IS NULL AND b.status = 'committed'
+      AND substr(b.idempotency_key, 1, ${IMPORTER_BATCH_KEY_PREFIX.length}) = '${IMPORTER_BATCH_KEY_PREFIX}'
+      AND i.outcome IN ('created', 'updated')
+      AND i.entity IN ('people', 'person_roles', 'profile_names')
+  ) WHERE person_id IS NOT NULL GROUP BY person_id`;
+
+/** Publication rule (migration 0034): the one definition is the view. */
+const READY_SQL =
+  "EXISTS (SELECT 1 FROM profile_publication_ready rd WHERE rd.person_id = p.id)";
+const ROLE_COUNTY_SQL = `(COALESCE(xr.county_fips, xo.county_fips) IS NOT NULL
+  OR EXISTS (SELECT 1 FROM organization_county_affiliations xa WHERE xa.organization_id = xo.id))`;
+const ROLE_DETAIL_SQL = `(xr.position_id IS NOT NULL OR xr.published_office IS NOT NULL
+  OR xr.published_title IS NOT NULL OR xr.job_description IS NOT NULL)`;
+const ROLE_FROM_SQL = `FROM person_roles xr
+  LEFT JOIN positions xp ON xp.id = xr.position_id
+  LEFT JOIN organizations xo ON xo.id = xp.organization_id
+  WHERE xr.person_id = p.id`;
+const READINESS_COLUMNS = `
+  ${READY_SQL} AS publication_ready,
+  (SELECT COUNT(*) FROM person_roles xr WHERE xr.person_id = p.id) AS role_count,
+  EXISTS (SELECT 1 ${ROLE_FROM_SQL} AND ${ROLE_COUNTY_SQL}) AS any_county,
+  EXISTS (SELECT 1 ${ROLE_FROM_SQL} AND xr.source_id IS NOT NULL) AS any_source,
+  EXISTS (SELECT 1 ${ROLE_FROM_SQL} AND ${ROLE_DETAIL_SQL}) AS any_detail`;
+
 const FROM_CLAUSE = `
-  FROM person_roles pr
-  JOIN people p ON p.id = pr.person_id
+  FROM people p
+  LEFT JOIN person_roles pr ON pr.person_id = p.id
   LEFT JOIN person_visibility pv ON pv.person_id = p.id
+  LEFT JOIN (${LAST_UPLOAD_SQL}) lu ON lu.person_id = p.id
   LEFT JOIN positions pos ON pos.id = pr.position_id
   LEFT JOIN organizations o ON o.id = pos.organization_id
   LEFT JOIN organizations parent ON parent.id = o.parent_organization_id
@@ -162,6 +206,7 @@ const SORT_EXPRESSIONS: Readonly<Record<string, string>> = {
   alternateNameCount: `(${ALT_COUNT_SQL})`,
   visible: "COALESCE(pv.visible, 1)",
   createdOn: "p.created_at",
+  lastUploaded: "lu.last_uploaded",
   county: "c.name COLLATE NOCASE",
   officeDepartment: `${OFFICE_EXPRESSION} COLLATE NOCASE`,
   position: `${POSITION_EXPRESSION} COLLATE NOCASE`,
@@ -179,6 +224,7 @@ const ROW_COLUMNS = `
   (${ALT_COUNT_SQL}) AS alternate_name_count,
   (${ALT_PENDING_SQL}) AS alternate_names_pending,
   COALESCE(pv.visible, 1) AS visible, p.created_at AS created_on,
+  pv.hidden_reason, lu.last_uploaded, ${READINESS_COLUMNS},
   ${COUNTY_EXPRESSION} AS county_fips, c.name AS county,
   parent.name AS county_unit,
   CASE WHEN parent.id IS NOT NULL THEN o.name END AS county_sub_unit,
@@ -293,6 +339,7 @@ export function createD1ProfilesService(
       conditions.push("COALESCE(pv.visible, 1) = 1");
     if (query.visibility === "hidden")
       conditions.push("COALESCE(pv.visible, 1) = 0");
+    if (query.visibility === "incomplete") conditions.push(`NOT ${READY_SQL}`);
     return {
       where: conditions.length ? `WHERE ${conditions.join(" AND ")}` : "",
       values,
@@ -303,15 +350,19 @@ export function createD1ProfilesService(
     const expression =
       SORT_EXPRESSIONS[query.sort] ?? SORT_EXPRESSIONS.displayName;
     const direction = query.direction === "desc" ? "DESC" : "ASC";
-    return `ORDER BY ${expression} ${direction}, pr.id COLLATE BINARY ASC`;
+    return `ORDER BY ${expression} ${direction}, p.id COLLATE BINARY ASC, pr.id COLLATE BINARY ASC`;
   }
 
   function toRow(row: Row): ProfileRow {
+    const roleId = nullable(row.role_id);
+    const missing = missingForPublication(row);
+    const visible = num(row.visible) === 1;
     return {
-      roleId: str(row.role_id),
+      rowKey: roleId ?? `profile:${str(row.profile_id)}`,
+      roleId,
       profileId: str(row.profile_id),
       profileVersion: num(row.profile_version),
-      roleVersion: num(row.role_version),
+      roleVersion: roleId ? num(row.role_version) : 0,
       visibilityVersion: num(row.visibility_version),
       displayName: str(row.display_name),
       firstName: nullable(row.first_name),
@@ -323,8 +374,13 @@ export function createD1ProfilesService(
       alternateNameCount: num(row.alternate_name_count),
       alternateNamesPendingReview: num(row.alternate_names_pending),
       nameReview: nameReview(row),
-      visible: num(row.visible) === 1,
+      visible,
+      publicationReady: missing.length === 0,
+      missingForPublication: missing,
+      hiddenReason: row.hidden_reason === "incomplete" ? "incomplete" : null,
+      publicationStatus: publicationStatus(visible, missing, row.hidden_reason),
       createdOn: str(row.created_on),
+      lastUploaded: nullable(row.last_uploaded),
       countyFips: nullable(row.county_fips),
       county: nullable(row.county),
       countyUnit: nullable(row.county_unit),
@@ -336,8 +392,8 @@ export function createD1ProfilesService(
       employmentEnd: nullable(row.end_date),
       affiliation: nullable(row.affiliation),
       dateReviewed: nullable(row.source_checked_at),
-      roleCreatedOn: str(row.role_created_on),
-      roleUpdatedOn: str(row.role_updated_on),
+      roleCreatedOn: nullable(row.role_created_on),
+      roleUpdatedOn: nullable(row.role_updated_on),
       profileUpdatedOn: str(row.profile_updated_on),
     };
   }
@@ -389,15 +445,7 @@ export function createD1ProfilesService(
                 p.preferred_first_name, p.name_prefix, p.name_suffix, p.version,
                 COALESCE(pv.visible, 1) AS visible,
                 COALESCE(pv.version, 0) AS visibility_version,
-                EXISTS (
-                  SELECT 1 FROM person_roles r
-                  LEFT JOIN positions ps ON ps.id = r.position_id
-                  LEFT JOIN organizations o ON o.id = ps.organization_id
-                  WHERE r.person_id = p.id AND r.source_id IS NOT NULL
-                    AND COALESCE(r.county_fips, o.county_fips) IS NOT NULL
-                    AND (r.position_id IS NOT NULL OR r.published_office IS NOT NULL
-                         OR r.published_title IS NOT NULL OR r.job_description IS NOT NULL)
-                ) AS eligible
+                ${READINESS_COLUMNS}
          FROM people p LEFT JOIN person_visibility pv ON pv.person_id = p.id
          WHERE p.id IN (SELECT value FROM json_each(?))`,
         PROFILES_MAX_CHANGES + 1,
@@ -497,6 +545,16 @@ export function createD1ProfilesService(
         proposed.set(change.targetId, current);
       }
     }
+    // The display name each Profile ends with, so publication is checked
+    // against the final state of a combined edit.
+    const finalDisplayName = new Map<string, string>();
+    for (const change of changes)
+      if (
+        change.kind === "field" &&
+        change.entity === "people" &&
+        change.field === "display_name"
+      )
+        finalDisplayName.set(change.targetId, change.value ?? "");
     const duplicateIssues = alternateDuplicateIssues(changes, targets);
     const checkedAt = now();
     changes.forEach((change, index) => {
@@ -548,12 +606,16 @@ export function createD1ProfilesService(
           );
           return;
         }
-        if (change.visible && num(row.eligible) !== 1) {
+        const missing = missingForPublication(row);
+        const finalName = finalDisplayName.get(change.personId);
+        if (finalName !== undefined && finalName.trim() === "")
+          missing.unshift("display name");
+        if (change.visible && missing.length > 0) {
           issues.push(
             issue(
               index,
               "not_eligible",
-              "Only a Profile with a county, a name, a source and an office, position or duties can be visible.",
+              `This Profile cannot be visible yet. Missing ${missing.join(", ")}. A Profile needs a display name and at least one role with a county, a source and an office, position or duties.`,
             ),
           );
           return;
@@ -840,12 +902,14 @@ export function createD1ProfilesService(
         entries: rows.map((row) => {
           const entry = toRow(row);
           return {
+            rowKey: entry.rowKey,
             roleId: entry.roleId,
             profileId: entry.profileId,
             profileVersion: entry.profileVersion,
             roleVersion: entry.roleVersion,
             visibilityVersion: entry.visibilityVersion,
             visible: entry.visible,
+            publicationReady: entry.publicationReady,
             displayName: entry.displayName,
             employmentStart: entry.employmentStart,
             employmentEnd: entry.employmentEnd,
@@ -1047,13 +1111,7 @@ export function createD1ProfilesService(
                 database.prepare(
                   `INSERT INTO website_write_assertions (id, valid)
                    SELECT ?, CASE WHEN EXISTS (
-                     SELECT 1 FROM person_roles r
-                     LEFT JOIN positions ps ON ps.id = r.position_id
-                     LEFT JOIN organizations o ON o.id = ps.organization_id
-                     WHERE r.person_id = ? AND r.source_id IS NOT NULL
-                       AND COALESCE(r.county_fips, o.county_fips) IS NOT NULL
-                       AND (r.position_id IS NOT NULL OR r.published_office IS NOT NULL
-                            OR r.published_title IS NOT NULL OR r.job_description IS NOT NULL)
+                     SELECT 1 FROM profile_publication_ready WHERE person_id = ?
                    ) THEN 1 ELSE 0 END`,
                   [crypto.randomUUID(), change.personId],
                 ),
@@ -1063,7 +1121,7 @@ export function createD1ProfilesService(
               database.prepare(
                 `UPDATE person_visibility
                  SET visible = ?, version = version + 1, changed_by_account_id = ?,
-                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                     hidden_reason = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                  WHERE person_id = ? AND version = ?`,
                 [
                   change.visible ? 1 : 0,
@@ -1348,6 +1406,22 @@ export function createD1ProfilesService(
           });
         }
       }
+      // Final state: after every change in this batch, each Profile it
+      // publishes must still meet the publication rule, so a combined edit
+      // cannot publish an incomplete Profile.
+      for (const change of changes)
+        if (change.kind === "visibility" && change.visible)
+          statements.push(
+            database.prepare(
+              `INSERT INTO website_write_assertions (id, valid)
+               SELECT ?, CASE WHEN EXISTS (
+                 SELECT 1 FROM profile_publication_ready r
+                 JOIN person_visibility v ON v.person_id = r.person_id AND v.visible = 1
+                 WHERE r.person_id = ?
+               ) THEN 1 ELSE 0 END`,
+              [crypto.randomUUID(), change.personId],
+            ),
+          );
       results.sort((a, b) => a.index - b.index);
       const response: ProfileSaveResult = {
         applied: results.length,
@@ -1400,6 +1474,40 @@ interface AlternateTargets {
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: reject control characters
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+
+/** What a Profile still needs before it may be visible, in plain words. */
+function missingForPublication(row: Row): string[] {
+  if (num(row.publication_ready) === 1) return [];
+  const missing: string[] = [];
+  if (String(row.display_name ?? "").trim() === "")
+    missing.push("display name");
+  if (num(row.role_count) === 0) {
+    missing.push("role");
+    return missing;
+  }
+  if (num(row.any_county) !== 1) missing.push("county");
+  if (num(row.any_source) !== 1) missing.push("source");
+  if (num(row.any_detail) !== 1) missing.push("office, position or duties");
+  if (missing.length === 0)
+    missing.push(
+      "one role with a county, a source and an office, position or duties together",
+    );
+  return missing;
+}
+
+function publicationStatus(
+  visible: boolean,
+  missing: readonly string[],
+  hiddenReason: unknown,
+): string {
+  if (visible && missing.length === 0) return "Visible";
+  if (missing.length === 0)
+    return hiddenReason === "incomplete"
+      ? "Hidden · Ready to publish"
+      : "Hidden";
+  const label = `Missing ${missing.join(", ")}`;
+  return `Hidden · ${label.charAt(0).toUpperCase()}${label.slice(1)}`;
+}
 
 function nameReview(row: Row): ProfileNameReview {
   if (num(row.alternate_names_pending) > 0) return "alternate_names_pending";
@@ -1839,8 +1947,8 @@ export function parseQuery(input: unknown): ProfileQuery {
   if (county && !FIPS.test(county))
     throw new ProfilesInputError("Invalid county");
   const office = text("office", 500);
-  const visibility = text("visibility", 10) || "all";
-  if (!["all", "visible", "hidden"].includes(visibility))
+  const visibility = text("visibility", 12) || "all";
+  if (!["all", "visible", "hidden", "incomplete"].includes(visibility))
     throw new ProfilesInputError("Invalid visibility");
   const sort = text("sort", 40) || "displayName";
   if (!PROFILE_SORT_FIELDS.includes(sort))

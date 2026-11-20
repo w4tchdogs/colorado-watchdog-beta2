@@ -4,7 +4,7 @@ The Profiles module is an owner-only, Excel-style grid in the signed-in Beta-2 d
 
 ## What it does
 
-One row per role, keyed by the stable Profile ID and Role ID. Shared Profile fields and the Visible on Website checkbox repeat the same value on every row of a person. Search, County, Office / Unit and Visibility filters, sorting and paging run on the server with bounded page sizes. Edits are staged in the browser until Save changes. The save first shows an old and new preview with the impact on shared records, then sends one atomic batch with an idempotency key. Discard changes drops the staged edits. A stale version keeps the pending edits and offers to re-apply them on the latest versions.
+One row per role, keyed by the stable Profile ID and Role ID. A Profile with no role has exactly one row, keyed `profile:<Profile ID>`, with blank role cells that cannot be edited, so a hidden draft imported without its role can be searched, filtered, renamed and opened in the Names editor. Shared Profile fields and the Visible on Website checkbox repeat the same value on every row of a person. Search, County, Office / Unit and Visibility filters (All, Visible, Hidden and Missing information), sorting and paging run on the server with bounded page sizes. Edits are staged in the browser until Save changes. The save first shows an old and new preview with the impact on shared records, then sends one atomic batch with an idempotency key. Discard changes drops the staged edits. A stale version keeps the pending edits and offers to re-apply them on the latest versions.
 
 Bulk actions are Set selected values for the supported role fields, Hide selected Profiles and Restore selected Profiles. Selections are keyed by stable ID and survive page and filter changes, and the selection panel says when it includes rows outside the current filter. Select all matching is capped at 1000 rows and says when it was truncated. A Profile-level change is deduplicated, so selecting two roles of one person produces one visibility change.
 
@@ -32,7 +32,9 @@ Editable fields are written only through the sync allowlist fields (`people.disp
 | Promotion Reviewed By | Unavailable on the Website | Profile | Private Profiles database | Private Profiles database. Not stored on the Website and never synced to it. System-generated review metadata. It stays in the private Profiles workflow. |
 | Promotion Reviewed On | Unavailable on the Website | Profile | Private Profiles database | Private Profiles database. Not stored on the Website and never synced to it. System-generated review metadata. It stays in the private Profiles workflow. |
 | Reviewer Notes | Unavailable on the Website | Profile | Private Profiles database | Private Profiles database. Not stored on the Website and never synced to it. Private reviewer notes stay in the private Profiles workflow. |
+| Status | Read-only | Profile | Visible on Website and the publication rule | Website. Computed. Visible, Hidden, Hidden · Ready to publish (hidden automatically, now complete) or Hidden with what is missing, such as Hidden · Missing role. |
 | Created On | Read-only | Profile | people.created_at | Website. Set when the Website record was created, not the private research date. |
+| Last Uploaded | Read-only | Profile | sync_batches.committed_at of the latest dashboard import | Website. The commit time of the most recent committed, unreversed dashboard Profiles import (`pi:` batch) that created or updated the Profile, one of its roles or one of its alternate names. Previews, failed commits, unchanged rows and same-key retries write no such item, so they leave it alone. Blank when no upload is recorded. Sortable, newest first. |
 | First Name | Unavailable on the Website | Profile | No Website column | Private Profiles database. The Website stores one display name, so no component is derived from it. The Website keeps only the full display name. Verified name components are not on main. |
 | Middle Name | Unavailable on the Website | Profile | No Website column | Private Profiles database. The Website stores one display name, so no component is derived from it. The Website keeps only the full display name. Verified name components are not on main. |
 | Last Name | Unavailable on the Website | Profile | No Website column | Private Profiles database. The Website stores one display name, so no component is derived from it. The Website keeps only the full display name. Verified name components are not on main. |
@@ -61,11 +63,22 @@ A reviewed sync can update only the four allowlisted fields above, and each upda
 
 ## Public visibility
 
-Visible on Website is a Profile-level publication control stored in `person_visibility`. A Profile with no row is visible, so migration 0030 preserves the effective visibility of every existing record without writing any rows. Only an explicit hide or restore action changes it. Hiding does not change `people.version`, so it never makes a pending sync stale. Restore reuses the same Website ID and requires at least one role with a county, a source and an office, position or duties.
+Visible on Website is a Profile-level publication control stored in `person_visibility`. A Profile with no row is visible, so migration 0030 preserves the effective visibility of every existing record without writing any rows. Only an explicit hide or restore action changes it. Hiding does not change `people.version`, so it never makes a pending sync stale. Restore reuses the same Website ID.
+
+### Publication rule (migration 0034)
+
+A Profile may be visible only when it has a nonblank display name and at least one role with a county, a source and an office, position or duties. The county is the role's own county, its office's county, or a county the office is affiliated with. Text-only roles qualify. A verified County Structure attachment and an alternate name are optional. The view `profile_publication_ready` is the one definition, and every reader uses it.
+
+- **Import.** New Profiles are created hidden. A valid `profile.csv` row without a role is saved as a hidden draft.
+- **Sheet.** Visible on Website is disabled while the Profile is incomplete. Its label and tooltip say what is missing. Bulk Restore leaves incomplete Profiles out and says how many.
+- **Server.** Single and bulk visibility changes are refused with `not_eligible` and the missing items, checked against the final state of the save (a combined edit that blanks the name cannot publish). The batch also asserts the final state after every change, and a database trigger refuses any write that would leave a visible row on an incomplete Profile.
+- **Automatic hiding.** Triggers on roles, display names, positions, office counties and county affiliations hide a public Profile the moment it stops meeting the rule, with `hidden_reason = incomplete` and no human actor. A Profile with another qualifying role stays visible. When the missing information is restored the checkbox is enabled and stays unchecked until the owner publishes.
+- **Existing records.** Migration 0034 hid every incomplete Profile that was previously treated as visible, with reason `incomplete`.
+- **Public reads.** The public visibility predicate also requires the rule, so an incomplete Profile is never public on any page, API, search or count.
 
 A hidden Profile is removed from the public directory and browse lists, people search, the officials directory, county role lists and county role counts, county structure counts, organization role lists, the report grievance pickers and validation, and related people in editorial content. Its direct page and its `/api/people/<id>` response return 404. Existing staff report references stay intact. Public responses never include reviewer notes, review metadata or private citations, and the sheet payload omits them as well.
 
-This slice does not create Profiles. The existing sync create path still creates a Profile as visible. Starting new Profiles hidden is a follow-up.
+The dashboard importer creates Profiles hidden. The external sync create path still creates a Profile without a visibility row, and the publication rule keeps it private until it is complete.
 
 ## Retry safety and audit
 
@@ -73,7 +86,7 @@ Each save writes its audit events and an entry in `profile_write_receipts` in th
 
 ## Deploy order
 
-Migration 0030 must be applied before the Worker that contains these changes, because the public read queries join `person_visibility`. The staging verifier now expects 30 migrations.
+Migration 0030 must be applied before the Worker that contains these changes, because the public read queries join `person_visibility`. Migration 0034 must likewise be applied before the Worker that reads `profile_publication_ready` and `person_visibility.hidden_reason`. The staging verifier now expects 34 migrations.
 
 ## Not in this slice
 

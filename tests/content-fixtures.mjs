@@ -5,6 +5,7 @@ import {
   createTestHumanIdentityAdapter,
   resolvePrincipal,
 } from "../dist/services/security.js";
+import { qualifyPeople } from "./publication-fixture.mjs";
 
 export const ALLOWED_ACCOUNTS = new Set([
   "acct-author",
@@ -42,6 +43,7 @@ export function seedContentFixture(database) {
            ('person-2','Fictional Person Two'),
            ('person-3','Fictional Person Three');
   `);
+  qualifyPeople(database);
 }
 
 export function principalFactory(database) {
