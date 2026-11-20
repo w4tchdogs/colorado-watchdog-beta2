@@ -11,6 +11,11 @@ import {
   UNIT_STATUSES,
   type UnitNode,
 } from "../contracts/county-structure.js";
+import type { AttachmentItem } from "../services/county-role-attachment.js";
+import type {
+  RoleAttachmentPreview,
+  RoleAttachmentReceipt,
+} from "../services/county-role-attachment-d1.js";
 import {
   type CountyDetailResponse,
   CountyStructureApiError,
@@ -29,6 +34,8 @@ const MODE_LABELS: Readonly<Record<ImportMode, string>> = {
 const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   stale_version:
     "The structure changed after this page loaded. Reload the county and try again.",
+  stale_preview:
+    "The roles, units or links changed after this preview. Please preview the file again.",
   already_committed: "This import was already committed.",
   idempotency_reuse:
     "That request key was already used for a different action.",
@@ -83,6 +90,11 @@ export function createCountyStructureView(options: {
     let prepared: PreparedImport | null = null;
     let commitKey: string | null = null;
     let recent: readonly ImportSummary[] = [];
+    let attachmentPreview: RoleAttachmentPreview | null = null;
+    let attachmentCsv: string | null = null;
+    let attachmentFileName: string | null = null;
+    let attachmentKey: string | null = null;
+    let attachmentReceipt: RoleAttachmentReceipt | null = null;
 
     const status = el(doc, "p", {
       class: "cs-status",
@@ -102,6 +114,9 @@ export function createCountyStructureView(options: {
     const tree = el(doc, "div", { class: "cs-tree" });
     const editor = el(doc, "div", { class: "cs-editor" });
     const importPanel = el(doc, "div", { class: "cs-import" });
+    const attachmentPanel = el(doc, "div", {
+      class: "cs-import cs-attachments",
+    });
     const historyPanel = el(doc, "div", { class: "cs-history" });
 
     container.append(
@@ -123,6 +138,7 @@ export function createCountyStructureView(options: {
       counts,
       el(doc, "div", { class: "cs-columns" }, tree, editor),
       importPanel,
+      attachmentPanel,
       historyPanel,
     );
 
@@ -167,7 +183,9 @@ export function createCountyStructureView(options: {
     }
 
     async function loadCounty(fips: string | null): Promise<void> {
+      if (fips !== selectedCounty) invalidateAttachmentPreview();
       selectedCounty = fips;
+      renderAttachmentPreview();
       selectedId = null;
       if (!fips) {
         detail = null;
@@ -183,6 +201,234 @@ export function createCountyStructureView(options: {
       }
       renderAll();
     }
+
+    function invalidateAttachmentPreview(): void {
+      attachmentPreview = null;
+      attachmentCsv = null;
+      attachmentFileName = null;
+      attachmentKey = null;
+      attachmentReceipt = null;
+      renderAttachmentPreview();
+    }
+
+    function countyLabel(fips: string): string {
+      const county = counties.find((item) => item.fips === fips);
+      return county ? `${county.name} (${fips})` : fips;
+    }
+
+    const attachmentFile = el(doc, "input", {
+      id: "cs-role-file",
+      type: "file",
+      accept: ".csv,text/csv",
+    });
+    const attachmentPreviewPanel = el(doc, "div", { class: "cs-preview" });
+    const attachmentCounty = el(
+      doc,
+      "p",
+      { class: "cs-note", id: "cs-attachment-county" },
+      "Choose a county above.",
+    );
+    const attachmentPrepare = el(
+      doc,
+      "button",
+      { type: "button" },
+      "Preview attachments",
+    );
+    const attachmentCommit = el(
+      doc,
+      "button",
+      { type: "button", disabled: true },
+      "Commit attachments",
+    );
+    attachmentPanel.append(
+      el(doc, "h3", {}, "Attach Roles"),
+      el(
+        doc,
+        "p",
+        { class: "cs-note" },
+        "Attach imported Profile roles to this county’s units using stable IDs from profile_role.csv. This action does not import County Structure or change Profile visibility.",
+      ),
+      attachmentCounty,
+      field(doc, "profile_role.csv file", "cs-role-file", attachmentFile),
+      el(
+        doc,
+        "div",
+        { class: "cs-actions" },
+        attachmentPrepare,
+        attachmentCommit,
+      ),
+      attachmentPreviewPanel,
+    );
+
+    function renderAttachmentPreview(): void {
+      clear(attachmentPreviewPanel);
+      attachmentCounty.textContent = selectedCounty
+        ? `Selected county: ${countyLabel(selectedCounty)}. File: ${attachmentFile.files?.[0]?.name ?? "Choose profile_role.csv"}.`
+        : "Choose a county above.";
+      const preview = attachmentPreview;
+      attachmentCommit.disabled =
+        !preview?.committable ||
+        preview.counts.blocked > 0 ||
+        preview.counts.attach + preview.counts.remap === 0;
+      if (attachmentReceipt) {
+        const receipt = attachmentReceipt;
+        attachmentPreviewPanel.append(
+          el(
+            doc,
+            "p",
+            { role: "status" },
+            `Receipt: ${receipt.attached} attached, ${receipt.remapped} remapped, ${receipt.unchanged} unchanged, ${receipt.skipped} skipped${receipt.replayed ? " (same-key retry)" : ""}.`,
+          ),
+        );
+      }
+      if (!preview) return;
+      attachmentPreviewPanel.append(
+        el(
+          doc,
+          "p",
+          {},
+          `Reviewing ${countyLabel(preview.countyFips)} · ${attachmentFileName ?? "profile_role.csv"}. ${preview.counts.attach} attachments, ${preview.counts.remap} remaps, ${preview.counts.unchanged} unchanged, ${preview.counts.unattached} rows with no unit ID (existing links kept), ${preview.counts.skipped} skipped, ${preview.counts.blocked} blockers. ${preview.counts.otherCounties} rows for other counties were not included.`,
+        ),
+      );
+      if (preview.counts.skipped > 0)
+        attachmentPreviewPanel.append(
+          el(
+            doc,
+            "p",
+            { class: "cs-note" },
+            "Skipped roles have not been imported into Profiles yet. Import their Profiles, then preview this file again.",
+          ),
+        );
+      if (!attachmentCsv || !attachmentFileName)
+        attachmentCommit.disabled = true;
+      const table = el(doc, "table", { class: "cs-items" });
+      table.append(
+        el(
+          doc,
+          "thead",
+          {},
+          el(
+            doc,
+            "tr",
+            {},
+            ...["Row", "Role ID", "Action", "Unit ID", "Reason"].map((label) =>
+              el(doc, "th", { scope: "col" }, label),
+            ),
+          ),
+        ),
+      );
+      const body = el(doc, "tbody", {});
+      for (const item of preview.items) body.append(attachmentRow(item));
+      table.append(body);
+      attachmentPreviewPanel.append(table);
+    }
+
+    function attachmentRow(item: AttachmentItem): HTMLElement {
+      return el(
+        doc,
+        "tr",
+        {},
+        el(doc, "td", {}, String(item.line)),
+        el(doc, "td", {}, item.roleKey),
+        el(doc, "td", {}, item.action),
+        el(doc, "td", {}, item.unitId ?? "—"),
+        el(
+          doc,
+          "td",
+          {},
+          item.reason ??
+            (item.action === "attach"
+              ? "Will attach."
+              : item.action === "remap"
+                ? `Will move from ${item.currentUnitId}.`
+                : ""),
+        ),
+      );
+    }
+
+    attachmentFile.addEventListener("change", () => {
+      invalidateAttachmentPreview();
+      attachmentReceipt = null;
+      say("File changed. Preview it again before committing.");
+    });
+    attachmentPrepare.addEventListener("click", async () => {
+      const file = attachmentFile.files?.[0];
+      if (!selectedCounty) {
+        say("Choose a county before previewing role attachments.");
+        return;
+      }
+      if (!file) {
+        say("Choose a profile_role.csv file first.");
+        return;
+      }
+      invalidateAttachmentPreview();
+      try {
+        const csv = await file.text();
+        const result = await client.previewRoleAttachments({
+          csv,
+          countyFips: selectedCounty,
+        });
+        attachmentCsv = csv;
+        attachmentFileName = file.name;
+        attachmentPreview = result;
+        attachmentKey = newKey();
+        attachmentReceipt = null;
+        say(
+          result.committable &&
+            result.counts.blocked === 0 &&
+            result.counts.attach + result.counts.remap > 0
+            ? "Attachment preview ready. Nothing has changed yet."
+            : "Review the attachment rows. Commit is available only when there are eligible changes and no blockers.",
+        );
+      } catch (error) {
+        invalidateAttachmentPreview();
+        say(describe(error));
+      }
+      renderAttachmentPreview();
+    });
+    attachmentCommit.addEventListener("click", async () => {
+      if (
+        !attachmentPreview ||
+        !attachmentCsv ||
+        !attachmentKey ||
+        !selectedCounty
+      )
+        return;
+      attachmentCommit.disabled = true;
+      try {
+        attachmentReceipt = await client.commitRoleAttachments(
+          {
+            csv: attachmentCsv,
+            countyFips: attachmentPreview.countyFips,
+            digest: attachmentPreview.digest,
+          },
+          attachmentKey,
+        );
+        attachmentPreview = null;
+        attachmentCsv = null;
+        attachmentFileName = null;
+        attachmentKey = null;
+        attachmentFile.value = "";
+        renderAttachmentPreview();
+        say(
+          "Role attachments committed. The selected county has been refreshed.",
+        );
+        await loadCounty(selectedCounty);
+      } catch (error) {
+        if (
+          error instanceof CountyStructureApiError &&
+          error.code === "stale_preview"
+        ) {
+          invalidateAttachmentPreview();
+          say(
+            "This preview is stale. Please preview the file again before committing.",
+          );
+        } else {
+          say(describe(error));
+          renderAttachmentPreview();
+        }
+      }
+    });
 
     async function refresh(): Promise<void> {
       await loadCounties();

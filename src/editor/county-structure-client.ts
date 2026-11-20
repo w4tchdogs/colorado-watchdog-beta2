@@ -9,6 +9,10 @@ import {
   type PreparedImport,
   type UnitNode,
 } from "../contracts/county-structure.js";
+import type {
+  RoleAttachmentPreview,
+  RoleAttachmentReceipt,
+} from "../services/county-role-attachment-d1.js";
 
 /**
  * Browser client for the protected `/api/admin/county-structure/*` routes. It
@@ -110,6 +114,18 @@ export interface CountyStructureClient {
   linkedRoles(
     unitId: string,
   ): Promise<{ readonly roles: readonly LinkedRoleResponse[] }>;
+  previewRoleAttachments(request: {
+    readonly csv: string;
+    readonly countyFips: string;
+  }): Promise<RoleAttachmentPreview>;
+  commitRoleAttachments(
+    request: {
+      readonly csv: string;
+      readonly countyFips: string;
+      readonly digest: string;
+    },
+    idempotencyKey: string,
+  ): Promise<RoleAttachmentReceipt>;
 }
 
 export function createCountyStructureClient(options: {
@@ -185,5 +201,9 @@ export function createCountyStructureClient(options: {
     history: (entityId) => call(`/history/${encodeURIComponent(entityId)}`),
     edit: (expectedVersion, edit) => post("/edits", { expectedVersion, edit }),
     linkedRoles: (unitId) => call(`/units/${encodeURIComponent(unitId)}/roles`),
+    previewRoleAttachments: (request) =>
+      post("/role-attachments/preview", request),
+    commitRoleAttachments: (request, key) =>
+      post("/role-attachments/commit", request, key),
   };
 }
