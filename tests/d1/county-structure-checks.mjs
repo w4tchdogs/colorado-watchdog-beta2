@@ -1,4 +1,5 @@
 import { AsyncD1Database } from "../../src/database/d1.ts";
+import { D1CountyRoleAttachments } from "../../src/services/county-role-attachment-d1.ts";
 import { writeCsvTable } from "../../src/services/county-structure-csv.ts";
 import {
   CountyStructureConflictError,
@@ -531,6 +532,92 @@ export async function runCountyStructureChecks(env) {
   check(
     "placed units and their browse parent remove together",
     (await units("08013")).length === 0,
+  );
+  // Role-to-unit attachment over real D1: set-based insert and remap with
+  // exact count assertions, one importer-mapped role, and a keyed replay.
+  await commit(
+    await prepare(
+      writeCsvTable([
+        row(BOULDER, { id: "d1-att-a", name: "Synthetic A", type: "office" }),
+        row(BOULDER, { id: "d1-att-b", name: "Synthetic B", type: "office" }),
+      ]),
+      "replace_county",
+      "08013",
+    ),
+  );
+  await env.DB.batch([
+    env.DB.prepare(
+      "INSERT OR IGNORE INTO people (id, display_name) VALUES ('cs-d1-att-person', 'Synthetic Attached')",
+    ),
+    env.DB.prepare(
+      "INSERT OR IGNORE INTO person_roles (id, person_id, source_id, source_checked_at, county_fips, published_title) VALUES ('cs-d1-att-role', 'cs-d1-att-person', 'cs-d1-source', '2026-11-01T00:00:00Z', '08013', 'Synthetic Title')",
+    ),
+    env.DB.prepare(
+      `INSERT INTO sync_batches (id, actor_account_id, idempotency_key, request_fingerprint, contract_version, request_id, status, committed_at, result_json)
+       VALUES ('cs-d1-att-batch', 'cs-d1-owner', 'pi:cs-d1-att', '${"0".repeat(64)}', 'm2-sync/v1', 'cs-d1-att-request', 'committed', '2026-11-19T00:00:00Z', '{}')`,
+    ),
+    env.DB.prepare(
+      `INSERT INTO sync_batch_items (batch_id, item_index, client_ref, entity, operation, target_id, outcome, committed_version, inverse_json)
+       VALUES ('cs-d1-att-batch', 0, 'dash:role:RA1', 'person_roles', 'create_person_role', 'cs-d1-att-role', 'created', 1, '{}')`,
+    ),
+  ]);
+  const attachments = new D1CountyRoleAttachments(database);
+  const attachFile = (unit) =>
+    `role_id,county_fips,county_unit_id\r\nRA1,08013,${unit}\r\nRA9,08013,d1-att-a\r\n`;
+  const firstFile = attachFile("d1-att-a");
+  const firstPreview = await attachments.preview(owner, {
+    csv: firstFile,
+    countyFips: "08013",
+  });
+  check(
+    "attachment preview resolves the importer mapping and skips unimported roles",
+    firstPreview.counts.attach === 1 && firstPreview.counts.skipped === 1,
+    JSON.stringify(firstPreview.counts),
+  );
+  const attachKey = key();
+  await attachments.commit(owner, {
+    csv: firstFile,
+    countyFips: "08013",
+    digest: firstPreview.digest,
+    idempotencyKey: attachKey,
+  });
+  const replayed = await attachments.commit(owner, {
+    csv: firstFile,
+    countyFips: "08013",
+    digest: firstPreview.digest,
+    idempotencyKey: attachKey,
+  });
+  const homeUnit = async () =>
+    one(
+      "SELECT unit_id, version FROM county_role_display WHERE person_role_id = 'cs-d1-att-role' AND listing = 'home'",
+    );
+  check(
+    "attachment commits once and replays the stored receipt",
+    replayed.replayed && (await homeUnit())?.unit_id === "d1-att-a",
+  );
+  const secondFile = attachFile("d1-att-b");
+  const secondPreview = await attachments.preview(owner, {
+    csv: secondFile,
+    countyFips: "08013",
+  });
+  await attachments.commit(owner, {
+    csv: secondFile,
+    countyFips: "08013",
+    digest: secondPreview.digest,
+    idempotencyKey: key(),
+  });
+  const remapped = await homeUnit();
+  check(
+    "a remap moves the home listing and increments its version",
+    secondPreview.counts.remap === 1 &&
+      remapped?.unit_id === "d1-att-b" &&
+      remapped?.version === 2,
+  );
+  await env.DB.prepare(
+    "DELETE FROM county_role_display WHERE person_role_id = 'cs-d1-att-role'",
+  ).run();
+  await commit(
+    await prepare(writeCsvTable([row(BOULDER)]), "replace_county", "08013"),
   );
 
   check(
