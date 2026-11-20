@@ -164,6 +164,7 @@ export interface ImportRowReport {
     readonly proposed: string | null;
   }[];
   readonly reason?: string;
+  readonly deletedOnWebsite?: true;
 }
 
 export interface ProfilesImportCounts {

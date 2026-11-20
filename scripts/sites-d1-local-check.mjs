@@ -667,6 +667,7 @@ async function main() {
     "0032_profile_names.sql",
     "0033_county_structure_v4_contract.sql",
     "0034_profile_publication_rule.sql",
+    "0035_profile_delete.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(

@@ -1,3 +1,6 @@
+import { AsyncD1Database } from "../../src/database/d1.ts";
+import { createD1ProfilesService } from "../../src/services/profiles-d1.ts";
+
 /**
  * Profile publication rule over the real isolated local D1 (migration 0034):
  * the readiness view, refusal to publish an incomplete Profile, automatic
@@ -80,6 +83,61 @@ export async function runPublicationChecks(env) {
     "SELECT visible FROM person_visibility WHERE person_id = 'pub-solo'",
   );
   check("the owner can publish once it is complete", published?.visible === 1);
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO identities (id, account_id, provider, subject)
+      VALUES ('pub-identity', 'pub-owner', 'test-human', 'synthetic-publication-owner')`),
+    env.DB.prepare(`INSERT INTO profile_names (id, person_id, name_type, published_name)
+      VALUES ('pub-alt', 'pub-solo', 'nickname', 'Synthetic Alias')`),
+    env.DB.prepare(`INSERT INTO profile_name_events (id, person_id, profile_name_id, action, actor_account_id)
+      VALUES ('pub-history', 'pub-solo', 'pub-alt', 'alternate_add', 'pub-owner')`),
+  ]);
+  const profiles = createD1ProfilesService(new AsyncD1Database(env.DB), {
+    authorize: async (principal) => principal.accountId === "pub-owner",
+  });
+  const owner = {
+    kind: "human",
+    role: "owner",
+    accountId: "pub-owner",
+    identityId: "pub-identity",
+    provider: "test-human",
+  };
+  const preview = await profiles.previewDelete(owner, {
+    profileId: "pub-solo",
+  });
+  check(
+    "delete preview includes the role and alternate name",
+    preview.visible && preview.counts.roles === 1 && preview.counts.names === 1,
+  );
+  const deletion = {
+    profileId: preview.profileId,
+    digest: preview.digest,
+    reason: "incorrect",
+    confirmation: "DELETE",
+  };
+  const deleted = await profiles.commitDelete(owner, "pub-delete-1", deletion);
+  const replay = await profiles.commitDelete(owner, "pub-delete-1", deletion);
+  check(
+    "single Profile deletion commits once on D1",
+    !deleted.replayed && replay.replayed,
+  );
+  const after = await one(`SELECT
+    EXISTS(SELECT 1 FROM people WHERE id = 'pub-solo') AS person,
+    EXISTS(SELECT 1 FROM person_roles WHERE person_id = 'pub-solo') AS role,
+    EXISTS(SELECT 1 FROM person_visibility WHERE person_id = 'pub-solo') AS visibility,
+    EXISTS(SELECT 1 FROM profile_names WHERE id = 'pub-alt') AS name,
+    EXISTS(SELECT 1 FROM profile_name_events WHERE id = 'pub-history') AS history,
+    EXISTS(SELECT 1 FROM person_roles WHERE person_id = 'pub-multi' AND source_id = 'pub-src') AS shared_source,
+    (SELECT COUNT(*) FROM profile_deleted_targets WHERE profile_id = 'pub-solo') AS retired`);
+  check(
+    "deletion keeps audit history and the other Profile's source",
+    after.person === 0 &&
+      after.role === 0 &&
+      after.visibility === 0 &&
+      after.name === 0 &&
+      after.history === 1 &&
+      after.shared_source === 1 &&
+      after.retired === 3,
+  );
   await env.DB.batch([
     env.DB.prepare("DELETE FROM person_roles WHERE person_id LIKE 'pub-%'"),
     env.DB.prepare(

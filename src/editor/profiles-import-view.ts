@@ -32,6 +32,7 @@ export function createImportPanel(options: {
   let commitKey: { digest: string; key: string } | null = null;
   let receipt: ProfilesImportReceipt | null = null;
   let busy = false;
+  let readdProfileId: string | undefined;
 
   const profileInput = el(doc, "input", {
     type: "file",
@@ -118,6 +119,8 @@ export function createImportPanel(options: {
     if (error instanceof ProfilesApiError) {
       if (error.status === 409 && error.code === "stale_preview")
         return "The Website or the files changed since this preview. Nothing was written. Preview again.";
+      if (error.status === 409 && error.code === "reversal_profile_deleted")
+        return "This import includes a Profile or dependent record deleted on the Website. The batch was left intact.";
       if (error.status === 409 && error.code === "reversal_blocked")
         return "This import cannot be reversed because other records now depend on it. Nothing was changed.";
       if (error.status === 409)
@@ -154,6 +157,7 @@ export function createImportPanel(options: {
       ...(names !== null ? { profileName: names } : {}),
     };
     receipt = null;
+    readdProfileId = undefined;
     setBusy(true);
     say("Reading the files. Nothing is written during a preview.");
     try {
@@ -180,7 +184,12 @@ export function createImportPanel(options: {
     setBusy(true);
     say("Committing. All changes are written together or not at all.");
     try {
-      receipt = await client.importCommit(files, preview.digest, commitKey.key);
+      receipt = await client.importCommit(
+        files,
+        preview.digest,
+        commitKey.key,
+        readdProfileId,
+      );
       render();
       say(
         receipt.status === "nothing_to_commit"
@@ -248,13 +257,58 @@ export function createImportPanel(options: {
       doc,
       "tr",
       { "data-action": row.action },
-      el(doc, "td", {}, row.action),
+      el(
+        doc,
+        "td",
+        {},
+        row.deletedOnWebsite ? "Deleted on Website" : row.action,
+      ),
       el(doc, "td", {}, row.kind),
       el(doc, "td", {}, row.key),
       el(doc, "td", {}, row.label),
       el(doc, "td", {}, visibilityText(row.visibility)),
-      el(doc, "td", {}, [changes, row.reason].filter(Boolean).join(" ")),
+      el(
+        doc,
+        "td",
+        {},
+        [changes, row.reason].filter(Boolean).join(" "),
+        row.deletedOnWebsite && row.kind === "profile"
+          ? readdButton(row.key, row.label)
+          : "",
+      ),
     );
+  }
+
+  function readdButton(profileId: string, label: string): HTMLButtonElement {
+    const control = el(
+      doc,
+      "button",
+      {
+        type: "button",
+        "aria-label": `Preview re-add from CSV for ${label}`,
+      },
+      "Re-add from CSV",
+    );
+    control.addEventListener("click", async () => {
+      if (busy || !files) return;
+      setBusy(true);
+      try {
+        preview = await client.importPreview(files, profileId);
+        readdProfileId = profileId;
+        render();
+        say(
+          preview.canCommit
+            ? `Re-add preview for ${label}. Review the hidden new Profile and its rows before committing.`
+            : "This re-add preview has blocking issues. Review the listed issues.",
+        );
+      } catch (error) {
+        say(failureText(error));
+      } finally {
+        setBusy(false);
+        if (!commitButton.disabled) commitButton.focus();
+      }
+    });
+    return control;
   }
 
   function visibilityText(v: ImportRowReport["visibility"]): string {

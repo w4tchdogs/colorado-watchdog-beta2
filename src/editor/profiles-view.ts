@@ -37,6 +37,10 @@ import {
   type ProfileRow,
   type ProfileSelectionEntry,
 } from "../contracts/profiles.js";
+import {
+  PROFILE_DELETE_REASONS,
+  type ProfileDeleteReason,
+} from "../contracts/profiles-delete.js";
 import type { DashboardViewFactory } from "./dashboard.js";
 import { clear, el } from "./dom.js";
 import { ProfilesApiError, type ProfilesClient } from "./profiles-client.js";
@@ -223,6 +227,8 @@ export function createProfilesView(options: {
     let destroyed = false;
     let reviewKey: string | null = null;
     let reviewing = false;
+    let deleting = false;
+    let deleteRequest = 0;
     let table: Tabulator | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let requestToken = 0;
@@ -272,6 +278,11 @@ export function createProfilesView(options: {
     const reviewPanel = el(doc, "section", {
       class: "cw-profiles-review",
       "aria-labelledby": "profiles-review-h",
+      hidden: true,
+    });
+    const deletePanel = el(doc, "section", {
+      class: "cw-profiles-review",
+      "aria-labelledby": "profiles-delete-h",
       hidden: true,
     });
     const namesPanel = el(doc, "section", {
@@ -411,6 +422,7 @@ export function createProfilesView(options: {
         setPanel,
         namesPanel,
         reviewPanel,
+        deletePanel,
         gridHost,
       ),
     );
@@ -550,6 +562,7 @@ export function createProfilesView(options: {
         change,
         label,
         who: row.displayName,
+        profileId: row.profileId,
         before,
         after: required ? (value ?? "").trim() : clean,
         error: localError(fieldId, required ? value : clean),
@@ -566,6 +579,7 @@ export function createProfilesView(options: {
         },
         label: "Visible on Website",
         who: row.displayName,
+        profileId: row.profileId,
         before: row.visible,
         after: visible,
         error: null,
@@ -754,6 +768,7 @@ export function createProfilesView(options: {
               },
               label: spec.label,
               who: entry.displayName,
+              profileId: entry.profileId,
               before,
               after: text,
               error: null,
@@ -1399,6 +1414,189 @@ export function createProfilesView(options: {
       );
     }
 
+    async function reviewDelete(
+      row: ProfileRow,
+      trigger: HTMLElement,
+    ): Promise<void> {
+      if (deleting) return;
+      const hasPendingEdits = () =>
+        [...staged.values()].some((entry) => entry.profileId === row.profileId);
+      if (hasPendingEdits() || reviewing) {
+        announce(
+          "Finish the current save or discard unsaved edits for this Profile before deleting it.",
+        );
+        return;
+      }
+      const request = ++deleteRequest;
+      const heading = el(
+        doc,
+        "h2",
+        { id: "profiles-delete-h", tabindex: -1 },
+        `Delete ${row.displayName}`,
+      );
+      const status = el(
+        doc,
+        "p",
+        { role: "status" },
+        "Checking what will be removed.",
+      );
+      const close = () => {
+        ++deleteRequest;
+        deletePanel.hidden = true;
+        clear(deletePanel);
+        if (trigger.isConnected) trigger.focus();
+        else searchInput.focus();
+      };
+      const cancel = button("Cancel", close);
+      clear(deletePanel);
+      deletePanel.append(heading, status, cancel);
+      deletePanel.hidden = false;
+      heading.focus();
+      try {
+        const preview = await client.deletePreview(row.profileId);
+        if (destroyed || request !== deleteRequest) return;
+        heading.textContent = `Delete ${preview.displayName}`;
+        status.textContent = "";
+        const blockers = [
+          preview.blockers.reports
+            ? `${preview.blockers.reports} grievance references. Review them in Reports.`
+            : "",
+          preview.blockers.editorialLinks
+            ? `${preview.blockers.editorialLinks} editorial links. Remove the live associations in Posts & Stories.`
+            : "",
+          preview.blockers.duplicateReviews
+            ? `${preview.blockers.duplicateReviews} duplicate-review records. These references need a separate resolution before deletion.`
+            : "",
+        ].filter(Boolean);
+        const details = el(
+          doc,
+          "div",
+          {},
+          el(
+            doc,
+            "p",
+            {},
+            `Website Profile ID ${preview.profileId}. ${preview.visible ? "Visible" : "Hidden"}. Counties ${preview.counties.join(", ") || "none"}.`,
+          ),
+          el(
+            doc,
+            "p",
+            {},
+            `${preview.counts.roles} roles, ${preview.counts.names} alternate names and ${preview.counts.countyLinks} County Structure links will be removed.`,
+          ),
+          el(
+            doc,
+            "p",
+            {},
+            "The offline master and source catalog stay intact. To bring back a corrected copy, re-add it from a fresh CSV preview.",
+          ),
+        );
+        deletePanel.insertBefore(details, status);
+        if (blockers.length) {
+          details.append(
+            el(doc, "h3", {}, "Resolve references before deleting"),
+            el(
+              doc,
+              "ul",
+              {},
+              ...blockers.map((item) => el(doc, "li", {}, item)),
+            ),
+          );
+          return;
+        }
+        const reason = el(
+          doc,
+          "select",
+          { id: "profiles-delete-reason" },
+          el(doc, "option", { value: "" }, "Choose a reason"),
+          ...Object.entries(PROFILE_DELETE_REASONS).map(([value, label]) =>
+            el(doc, "option", { value }, label),
+          ),
+        );
+        const confirmation = el(doc, "input", {
+          id: "profiles-delete-confirmation",
+          type: "text",
+          autocomplete: "off",
+          maxlength: 6,
+        });
+        const key = newKey();
+        const confirm = button("Delete Website Profile", () => void commit());
+        confirm.disabled = true;
+        const syncConfirmation = () => {
+          confirm.disabled = confirmation.value !== "DELETE" || !reason.value;
+        };
+        confirmation.addEventListener("input", syncConfirmation);
+        reason.addEventListener("change", syncConfirmation);
+        deletePanel.insertBefore(field("Reason", reason, reason.id), status);
+        deletePanel.insertBefore(
+          field("Type DELETE to confirm", confirmation, confirmation.id),
+          status,
+        );
+        deletePanel.insertBefore(confirm, cancel);
+        async function commit() {
+          if (deleting || confirm.disabled) return;
+          if (hasPendingEdits() || reviewing) {
+            status.textContent =
+              "Save or discard pending edits before deleting.";
+            return;
+          }
+          deleting = true;
+          gridHost.inert = true;
+          confirm.disabled =
+            cancel.disabled =
+            reason.disabled =
+            confirmation.disabled =
+              true;
+          try {
+            await client.deleteProfile(
+              {
+                profileId: preview.profileId,
+                digest: preview.digest,
+                reason: reason.value as ProfileDeleteReason,
+                confirmation: confirmation.value,
+              },
+              key,
+            );
+            for (const [rowKey, selection] of selected)
+              if (selection.profileId === preview.profileId)
+                selected.delete(rowKey);
+            if (destroyed) return;
+            namesPanel.hidden = true;
+            clear(namesPanel);
+            close();
+            searchInput.focus();
+            announce("Website Profile deleted.");
+            try {
+              await reload();
+            } catch {
+              announce(
+                "Website Profile deleted. Reload the page to refresh the grid.",
+              );
+            }
+          } catch (error) {
+            if (
+              error instanceof ProfilesApiError &&
+              [404, 409].includes(error.status)
+            ) {
+              status.textContent =
+                "The Profile or its references changed. Cancel and open a new deletion preview.";
+            } else {
+              status.textContent = describeError(error);
+              // Keep the request body fixed while a lost response is retried.
+              confirm.disabled = false;
+            }
+          } finally {
+            deleting = false;
+            gridHost.inert = false;
+            cancel.disabled = false;
+          }
+        }
+      } catch (error) {
+        if (!destroyed && request === deleteRequest)
+          status.textContent = describeError(error);
+      }
+    }
+
     // ----------------------------------------------------- save flow
     function askDiscard(): void {
       clear(discardConfirm);
@@ -1777,6 +1975,20 @@ export function createProfilesView(options: {
           },
         },
       ];
+      columns.push({
+        title: "Profile actions",
+        headerSort: false,
+        width: 152,
+        formatter: (cell) => {
+          const row = cell.getRow().getData() as unknown as ProfileRow;
+          const trigger = button(
+            "Delete Profile",
+            () => void reviewDelete(row, trigger),
+            { "aria-label": `Delete Website Profile for ${row.displayName}` },
+          );
+          return trigger;
+        },
+      });
       const order = [
         "displayName",
         "visible",

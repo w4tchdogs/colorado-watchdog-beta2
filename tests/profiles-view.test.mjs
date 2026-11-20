@@ -631,3 +631,52 @@ test("a roleless Profile has one row with its status, and Visible stays disabled
     assert.ok($$(".tabulator-row").length >= 1);
   });
 });
+
+test("the owner grid confirms a single Profile deletion inside the dashboard", async () => {
+  await mount(async ({ $, database }) => {
+    const open = async () => {
+      const trigger = $(
+        'button[aria-label="Delete Website Profile for Synthetic Former Official"]',
+      );
+      trigger.click();
+      return waitFor(
+        () => $("#profiles-delete-confirmation"),
+        "deletion preview",
+      );
+    };
+    await open();
+    const panel = $("#profiles-delete-h").parentElement;
+    const findButton = (label) =>
+      [...panel.querySelectorAll("button")].find(
+        (button) => button.textContent === label,
+      );
+    const cancel = findButton("Cancel");
+    cancel.click();
+    assert.equal(panel.hidden, true);
+    assert.ok(
+      database.prepare("SELECT 1 FROM people WHERE id = 'person-former'").get(),
+    );
+    const input = await open();
+    const confirm = findButton("Delete Website Profile");
+    assert.equal(confirm.disabled, true);
+    const reason = $("#profiles-delete-reason");
+    reason.value = "incorrect";
+    reason.dispatchEvent(new window.Event("change"));
+    input.value = "DELETE";
+    input.dispatchEvent(new window.Event("input"));
+    assert.equal(confirm.disabled, false);
+    confirm.click();
+    await waitFor(() => panel.hidden, "deletion receipt");
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) n FROM person_roles WHERE person_id = 'person-former'",
+        )
+        .get().n,
+      0,
+    );
+    assert.ok(
+      database.prepare("SELECT 1 FROM people WHERE id = 'person-multi'").get(),
+    );
+  });
+});

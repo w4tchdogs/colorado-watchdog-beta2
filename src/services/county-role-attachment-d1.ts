@@ -355,6 +355,8 @@ export class D1CountyRoleAttachments {
          WHERE r.batch_id IS NULL AND i.outcome IN ('created', 'reused')
            AND substr(b.idempotency_key, 1, ${IMPORTER_BATCH_KEY_PREFIX.length}) = '${IMPORTER_BATCH_KEY_PREFIX}'
            AND i.client_ref IN (SELECT value FROM json_each(?))
+           AND NOT EXISTS (SELECT 1 FROM profile_deleted_targets d
+             WHERE d.entity = i.entity AND d.target_id = i.target_id)
          ORDER BY b.committed_at, i.batch_id, i.item_index`,
         PAGE,
         [JSON.stringify(part)],

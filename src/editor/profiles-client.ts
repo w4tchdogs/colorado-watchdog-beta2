@@ -10,6 +10,11 @@ import {
   type ProfileSaveResult,
   type ProfileSelectionEntry,
 } from "../contracts/profiles.js";
+import type {
+  ProfileDeletePreview,
+  ProfileDeleteReason,
+  ProfileDeleteReceipt,
+} from "../contracts/profiles-delete.js";
 import {
   PROFILES_IMPORT_PREFIX,
   type ProfilesImportFiles,
@@ -51,17 +56,31 @@ export interface ProfilesClient {
   }>;
   /** One Profile's alternate names with private evidence. Owner only. */
   alternateNames(profileId: string): Promise<AlternateNameList>;
+  deletePreview(profileId: string): Promise<ProfileDeletePreview>;
+  deleteProfile(
+    input: {
+      readonly profileId: string;
+      readonly digest: string;
+      readonly reason: ProfileDeleteReason;
+      readonly confirmation: string;
+    },
+    idempotencyKey: string,
+  ): Promise<ProfileDeleteReceipt>;
   preview(changes: readonly ProfileChange[]): Promise<ProfilePreview>;
   save(
     changes: readonly ProfileChange[],
     idempotencyKey: string,
   ): Promise<ProfileSaveResult>;
   /** Read-only. Sends file text and receives the exact adds, updates and conflicts. */
-  importPreview(files: ProfilesImportFiles): Promise<ProfilesImportPreview>;
+  importPreview(
+    files: ProfilesImportFiles,
+    readdProfileId?: string,
+  ): Promise<ProfilesImportPreview>;
   importCommit(
     files: ProfilesImportFiles,
     digest: string,
     idempotencyKey: string,
+    readdProfileId?: string,
   ): Promise<ProfilesImportReceipt>;
   importReverse(
     batchId: string,
@@ -136,10 +155,26 @@ export function createProfilesClient(options: {
       },
     );
   return {
-    importPreview: (files) =>
-      importPost<ProfilesImportPreview>("preview", { files }),
-    importCommit: (files, digest, key) =>
-      importPost<ProfilesImportReceipt>("commit", { files, digest }, key),
+    deletePreview: (profileId) =>
+      call("/delete/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ profileId }),
+      }),
+    deleteProfile: (input, key) =>
+      call("/delete/commit", {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": key },
+        body: JSON.stringify(input),
+      }),
+    importPreview: (files, readdProfileId) =>
+      importPost<ProfilesImportPreview>("preview", { files, readdProfileId }),
+    importCommit: (files, digest, key, readdProfileId) =>
+      importPost<ProfilesImportReceipt>(
+        "commit",
+        { files, digest, readdProfileId },
+        key,
+      ),
     importReverse: (batchId, key) =>
       importPost<ProfilesImportReversal>("reverse", { batchId }, key),
     rows: (query) => call<ProfilePage>(`/rows?${queryString(query, true)}`),

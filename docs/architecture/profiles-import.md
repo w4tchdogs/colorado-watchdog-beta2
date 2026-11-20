@@ -87,3 +87,7 @@ A role row may carry only published_title, with published_office and job_descrip
 ## Reserved marker and version guard
 
 The pi: key prefix is reserved inside the shared sync writer. A batch whose key starts with it is refused unless the importer passes the importer flag, and the flag is refused for any other key, so ordinary sync callers cannot create importer mappings. The commit route samples the Website dependency generation before it reads mappings or builds the plan and hands that value to the shared write. If anything the plan depends on changed after that sample, the guarded write fails and the importer answers with a stale preview. Two commits from one preview with different keys therefore cannot both create records. Tests cover the reserved prefix, and a deterministic rival commit landing between the importer plan and the shared write.
+
+### Re-add a Profile deleted on the Website
+
+In a normal CSV preview, deleted identities and their dependent rows show **Deleted on Website** and are skipped. To bring back a corrected copy, load the reviewed CSVs and choose **Re-add from CSV** on the deleted Profile row. Review and commit the new preview. Include the roles and names you intend to restore in those files. The new Website IDs come from the usual import service. The new Profile starts hidden, and its names start private and pending review. Existing sources are reused. Old receipts keep their original IDs, and reversal of an import that references a deliberately deleted target is blocked as a whole.
