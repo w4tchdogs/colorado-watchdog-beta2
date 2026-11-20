@@ -416,3 +416,8 @@ The [offline application proposal](architecture/county-structure.md#proposed-app
 
 - The offline Profiles master is authoritative. The owner can permanently remove one Website copy through the dashboard, with a reviewed dependency preview and an audit receipt. Deletion does not propagate to the offline master.
 - Preserve shared sources and existing audit history. Retain the original import receipts. Routine CSV imports skip an intentionally deleted Profile, and an owner can explicitly re-add a corrected copy from a new preview. See [PR #293](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/293).
+
+## Adams County Structure pilot preparation — November 20, 2026
+
+- Prepare a fresh Adams (08001) `county.csv` and private review on current Beta-2 `main`. The owner-designated current `county.csv` governs existing unit IDs, hierarchy and browse versus reporting mappings. Carry those mappings forward. Use retained private audit exports and current authoritative county and office sources to review the rest of the file. Record discrepancies and any proposed mapping changes for the owner. The [CSV contract](architecture/county-structure-csv.md) makes relationship evidence optional. For new rows outside the approved mappings, flag unresolved relationships and leave them unset.
+- Save the artifacts and evidence in the local Watchdog workspace and validate using a disposable local preview. This approval covers preparation and review. The owner will decide on a separately scoped upload after reviewing the file. Preserve shared staging and the #289 synthetic Profiles batch. Real Adams Profiles import, statewide replacement and public cutover remain on hold.
