@@ -18,9 +18,9 @@ The file is UTF-8 comma-separated text with a header row. A leading byte order m
 | 8 | County Sub Sub Unit | Readable third level. |
 | 9 | Organization type | One of `office`, `department`, `board`, `commission`, `division`, `section`, `authority`, `district`, `program`, `other`, or `display_group`. Required on every row that has an ID. |
 | 10 | Alternate names | A JSON array. Each entry is either a string or an object with `name` and optional `kind`. Blank means none. |
-| 11 | Relationship to parent | `part_of`, `reports_to` or `display_group`. Must be blank on a top-level row. Under a unit, blank means `part_of`. Under a display group, it must be `display_group` or blank. |
-| 12 | Evidence for relationship | Private free text. Optional. |
-| 13 | Source references | Private free text, such as URLs. Optional. |
+| 11 | Relationship to parent | `part_of`, `reports_to` or `display_group`. Must be blank on a top-level row. Under a unit, blank means `part_of`, and `display_group` means browse placement under that unit with no reporting relationship. Under a display group, it must be `display_group` or blank. |
+| 12 | Evidence for relationship | Private free text. Optional. Up to 32,768 characters. |
+| 13 | Source references | Private free text, such as URLs. Optional. Up to 32,768 characters. |
 | 14 | Applies from | Optional date, `YYYY-MM-DD`. |
 | 15 | Applies until | Optional date, `YYYY-MM-DD`. It must not be earlier than Applies from. |
 | 16 | Display order | Optional whole number. Siblings sort by it, then by name. |
@@ -33,6 +33,8 @@ The Office or unit ID is the identity of a row. Renaming a unit means keeping it
 ## Units and display groups
 
 A row is a structural unit unless its Organization type is `display_group`. A display group is a navigation heading such as “Elected Official”. It is not a parent in the organization chart. A unit may belong to one display group through Relationship `display_group`, and only a top-level unit may do so. A unit has at most one parent, either another unit or one display group.
+
+**Browse placement under a unit.** A row whose parent is a regular unit and whose Relationship is `display_group` is listed under that unit for browsing, for example programs listed under CSU Extension. This is placement only. The unit has no reporting parent, it is stored apart from the reporting hierarchy, and the public page lists it under the placing unit while that unit is shown, otherwise under its own heading. The placing unit must be in the same county and the placement may not form a cycle. The readable columns follow the placement, so County Unit names the placing unit’s top level. A move between a reporting parent and a browse placement on the same parent counts as a move. Added by migration 0033.
 
 The Sheriff’s Office is a normal top-level unit. It is not placed under Elected Official. Elected status is a view, and it comes only from a reviewed classification on a Profile role. The classification is made in the dashboard, so the same Sheriff role shows under the Sheriff’s Office and in the elected listing with no second Profile and no second role. Nothing in `county.csv` marks a person as elected.
 

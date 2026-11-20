@@ -25,6 +25,8 @@ Triggers enforce what a CHECK cannot. Identifiers are shared between units and g
 
 These tables are owner-only and carry their own version row, so they are left out of the generic dependency-generation trigger set, as the Profiles visibility tables were. The local D1 verifier lists them as excluded for that reason.
 
+Migration `0033_county_structure_v4_contract.sql` adapts the tables for the statewide v4 `county.csv` without rebuilding them. It copies the private provenance aside, drops and re-adds `evidence` and `source_references` on `county_unit` and `county_unit_display` with a 32,768 character limit instead of 4,000, and copies the text back unchanged. It adds `county_unit.browse_parent_unit_id` for browse placement under another unit, with same-county and no-cycle triggers and a CHECK that keeps it exclusive of a reporting parent or a display grouping. Unit versions, timestamps, aliases and Profile role links are unchanged. A rebuild was avoided because aliases cascade from `county_unit` and Profile role displays restrict deletes on it.
+
 ## Rules
 
 **Placement is separate from elected status.** The Sheriff’s Office is a normal top-level unit. “Elected Official” is a display group. A Profile role is classified as elected only by an explicit reviewed row in `county_role_display`, never by a name or a CSV column. One role can have a `home` row under the Sheriff’s Office and an `elected_official` row, and the public pages list the one Profile and role in both places. No Profile and no role is duplicated.

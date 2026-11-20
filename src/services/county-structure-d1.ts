@@ -10,6 +10,7 @@ import {
   type ImportMode,
   type ImportSummary,
   MAX_CSV_BYTES,
+  MAX_TEXT,
   ORGANIZATION_TYPES,
   type OrganizationType,
   type ParentRelationship,
@@ -129,7 +130,8 @@ export type StructureEdit =
       readonly id: string;
       /** A unit, a display grouping, or null for a top-level unit. */
       readonly parentId: string | null;
-      readonly relationship?: "part_of" | "reports_to";
+      /** `display_group` under a unit is browse placement, not reporting. */
+      readonly relationship?: "part_of" | "reports_to" | "display_group";
     }
   | {
       readonly op: "reorder";
@@ -285,7 +287,7 @@ export class D1CountyStructureAdministration {
     for (let after = ""; ; ) {
       const rows = await this.database.all<Record<string, unknown>>(
         `SELECT u.id, u.county_fips, u.parent_unit_id, u.display_group_id,
-                u.parent_relationship, u.name, u.organization_type, u.status,
+                u.browse_parent_unit_id, u.parent_relationship, u.name, u.organization_type, u.status,
                 u.applies_from, u.applies_until, u.display_order, u.evidence,
                 u.source_references,
                 (SELECT json_group_array(json_object('name', alias, 'kind', alias_kind))
@@ -326,7 +328,7 @@ export class D1CountyStructureAdministration {
     const rows = await this.database.all<Record<string, number | string>>(
       `SELECT c.fips, c.name,
          (SELECT COUNT(*) FROM county_unit u WHERE u.county_fips = c.fips) AS units,
-         (SELECT COUNT(*) FROM county_unit u WHERE u.county_fips = c.fips AND (u.parent_unit_id IS NOT NULL OR u.display_group_id IS NOT NULL)) AS subunits,
+         (SELECT COUNT(*) FROM county_unit u WHERE u.county_fips = c.fips AND (u.parent_unit_id IS NOT NULL OR u.display_group_id IS NOT NULL OR u.browse_parent_unit_id IS NOT NULL)) AS subunits,
          (SELECT COUNT(*) FROM county_unit_display g WHERE g.county_fips = c.fips) AS groups,
          (SELECT COUNT(DISTINCT r.person_role_id) FROM county_role_display r WHERE r.county_fips = c.fips) AS profiles,
          (SELECT COUNT(*) FROM county_unit u WHERE u.county_fips = c.fips AND u.status = 'review_required')
@@ -1247,7 +1249,7 @@ export class D1CountyStructureAdministration {
 
     // (a) detach units that are changing parent.
     run(
-      "UPDATE county_unit SET parent_unit_id = NULL, display_group_id = NULL, parent_relationship = NULL WHERE id IN (SELECT value FROM json_each(?))",
+      "UPDATE county_unit SET parent_unit_id = NULL, display_group_id = NULL, browse_parent_unit_id = NULL, parent_relationship = NULL WHERE id IN (SELECT value FROM json_each(?))",
       moved.map((item) => item.entityId),
     );
     // (b) remove units, deepest first.
@@ -1282,9 +1284,20 @@ export class D1CountyStructureAdministration {
         .map((item) => canonicalRecord(item.after as StructureRecord)),
     );
     // (d) add units, parents first.
+    // `displayGroupId` is browse placement. It is stored in display_group_id
+    // when it names a grouping and in browse_parent_unit_id when it names a
+    // unit, where the stored relationship stays NULL (no reporting parent).
+    // Groupings are written in step (c), before any unit, and unit and
+    // grouping IDs never overlap.
+    const browseIsGroup = `EXISTS (SELECT 1 FROM county_unit_display g WHERE g.id = json_extract(value, '$.displayGroupId'))`;
     const unitFields = `SELECT json_extract(value, '$.id') AS id, json_extract(value, '$.countyFips') AS county_fips,
-            json_extract(value, '$.parentId') AS parent_unit_id, json_extract(value, '$.displayGroupId') AS display_group_id,
-            json_extract(value, '$.relationship') AS parent_relationship, json_extract(value, '$.name') AS name,
+            json_extract(value, '$.parentId') AS parent_unit_id,
+            CASE WHEN ${browseIsGroup} THEN json_extract(value, '$.displayGroupId') END AS display_group_id,
+            CASE WHEN json_extract(value, '$.displayGroupId') IS NOT NULL AND NOT ${browseIsGroup}
+                 THEN json_extract(value, '$.displayGroupId') END AS browse_parent_unit_id,
+            CASE WHEN json_extract(value, '$.displayGroupId') IS NOT NULL AND NOT ${browseIsGroup}
+                 THEN NULL ELSE json_extract(value, '$.relationship') END AS parent_relationship,
+            json_extract(value, '$.name') AS name,
             json_extract(value, '$.organizationType') AS organization_type, json_extract(value, '$.status') AS status,
             json_extract(value, '$.appliesFrom') AS applies_from, json_extract(value, '$.appliesUntil') AS applies_until,
             json_extract(value, '$.displayOrder') AS display_order, json_extract(value, '$.evidence') AS evidence,
@@ -1294,9 +1307,11 @@ export class D1CountyStructureAdministration {
     );
     for (const level of byLevel(addedUnits, false))
       run(
-        `INSERT INTO county_unit (id, county_fips, parent_unit_id, display_group_id, parent_relationship, name,
-                organization_type, status, applies_from, applies_until, display_order, evidence, source_references)
-         SELECT id, county_fips, parent_unit_id, display_group_id, parent_relationship, name, organization_type,
+        `INSERT INTO county_unit (id, county_fips, parent_unit_id, display_group_id, browse_parent_unit_id,
+                parent_relationship, name, organization_type, status, applies_from, applies_until, display_order,
+                evidence, source_references)
+         SELECT id, county_fips, parent_unit_id, display_group_id, browse_parent_unit_id, parent_relationship, name,
+                organization_type,
                 status, applies_from, applies_until, display_order, evidence, sources FROM (${unitFields})`,
         level.map(canonicalRecord),
       );
@@ -1314,7 +1329,7 @@ export class D1CountyStructureAdministration {
     for (const level of byLevel(movedAfter, false))
       run(
         `UPDATE county_unit SET parent_unit_id = j.parent_unit_id, display_group_id = j.display_group_id,
-                parent_relationship = j.parent_relationship
+                browse_parent_unit_id = j.browse_parent_unit_id, parent_relationship = j.parent_relationship
          FROM (${unitFields}) AS j WHERE county_unit.id = j.id`,
         level.map(canonicalRecord),
       );
@@ -1475,8 +1490,14 @@ function unitRecord(row: Record<string, unknown>): StructureRecord {
     id: String(row.id),
     countyFips: String(row.county_fips),
     parentId: text(row.parent_unit_id),
-    displayGroupId: text(row.display_group_id),
-    relationship: text(row.parent_relationship) as ParentRelationship | null,
+    // Browse placement under a grouping or, since migration 0033, a unit.
+    displayGroupId:
+      text(row.display_group_id) ?? text(row.browse_parent_unit_id),
+    relationship:
+      row.browse_parent_unit_id !== null &&
+      row.browse_parent_unit_id !== undefined
+        ? "display_group"
+        : (text(row.parent_relationship) as ParentRelationship | null),
     name: String(row.name),
     organizationType: row.organization_type as OrganizationType,
     status: row.status as UnitStatus,
@@ -1586,10 +1607,13 @@ function applyEdit(
         "display_order",
       );
     if (
-      (record.evidence?.length ?? 0) > 4000 ||
-      (record.sources?.length ?? 0) > 4000
+      (record.evidence?.length ?? 0) > MAX_TEXT ||
+      (record.sources?.length ?? 0) > MAX_TEXT
     )
-      edits("Provenance text is limited to 4000 characters.", "text_length");
+      edits(
+        `Provenance text is limited to ${MAX_TEXT} characters.`,
+        "text_length",
+      );
   };
 
   if (edit.op === "create_unit" || edit.op === "create_group") {
@@ -1698,7 +1722,10 @@ function applyEdit(
           "The new parent does not exist in this county.",
           "parent_missing",
         );
-      if (parent.kind === "display_group") {
+      if (
+        parent.kind === "display_group" ||
+        edit.relationship === "display_group"
+      ) {
         displayGroupId = parent.id;
         relationship = "display_group";
       } else {

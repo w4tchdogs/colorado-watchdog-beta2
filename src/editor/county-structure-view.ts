@@ -458,8 +458,20 @@ export function createCountyStructureView(options: {
       });
       const move = el(doc, "button", { type: "button" }, "Move");
       move.addEventListener("click", () => {
+        const parentId = parentSelect.value || null;
+        // Keep a browse placement under a unit as browse placement when the
+        // owner moves within it, so Move never invents a reporting parent.
+        const keepBrowse =
+          parentId !== null &&
+          parentId === record.displayGroupId &&
+          record.relationship === "display_group";
         void runEdit(
-          { op: "move", id: record.id, parentId: parentSelect.value || null },
+          {
+            op: "move",
+            id: record.id,
+            parentId,
+            ...(keepBrowse ? { relationship: "display_group" } : {}),
+          },
           "Moved.",
         );
       });

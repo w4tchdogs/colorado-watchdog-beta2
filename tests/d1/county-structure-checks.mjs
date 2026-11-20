@@ -455,6 +455,84 @@ export async function runCountyStructureChecks(env) {
     (await units("08003")).length === 0,
   );
 
+  // The v4 contract (migration 0033): an 8,816 character Source references
+  // field and units placed for browsing under a regular unit.
+  const BOULDER = ["08013", "Boulder"];
+  const longSources = Array.from(
+    { length: 200 },
+    (_, index) =>
+      `https://example.invalid/synthetic/d1/source-${String(index).padStart(4, "0")}`,
+  )
+    .join("\n")
+    .slice(0, 8816);
+  const v4 = [
+    row(BOULDER, {
+      id: "d1-extension",
+      name: "CSU Extension",
+      type: "department",
+      l1: "CSU Extension",
+      sources: longSources,
+    }),
+    ...Array.from({ length: 8 }, (_, index) =>
+      row(BOULDER, {
+        id: `d1-program-${index + 1}`,
+        name: `Synthetic Program ${index + 1}`,
+        parent: "d1-extension",
+        rel: "display_group",
+        type: "program",
+        l1: "CSU Extension",
+        l2: `Synthetic Program ${index + 1}`,
+        order: String(index + 1),
+      }),
+    ),
+  ];
+  const v4Prepared = await prepare(
+    writeCsvTable(v4),
+    "replace_county",
+    "08013",
+  );
+  check(
+    "the v4 shapes preview",
+    v4Prepared.committable && v4Prepared.import.counts.add === 9,
+    JSON.stringify(v4Prepared.import.counts),
+  );
+  await commit(v4Prepared);
+  const stored = await one(
+    "SELECT length(source_references) AS n FROM county_unit WHERE id = 'd1-extension'",
+  );
+  check("8,816 characters are stored without truncation", stored?.n === 8816);
+  const placed = await one(
+    `SELECT COUNT(*) AS n FROM county_unit WHERE county_fips = '08013'
+       AND browse_parent_unit_id = 'd1-extension' AND parent_unit_id IS NULL
+       AND parent_relationship IS NULL`,
+  );
+  check(
+    "placed units have browse placement and no reporting parent",
+    placed?.n === 8,
+  );
+  const v4Export = await service.exportCsv(owner, "08013");
+  const v4Again = await prepare(v4Export.csv, "replace_county", "08013");
+  check(
+    "the v4 export round-trips unchanged with the full field",
+    v4Export.csv.includes(longSources) && v4Again.items.length === 0,
+  );
+  const v4Public = await publicService.getCountyStructure("08013");
+  const extension = v4Public.groups
+    .flatMap((group) => group.units)
+    .find((unit) => unit.id === "d1-extension");
+  check(
+    "the public page lists placed units under CSU Extension without provenance",
+    extension?.children.length === 8 &&
+      !JSON.stringify(v4Public).includes("example.invalid"),
+  );
+  await commit(
+    await prepare(writeCsvTable([row(BOULDER)]), "replace_county", "08013"),
+  );
+  check(
+    "placed units and their browse parent remove together",
+    (await units("08013")).length === 0,
+  );
+
   check(
     "history is append-only",
     await (async () => {

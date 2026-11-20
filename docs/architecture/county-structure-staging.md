@@ -73,3 +73,7 @@ Design and rules: [County Structure](county-structure.md). File format: [county.
 ## Rollback
 
 If any step in “Apply” fails, stop. Restore the checkpoint from step 4. The migration only adds tables, so earlier Worker versions keep working with the tables present, and the previous Worker version listed in CURRENT.md is the rollback target for the code.
+
+## Migration 0033 (v4 contract)
+
+Migration 0033 must be applied before a v4 `county.csv` can be previewed on staging. It is not applied anywhere yet. It keeps every row, version, alias and Profile role link, and it moves existing private provenance into new columns with a larger limit. Take a checkpoint first, apply it with the documented staging procedure, and confirm that the verifier expects 33 ledger rows. Then preview a synthetic file with one Source references field over 4,000 characters and one unit placed with `display_group` under a regular unit, export it, re-import the export with no changes, and reverse it. The staging Ouray import (structure version 6) should export byte for byte the same before and after the migration.
