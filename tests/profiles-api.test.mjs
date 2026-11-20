@@ -321,3 +321,51 @@ test("the names route is owner-only, no-store, validates input and returns the o
     assert.equal("sources" in list.names[0], false);
   });
 });
+
+test("single Profile deletion requires an owner from the same origin and a reviewed confirmation", async () => {
+  await withApi(async ({ call, database }) => {
+    const prefix = "/api/admin/profiles/delete";
+    const options = { method: "POST", body: { profileId: "person-a" } };
+    assert.equal((await call(`${prefix}/preview`, options)).status, 401);
+    for (const subject of ["editor", "agent"])
+      assert.equal(
+        (await call(`${prefix}/preview`, { ...options, subject })).status,
+        403,
+      );
+    const owner = { ...options, subject: "owner" };
+    assert.equal(
+      (
+        await call(`${prefix}/preview`, {
+          ...owner,
+          headers: { origin: "https://different.invalid" },
+        })
+      ).status,
+      403,
+    );
+    const response = await call(`${prefix}/preview`, owner);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("cache-control"), /no-store/);
+    const preview = await response.json();
+    assert.equal(preview.profileId, "person-a");
+    const commit = {
+      ...owner,
+      headers: { "idempotency-key": "delete-api-0001" },
+      body: {
+        profileId: "person-a",
+        digest: preview.digest,
+        reason: "duplicate",
+      },
+    };
+    assert.equal((await call(`${prefix}/commit`, commit)).status, 400);
+    assert.ok(
+      database.prepare("SELECT 1 FROM people WHERE id = 'person-a'").get(),
+    );
+    const deleted = await call(`${prefix}/commit`, {
+      ...commit,
+      body: { ...commit.body, confirmation: "DELETE" },
+    });
+    assert.equal(deleted.status, 200);
+    assert.equal((await deleted.json()).profileId, "person-a");
+    assert.equal((await call(`${prefix}/preview`, owner)).status, 404);
+  });
+});

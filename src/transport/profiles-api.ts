@@ -9,6 +9,7 @@ import {
   type ProfilesService,
   ProfilesValidationError,
 } from "../services/profiles-d1.js";
+import { ProfilesDeleteError } from "../services/profiles-delete-d1.js";
 import {
   ImportIdempotencyError,
   ImportInputError,
@@ -68,6 +69,8 @@ type Op =
   | "names"
   | "preview"
   | "save"
+  | "deletePreview"
+  | "deleteCommit"
   | "importPreview"
   | "importCommit"
   | "importReverse";
@@ -92,6 +95,8 @@ function match(
     names: ["names", "GET"],
     preview: ["preview", "POST"],
     save: ["save", "POST"],
+    "delete/preview": ["deletePreview", "POST"],
+    "delete/commit": ["deleteCommit", "POST"],
     "import/preview": ["importPreview", "POST"],
     "import/commit": ["importCommit", "POST"],
     "import/reverse": ["importReverse", "POST"],
@@ -183,6 +188,17 @@ async function handle(
         return json(400, { error: "invalid_request" });
       return json(200, {
         ...(await importService.reverse(principal, batchId, key)),
+      });
+    }
+    if (matched.op === "deletePreview" || matched.op === "deleteCommit") {
+      const body = await readObject(request, limit);
+      if (!body) return json(400, { error: "invalid_json" });
+      if (matched.op === "deletePreview")
+        return json(200, { ...(await service.previewDelete(principal, body)) });
+      const key = request.headers.get("idempotency-key");
+      if (!key) return json(400, { error: "idempotency_key_required" });
+      return json(200, {
+        ...(await service.commitDelete(principal, key, body)),
       });
     }
     switch (matched.op) {
@@ -291,6 +307,15 @@ async function readBody(
 }
 
 function failure(error: unknown): Response {
+  if (error instanceof ProfilesDeleteError)
+    return json(
+      error.code === "invalid_request"
+        ? 400
+        : error.code === "not_found"
+          ? 404
+          : 409,
+      { error: error.code },
+    );
   if (error instanceof AuthorizationError)
     return json(403, { error: "forbidden" });
   if (error instanceof ProfilesInputError || error instanceof ImportInputError)
@@ -302,7 +327,7 @@ function failure(error: unknown): Response {
   if (error instanceof ImportIdempotencyError)
     return json(409, { error: "idempotency_conflict" });
   if (error instanceof ImportReversalBlockedError)
-    return json(409, { error: "reversal_blocked" });
+    return json(409, { error: error.code });
   if (error instanceof ProfilesConflictError)
     return json(409, { error: "stale_version", issues: error.issues });
   if (error instanceof ProfilesValidationError)

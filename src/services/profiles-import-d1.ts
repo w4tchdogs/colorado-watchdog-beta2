@@ -77,7 +77,11 @@ export class ImportIdempotencyError extends Error {
   }
 }
 export class ImportReversalBlockedError extends Error {
-  constructor() {
+  constructor(
+    readonly code:
+      | "reversal_blocked"
+      | "reversal_profile_deleted" = "reversal_blocked",
+  ) {
     super("The import cannot be reversed");
     this.name = "ImportReversalBlockedError";
   }
@@ -109,6 +113,7 @@ export interface ProfilesImportOptions {
 interface Mapped {
   readonly websiteId: string;
   readonly baselineVersion: number;
+  readonly deletedFor: string | null;
 }
 interface Origin {
   readonly kind: "profile" | "role" | "source" | "name";
@@ -155,7 +160,13 @@ export function createD1ProfilesImportService(
 
   async function plan(input: unknown): Promise<Plan> {
     const files = parseFiles(input);
-    return buildPlan(database, files, now);
+    const readd = (input as { readdProfileId?: unknown }).readdProfileId;
+    if (
+      readd !== undefined &&
+      (typeof readd !== "string" || !/^[A-Za-z0-9._:-]{1,100}$/.test(readd))
+    )
+      throw new ImportInputError("Choose one deleted CSV Profile ID to re-add");
+    return buildPlan(database, files, now, readd);
   }
 
   return {
@@ -243,6 +254,14 @@ export function createD1ProfilesImportService(
         [batchId, principal.accountId, IMPORT_KEY_PREFIX],
       );
       if (!owned) throw new ImportReversalBlockedError();
+      const deleted = await database.first(
+        `SELECT 1 AS found FROM sync_batch_items i
+         JOIN profile_deleted_targets d ON d.entity = i.entity AND d.target_id = i.target_id
+         WHERE i.batch_id = ? LIMIT 1`,
+        [batchId],
+      );
+      if (deleted)
+        throw new ImportReversalBlockedError("reversal_profile_deleted");
       const result = await reverseSyncBatchD1(
         database,
         principal,
@@ -328,23 +347,36 @@ async function sha256Hex(text: string): Promise<string> {
 }
 
 async function readMappings(db: AsyncD1Database): Promise<Map<string, Mapped>> {
-  const refs = new Map<string, { id: string; entity: string }>();
+  const refs = new Map<
+    string,
+    { id: string; entity: string; deletedFor: string | null }
+  >();
   for (let offset = 0; ; offset += 1000) {
-    const rows = await db.all<{ ref: string; id: string; entity: string }>(
-      `SELECT i.client_ref AS ref, i.target_id AS id, i.entity AS entity
+    const rows = await db.all<{
+      ref: string;
+      id: string;
+      entity: string;
+      deleted_for: string | null;
+    }>(
+      `SELECT i.client_ref AS ref, i.target_id AS id, i.entity AS entity, d.profile_id AS deleted_for
        FROM sync_batch_items i
        JOIN sync_batches b ON b.id = i.batch_id
        LEFT JOIN sync_batch_reversals r ON r.batch_id = i.batch_id
+       LEFT JOIN profile_deleted_targets d ON d.entity = i.entity AND d.target_id = i.target_id
        WHERE r.batch_id IS NULL AND i.outcome IN ('created', 'reused')
          AND substr(b.idempotency_key, 1, ${IMPORT_KEY_PREFIX.length}) = '${IMPORT_KEY_PREFIX}'
          AND i.client_ref >= '${IMPORT_REF_PREFIX}' AND i.client_ref < 'dash;'
-       ORDER BY b.committed_at, i.batch_id, i.item_index
+       ORDER BY d.deletion_generation DESC NULLS FIRST, b.committed_at, i.batch_id, i.item_index
        LIMIT 1000 OFFSET ${offset}`,
       1000,
     );
     for (const row of rows)
       if (!refs.has(row.ref))
-        refs.set(row.ref, { id: row.id, entity: row.entity });
+        refs.set(row.ref, {
+          id: row.id,
+          entity: row.entity,
+          deletedFor: row.deleted_for,
+        });
     if (rows.length < 1000) break;
   }
   const baselines = new Map<string, number>();
@@ -369,6 +401,7 @@ async function readMappings(db: AsyncD1Database): Promise<Map<string, Mapped>> {
   for (const [ref, { id, entity }] of refs)
     out.set(ref, {
       websiteId: id,
+      deletedFor: refs.get(ref)?.deletedFor ?? null,
       baselineVersion: baselines.get(`${entity}:${id}`) ?? 1,
     });
   return out;
@@ -414,6 +447,7 @@ async function buildPlan(
   db: AsyncD1Database,
   files: ProfilesImportFiles,
   now: () => Date,
+  readdProfileId?: string,
 ): Promise<Plan> {
   const issues: ImportIssue[] = [];
   const rows: ImportRowReport[] = [];
@@ -429,7 +463,7 @@ async function buildPlan(
     ignored.push({ file: PROFILE_FILE, columns: profileParsed.ignoredColumns });
   const profileChecked = validateProfileRows(profileParsed);
   issues.push(...profileChecked.issues);
-  const profiles: readonly ProfileRecord[] = profileChecked.records;
+  let profiles: readonly ProfileRecord[] = profileChecked.records;
 
   let roles: readonly RoleRecord[] = [];
   if (files.profileRole !== undefined) {
@@ -458,6 +492,77 @@ async function buildPlan(
   }
 
   const mappings = await readMappings(db);
+  const profileMapping = (key: string) =>
+    mappings.get(`${IMPORT_REF.profile}${key}`);
+  const readdTarget = readdProfileId
+    ? profileMapping(readdProfileId)?.deletedFor
+    : null;
+  if (
+    readdProfileId &&
+    (!readdTarget || !profiles.some((p) => p.profileId === readdProfileId))
+  )
+    throw new ImportInputError(
+      "The selected deleted Profile must appear in profile.csv",
+    );
+
+  const omittedProfiles = new Set(
+    profiles
+      .filter(
+        (p) =>
+          profileMapping(p.profileId)?.deletedFor &&
+          p.profileId !== readdProfileId,
+      )
+      .map((p) => p.profileId),
+  );
+  const skipDeleted = (
+    kind: "profile" | "role" | "name",
+    key: string,
+    line: number,
+    label: string,
+  ) => {
+    rows.push({
+      kind,
+      key,
+      line,
+      label,
+      action: "unchanged",
+      deletedOnWebsite: true,
+      visibility: "not_applicable",
+      reason: "Deleted on Website. Omitted from this import.",
+    });
+    return false;
+  };
+  const keepDependent = (profileId: string, prefix: string, id: string) => {
+    const owner = profileMapping(profileId);
+    const deletedFor = mappings.get(`${prefix}${id}`)?.deletedFor;
+    if (owner?.deletedFor && profileId !== readdProfileId) return false;
+    return (
+      !deletedFor ||
+      (profileId === readdProfileId && deletedFor === readdTarget)
+    );
+  };
+  profiles = profiles.filter(
+    (p) =>
+      !omittedProfiles.has(p.profileId) ||
+      skipDeleted("profile", p.profileId, p.line, p.displayName),
+  );
+  roles = roles.filter(
+    (r) =>
+      keepDependent(r.profileId, IMPORT_REF.role, r.roleId) ||
+      skipDeleted("role", r.roleId, r.line, r.roleId),
+  );
+  nameRecords = nameRecords.filter(
+    (n) =>
+      keepDependent(n.profileId, IMPORT_REF.name, n.nameId) ||
+      skipDeleted("name", n.nameId, n.line, n.publishedName),
+  );
+  if (readdTarget) {
+    // Use the new creation operations only for the explicitly selected Profile.
+    // Historical rows stay in receipts for replay and reversal checks.
+    for (const [ref, mapped] of mappings) {
+      if (mapped.deletedFor === readdTarget) mappings.delete(ref);
+    }
+  }
   const mapOf = (prefix: string, id: string) => mappings.get(`${prefix}${id}`);
   const invalidProfileIds = new Set(
     profileChecked.issues
@@ -1242,6 +1347,7 @@ async function buildPlan(
   let request: SyncChangeSetRequest | null = null;
   const blocking = issues.length > 0;
   const digestBase = {
+    ...(readdProfileId ? { readdProfileId } : {}),
     files: [
       await sha256Hex(files.profile),
       await sha256Hex(files.profileRole ?? ""),
@@ -1272,6 +1378,11 @@ async function buildPlan(
     for (const row of rows) if (row.kind === kind) c[row.action]++;
     return c;
   };
+  const deletedRows = rows.filter((row) => row.deletedOnWebsite).length;
+  if (deletedRows > 0)
+    notes.push(
+      `${deletedRows} rows marked Deleted on Website will be omitted.`,
+    );
   const profileCounts = counts("profile");
   const roleCounts = counts("role");
   const nameCounts = counts("name");
@@ -1292,6 +1403,7 @@ async function buildPlan(
       r.action,
       r.websiteId ?? null,
       r.fields ?? null,
+      ...(r.deletedOnWebsite ? [true] : []),
     ]),
     issues: issues.map((i) => [i.file, i.line, i.code, i.key ?? null]),
   };
@@ -1309,7 +1421,10 @@ async function buildPlan(
     unchanged: 4,
   } as const;
   const reported = [...rows].sort(
-    (a, b) => order[a.action] - order[b.action] || a.line - b.line,
+    (a, b) =>
+      Number(!!b.deletedOnWebsite) - Number(!!a.deletedOnWebsite) ||
+      order[a.action] - order[b.action] ||
+      a.line - b.line,
   );
   return {
     preview: {

@@ -33,6 +33,7 @@ import {
 import { StorageUnavailableError } from "../contracts/storage.js";
 import type { AsyncD1Database, D1BatchStatement } from "../database/d1.js";
 import { assertCredentialFree } from "./audit.js";
+import { createProfilesDelete } from "./profiles-delete-d1.js";
 import { AuthorizationError, type TrustedPrincipal } from "./security.js";
 import { IMPORTER_BATCH_KEY_PREFIX } from "./sync-commit-d1.js";
 import { SYNC_UPDATE_FIELDS } from "./sync-planner.js";
@@ -247,7 +248,8 @@ export interface ProfilesServiceOptions {
   readonly now?: () => Date;
 }
 
-export interface ProfilesService {
+export interface ProfilesService
+  extends ReturnType<typeof createProfilesDelete> {
   listRows(principal: TrustedPrincipal, input: unknown): Promise<ProfilePage>;
   facets(principal: TrustedPrincipal): Promise<ProfileFacets>;
   selectAll(
@@ -838,6 +840,7 @@ export function createD1ProfilesService(
   }
 
   return {
+    ...createProfilesDelete(database, require, now),
     async listRows(principal, input) {
       await require(principal);
       const query = parseQuery(input);
