@@ -532,3 +532,152 @@ test("migration 0033 keeps existing County Structure rows, versions and provenan
     database.close();
   }
 });
+
+/**
+ * The exact audit shape: a Partner Organizations display group, CSU Extension
+ * placed in it, and child units placed under CSU Extension with
+ * `display_group`. The readable columns name all three levels.
+ */
+function partnerRows() {
+  const rows = [
+    row(BOULDER, {
+      id: "bo-partners",
+      name: "Partner Organizations",
+      type: "display_group",
+      l1: "Partner Organizations",
+    }),
+    row(BOULDER, {
+      id: "bo-csu",
+      name: "CSU Extension",
+      parent: "bo-partners",
+      rel: "display_group",
+      type: "department",
+      l1: "Partner Organizations",
+      l2: "CSU Extension",
+    }),
+  ];
+  for (let index = 1; index <= PROGRAMS; index += 1)
+    rows.push(
+      row(BOULDER, {
+        id: `bo-csu-child-${index}`,
+        name: `Synthetic Extension Program ${index}`,
+        parent: "bo-csu",
+        rel: "display_group",
+        type: "department",
+        l1: "Partner Organizations",
+        l2: "CSU Extension",
+        l3: `Synthetic Extension Program ${index}`,
+        order: String(index),
+      }),
+    );
+  return rows;
+}
+
+test("the three-level Partner Organizations / CSU Extension / child shape previews, round-trips and nests without a reporting parent", async () => {
+  await withStructure(async (ctx) => {
+    const prepared = await prepare(ctx, csv(partnerRows()));
+    assert.deepEqual(prepared.issues, []);
+    assert.equal(prepared.committable, true);
+    assert.equal(prepared.import.counts.add, PROGRAMS + 2);
+    await commit(ctx, prepared);
+
+    const stored = ctx.database
+      .prepare(
+        `SELECT id, parent_unit_id, display_group_id, browse_parent_unit_id, parent_relationship
+         FROM county_unit WHERE county_fips = '08013' ORDER BY id`,
+      )
+      .all()
+      .map((unit) => ({ ...unit }));
+    assert.deepEqual(stored[0], {
+      id: "bo-csu",
+      parent_unit_id: null,
+      display_group_id: "bo-partners",
+      browse_parent_unit_id: null,
+      parent_relationship: "display_group",
+    });
+    for (const unit of stored.slice(1)) {
+      assert.equal(unit.parent_unit_id, null, "no reporting parent");
+      assert.equal(unit.display_group_id, null);
+      assert.equal(unit.browse_parent_unit_id, "bo-csu");
+      assert.equal(unit.parent_relationship, null);
+    }
+
+    // Authenticated export keeps all three readable columns.
+    const transport = createCountyStructureApiTransport({
+      resolvePrincipal: async () => ctx.owner,
+      authorize: async () => true,
+      administration: ctx.service,
+    });
+    const response = await transport.fetch(
+      new Request(
+        "https://watchdog.invalid/api/admin/county-structure/export?county=08013",
+      ),
+    );
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    const exported = body.startsWith("{") ? JSON.parse(body).csv : body;
+    const registry = new Map(
+      ctx.database
+        .prepare("SELECT fips, name FROM counties")
+        .all()
+        .map((entry) => [entry.fips, entry.name]),
+    );
+    const parsed = parseCountyCsv(exported, registry);
+    assert.deepEqual(parsed.issues, []);
+    const readable = new Map(
+      parsed.file.rows.map((entry) => [entry.id, entry.readable]),
+    );
+    assert.deepEqual(readable.get("bo-csu"), [
+      "Partner Organizations",
+      "CSU Extension",
+      "",
+    ]);
+    for (let index = 1; index <= PROGRAMS; index += 1) {
+      const id = `bo-csu-child-${index}`;
+      const child = parsed.file.rows.find((entry) => entry.id === id);
+      assert.deepEqual(readable.get(id), [
+        "Partner Organizations",
+        "CSU Extension",
+        `Synthetic Extension Program ${index}`,
+      ]);
+      assert.equal(child.parentRef, "bo-csu");
+      assert.equal(child.relationshipRaw, "display_group");
+    }
+    const again = await prepare(ctx, exported);
+    assert.equal(again.items.length, 0);
+    assert.equal(again.import.counts.unchanged, PROGRAMS + 2);
+
+    // Public browse: CSU Extension under the Partner Organizations heading,
+    // each child nested under CSU Extension.
+    const structure = await new D1CountyStructurePublicService(
+      ctx.d1,
+    ).getCountyStructure(BOULDER[0]);
+    const partners = structure.groups.find(
+      (group) => group.name === "Partner Organizations",
+    );
+    assert.deepEqual(
+      partners.units.map((unit) => unit.id),
+      ["bo-csu"],
+    );
+    assert.deepEqual(
+      partners.units[0].children.map((unit) => unit.id),
+      Array.from(
+        { length: PROGRAMS },
+        (_, index) => `bo-csu-child-${index + 1}`,
+      ),
+    );
+    const ids = structure.groups.flatMap((group) => {
+      const out = [];
+      const walk = (units) => {
+        for (const unit of units) {
+          out.push(unit.id);
+          walk(unit.children);
+        }
+      };
+      walk(group.units);
+      return out;
+    });
+    assert.equal(new Set(ids).size, ids.length, "each unit appears once");
+    assert.equal(ids.length, PROGRAMS + 1);
+  });
+});
