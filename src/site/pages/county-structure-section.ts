@@ -7,8 +7,10 @@ import { html, type SafeHtml } from "../html.js";
 
 function unitItem(unit: PublicUnit): SafeHtml {
   return html`<li class="structure-unit">
-    <span class="structure-name">${unit.name}</span>
-    <span class="structure-type">${unit.organizationType}</span>
+    <div class="structure-unit-head">
+      <span class="structure-name">${unit.name}</span>
+      <span class="structure-count">${unit.people.length} ${unit.people.length === 1 ? "profile" : "profiles"}</span>
+    </div>
     ${
       unit.aliases.length > 0
         ? html`<span class="structure-aliases">Also known as ${unit.aliases.join(", ")}</span>`
@@ -31,9 +33,9 @@ function unitItem(unit: PublicUnit): SafeHtml {
 }
 
 /**
- * The public County structure section. It renders only the public fields the
- * service returns: names, types, alternate names, order and linked people.
- * Evidence and source references never reach this function.
+ * The public County structure section renders names, alternate names, order,
+ * counts and linked people. Internal unit types stay in the dashboard. Evidence
+ * and source references never reach this function.
  */
 export function countyStructureSection(
   title: string,
@@ -53,18 +55,26 @@ export function countyStructureSection(
   return html`<section class="section" id="structure" aria-labelledby="structure-heading">
     <h2 id="structure-heading">County structure</h2>
     <p class="section-intro">Offices and units of ${title} as recorded in this database. A person can appear under both a unit and an elected listing. It is still one record.</p>
-    ${structure.groups.map(
-      (group) => html`<h3 class="subhead">${group.name}</h3>
-      <ul class="structure-tree">${group.units.map(unitItem)}</ul>`,
-    )}
+    <div class="county-structure-grid">
+      ${structure.groups.map(
+        (
+          group,
+        ) => html`<section class="card county-structure-card" aria-labelledby="structure-group-${group.id}">
+          <h3 id="structure-group-${group.id}">${group.name}</h3>
+          <ul class="structure-tree">${group.units.map(unitItem)}</ul>
+        </section>`,
+      )}
     ${
       structure.electedOfficials.length > 0
-        ? html`<h3 class="subhead">Elected officials</h3>
-      <ul class="structure-people">${structure.electedOfficials.map(
-        (person) =>
-          html`<li>${personLink(person.personId, person.displayName)}${person.title ? html`, ${person.title}` : ""}${person.unitName ? html` (${person.unitName})` : ""}</li>`,
-      )}</ul>`
+        ? html`<section class="card county-structure-card" aria-labelledby="structure-elected-officials">
+            <h3 id="structure-elected-officials">Elected officials</h3>
+            <ul class="structure-people">${structure.electedOfficials.map(
+              (person) =>
+                html`<li>${personLink(person.personId, person.displayName)}${person.title ? html`, ${person.title}` : ""}${person.unitName ? html` (${person.unitName})` : ""}</li>`,
+            )}</ul>
+          </section>`
         : ""
     }
+    </div>
   </section>`;
 }

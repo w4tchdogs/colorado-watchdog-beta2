@@ -531,7 +531,6 @@ function structureEntry(
       <span class="structure-count">${plural(organization.peopleCount, "profile", "profiles")}</span>
     </div>
     <p class="structure-meta">
-      ${organizationTypeBadge(organization.type)}
       ${
         organization.parentOrganizationId && organization.parentRelationship
           ? html`<span>${parentRelationshipLabel(organization.parentRelationship)} ${parentName ?? "its documented parent"}</span>`
