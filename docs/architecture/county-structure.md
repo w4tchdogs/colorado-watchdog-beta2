@@ -37,6 +37,8 @@ Migration `0033_county_structure_v4_contract.sql` adapts the tables for the stat
 
 **One target state, then a difference.** Every writer builds a complete target structure for the counties it touches and computes the difference against what is stored. Merge, replace one county, replace all counties, dashboard edits and reversals all use that one path, so they share the same validation and the same transaction.
 
+**Keyboard hierarchy edits.** Select a hierarchy row and keep focus on it. Up and Down save a one-position reorder among its siblings. Left proposes moving the unit out one level, and Right proposes nesting it under the previous sibling. Use the placement form to confirm a level change and review its reporting or browse relationship. Display groups can be reordered at the top level.
+
 **Imports are two steps.** Prepare validates the file, computes the change set and stores it with a hash. Nothing else changes. Commit applies that exact change set only if the structure version still equals the version it was prepared against. The whole commit is one D1 batch, so it succeeds or leaves nothing behind. Writes are ordered by depth, deletes children first and inserts parents first, because the foreign keys are immediate.
 
 **Idempotency and receipts.** A commit carries an idempotency key. The same key replays the stored result and writes nothing. A different key for an import that is already committed is refused. Each commit leaves a receipt row and one history row per changed entity.
