@@ -13,6 +13,8 @@ import type { PersonNameComponentField } from "./sync.js";
 export const PROFILES_IMPORT_CONTRACT = "profiles-import/v1" as const;
 export const PROFILES_IMPORT_PREFIX = `${PROFILES_API_PREFIX}/import`;
 export const PROFILES_IMPORT_MAX_BYTES = 4 * 1024 * 1024;
+// Base64-encoded workbooks fit inside the existing JSON request budget.
+export const PROFILES_WORKBOOK_MAX_BYTES = (PROFILES_IMPORT_MAX_BYTES * 3) / 4;
 export const PROFILES_IMPORT_MAX_ROWS = 20_000;
 export const PROFILES_IMPORT_MAX_REPORT_ROWS = 3_000;
 
@@ -122,6 +124,10 @@ export interface ProfilesImportFiles {
   readonly profileRole?: string;
   readonly profileName?: string;
 }
+
+export type ProfilesImportSource =
+  | ProfilesImportFiles
+  | { readonly workbook: string };
 
 export type ImportAction =
   | "add"

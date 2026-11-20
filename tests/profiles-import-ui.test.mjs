@@ -6,12 +6,14 @@ import { migrateWebsiteDatabase } from "../dist/database/migrations.js";
 import { openWebsiteDatabase } from "../dist/database/sqlite.js";
 import { createProfilesClient } from "../dist/editor/profiles-client.js";
 import { createD1ProfilesService } from "../dist/services/profiles-d1.js";
+import { readCsv } from "../dist/services/profiles-import-csv.js";
 import { createD1ProfilesImportService } from "../dist/services/profiles-import-d1.js";
 import {
   createTestHumanIdentityAdapter,
   resolvePrincipal,
 } from "../dist/services/security.js";
 import { createProfilesApiTransport } from "../dist/transport/profiles-api.js";
+import { buildProfilesWorkbook } from "./support/profiles-workbook.mjs";
 
 const ORIGIN = "https://watchdog.invalid";
 
@@ -116,7 +118,11 @@ const ROLE_CSV =
   "R1,P1,08001,Synthetic Recorder,S1,https://example.invalid/s1,Source one,official,official_page\r\n" +
   "R2,P2,08001,Synthetic Assessor,S1,https://example.invalid/s1,Source one,official,official_page\r\n";
 
-test("the owner runs upload, preview, inspect and commit entirely in the Profiles tab", async () => {
+for (const format of ["CSV", "XLSX"])
+  test(`the owner uploads and commits ${format} in the Profiles tab`, () =>
+    runImport(format));
+
+async function runImport(format) {
   const database = await openWebsiteDatabase();
   migrateWebsiteDatabase(database);
   database.exec(SEED);
@@ -179,8 +185,23 @@ test("the owner runs upload, preview, inspect and commit entirely in the Profile
       () => $(".cw-import-status").textContent.includes("Choose profile.csv"),
       "needs a file",
     );
-    choose("#import-profile-file", PROFILE_CSV);
-    choose("#import-role-file", ROLE_CSV);
+    if (format === "XLSX") {
+      const rows = (csv) => readCsv(csv).records.map((record) => record.cells);
+      const bytes = buildProfilesWorkbook({
+        Profiles: rows(PROFILE_CSV),
+        Roles: rows(ROLE_CSV),
+        "Alternate Names": [
+          ["profile_name_id", "profile_id", "name_type", "published_name"],
+        ],
+      });
+      Object.defineProperty($("#import-workbook-file"), "files", {
+        configurable: true,
+        value: [new File([bytes], "profiles.xlsx")],
+      });
+    } else {
+      choose("#import-profile-file", PROFILE_CSV);
+      choose("#import-role-file", ROLE_CSV);
+    }
     click($("#import-preview"));
     await waitFor(() => $("#import-preview-result"), "preview result");
     assert.match(
@@ -198,6 +219,12 @@ test("the owner runs upload, preview, inspect and commit entirely in the Profile
       "two Profiles, two roles, one source row shown",
     );
     assert.equal($("#import-commit").hasAttribute("disabled"), false);
+    if (format === "XLSX") {
+      $("#import-workbook-file").dispatchEvent(new window.Event("change"));
+      assert.equal($("#import-commit").hasAttribute("disabled"), true);
+      click($("#import-preview"));
+      await waitFor(() => $("#import-preview-result"), "new workbook preview");
+    }
     click($("#import-commit"));
     await waitFor(() => $("#import-receipt"), "receipt");
     assert.match(
@@ -229,4 +256,4 @@ test("the owner runs upload, preview, inspect and commit entirely in the Profile
   function $$rows() {
     return Array.from(container.querySelectorAll(".cw-import-rows tbody tr"));
   }
-});
+}

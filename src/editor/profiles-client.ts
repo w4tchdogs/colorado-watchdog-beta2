@@ -17,10 +17,10 @@ import type {
 } from "../contracts/profiles-delete.js";
 import {
   PROFILES_IMPORT_PREFIX,
-  type ProfilesImportFiles,
   type ProfilesImportPreview,
   type ProfilesImportReceipt,
   type ProfilesImportReversal,
+  type ProfilesImportSource,
 } from "../contracts/profiles-import.js";
 
 /**
@@ -41,8 +41,9 @@ export class ProfilesApiError extends Error {
     readonly issues: readonly ProfileChangeIssue[] = [],
     /** Import failures carry their own issue list (file, line, code, message). */
     readonly detail: readonly unknown[] = [],
+    message = code,
   ) {
-    super(code);
+    super(message);
     this.name = "ProfilesApiError";
   }
 }
@@ -71,13 +72,13 @@ export interface ProfilesClient {
     changes: readonly ProfileChange[],
     idempotencyKey: string,
   ): Promise<ProfileSaveResult>;
-  /** Read-only. Sends file text and receives the exact adds, updates and conflicts. */
+  /** Read-only. Sends file contents and receives exact adds, updates and conflicts. */
   importPreview(
-    files: ProfilesImportFiles,
+    source: ProfilesImportSource,
     readdProfileId?: string,
   ): Promise<ProfilesImportPreview>;
   importCommit(
-    files: ProfilesImportFiles,
+    source: ProfilesImportSource,
     digest: string,
     idempotencyKey: string,
     readdProfileId?: string,
@@ -125,6 +126,9 @@ export function createProfilesClient(options: {
         typeof body.error === "string" ? body.error : "internal_error",
         Array.isArray(body.issues) ? (body.issues as ProfileChangeIssue[]) : [],
         Array.isArray(body.issues) ? body.issues : [],
+        body.error === "invalid_workbook" && typeof body.message === "string"
+          ? body.message
+          : undefined,
       );
     }
     return body as T;
@@ -167,12 +171,19 @@ export function createProfilesClient(options: {
         headers: { "content-type": "application/json", "idempotency-key": key },
         body: JSON.stringify(input),
       }),
-    importPreview: (files, readdProfileId) =>
-      importPost<ProfilesImportPreview>("preview", { files, readdProfileId }),
-    importCommit: (files, digest, key, readdProfileId) =>
+    importPreview: (source, readdProfileId) =>
+      importPost<ProfilesImportPreview>("preview", {
+        ...("workbook" in source ? source : { files: source }),
+        readdProfileId,
+      }),
+    importCommit: (source, digest, key, readdProfileId) =>
       importPost<ProfilesImportReceipt>(
         "commit",
-        { files, digest, readdProfileId },
+        {
+          ...("workbook" in source ? source : { files: source }),
+          digest,
+          readdProfileId,
+        },
         key,
       ),
     importReverse: (batchId, key) =>
