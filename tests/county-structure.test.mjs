@@ -196,6 +196,16 @@ test("the County Structure hierarchy adds units in-page and confirms pointer and
     const dom = new JSDOM('<!doctype html><div id="c"></div>');
     const { document } = dom.window;
     const container = document.getElementById("c");
+    const styles = document.createElement("style");
+    styles.textContent = ["editor.css", "county-structure.css"]
+      .map((name) =>
+        readFileSync(
+          new URL(`../website/editor/${name}`, import.meta.url),
+          "utf8",
+        ),
+      )
+      .join("\n");
+    document.head.append(styles);
     const writes = [];
     let lastEdit;
     const client = {
@@ -234,6 +244,15 @@ test("the County Structure hierarchy adds units in-page and confirms pointer and
     const node = (id) =>
       Array.from(document.querySelectorAll("[data-unit-id]")).find(
         (item) => item.dataset.unitId === id,
+      );
+    const arrow = (id, key, options = {}) =>
+      node(id).dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", {
+          key,
+          bubbles: true,
+          cancelable: true,
+          ...options,
+        }),
       );
     const dragEvent = (target, type) =>
       target.dispatchEvent(
@@ -335,6 +354,95 @@ test("the County Structure hierarchy adds units in-page and confirms pointer and
       assert.equal(placement("adams-roads").parent_unit_id, null);
       assert.equal(placement("adams-roads").browse_parent_unit_id, null);
       assert.equal(writes.length, 7);
+
+      // Up and Down reorder the current siblings and keep the active row.
+      node("adams-detention").click();
+      const selected = node("adams-detention");
+      assert.equal(
+        dom.window.getComputedStyle(selected).color,
+        "rgb(23, 49, 83)",
+      );
+      assert.equal(
+        dom.window.getComputedStyle(selected.querySelector(".cs-tag")).color,
+        "rgb(23, 49, 83)",
+      );
+      assert.equal(arrow("adams-sheriff", "ArrowDown"), true);
+      assert.equal(arrow("adams-detention", "ArrowUp", { altKey: true }), true);
+      assert.equal(writes.length, 7);
+      assert.equal(arrow("adams-detention", "ArrowUp"), false);
+      await lastEdit;
+      await settled();
+      assert.deepEqual(writes.at(-1), {
+        op: "reorder",
+        countyFips: ADAMS[0],
+        parentId: "adams-sheriff",
+        orderedIds: ["adams-detention", "adams-patrol"],
+      });
+      assert.equal(
+        placement("adams-detention").parent_unit_id,
+        "adams-sheriff",
+      );
+      assert.equal(document.activeElement, node("adams-detention"));
+      const siblings = () =>
+        Array.from(
+          node("adams-sheriff").parentElement.querySelectorAll("li > button"),
+        )
+          .map((button) => button.dataset.unitId)
+          .slice(1);
+      assert.deepEqual(siblings(), ["adams-detention", "adams-patrol"]);
+      assert.equal(arrow("adams-detention", "ArrowUp"), false);
+      assert.equal(writes.length, 8);
+      arrow("adams-detention", "ArrowDown");
+      await lastEdit;
+      await settled();
+      assert.deepEqual(siblings(), ["adams-patrol", "adams-detention"]);
+
+      // Right proposes the previous sibling. Left proposes the next level up.
+      arrow("adams-detention", "ArrowRight");
+      const destination = () =>
+        document.getElementById("cs-move-destination").value;
+      assert.equal(destination(), "adams-patrol");
+      assert.equal(submit().disabled, true);
+      assert.equal(document.activeElement.id, "cs-move-relationship");
+      assert.equal(
+        document.activeElement.dispatchEvent(
+          new dom.window.KeyboardEvent("keydown", {
+            key: "ArrowDown",
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+        true,
+      );
+      assert.equal(writes.length, 9);
+      select("#cs-move-relationship", "part_of");
+      submit().click();
+      await lastEdit;
+      await settled();
+      assert.equal(placement("adams-detention").parent_unit_id, "adams-patrol");
+      arrow("adams-detention", "ArrowLeft");
+      assert.equal(destination(), "adams-sheriff");
+      assert.equal(submit().disabled, true);
+      select("#cs-move-relationship", "reports_to");
+      submit().click();
+      await lastEdit;
+      await settled();
+      assert.equal(
+        placement("adams-detention").parent_relationship,
+        "reports_to",
+      );
+      arrow("adams-detention", "ArrowLeft");
+      assert.equal(destination(), "");
+      submit().click();
+      await lastEdit;
+      await settled();
+      assert.equal(placement("adams-detention").parent_unit_id, null);
+      arrow("adams-detention", "ArrowLeft");
+      assert.equal(document.querySelector(".cs-hierarchy-form"), null);
+      node(newGroup).click();
+      arrow(newGroup, "ArrowRight");
+      assert.equal(document.querySelector(".cs-hierarchy-form"), null);
+      assert.equal(writes.length, 12);
     } finally {
       view.destroy();
       dom.window.close();

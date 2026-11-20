@@ -72,6 +72,9 @@ function formatIssue(issue: CsvIssue): string {
 const typeLabel = (record: StructureRecord): string =>
   record.kind === "display_group" ? "Display group" : record.organizationType;
 
+const placementParent = (record: StructureRecord): string | null =>
+  record.parentId ?? record.displayGroupId;
+
 const RELATIONSHIP_LABELS: Readonly<Record<ParentRelationship, string>> = {
   part_of: "Part of",
   reports_to: "Reports to",
@@ -97,6 +100,7 @@ export function createCountyStructureView(options: {
     let countyLoad = 0;
     let drag: { unit: UnitNode; targets: ReadonlySet<string> } | null = null;
     let dropTarget: HTMLElement | null = null;
+    let reordering = false;
     let prepared: PreparedImport | null = null;
     let commitKey: string | null = null;
     let recent: readonly ImportSummary[] = [];
@@ -485,6 +489,71 @@ export function createCountyStructureView(options: {
       );
     }
 
+    async function editWithArrow(
+      event: KeyboardEvent,
+      node: UnitNode,
+      siblings: readonly UnitNode[],
+      parent: UnitNode | null,
+    ): Promise<void> {
+      const record = node.record;
+      if (
+        !detail ||
+        selectedId !== record.id ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)
+      )
+        return;
+      event.preventDefault();
+      if (reordering || event.repeat) return;
+      const index = siblings.indexOf(node);
+      const previous = siblings[index - 1];
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        if (record.kind === "display_group") {
+          say("Display groups stay at the top level.");
+        } else if (event.key === "ArrowLeft") {
+          if (parent) openMove(node, placementParent(parent.record));
+          else say("This unit is already at the top level.");
+        } else if (previous) {
+          openMove(node, previous.record.id);
+        } else {
+          say("There is no previous sibling to move this unit under.");
+        }
+        return;
+      }
+      const offset = event.key === "ArrowUp" ? -1 : 1;
+      const neighbor = siblings[index + offset];
+      if (!neighbor) {
+        say(
+          offset < 0
+            ? "Already first in this group."
+            : "Already last in this group.",
+        );
+        return;
+      }
+      const orderedIds = siblings.map(({ record }) => record.id);
+      orderedIds[index] = neighbor.record.id;
+      orderedIds[index + offset] = record.id;
+      reordering = true;
+      try {
+        await runEdit(
+          {
+            op: "reorder",
+            countyFips: detail.county.fips,
+            parentId: placementParent(record),
+            orderedIds,
+          },
+          `${record.name} moved ${offset < 0 ? "up" : "down"}.`,
+          detail.version,
+          true,
+        );
+      } finally {
+        reordering = false;
+      }
+    }
+
     function highlightDrop(target: HTMLElement | null): void {
       dropTarget?.classList.remove("is-drop-target");
       dropTarget = target;
@@ -560,12 +629,15 @@ export function createCountyStructureView(options: {
           el(
             doc,
             "p",
-            { class: "cs-note" },
-            "Drag a unit onto its destination or select it and choose Move unit.",
+            { class: "cs-note", id: "cs-hierarchy-help" },
+            "Drag a unit onto its destination or choose Move unit. On a selected row, Up and Down reorder within the same level. Left moves out one level, and Right moves under the previous sibling. Review the placement before saving a level change.",
           ),
         );
       }
-      const list = (nodes: readonly UnitNode[]): HTMLElement => {
+      const list = (
+        nodes: readonly UnitNode[],
+        parent: UnitNode | null,
+      ): HTMLElement => {
         const ul = el(doc, "ul", { class: "cs-list", role: "group" });
         for (const node of nodes) {
           const record = node.record;
@@ -574,10 +646,18 @@ export function createCountyStructureView(options: {
             "button",
             {
               type: "button",
-              class: `cs-node${record.id === selectedId ? " is-selected" : ""}`,
+              class: "cs-node",
               "data-unit-id": record.id,
               draggable: record.kind === "unit" ? "true" : null,
               "aria-pressed": record.id === selectedId ? "true" : "false",
+              "aria-describedby":
+                record.id === selectedId && detail?.counts.units
+                  ? "cs-hierarchy-help"
+                  : null,
+              "aria-keyshortcuts":
+                record.kind === "unit"
+                  ? "ArrowUp ArrowDown ArrowLeft ArrowRight"
+                  : "ArrowUp ArrowDown",
             },
             record.name,
             el(doc, "span", { class: "cs-tag" }, typeLabel(record)),
@@ -612,6 +692,9 @@ export function createCountyStructureView(options: {
             void renderEditor();
             focusUnit(record.id);
           });
+          button.addEventListener("keydown", (event) => {
+            void editWithArrow(event, node, nodes, parent);
+          });
           if (record.kind === "unit") {
             button.addEventListener("dragstart", (event) => {
               drag = {
@@ -630,12 +713,12 @@ export function createCountyStructureView(options: {
           }
           receiveDrop(button, record.id);
           const item = el(doc, "li", {}, button);
-          if (node.children.length > 0) item.append(list(node.children));
+          if (node.children.length > 0) item.append(list(node.children, node));
           ul.append(item);
         }
         return ul;
       };
-      if (detail.roots.length > 0) tree.append(list(detail.roots));
+      if (detail.roots.length > 0) tree.append(list(detail.roots, null));
       const addGroup = el(
         doc,
         "button",
@@ -676,7 +759,7 @@ export function createCountyStructureView(options: {
         const result = await client.edit(expectedVersion, edit);
         version = result.structureVersion;
         say(done);
-        const keep = focusEdited ? result.entityId : selectedId;
+        const keep = focusEdited ? (result.entityId ?? selectedId) : selectedId;
         await refresh();
         if (
           keep &&
@@ -808,7 +891,7 @@ export function createCountyStructureView(options: {
 
     function openMove(
       unit: UnitNode,
-      destination = unit.record.parentId ?? unit.record.displayGroupId,
+      destination = placementParent(unit.record),
     ): void {
       if (!detail || unit.record.kind !== "unit") return;
       const { county, version: expectedVersion } = detail;
@@ -818,7 +901,7 @@ export function createCountyStructureView(options: {
         moveTargets(unit).map(({ record }) => [record.id, record]),
       );
       if (destination !== null && !targets.has(destination)) return;
-      const previous = record.parentId ?? record.displayGroupId;
+      const previous = placementParent(record);
       const form = el(doc, "form", { class: "cs-hierarchy-form" });
       const parent = el(
         doc,
