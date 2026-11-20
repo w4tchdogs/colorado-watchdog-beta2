@@ -2552,11 +2552,19 @@ th[aria-sort] .sort-mark {
 
 /* County structure */
 .county-structure-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1.25rem;
-  align-items: start;
+  column-count: 2;
+  column-gap: 1.25rem;
+  column-fill: balance;
   margin-top: var(--space-4);
+}
+.county-structure-card {
+  display: inline-block;
+  width: 100%;
+  margin: 0 0 1.25rem;
+  vertical-align: top;
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
 }
 .county-structure-card {
   min-width: 0;
@@ -2717,7 +2725,9 @@ th[aria-sort] .sort-mark {
   }
 }
 @media (max-width: 50rem) {
-  .county-structure-grid,
+  .county-structure-grid {
+    column-count: 1;
+  }
   .structure-grid {
     grid-template-columns: minmax(0, 1fr);
   }
