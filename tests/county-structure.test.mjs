@@ -188,6 +188,132 @@ test("the dashboard summary reads top-level units, sub-units and the display gro
   );
 });
 
+test("the dashboard previews and commits role attachments for the selected county", async () => {
+  const dom = new JSDOM('<!doctype html><div id="c"></div>');
+  const { document } = dom.window;
+  const container = document.getElementById("c");
+  const counts = {
+    units: 1,
+    subunits: 0,
+    displayGroups: 0,
+    profiles: 0,
+    unresolved: 0,
+  };
+  let committed = null;
+  const item = {
+    line: 2,
+    roleKey: "R-SYNTH",
+    countyFips: "08001",
+    unitId: "adams-sheriff",
+    websiteRoleId: "role-synth",
+    currentUnitId: null,
+    currentDisplayId: null,
+    currentDisplayVersion: null,
+    action: "attach",
+    reason: null,
+  };
+  const preview = {
+    countyFips: "08001",
+    fileSha256: "a".repeat(64),
+    digest: "b".repeat(64),
+    counts: {
+      rows: 1,
+      otherCounties: 0,
+      attach: 1,
+      remap: 0,
+      unchanged: 0,
+      unattached: 0,
+      skipped: 0,
+      blocked: 0,
+    },
+    ignoredColumns: [],
+    items: [item],
+    committable: true,
+  };
+  const client = {
+    counties: async () => ({
+      version: 1,
+      counties: [
+        { fips: "08001", name: "Adams", counts },
+        { fips: "08003", name: "Alamosa", counts },
+      ],
+    }),
+    county: async (fips) => ({
+      county: { fips, name: fips === "08001" ? "Adams" : "Alamosa" },
+      version: 1,
+      counts,
+      roots: [],
+    }),
+    imports: async () => ({ imports: [] }),
+    previewRoleAttachments: async ({ csv, countyFips }) => {
+      assert.equal(csv, "synthetic csv");
+      assert.equal(countyFips, "08001");
+      return preview;
+    },
+    commitRoleAttachments: async (request, idempotencyKey) => {
+      committed = { request, idempotencyKey };
+      return {
+        countyFips: "08001",
+        digest: preview.digest,
+        attached: 1,
+        remapped: 0,
+        unchanged: 0,
+        skipped: 0,
+        replayed: false,
+      };
+    },
+  };
+  createCountyStructureView({ client, newKey: () => "attach-test-key" })({
+    doc: document,
+    container,
+    data: { view: "county-structure" },
+    session: {},
+    hrefFor: () => "#",
+    announce: () => {},
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const county = container.querySelector("#cs-county");
+  county.value = "08001";
+  county.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const file = container.querySelector("#cs-role-file");
+  Object.defineProperty(file, "files", {
+    configurable: true,
+    value: [{ name: "profile_role.csv", text: async () => "synthetic csv" }],
+  });
+  file.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  assert.match(
+    container.querySelector("#cs-attachment-county").textContent,
+    /Adams \(08001\).*profile_role\.csv/,
+  );
+  const previewButton = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Preview attachments",
+  );
+  previewButton.click();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.match(
+    container.querySelector("#cs-attachment-county").textContent,
+    /Adams \(08001\)/,
+  );
+  assert.match(
+    container.querySelector(".cs-attachments .cs-preview").textContent,
+    /profile_role.csv/,
+  );
+  const commitButton = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Commit attachments",
+  );
+  assert.equal(commitButton.disabled, false);
+  commitButton.click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(committed.request.digest, preview.digest);
+  assert.equal(committed.idempotencyKey, "attach-test-key");
+  assert.match(
+    container.querySelector(".cs-attachments .cs-preview").textContent,
+    /Receipt: 1 attached/,
+  );
+  dom.window.close();
+});
+
 test("duplicate ids, missing parents and cycles are rejected", async () => {
   await withStructure(async (ctx) => {
     await assertInvalid(
