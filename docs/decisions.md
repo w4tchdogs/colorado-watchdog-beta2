@@ -346,7 +346,7 @@ The owner approved these rules for the protected alternate-name sync follow-up t
 6. **Traceability after reversal.** Retain detached evidence and reversed mapping rows so their original links and Website IDs remain traceable.
 7. **Imported publication flags.** Warn when an incoming v5 row is marked Public or Confirmed. Create the alternate name private with status `requires_review`.
 
-The [v5 evidence-link replay audit](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/240#issuecomment-7001257592) verified all 314 IDs across 136 alternate names on the retained snapshot. Cross-snapshot stability remains unverified. Compare a later export with the retained snapshot before using it to update existing evidence links.
+The [v5 evidence-link replay audit](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/240#issuecomment-7001257592) verified all 314 IDs across 136 alternate names on the retained snapshot. The [v5 to v6 revision 3 audit](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/240#issuecomment-7011013389) verified stable IDs for all 307 retained links and reconciled the seven withheld links to private history. The v6 candidate used retained inputs. Compare future source snapshots before using them to update existing private evidence links.
 
 These decisions govern the contract. Implementation, working-database verification, hosted acceptance and real-data sync remain separate work.
 
