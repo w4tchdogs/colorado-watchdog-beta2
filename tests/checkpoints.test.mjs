@@ -103,7 +103,7 @@ test("checkpoint of a synthetic database and files restores and matches", async 
   assert.equal(manifest.format_version, 1);
   assert.equal(manifest.checkpoint_id, ID);
   assert.equal(manifest.application.commit, COMMIT);
-  assert.equal(manifest.database.migration_version, 35);
+  assert.equal(manifest.database.migration_version, 36);
   assert.deepEqual(manifest.database.migrations, knownMigrationRecords());
   assert.deepEqual(
     manifest.database.tables.map((table) => [table.name, table.rows]),
@@ -130,6 +130,9 @@ test("checkpoint of a synthetic database and files restores and matches", async 
       ["county_structure_history", 0],
       ["county_structure_import", 0],
       ["county_structure_import_item", 0],
+      ["county_structure_layout_history", 0],
+      ["county_structure_layout_state", 64],
+      ["county_structure_pinned_group", 0],
       ["county_structure_state", 1],
       ["county_unit", 0],
       ["county_unit_alias", 0],
@@ -158,7 +161,7 @@ test("checkpoint of a synthetic database and files restores and matches", async 
       ["report_status_history", 0],
       ["reports", 0],
       ["role_sources", 1],
-      ["schema_migrations", 35],
+      ["schema_migrations", 36],
       ["sync_batch_items", 0],
       ["sync_batch_reversals", 0],
       ["sync_batches", 0],
@@ -192,8 +195,8 @@ test("checkpoint of a synthetic database and files restores and matches", async 
       .sort((a, b) => (a.key < b.key ? -1 : 1)),
   );
   assert.deepEqual(manifest.totals, {
-    tables: 57,
-    rows: 116,
+    tables: 60,
+    rows: 181,
     files: 4,
     file_bytes: 52,
   });

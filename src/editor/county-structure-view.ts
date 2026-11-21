@@ -1,5 +1,7 @@
 import {
   type ChangeItem,
+  type CountyStructureLayout,
+  type CountyStructurePinnedGroup,
   type CountySummary,
   type CsvIssue,
   IMPORT_MODES,
@@ -109,6 +111,15 @@ export function createCountyStructureView(options: {
     let attachmentFileName: string | null = null;
     let attachmentKey: string | null = null;
     let attachmentReceipt: RoleAttachmentReceipt | null = null;
+    let countyLayout: CountyStructureLayout | null = null;
+    let layoutLoad = 0;
+    let layoutError: string | null = null;
+    let layoutPending: {
+      readonly countyFips: string;
+      readonly expectedVersion: number;
+      readonly pinnedGroups: readonly CountyStructurePinnedGroup[];
+      readonly idempotencyKey: string;
+    } | null = null;
 
     const status = el(doc, "p", {
       class: "cs-status",
@@ -130,6 +141,10 @@ export function createCountyStructureView(options: {
       "aria-labelledby": "cs-hierarchy-title",
     });
     const editor = el(doc, "div", { class: "cs-editor" });
+    const layoutPanel = el(doc, "section", {
+      class: "cs-import cs-layout",
+      "aria-labelledby": "cs-layout-title",
+    });
     const importPanel = el(doc, "div", { class: "cs-import" });
     const attachmentPanel = el(doc, "div", {
       class: "cs-import cs-attachments",
@@ -154,6 +169,7 @@ export function createCountyStructureView(options: {
       ),
       counts,
       el(doc, "div", { class: "cs-columns" }, tree, editor),
+      layoutPanel,
       importPanel,
       attachmentPanel,
       historyPanel,
@@ -206,6 +222,7 @@ export function createCountyStructureView(options: {
         detail = null;
       }
       selectedCounty = fips;
+      void loadCountyLayout(fips);
       renderAttachmentPreview();
       selectedId = null;
       if (!fips) {
@@ -224,6 +241,220 @@ export function createCountyStructureView(options: {
         say(describe(error));
       }
       renderAll();
+    }
+
+    async function loadCountyLayout(fips: string | null): Promise<void> {
+      const request = ++layoutLoad;
+      countyLayout = null;
+      layoutError = null;
+      layoutPending = null;
+      renderCountyLayout();
+      if (!fips) return;
+      try {
+        const result = await client.countyLayout(fips);
+        if (destroyed || request !== layoutLoad || selectedCounty !== fips)
+          return;
+        countyLayout = result;
+      } catch (error) {
+        if (destroyed || request !== layoutLoad || selectedCounty !== fips)
+          return;
+        layoutError = describe(error);
+        say(layoutError);
+      }
+      renderCountyLayout();
+    }
+
+    function renderCountyLayout(): void {
+      clear(layoutPanel);
+      layoutPanel.append(
+        el(doc, "h3", { id: "cs-layout-title" }, "Public page layout"),
+        el(
+          doc,
+          "p",
+          { class: "cs-note" },
+          "Pin a public County Structure group to the left or right column and set its vertical position. Unpinned groups use the masonry layout. These display preferences do not change the county.csv hierarchy.",
+        ),
+      );
+      if (!selectedCounty) {
+        layoutPanel.append(
+          el(
+            doc,
+            "p",
+            { class: "cs-empty" },
+            "Choose a county to edit its public page layout.",
+          ),
+        );
+        return;
+      }
+      if (!countyLayout) {
+        layoutPanel.append(
+          el(
+            doc,
+            "p",
+            { class: "cs-empty" },
+            layoutError ?? "Loading this county’s layout…",
+          ),
+        );
+        return;
+      }
+
+      const pinned = new Map(
+        countyLayout.pinnedGroups.map((item) => [item.groupId, item]),
+      );
+      const controls = new Map<
+        string,
+        { column: HTMLSelectElement; position: HTMLInputElement }
+      >();
+      const list = el(doc, "div", { class: "cs-layout-list" });
+      countyLayout.availableGroups.forEach((group, index) => {
+        const current = pinned.get(group.id);
+        const columnId = `cs-layout-column-${index}`;
+        const positionId = `cs-layout-position-${index}`;
+        const column = el(doc, "select", {
+          id: columnId,
+          "aria-label": `Column for ${group.name}`,
+        }) as HTMLSelectElement;
+        column.append(
+          el(doc, "option", { value: "" }, "Masonry (unpinned)"),
+          el(doc, "option", { value: "left" }, "Left column"),
+          el(doc, "option", { value: "right" }, "Right column"),
+        );
+        column.value = current?.column ?? "";
+        const position = el(doc, "input", {
+          id: positionId,
+          type: "number",
+          min: "1",
+          max: "100",
+          value: String(current?.position ?? 1),
+          disabled: !current,
+          "aria-label": `Position for ${group.name}`,
+        }) as HTMLInputElement;
+        column.addEventListener("change", () => {
+          position.disabled = column.value === "";
+          if (column.value) {
+            const used = [...controls.entries()]
+              .filter(
+                ([otherId, control]) =>
+                  otherId !== group.id && control.column.value === column.value,
+              )
+              .map(([, control]) => Number(control.position.value))
+              .filter((value) => Number.isSafeInteger(value) && value > 0);
+            position.value = String(Math.max(0, ...used) + 1);
+          }
+        });
+        controls.set(group.id, { column, position });
+        list.append(
+          el(
+            doc,
+            "div",
+            { class: "cs-layout-row" },
+            el(doc, "strong", {}, group.name),
+            field(doc, "Column", columnId, column),
+            field(doc, "Position", positionId, position),
+          ),
+        );
+      });
+
+      const save = el(doc, "button", { type: "button" }, "Save public layout");
+      save.addEventListener("click", async () => {
+        const fips = selectedCounty;
+        const before = countyLayout;
+        if (!fips || !before) return;
+        let pending = layoutPending;
+        if (!pending) {
+          const next: CountyStructurePinnedGroup[] = [];
+          for (const [groupId, control] of controls) {
+            if (!control.column.value) continue;
+            const position = Number(control.position.value);
+            if (
+              !Number.isSafeInteger(position) ||
+              position < 1 ||
+              position > 100
+            ) {
+              say("Each pinned group needs a position from 1 to 100.");
+              control.position.focus();
+              return;
+            }
+            next.push({
+              groupId,
+              column: control.column.value as "left" | "right",
+              position,
+            });
+          }
+          for (const column of ["left", "right"] as const) {
+            const positions = next
+              .filter((pin) => pin.column === column)
+              .map((pin) => pin.position)
+              .sort((a, b) => a - b);
+            if (positions.some((position, index) => position !== index + 1)) {
+              say(
+                `Positions in the ${column} column must be unique and start at 1 with no gaps.`,
+              );
+              const invalid = [...controls.values()].find(
+                (control) => control.column.value === column,
+              );
+              invalid?.position.focus();
+              return;
+            }
+          }
+          pending = {
+            countyFips: fips,
+            expectedVersion: before.version,
+            pinnedGroups: next,
+            idempotencyKey: newKey(),
+          };
+          layoutPending = pending;
+        }
+        save.disabled = true;
+        try {
+          const result = await client.saveCountyLayout(
+            pending.countyFips,
+            {
+              expectedVersion: pending.expectedVersion,
+              pinnedGroups: pending.pinnedGroups,
+            },
+            pending.idempotencyKey,
+          );
+          layoutPending = null;
+          if (selectedCounty !== pending.countyFips) return;
+          countyLayout = {
+            ...before,
+            version: result.version,
+            pinnedGroups: result.pinnedGroups,
+          };
+          say(
+            result.noop
+              ? "Public layout is already up to date."
+              : result.replayed
+                ? "This public layout change had already been saved."
+                : "Public layout saved.",
+          );
+          renderCountyLayout();
+        } catch (error) {
+          say(describe(error));
+          if (
+            error instanceof CountyStructureApiError &&
+            error.code === "stale_version"
+          ) {
+            layoutPending = null;
+            await loadCountyLayout(fips);
+          } else if (
+            error instanceof CountyStructureApiError &&
+            error.status === 0
+          ) {
+            for (const control of controls.values()) {
+              control.column.disabled = true;
+              control.position.disabled = true;
+            }
+            save.textContent = "Retry same save";
+            save.disabled = false;
+          } else {
+            layoutPending = null;
+            save.disabled = false;
+          }
+        }
+      });
+      layoutPanel.append(list, el(doc, "div", { class: "cs-actions" }, save));
     }
 
     function invalidateAttachmentPreview(): void {

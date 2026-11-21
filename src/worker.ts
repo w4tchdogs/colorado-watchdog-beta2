@@ -21,6 +21,7 @@ import { createD1ContentService } from "./services/content-d1.js";
 import { createContentPublicationService } from "./services/content-publication.js";
 import { D1CountyRoleAttachments } from "./services/county-role-attachment-d1.js";
 import { D1CountyStructureAdministration } from "./services/county-structure-d1.js";
+import { D1CountyStructureLayoutAdministration } from "./services/county-structure-layout-d1.js";
 import { D1CountyStructurePublicService } from "./services/county-structure-public.js";
 import { createD1AccountServices } from "./services/d1-accounts.js";
 import { createD1WebsiteInspectionService } from "./services/d1-inspection.js";
@@ -531,6 +532,7 @@ const routes = {
           authorize: (principal) =>
             accounts.hasCapability(principal, "county_structure.manage"),
           administration: new D1CountyStructureAdministration(database),
+          layouts: new D1CountyStructureLayoutAdministration(database),
           roleAttachments: new D1CountyRoleAttachments(database),
         }).fetch(request);
       }

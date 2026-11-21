@@ -1,6 +1,7 @@
 import { exactSameOrigin } from "../auth/http.js";
 import {
   COUNTY_STRUCTURE_API_PREFIX,
+  type CountyStructurePinnedGroup,
   IMPORT_MODES,
   type ImportMode,
 } from "../contracts/county-structure.js";
@@ -12,6 +13,7 @@ import {
   type D1CountyStructureAdministration,
   type StructureEdit,
 } from "../services/county-structure-d1.js";
+import type { D1CountyStructureLayoutAdministration } from "../services/county-structure-layout-d1.js";
 import {
   AuthorizationError,
   type TrustedPrincipal,
@@ -49,6 +51,7 @@ export interface CountyStructureTransportDependencies {
   readonly administration?: D1CountyStructureAdministration;
   /** Role-to-unit attachment. Absent means it is unavailable. */
   readonly roleAttachments?: D1CountyRoleAttachments;
+  readonly layouts?: D1CountyStructureLayoutAdministration;
 }
 
 type Route =
@@ -63,6 +66,7 @@ type Route =
   | { op: "history"; id: string }
   | { op: "unitRoles"; id: string }
   | { op: "roleDisplay" }
+  | { op: "layout" | "saveLayout"; fips: string }
   | { op: "attachPreview" }
   | { op: "attachCommit" };
 
@@ -81,6 +85,11 @@ function match(pathname: string, method: string): Matched {
       ? { kind: "route", route }
       : { kind: "method", allow: allowed };
   const [a, b, c] = parts;
+  if (a === "layouts" && parts.length === 2 && b && FIPS.test(b)) {
+    if (method === "GET") return hit({ op: "layout", fips: b }, "GET");
+    if (method === "POST") return hit({ op: "saveLayout", fips: b }, "POST");
+    return { kind: "method", allow: "GET, POST" };
+  }
   if (a === "counties" && parts.length === 1)
     return hit({ op: "counties" }, "GET");
   if (a === "counties" && parts.length === 2 && b && FIPS.test(b))
@@ -170,6 +179,34 @@ async function handle(
       return json(503, { error: "county_structure_unavailable" });
     try {
       return await attachRoles(request, route.op, principal, attachments);
+    } catch (error) {
+      return failure(error);
+    }
+  }
+  if (route.op === "layout" || route.op === "saveLayout") {
+    const layouts = dependencies.layouts;
+    if (!layouts) return json(503, { error: "county_structure_unavailable" });
+    try {
+      if (route.op === "layout")
+        return json(200, { ...(await layouts.get(principal, route.fips)) });
+      const key = request.headers.get("idempotency-key");
+      if (!key) return json(400, { error: "idempotency_key_required" });
+      const input = await body(request);
+      if (
+        !input ||
+        input.countyFips !== route.fips ||
+        !Number.isSafeInteger(input.expectedVersion) ||
+        !Array.isArray(input.pinnedGroups)
+      )
+        return invalid();
+      return json(200, {
+        ...(await layouts.save(principal, {
+          countyFips: route.fips,
+          expectedVersion: input.expectedVersion as number,
+          pinnedGroups: input.pinnedGroups as CountyStructurePinnedGroup[],
+          idempotencyKey: key,
+        })),
+      });
     } catch (error) {
       return failure(error);
     }
@@ -308,6 +345,10 @@ async function execute(
     case "attachPreview":
     case "attachCommit":
       // Routed before this switch to the attachment service.
+      return json(404, { error: "not_found" });
+    case "layout":
+    case "saveLayout":
+      // Routed before this switch to the layout administration service.
       return json(404, { error: "not_found" });
     case "commit": {
       const key = request.headers.get("idempotency-key");
