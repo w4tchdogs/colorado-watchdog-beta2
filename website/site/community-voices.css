@@ -70,10 +70,6 @@
   line-height: 1.3;
   text-decoration: none;
 }
-.cv-pathway-link:hover {
-  color: var(--red-dark);
-  text-decoration: underline;
-}
 .cv-pathway-note {
   margin: var(--space-3) 0 0;
   color: var(--ink-soft);
@@ -108,9 +104,6 @@
   letter-spacing: 0.03em;
   text-decoration: none;
   text-transform: uppercase;
-}
-.cv-types a:hover {
-  border-color: var(--ink);
 }
 .cv-types a[aria-current="page"] {
   background: var(--ink);

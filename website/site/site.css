@@ -1436,28 +1436,32 @@ img {
 .home-page a.button {
   border-radius: var(--radius);
 }
-/* Stretch each homepage card's only link over its padding and border, keeping
+/* Stretch each card's only link over its padding and border, keeping
    the original link text, tab stop and default card layout. */
-.home-page :is(.cv-pathway, .editorial-grid .article-card) {
+.cv-pathway,
+.home-page .editorial-grid .article-card {
   position: relative;
 }
-.home-page :is(.cv-pathway-link, .editorial-grid .article-card-title a) {
+.cv-pathway-link,
+.home-page .editorial-grid .article-card-title a {
   text-decoration-line: none;
 }
-.home-page :is(.cv-pathway-link, .editorial-grid .article-card-title a)::after {
+.cv-pathway-link::after,
+.home-page .editorial-grid .article-card-title a::after {
   position: absolute;
   inset: -3px -1px -1px;
   content: "";
 }
-.home-page :is(.cv-pathway-link, .editorial-grid .article-card-title a):focus-visible {
+.cv-pathway-link:focus-visible,
+.home-page .editorial-grid .article-card-title a:focus-visible {
   outline: none;
   box-shadow: none;
 }
 
-/* Draw the white outline inside featured links on home and county pages. */
+/* Draw the white outline inside featured cards and button controls. */
 :is(
-  :is(.home-page a.button, .discovery-card, .hero-county .hero-actions a.button, .county-entry-card):is(:hover, :focus-visible),
-  .home-page .cv-pathway:has(.cv-pathway-link:is(:hover, :focus-visible)),
+  :is(.home-page a.button, .discovery-card, .hero-county .hero-actions a.button, .county-entry-card, .cv-types a, .cv-filter-actions .button, .cv-results .empty-state .button):is(:hover, :focus-visible),
+  .cv-pathway:has(.cv-pathway-link:is(:hover, :focus-visible)),
   .home-page .editorial-grid .article-card:has(.article-card-title a:is(:hover, :focus-visible))
 ) {
   background: var(--ink);
@@ -1467,8 +1471,8 @@ img {
   outline-offset: -1px;
 }
 :is(
-  :is(.home-page a.button, .discovery-card, .hero-county .hero-actions a.button, .county-entry-card):is(:hover, :focus-visible),
-  .home-page .cv-pathway:has(.cv-pathway-link:is(:hover, :focus-visible)),
+  :is(.home-page a.button, .discovery-card, .hero-county .hero-actions a.button, .county-entry-card, .cv-types a, .cv-filter-actions .button, .cv-results .empty-state .button):is(:hover, :focus-visible),
+  .cv-pathway:has(.cv-pathway-link:is(:hover, :focus-visible)),
   .home-page .editorial-grid .article-card:has(.article-card-title a:is(:hover, :focus-visible))
 ) * {
   color: inherit;
@@ -1478,8 +1482,8 @@ img {
   border-color: currentColor;
 }
 :is(
-  :is(.home-page a.button, .discovery-card, .hero-county .hero-actions a.button, .county-entry-card):focus-visible,
-  .home-page .cv-pathway:has(.cv-pathway-link:focus-visible),
+  :is(.home-page a.button, .discovery-card, .hero-county .hero-actions a.button, .county-entry-card, .cv-types a, .cv-filter-actions .button, .cv-results .empty-state .button):focus-visible,
+  .cv-pathway:has(.cv-pathway-link:focus-visible),
   .home-page .editorial-grid .article-card:has(.article-card-title a:focus-visible)
 ) {
   box-shadow: 0 0 0 2pt var(--ink);
