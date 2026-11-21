@@ -4,13 +4,14 @@ const TYPES: Readonly<Record<string, string>> = {
   css: "text/css; charset=utf-8",
   js: "text/javascript; charset=utf-8",
   png: "image/png",
+  woff2: "font/woff2",
   svg: "image/svg+xml",
 };
 
 /** Site Worker assets are bundled from the reviewed website/site directory. */
 export const bundledSiteAssets = {
   async get(name: string) {
-    if (!/^[a-z0-9][a-z0-9.-]{0,80}\.(?:css|js|svg|png)$/.test(name))
+    if (!/^[a-z0-9][a-z0-9.-]{0,80}\.(?:css|js|svg|png|woff2)$/.test(name))
       return null;
     const encoded = __WATCHDOG_SITE_ASSETS__[name];
     if (!encoded) return null;

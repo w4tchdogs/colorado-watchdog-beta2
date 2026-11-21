@@ -70,7 +70,7 @@ const files = (await readdir(assetsDirectory, { withFileTypes: true }))
   .filter(
     (entry) =>
       entry.isFile() &&
-      /^(?:site\.(?:css|js)|community-voices\.css|report-interface\.css|staff-reports\.css|brand-[a-z-]+\.png|favicon-[a-z-]+\.png)$/.test(
+      /^(?:site\.(?:css|js)|community-voices\.css|report-interface\.css|staff-reports\.css|brand-[a-z-]+\.png|favicon-[a-z-]+\.png|inter-latin\.woff2|archivo-black-latin\.woff2)$/.test(
         entry.name,
       ),
   )

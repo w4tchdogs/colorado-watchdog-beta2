@@ -1,7 +1,7 @@
 import { countyTitle } from "./format.js";
 import { html, type SafeHtml, trusted, withQuery } from "./html.js";
 
-export type CountyNavItem = "home" | "officials" | "structure";
+export type CountyNavItem = "home" | "officials" | "structure" | "voices";
 
 export interface CountyNavOptions {
   readonly counties: readonly { fips: string; name: string }[];
@@ -36,11 +36,11 @@ export function countyNav(options: CountyNavOptions): SafeHtml {
   const directory = options.switchTo !== "home";
   return html`<nav class="county-nav" aria-label="${title}">
     <div class="wrap county-nav-inner">
-      <span class="county-nav-name">${title}</span>
+      <a class="county-nav-name" href="/counties/${county.fips}">${title}</a>
       <ul>
         ${link("home", `/counties/${county.fips}`, "County home")}
         ${link("officials", officialsHref(county.fips), "Officials & employees")}
-        ${link("structure", officialsHref(county.fips, "structure"), "County structure")}
+        ${link("voices", withQuery("/stories", { county: county.fips }), "Community Voices")}
       </ul>
       <form class="county-switch" action="${directory ? "/officials" : "/counties"}" method="get">
         ${options.switchTo === "structure" ? trusted('<input type="hidden" name="directoryView" value="structure">') : ""}

@@ -340,7 +340,7 @@ test("service failures become clear error pages", async () => {
   assert.equal(home.$$(".discovery-card").length, 4);
   assert.deepEqual(
     home.$$(".stat-row dd").map((value) => value.textContent),
-    ["—", "—", "—"],
+    ["—", "—", "—", "—", "—"],
   );
   assert.match(home.$(".stat-note").textContent, /temporarily unavailable/);
   assert.equal((await get(noDatabase, "/counties")).status, 503);

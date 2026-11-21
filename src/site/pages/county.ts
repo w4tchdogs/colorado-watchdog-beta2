@@ -6,7 +6,6 @@ import { bannerHero } from "../banner.js";
 import {
   END_DATE_NOTE,
   emptyState,
-  notice,
   organizationLink,
   organizationTypeBadge,
   pager,
@@ -24,6 +23,7 @@ import {
 import { html, path, type SafeHtml, withQuery } from "../html.js";
 import { BadRequest, NotFound, type Page, type SiteContext } from "../types.js";
 import { countyStructureSection } from "./county-structure-section.js";
+import { available } from "./home.js";
 
 const ORGANIZATION_PAGE_SIZE = 50;
 const ROLE_PAGE_SIZE = 25;
@@ -148,9 +148,8 @@ export async function countyPage(
     countyFips,
     eyebrow: `Colorado Watchdog \u00b7 ${title}`,
     title,
-    meta: html`<span class="fips">FIPS ${overview.county.fips}</span> <span>Colorado</span>`,
-    lede: "County organizations, affiliated bodies and documented public roles.",
-    actions: html`<a class="button" href="${officialsHref(countyFips)}">Find an official</a> <a class="button button-light" href="${officialsHref(countyFips, "structure")}">County structure</a>`,
+    lede: "County government. Community experiences. One lasting record.",
+    actions: html`<a class="button" href="${officialsHref(countyFips)}">Find an official &#8599;</a> <a class="button button-light" href="/submit-report">Submit a report &#8599;</a>`,
   });
 
   const subnav = countyNav({
@@ -160,31 +159,42 @@ export async function countyPage(
     switchTo: "home",
   });
 
-  const structure =
-    await context.countyStructure.getCountyStructure(countyFips);
+  const [structure, units, people] = await Promise.all([
+    available(() => context.countyStructure.getCountyStructure(countyFips)),
+    available(() => context.countyStructure.countPublicUnits(countyFips)),
+    available(() => context.services.countPublicPeople(countyFips)),
+  ]);
 
   const body = html`
   <section class="section" aria-labelledby="overview-heading">
     <h2 id="overview-heading">Overview</h2>
-    ${
-      empty
-        ? emptyState(
-            `No profiles for ${title} yet`,
-            "No organizations or roles have been documented for this county in the database. That reflects the state of this project's research, not the county's government.",
-            html`<a class="button button-quiet" href="/counties">Browse other counties</a>`,
-            3,
-          )
-        : html`<dl class="stat-row">
-            <div><dt>Organizations in the database</dt><dd>${counts.total}</dd></div>
-            <div><dt>County organizations</dt><dd>${counts.direct}</dd></div>
-            <div><dt>Affiliated organizations</dt><dd>${counts.affiliated}</dd></div>
-            <div><dt>Documented role records</dt><dd>${overview.documentedRoleCount}</dd></div>
-          </dl>
-          ${notice("These counts describe records in this database. They do not measure staffing, completeness, vacancies or current employment. An organization recorded both as a county organization and as an affiliate is counted in both groups and once in the total.")}`
-    }
+    <dl class="stat-row county-stat-row">
+      <div><dt>Departments and offices</dt><dd>${units?.toLocaleString("en-US") ?? "—"}</dd>${units === null ? html`<span class="stat-status">Unavailable</span>` : ""}</div>
+      <div><dt>County officials and employees</dt><dd>${people?.toLocaleString("en-US") ?? "—"}</dd>${people === null ? html`<span class="stat-status">Unavailable</span>` : ""}</div>
+      ${["Reports", "Grievances"].map((label) => html`<div><dt>${label}</dt><dd aria-label="Pending">—</dd><span class="stat-status">Pending</span></div>`)}
+    </dl>
+    <p class="stat-note">Each public unit and eligible Profile is counted once in this county. County directory eligibility does not require a unit attachment. Counts may overlap with other counties. Report and grievance totals are pending.</p>
   </section>
 
-  ${countyStructureSection(title, structure)}
+  <section class="section county-entry-section" aria-labelledby="county-explore-heading">
+    <p class="eyebrow">Explore ${title}</p>
+    <h2 id="county-explore-heading">Find the office. Find the official.</h2>
+    ${people === 0 ? html`<p>No officials or employees are currently listed for this county.</p>` : ""}
+    <div class="county-entry-grid">
+      <a class="county-entry-card" href="${officialsHref(countyFips)}">
+        <h3>Officials &amp; employees</h3>
+        <p>Search the county directory and open permanent statewide profiles.</p>
+        <span>Explore directory &#8599;</span>
+      </a>
+      <a class="county-entry-card" href="${base}#structure">
+        <h3>County structure</h3>
+        <p>${units === null ? "County structure is temporarily unavailable." : units === 0 ? "No office structure has been recorded for this county." : "Explore the departments, offices and other public units recorded for this county."}</p>
+        <span>Explore county offices &#8599;</span>
+      </a>
+    </div>
+  </section>
+
+  ${structure ? countyStructureSection(title, structure) : html`<p class="notice">County structure is temporarily unavailable.</p>`}
 
   ${
     empty

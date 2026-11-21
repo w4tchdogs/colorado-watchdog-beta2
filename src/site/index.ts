@@ -46,7 +46,8 @@ export type { PublicSiteOptions, SiteAssets } from "./types.js";
 
 const MAX_PATH_LENGTH = 300;
 const MAX_QUERY_LENGTH = 1024;
-const ASSET_PATH = /^\/assets\/([a-z0-9][a-z0-9.-]{0,80}\.(?:css|js|svg|png))$/;
+const ASSET_PATH =
+  /^\/assets\/([a-z0-9][a-z0-9.-]{0,80}\.(?:css|js|svg|png|woff2))$/;
 const PUBLIC_BROWSING_PATH =
   /^\/(?:$|(?:counties|people|organizations|officials|posts|stories|about|reading-records)(?:\/|$))/;
 

@@ -36,7 +36,7 @@ const discoveryCards = [
   },
 ] as const;
 
-async function available<T>(read: () => T): Promise<Awaited<T> | null> {
+export async function available<T>(read: () => T): Promise<Awaited<T> | null> {
   try {
     return await read();
   } catch {
@@ -80,6 +80,7 @@ export async function homePage(context: SiteContext): Promise<Page> {
         ([label, count]) =>
           html`<div><dt>${label}</dt><dd>${count?.toLocaleString("en-US") ?? "—"}</dd></div>`,
       )}
+      ${["Reports", "Grievances"].map((label) => html`<div><dt>${label}</dt><dd aria-label="Pending">—</dd><span class="stat-status">Pending</span></div>`)}
     </dl>
     ${
       counties && units !== null && people !== null

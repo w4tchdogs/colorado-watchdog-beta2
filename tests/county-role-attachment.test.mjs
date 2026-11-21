@@ -293,6 +293,13 @@ test("an explicit attachment shows the role in County Structure, keeps county br
       ["R2", "P2", "08013", "bo-extension"],
       ["R4", "P4", "08013", "bo-clerk"],
     ]);
+    assert.equal(await ctx.publicReads.countPublicPeople("08013"), 2);
+    const reader = new D1CountyStructurePublicService(ctx.d1);
+    const badges = async () =>
+      (await reader.getCountyStructure("08013")).groups
+        .flatMap((g) => g.units)
+        .map((u) => [u.id, u.profileCount]);
+    assert.ok((await badges()).every(([, count]) => count === 0));
     const reviewed = await preview(ctx, text);
     const idempotencyKey = key();
     const receipt = await commit(ctx, text, reviewed.digest, idempotencyKey);
@@ -316,6 +323,13 @@ test("an explicit attachment shows the role in County Structure, keeps county br
       countyFips: "08013",
     });
     assert.equal(county.items.length, 2);
+    assert.equal(await ctx.publicReads.countPublicPeople("08013"), 2);
+    assert.equal(new Map(await badges()).get("bo-sheriff"), 1);
+    assert.equal(new Map(await badges()).get("bo-extension"), 1);
+    await ctx.publish("P2", false);
+    assert.equal(await ctx.publicReads.countPublicPeople("08013"), 1);
+    assert.equal(new Map(await badges()).get("bo-extension"), 0);
+    await ctx.publish("P2", true);
 
     // Same key and digest: the stored receipt, nothing written.
     const rows = ctx.displays();

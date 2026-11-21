@@ -2,6 +2,15 @@
 const root = document.documentElement;
 root.classList.add("js");
 
+// Match the county selector's immediate navigation, retaining Go without JavaScript.
+for (const form of document.querySelectorAll(".county-switch")) {
+  const select = form.querySelector("select");
+  if (select) {
+    select.addEventListener("change", () => form.requestSubmit());
+    form.classList.add("is-enhanced");
+  }
+}
+
 // Mobile navigation toggle.
 const toggle = document.querySelector(".nav-toggle");
 const nav = document.getElementById("site-nav");
