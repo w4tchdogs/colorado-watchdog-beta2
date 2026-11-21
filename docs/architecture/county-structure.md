@@ -118,7 +118,8 @@ an em dash with Unavailable; a successful empty read displays zero.
 
 Each unit's `profileCount` is a SQL `COUNT(DISTINCT person_id)` over reviewed `home`
 attachments to that exact unit and county, with the shared public visibility rule.
-The count links to Officials & Employees with that county and unit preselected.
+Positive counts link to Officials & Employees with that county and unit preselected.
+Zero counts appear as an unlinked em dash.
 The directory uses the same reviewed home placements and shows each visible
 Profile once. The Elected officials card displays reviewed names as text.
 Units and headings are read in keyset pages so the 1,000-row D1 bound cannot

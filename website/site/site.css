@@ -2636,6 +2636,7 @@ th[aria-sort] .sort-mark {
   flex: none;
   color: var(--red);
   font-size: 0.625rem;
+  text-decoration: none;
   white-space: nowrap;
 }
 .county-structure-card .structure-aliases {

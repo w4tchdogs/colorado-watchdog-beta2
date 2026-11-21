@@ -11,7 +11,11 @@ function unitItem(unit: PublicUnit, countyFips: string): SafeHtml {
   return html`<li class="structure-unit">
     <div class="structure-unit-head">
       <span id="structure-unit-${unit.id}" class="structure-name">${unit.name}</span>
-      <a class="structure-count" href="${countyUnitOfficialsHref(countyFips, unit.id)}" aria-describedby="structure-unit-${unit.id}">${count}</a>
+      ${
+        unit.profileCount === 0
+          ? html`<span class="structure-count"><span aria-hidden="true">—</span><span class="visually-hidden">0 profiles</span></span>`
+          : html`<a class="structure-count" href="${countyUnitOfficialsHref(countyFips, unit.id)}" aria-describedby="structure-unit-${unit.id}">${count}</a>`
+      }
     </div>
     ${
       unit.aliases.length > 0
