@@ -14,6 +14,18 @@ export interface CountyNavOptions {
   readonly switchTo: "home" | "people" | "structure";
 }
 
+export const COUNTY_UNIT_OFFICE_PREFIX = "unit/";
+
+export function countyUnitOfficialsHref(
+  countyFips: string,
+  unitId: string,
+): string {
+  return withQuery("/officials", {
+    county: countyFips,
+    office: `${COUNTY_UNIT_OFFICE_PREFIX}${unitId}`,
+  });
+}
+
 export function officialsHref(
   countyFips: string | null,
   view: "people" | "structure" = "people",

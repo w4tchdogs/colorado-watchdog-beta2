@@ -1,3 +1,4 @@
+import { UNIT_ID_PATTERN } from "../../contracts/county-structure.js";
 import type { OrganizationType } from "../../contracts/directory.js";
 import {
   type CountyStructure,
@@ -7,6 +8,7 @@ import {
   type OfficialsDirectoryPage,
   type OfficialsSort,
 } from "../../contracts/officials-directory.js";
+import type { PublicCountyUnit } from "../../services/county-structure-public.js";
 import {
   emptyState,
   notice,
@@ -14,7 +16,7 @@ import {
   organizationTypeBadge,
   pageHeader,
 } from "../components.js";
-import { countyNav } from "../county-nav.js";
+import { COUNTY_UNIT_OFFICE_PREFIX, countyNav } from "../county-nav.js";
 import {
   affiliationVerb,
   countyTitle,
@@ -33,7 +35,7 @@ const MAX_QUERY = 100;
 const MAX_PAGE = 10_000;
 
 type OfficeFilter =
-  | { readonly kind: "organization"; readonly id: string }
+  | { readonly kind: "organization" | "unit"; readonly id: string }
   | { readonly kind: "type"; readonly type: OrganizationType };
 
 export interface DirectoryState {
@@ -66,7 +68,10 @@ const SORT_LABELS: Readonly<Record<OfficialsSort, string>> = {
 
 function officeValue(office: OfficeFilter | null): string | null {
   if (!office) return null;
-  return office.kind === "type" ? `type:${office.type}` : office.id;
+  if (office.kind === "type") return `type:${office.type}`;
+  return office.kind === "unit"
+    ? `${COUNTY_UNIT_OFFICE_PREFIX}${office.id}`
+    : office.id;
 }
 
 /** Directory address for a state. Defaults are omitted to keep links short. */
@@ -113,6 +118,10 @@ export function parseDirectoryState(
       const type = officeText.slice(5) as OrganizationType;
       if (!(type in ORGANIZATION_TYPE_LABELS)) throw bad();
       office = { kind: "type", type };
+    } else if (officeText.startsWith(COUNTY_UNIT_OFFICE_PREFIX)) {
+      const id = officeText.slice(COUNTY_UNIT_OFFICE_PREFIX.length);
+      if (county === null || !UNIT_ID_PATTERN.test(id)) throw bad();
+      office = { kind: "unit", id };
     } else if (isStableId(officeText)) {
       office = { kind: "organization", id: officeText };
     } else {
@@ -202,7 +211,8 @@ function countySelect(
 function officeSelect(
   state: DirectoryState,
   structure: CountyStructure | null,
-  officeName: string | null = null,
+  units: readonly PublicCountyUnit[],
+  officeName: string | null,
 ): SafeHtml {
   const selected = officeValue(state.office);
   const option = (value: string, label: string) =>
@@ -241,12 +251,21 @@ function officeSelect(
     <label for="directory-office">Office or department</label>
     <select id="directory-office" name="office" aria-describedby="directory-office-hint">
       <option value="">All county offices &amp; departments</option>
+      ${
+        units.length > 0
+          ? html`<optgroup label="County Structure units">
+        ${units.map((unit) => option(`${COUNTY_UNIT_OFFICE_PREFIX}${unit.id}`, unit.name))}
+      </optgroup>`
+          : ""
+      }
       ${groups}
     </select>
     <p class="hint" id="directory-office-hint">${
-      structure
-        ? "Choosing an office includes its documented subunits."
-        : "Individual offices become available after you select a county."
+      units.length > 0
+        ? "County Structure units show reviewed placements in that unit. Other offices include their documented subunits."
+        : structure
+          ? "Choosing an office includes its documented subunits."
+          : "Individual offices become available after you select a county."
     }</p>
   </div>`;
 }
@@ -377,13 +396,26 @@ async function peopleView(
   counties: readonly { fips: string; name: string }[],
 ): Promise<{ body: SafeHtml; total: number | null }> {
   const countyName = structure ? countyTitle(structure.county.name) : null;
-  // An office from another county is dropped, so switching county never
-  // strands the visitor on an empty or misleading result.
+  const units =
+    state.county === null
+      ? []
+      : [...(await context.countyStructure.listPublicUnits(state.county))].sort(
+          (a, b) =>
+            a.name.localeCompare(b.name, "en") ||
+            a.id.localeCompare(b.id, "en"),
+        );
   let office = state.office;
   let officeName: string | null = null;
-  if (office?.kind === "organization" && structure) {
+  if (office?.kind === "unit") {
+    const unitId = office.id;
+    const match = units.find((unit) => unit.id === unitId);
+    if (!match)
+      throw new BadRequest(directoryHref(state, { office: null, page: 1 }));
+    officeName = match.name;
+  } else if (office?.kind === "organization" && structure) {
     const officeId = office.id;
     const match = structure.organizations.find((o) => o.id === officeId);
+    // Legacy organization links clear the office when the county changes.
     if (match) officeName = match.name;
     else office = null;
   } else if (office?.kind === "organization") {
@@ -407,7 +439,7 @@ async function peopleView(
         placeholder="Name, title, or department" autocomplete="off" spellcheck="false">
     </div>
     ${countySelect(counties, state.county, "directory-county")}
-    ${officeSelect(effective, structure, officeName)}
+    ${officeSelect(effective, structure, units, officeName)}
     ${sortSelect(state)}
     <div class="filter-actions">
       <button class="button" type="submit">Apply filters</button>
@@ -430,6 +462,7 @@ async function peopleView(
   try {
     result = await context.services.listOfficials({
       countyFips: state.county,
+      countyUnitId: office?.kind === "unit" ? office.id : null,
       organizationId: office?.kind === "organization" ? office.id : null,
       organizationType: office?.kind === "type" ? office.type : null,
       query: state.query || null,

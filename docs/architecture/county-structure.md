@@ -118,10 +118,12 @@ an em dash with Unavailable; a successful empty read displays zero.
 
 Each unit's `profileCount` is a SQL `COUNT(DISTINCT person_id)` over reviewed `home`
 attachments to that exact unit and county, with the shared public visibility rule.
-It is independent of the bounded displayed people list. Duplicate roles do not
-inflate it. Units and headings are read in keyset pages so the 1,000-row D1 bound
-cannot remove later units. Elected and department-leader classifications remain
-separate from home placement. Existing per-county layout preferences are read unchanged.
+The count links to Officials & Employees with that county and unit preselected.
+The directory uses the same reviewed home placements and shows each visible
+Profile once. The Elected officials card displays reviewed names as text.
+Units and headings are read in keyset pages so the 1,000-row D1 bound cannot
+remove later units. Elected and department-leader classifications remain separate
+from home placement.
 
 The November 21 local read-only Moffat diagnostic found 25 active public units,
 32 imported roles for 31 visible Profiles, 32 valid unreversed import-key mappings,

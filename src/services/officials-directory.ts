@@ -1,3 +1,4 @@
+import { UNIT_ID_PATTERN } from "../contracts/county-structure.js";
 import {
   type CountyAffiliationType,
   DEFAULT_DIRECTORY_PAGE_SIZE,
@@ -17,6 +18,7 @@ import {
 } from "../contracts/officials-directory.js";
 import type { AsyncD1Database } from "../database/d1.js";
 import type { WebsiteDatabase } from "../database/sqlite.js";
+import { publicCountyUnitsCte } from "./county-structure-public.js";
 import { personIsPublicSql } from "./person-visibility.js";
 
 const ORGANIZATION_TYPES: readonly OrganizationType[] = [
@@ -100,6 +102,7 @@ const SORT_NULL_CHECK: Readonly<Record<OfficialsSort, string | null>> = {
 
 interface ValidatedRequest {
   readonly countyFips: string | null;
+  readonly countyUnitId: string | null;
   readonly organizationId: string | null;
   readonly organizationType: OrganizationType | null;
   readonly pattern: string | null;
@@ -115,6 +118,7 @@ async function validate(
 ): Promise<ValidatedRequest> {
   const allowed = new Set([
     "countyFips",
+    "countyUnitId",
     "organizationId",
     "organizationType",
     "query",
@@ -155,6 +159,18 @@ async function validate(
     !ORGANIZATION_TYPES.includes(organizationType)
   ) {
     throw new OfficialsDirectoryInputError("organization type is not valid");
+  }
+
+  const countyUnitId = request.countyUnitId ?? null;
+  if (
+    countyUnitId !== null &&
+    (typeof countyUnitId !== "string" ||
+      !UNIT_ID_PATTERN.test(countyUnitId) ||
+      countyFips === null ||
+      organizationId !== null ||
+      organizationType !== null)
+  ) {
+    throw new OfficialsDirectoryInputError("county unit filter is not valid");
   }
 
   let pattern: string | null = null;
@@ -199,6 +215,7 @@ async function validate(
   }
   return {
     countyFips,
+    countyUnitId,
     organizationId,
     organizationType,
     pattern,
@@ -258,7 +275,20 @@ function matchingPeopleSql(input: ValidatedRequest): {
   let officeCte = "";
   const officeParameters: SqlValue[] = [];
 
-  if (input.countyFips !== null) {
+  if (input.countyUnitId !== null) {
+    officeCte = `${publicCountyUnitsCte(true)},`;
+    officeParameters.push(input.countyFips);
+    roleFilters.push(
+      `EXISTS (
+        SELECT 1 FROM county_role_display AS placement
+        JOIN public_units AS unit
+          ON unit.id = placement.unit_id AND unit.county_fips = placement.county_fips
+        WHERE placement.person_role_id = role.id
+          AND placement.listing = 'home' AND unit.id = ?
+      )`,
+    );
+    roleParameters.push(input.countyUnitId);
+  } else if (input.countyFips !== null) {
     roleFilters.push(
       `(role.county_fips = ? OR org.county_fips = ? OR EXISTS (
           SELECT 1 FROM organization_county_affiliations AS affiliation
