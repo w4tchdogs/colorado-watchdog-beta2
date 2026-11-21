@@ -273,8 +273,17 @@ async function handle(
         return json(200, {
           ...(await service.listRows(principal, params(url))),
         });
-      case "facets":
-        return json(200, { ...(await service.facets(principal)) });
+      case "facets": {
+        const keys = [...url.searchParams.keys()];
+        if (keys.length > 1 || (keys.length && keys[0] !== "afterOffice"))
+          throw new ProfilesInputError("Unexpected query");
+        return json(200, {
+          ...(await service.facets(
+            principal,
+            url.searchParams.get("afterOffice"),
+          )),
+        });
+      }
       case "selectAll":
         return json(200, {
           ...(await service.selectAll(principal, params(url))),

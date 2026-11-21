@@ -27,6 +27,52 @@ import { siteAssets } from "./site-fixtures.mjs";
 
 const NOW = () => new Date("2026-11-18T12:00:00.000Z");
 
+test("office facets keep county pairs above the original 500-office limit", async () => {
+  await fixture(async ({ database, service, owner }) => {
+    database.exec(`
+      UPDATE organizations SET name = 'Accounting', version = version + 1
+      WHERE id IN ('org-adams', 'org-larimer');
+      INSERT INTO organizations (id,name,organization_type)
+      VALUES ('org-unknown','Accounting','office');
+      INSERT INTO positions (id,organization_id,title)
+      VALUES ('pos-unknown','org-unknown','Synthetic Role');
+      INSERT INTO person_roles (id, person_id, position_id)
+      VALUES ('role-unknown', 'person-multi', 'pos-unknown');
+      WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM n WHERE x < 502)
+      INSERT INTO person_roles (id, person_id, county_fips, published_office)
+      SELECT 'office-facet-' || x, 'person-multi', '08081', printf('Office %03d', x) FROM n;
+    `);
+    const first = await service.facets(owner);
+    assert.equal(first.offices.length, 500);
+    assert.ok(first.nextOfficeCursor);
+    const second = await service.facets(owner, first.nextOfficeCursor);
+    const offices = [...first.offices, ...second.offices];
+    assert.ok(offices.some((office) => office.name === "Office 502"));
+    assert.deepEqual(
+      offices
+        .filter((office) => office.name === "Accounting")
+        .map((office) => office.countyFips),
+      [null, "08001", "08069"],
+    );
+    const larimer = await service.listRows(
+      owner,
+      query({ county: "08069", office: "Accounting" }),
+    );
+    assert.deepEqual(
+      larimer.rows.map((row) => row.roleId),
+      ["role-multi-b"],
+    );
+    const noCounty = await service.listRows(
+      owner,
+      query({ county: "none", office: "Accounting" }),
+    );
+    assert.deepEqual(
+      noCounty.rows.map((row) => row.roleId),
+      ["role-unknown"],
+    );
+  });
+});
+
 test("unlinked roles across pages can be linked to a reviewed same-county suggestion", async () => {
   await fixture(async ({ database, d1, service, owner, editor }) => {
     database.exec(`

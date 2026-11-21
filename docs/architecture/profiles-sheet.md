@@ -17,7 +17,7 @@ All routes are under `/api/admin/profiles` and are default-deny. Every request r
 | Route | Method | Purpose |
 | --- | --- | --- |
 | `/rows` | GET | One page of role rows. Query, county, office, visibility, sort, direction, page and pageSize. |
-| `/facets` | GET | County and office filter choices. |
+| `/facets` | GET | County and office filter choices. Office entries carry their county FIPS. When the response has a `nextOfficeCursor`, pass it as `afterOffice` to load the next set. |
 | `/select-all` | GET | Stable IDs and versions for every matching row, capped at 1000. |
 | `/preview` | POST | Validates changes and returns old and new values, impact and field-level issues. Writes nothing. |
 | `/save` | POST | Applies the changes atomically. A repeated key with the same body replays the stored result. |

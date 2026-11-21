@@ -30,7 +30,6 @@ import {
   PROFILES_MAX_SELECT_ALL,
   type ProfileChange,
   type ProfileChangeIssue,
-  type ProfileFacets,
   type ProfileFieldDefinition,
   type ProfilePage,
   type ProfilePreview,
@@ -47,6 +46,7 @@ import type { DashboardViewFactory } from "./dashboard.js";
 import { clear, el } from "./dom.js";
 import { ProfilesApiError, type ProfilesClient } from "./profiles-client.js";
 import { createImportPanel } from "./profiles-import-view.js";
+import { createProfileOfficeFilters } from "./profiles-office-filters.js";
 
 Tabulator.registerModule([
   AjaxModule,
@@ -249,8 +249,8 @@ export function createProfilesView(options: {
       maxlength: 100,
       placeholder: "Names, office, position, duties",
     });
-    const countySelect = el(doc, "select", { id: "profiles-county" });
-    const officeSelect = el(doc, "select", { id: "profiles-office" });
+    const officeFilters = createProfileOfficeFilters(doc);
+    const { countySelect, officeSelect } = officeFilters;
     const visibilitySelect = el(
       doc,
       "select",
@@ -434,8 +434,7 @@ export function createProfilesView(options: {
             () => {
               closeUnitLinks();
               searchInput.value = "";
-              countySelect.value = "";
-              officeSelect.value = "";
+              officeFilters.clear();
               visibilitySelect.value = "all";
               unitLinkSelect.value = "all";
               applyFilters();
@@ -1043,14 +1042,7 @@ export function createProfilesView(options: {
         announce("Finish or discard the current edits before linking roles.");
         return;
       }
-      const scope: ProfileQuery = {
-        ...query,
-        query: searchInput.value.trim(),
-        countyFips: countySelect.value || null,
-        office: officeSelect.value || null,
-        visibility: visibilitySelect.value as ProfileQuery["visibility"],
-        unitLink: unitLinkSelect.value as ProfileQuery["unitLink"],
-      };
+      const scope = currentFilters();
       closeUnitLinks();
       unitLinkPanel.hidden = false;
       const heading = el(
@@ -1160,15 +1152,7 @@ export function createProfilesView(options: {
       }
       // Read the controls directly so a pending search debounce cannot
       // accidentally select the preceding search results.
-      const scope: ProfileQuery = {
-        ...query,
-        query: searchInput.value.trim(),
-        countyFips: countySelect.value || null,
-        office: officeSelect.value || null,
-        visibility: (visibilitySelect.value ||
-          "all") as ProfileQuery["visibility"],
-        unitLink: unitLinkSelect.value as ProfileQuery["unitLink"],
-      };
+      const scope = currentFilters();
       closeMatchingVisibility();
       matchingVisibilityPanel.hidden = false;
       const heading = el(
@@ -2703,16 +2687,18 @@ export function createProfilesView(options: {
       };
     }
 
-    function applyFilters(): void {
-      query = {
+    function currentFilters(): ProfileQuery {
+      return {
         ...query,
         query: searchInput.value.trim(),
-        countyFips: countySelect.value || null,
-        office: officeSelect.value || null,
+        ...officeFilters.scope(),
         visibility: visibilitySelect.value as ProfileQuery["visibility"],
         unitLink: unitLinkSelect.value as ProfileQuery["unitLink"],
-        page: 1,
       };
+    }
+
+    function applyFilters(): void {
+      query = { ...currentFilters(), page: 1 };
       void reload();
     }
 
@@ -2773,19 +2759,6 @@ export function createProfilesView(options: {
         }
         picker.appendChild(group);
       }
-    }
-
-    function fillFacets(facets: ProfileFacets): void {
-      countySelect.appendChild(
-        el(doc, "option", { value: "" }, "All counties"),
-      );
-      for (const county of facets.counties)
-        countySelect.appendChild(
-          el(doc, "option", { value: county.fips }, county.name),
-        );
-      officeSelect.appendChild(el(doc, "option", { value: "" }, "All offices"));
-      for (const office of facets.offices)
-        officeSelect.appendChild(el(doc, "option", { value: office }, office));
     }
 
     // ------------------------------------------------------- start up
@@ -2853,7 +2826,7 @@ export function createProfilesView(options: {
       });
     void client
       .facets()
-      .then(fillFacets)
+      .then(officeFilters.fill)
       .catch((error: unknown) => announce(describeError(error)));
 
     return {

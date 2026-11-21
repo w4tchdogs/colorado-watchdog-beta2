@@ -642,6 +642,7 @@ export type ProfileVisibilityFilter =
   | "incomplete";
 export type ProfileSortDirection = "asc" | "desc";
 export type ProfileUnitLinkFilter = "all" | "unlinked" | "linked";
+export const PROFILE_NO_COUNTY = "none";
 
 export interface ProfileQuery {
   readonly query: string;
@@ -751,7 +752,11 @@ export interface ProfileFacets {
     readonly fips: string;
     readonly name: string;
   }[];
-  readonly offices: readonly string[];
+  readonly offices: readonly {
+    readonly name: string;
+    readonly countyFips: string | null;
+  }[];
+  readonly nextOfficeCursor: string | null;
 }
 
 /**

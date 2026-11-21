@@ -210,10 +210,10 @@ async function waitFor(check, label, timeout = 4000) {
   }
 }
 
-async function mount(callback, { pageSize = 2, intercept } = {}) {
+async function mount(callback, { pageSize = 2, intercept, seed = "" } = {}) {
   const database = await openWebsiteDatabase();
   migrateWebsiteDatabase(database);
-  database.exec(SEED);
+  database.exec(SEED + seed);
   const adapter = createTestHumanIdentityAdapter({ owner: "owner" });
   const service = createD1ProfilesService(d1Over(database), {
     authorize: async (p) => p.accountId === "acct-owner",
@@ -390,6 +390,64 @@ test("the grid pages, searches across pages and labels row selection separately 
       null,
     );
   });
+});
+
+test("office options label duplicate names by county and apply the selected county", async () => {
+  await mount(
+    async ({ $, rows }) => {
+      const county = $("#profiles-county");
+      const office = $("#profiles-office");
+      const labels = () =>
+        [...office.options].map((option) => option.textContent);
+      const change = (select) =>
+        select.dispatchEvent(new window.Event("change", { bubbles: true }));
+      await waitFor(
+        () => labels().includes("Accounting (Larimer)"),
+        "county-labeled office options",
+      );
+      assert.ok(labels().includes("Accounting (Adams)"));
+      assert.ok(
+        labels().includes("Office 502 (Moffat)"),
+        "the dropdown fetches the next page of offices",
+      );
+      office.value = [...office.options].find(
+        (option) => option.textContent === "Accounting (Larimer)",
+      ).value;
+      change(office);
+      await waitFor(
+        () => rows().length === 1 && /Larimer/.test(rows()[0].textContent),
+        "Larimer Accounting rows",
+      );
+      assert.equal(county.value, "");
+
+      county.value = "08001";
+      change(county);
+      assert.ok(labels().includes("Accounting"));
+      assert.ok(labels().every((label) => !label.includes("(Larimer)")));
+      assert.equal(office.value, "", "the prior Larimer selection is cleared");
+      office.value = [...office.options].find(
+        (option) => option.textContent === "Accounting",
+      ).value;
+      change(office);
+      await waitFor(
+        () =>
+          rows().length === 2 &&
+          rows().every((row) => /Adams/.test(row.textContent)),
+        "Adams Accounting rows",
+      );
+      county.value = "";
+      change(county);
+      assert.equal(office.selectedOptions[0].textContent, "Accounting (Adams)");
+    },
+    {
+      pageSize: 10,
+      seed: `UPDATE organizations SET name = 'Accounting', version = version + 1
+        WHERE id IN ('org-adams', 'org-larimer');
+        WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM n WHERE x < 502)
+        INSERT INTO person_roles (id, person_id, county_fips, published_office)
+        SELECT 'office-dropdown-' || x, 'person-multi', '08081', printf('Office %03d', x) FROM n;`,
+    },
+  );
 });
 
 test("a delayed, superseded Profiles response cannot reset the current page count", async () => {
