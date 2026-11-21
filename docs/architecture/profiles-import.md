@@ -14,7 +14,7 @@ Access is the existing owner `profile.manage` capability on a signed-in human se
 
 ## Supported file contract (`profiles-import/v1`)
 
-Headers are matched after lowercasing and replacing spaces and hyphens with underscores. `county_code` is accepted for `county_fips`. Columns not listed below are shown in the preview as not imported and are never written.
+Headers are matched after lowercasing and replacing spaces and hyphens with underscores. `county_code` is accepted for `county_fips`. In `profile_name.csv` and the **Alternate Names** workbook tab, `full_name_as_published` is accepted for `published_name`. Columns not listed below are shown in the preview as not imported and are never written.
 
 | File | Required | Optional |
 | --- | --- | --- |

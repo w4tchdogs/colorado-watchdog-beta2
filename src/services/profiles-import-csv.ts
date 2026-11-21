@@ -140,9 +140,12 @@ export function parseImportFile(
     issue("empty_file", `${file} has no header row.`);
     return { file, headers: [], ignoredColumns: [], rows: [], issues };
   }
-  const headers = (records[0] as { cells: string[] }).cells.map(
-    normalizeHeader,
-  );
+  const headers = (records[0] as { cells: string[] }).cells.map((cell) => {
+    const header = normalizeHeader(cell);
+    return file === NAME_FILE && header === "full_name_as_published"
+      ? "published_name"
+      : header;
+  });
   const seen = new Set<string>();
   for (const header of headers) {
     if (seen.has(header))

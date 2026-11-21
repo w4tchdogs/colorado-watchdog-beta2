@@ -288,7 +288,7 @@ const snapshot = (count) =>
   ].map(count);
 
 test("XLSX and CSV share the reviewed preview, privacy, receipt and reversal", async () => {
-  await withWorkbookService(async ({ service, owner, count }) => {
+  await withWorkbookService(async ({ service, owner, count, database }) => {
     const files = { profile: PROFILE_CSV, profileRole: ROLE_CSV };
     files.profileName = csv([
       ["profile_name_id", "profile_id", "name_type", "published_name"],
@@ -297,10 +297,12 @@ test("XLSX and CSV share the reviewed preview, privacy, receipt and reversal", a
     const rows = (text) => readCsv(text).records.map((r) => r.cells);
     const roles = rows(files.profileRole);
     roles[1][2] = 8001;
+    const alternateNames = rows(files.profileName);
+    alternateNames[0][3] = "full_name_as_published";
     const workbook = buildProfilesWorkbook({
       Profiles: rows(files.profile),
       Roles: roles,
-      "Alternate Names": rows(files.profileName),
+      "Alternate Names": alternateNames,
     }).toString("base64");
     const before = snapshot(count);
     const visibilityBefore = count("person_visibility");
@@ -322,6 +324,18 @@ test("XLSX and CSV share the reviewed preview, privacy, receipt and reversal", a
     assert.equal(replay.batchId, receipt.batchId);
     assert.equal(count("person_visibility"), visibilityBefore + 2);
     assert.equal(count("profile_names"), 1);
+    assert.deepEqual(
+      database
+        .prepare(
+          "SELECT published_name, verification_status, public_display FROM profile_names",
+        )
+        .get(),
+      {
+        published_name: "Synthetic Alias",
+        verification_status: "requires_review",
+        public_display: 0,
+      },
+    );
 
     const emptyNames = buildProfilesWorkbook({
       Profiles: rows(files.profile),

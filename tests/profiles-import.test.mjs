@@ -176,6 +176,22 @@ test("reads quoted fields, a byte order mark, CRLF and v6 header aliases", () =>
   );
 });
 
+test("accepts the Alternate Names export header and rejects both spellings together", () => {
+  const parsed = parseImportFile(
+    "profile_name.csv",
+    "profile_name_id,profile_id,name_type,full_name_as_published\r\nN1,P1,nickname,Synthetic Alias\r\n",
+  );
+  assert.deepEqual(parsed.issues, []);
+  assert.deepEqual(parsed.ignoredColumns, []);
+  assert.equal(parsed.rows[0].values.published_name, "Synthetic Alias");
+
+  const duplicate = parseImportFile(
+    "profile_name.csv",
+    "profile_name_id,profile_id,name_type,published_name,full_name_as_published\r\n",
+  );
+  assert.equal(duplicate.issues[0].code, "duplicate_column");
+});
+
 test("preview is read-only and reports exact adds, hidden-on-create and untouched records", async () => {
   await withService(async ({ service, owner, count, database }) => {
     const before = snapshot(count);
