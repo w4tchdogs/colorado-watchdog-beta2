@@ -27,7 +27,7 @@ update and edit each of them.
   through audited, capability-limited tools. Each domain has a written
   operator guide that any AI can follow.
 - **Today:** see [CURRENT](CURRENT.md) for hosted inspection, banner and Profiles tools and client-specific evidence.
-- **Remaining:** the first real Profiles pilot, remaining county banner coverage and permanent publication, editorial write tools, and AI operator guides (MCP-4). The [Windows Profiles bridge](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/204) has passed synthetic hosted acceptance. See CURRENT for native client status.
+- **Remaining:** remaining Profiles operator acceptance, county banner coverage and permanent publication, editorial write tools, and AI operator guides (MCP-4). The [Windows Profiles bridge](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/204) has passed synthetic hosted acceptance. See CURRENT for native client status.
 
 ### Goal 2. A populated hosted database
 
@@ -49,8 +49,9 @@ that show the state of profiles, departments and grievances.
   remains open. Public pages show no counts.
 - **Remaining:** finish the campaign-2 validation and resolve the intake
   decision in DATA-1. Research migration 003 and the post-003 restore test
-  are complete. Build and verify the first dashboard Profiles import (SYNC-1),
-  then import the remaining counties (SYNC-2), reconcile the banner inventory, fill missing county
+  are complete. Finish review and receipt-based verification for the first
+  dashboard Profiles import (SYNC-1). After the owner lifts the statewide
+  hold, import the remaining counties (SYNC-2). Reconcile the banner inventory, fill missing county
   coverage and resolve Adams restore and permanent publication
   (BANNERS-IMPORT-1), and add public county counts (STATS-1).
 
@@ -166,7 +167,7 @@ is lifted.
 | 22 | VIS-20 | Visual parity check on the deployed Site | Phase 4 | 6 |
 | 23 | LAUNCH-1 | Launch readiness check against all six goals, then the switch from Beta-1 | All | All |
 
-**Can proceed locally:** prepare the Adams pilot, inventory approved banners and continue scoped visual-audit follow-ups. Check CURRENT for the staging sign-in evidence and hosted import dependencies.
+**Can proceed locally:** review draft Profiles, County Structure and banners with the [local preview](../../README.md#private-draft-review). Continue scoped visual-audit follow-ups. Check CURRENT for staging recovery, sign-in evidence and hosted import dependencies.
 
 ## Owner decisions
 
