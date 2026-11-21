@@ -96,6 +96,7 @@ export const NAME_FILE_COLUMNS = {
 export const IMPORT_ROLE_TEXT_LIMITS = {
   published_office: 500,
   published_title: 500,
+  inferred_title: 500,
   job_description: 2000,
 } as const;
 export const ROLE_FILE_COLUMNS = {
@@ -104,6 +105,7 @@ export const ROLE_FILE_COLUMNS = {
   optional: [
     "published_office",
     "published_title",
+    "inferred_title",
     "job_description",
     "start_date",
     "end_date",

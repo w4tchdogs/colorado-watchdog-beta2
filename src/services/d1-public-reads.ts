@@ -175,7 +175,7 @@ export function createD1PublicReadServices(
     if (!page) return emptyPage();
     const rows = await all<Row>(
       `SELECT pr.id role_id,pr.version role_version,pr.start_date,pr.end_date,pr.source_checked_at,
-      pr.published_office,pr.published_title,pr.job_description,
+      pr.published_office,pr.published_title,pr.inferred_title,pr.job_description,
       p.id person_id,p.display_name,p.version person_version,pos.id position_id,pos.title position_title,pos.version position_version,
       o.id organization_id,o.name organization_name,o.organization_type,o.version organization_version,o.county_fips=? direct,
       COALESCE((SELECT GROUP_CONCAT(relationship_type, ',') FROM (SELECT relationship_type FROM organization_county_affiliations a
@@ -210,6 +210,9 @@ export function createD1PublicReadServices(
           sourceCheckedAt: str(r.source_checked_at ?? ""),
           publishedOffice: nullable(r.published_office),
           publishedTitle: nullable(r.published_title),
+          ...(typeof r.inferred_title === "string"
+            ? { inferredTitle: r.inferred_title }
+            : {}),
           jobDescription: nullable(r.job_description),
         },
         position:
@@ -378,7 +381,7 @@ export function createD1PublicReadServices(
     if (!person) return null;
     const rows = await all<Row>(
       `SELECT pr.id role_id,pr.version role_version,pr.start_date,pr.end_date,pr.source_checked_at,
-      pr.county_fips role_county_fips,rc.name role_county_name,pr.published_office,pr.published_title,pr.job_description,
+      pr.county_fips role_county_fips,rc.name role_county_name,pr.published_office,pr.published_title,pr.inferred_title,pr.job_description,
       pos.id position_id,pos.title position_title,pos.version position_version,o.id organization_id,o.name organization_name,o.organization_type,o.version organization_version,
       s.id source_id,s.title source_title,s.url source_url,s.source_type,s.publisher_classification,s.version source_version FROM person_roles pr
       LEFT JOIN positions pos ON pos.id=pr.position_id LEFT JOIN organizations o ON o.id=pos.organization_id
@@ -412,6 +415,9 @@ export function createD1PublicReadServices(
                 },
           publishedOffice: nullable(r.published_office),
           publishedTitle: nullable(r.published_title),
+          ...(typeof r.inferred_title === "string"
+            ? { inferredTitle: r.inferred_title }
+            : {}),
           jobDescription: nullable(r.job_description),
         },
         position:

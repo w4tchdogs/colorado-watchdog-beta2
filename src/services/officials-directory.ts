@@ -87,14 +87,14 @@ const ID_CHUNK = 40;
 /** Whitelisted ORDER BY expressions; request values never reach the SQL. */
 const SORT_COLUMNS: Readonly<Record<OfficialsSort, string>> = {
   name: "display_name COLLATE NOCASE",
-  title: "title COLLATE NOCASE",
+  title: "COALESCE(published_title, inferred_title) COLLATE NOCASE",
   organization: "organization_name COLLATE NOCASE",
   county: "county_name COLLATE NOCASE",
   checked: "source_checked_at",
 };
 const SORT_NULL_CHECK: Readonly<Record<OfficialsSort, string | null>> = {
   name: null,
-  title: "title IS NULL",
+  title: "COALESCE(published_title, inferred_title) IS NULL",
   organization: "organization_name IS NULL",
   county: "county_name IS NULL",
   checked: "source_checked_at IS NULL",
@@ -318,7 +318,7 @@ function matchingPeopleSql(input: ValidatedRequest): {
       `(person.display_name LIKE ? ESCAPE '\\'
         OR position.title LIKE ? ESCAPE '\\'
         OR org.name LIKE ? ESCAPE '\\'
-        OR role.published_title LIKE ? ESCAPE '\\'
+        OR COALESCE(role.published_title, role.inferred_title) LIKE ? ESCAPE '\\'
         OR role.published_office LIKE ? ESCAPE '\\'
         OR role.job_description LIKE ? ESCAPE '\\')`,
     );
@@ -341,7 +341,7 @@ function matchingPeopleSql(input: ValidatedRequest): {
     : `UNION ALL
        SELECT person.id, person.display_name, NULL, NULL, NULL, NULL, NULL,
               NULL,
-              NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0
+              NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0
        FROM people AS person
        WHERE NOT EXISTS (
                SELECT 1 FROM person_roles AS role WHERE role.person_id = person.id)
@@ -352,7 +352,7 @@ function matchingPeopleSql(input: ValidatedRequest): {
     candidate AS (
       SELECT person.id AS person_id, person.display_name,
              role.id AS role_id, role.start_date, role.end_date,
-             role.source_checked_at, role.published_office, role.published_title,
+             role.source_checked_at, role.published_office, role.published_title, role.inferred_title,
              role.job_description, role.county_fips AS role_county_fips,
              role_county.name AS role_county_name,
              position.id AS position_id, position.title,
@@ -377,7 +377,7 @@ function matchingPeopleSql(input: ValidatedRequest): {
     ),
     entry AS (
       SELECT person_id, display_name, role_id, start_date, end_date,
-             source_checked_at, published_office, published_title,
+             source_checked_at, published_office, published_title, inferred_title,
              job_description, role_county_fips, role_county_name, position_id, title, organization_id,
              organization_name, organization_type, county_name, source_id,
              source_title, source_url, source_type, publisher_classification, matching_role_count
@@ -517,6 +517,9 @@ export async function listOfficials(
               },
         publishedOffice: optionalText(row.published_office),
         publishedTitle: optionalText(row.published_title),
+        ...(typeof row.inferred_title === "string"
+          ? { inferredTitle: row.inferred_title }
+          : {}),
         jobDescription: optionalText(row.job_description),
         position:
           positionId === null

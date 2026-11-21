@@ -683,9 +683,9 @@ async function main() {
     INSERT INTO role_sources (id,url,title,source_type) VALUES
       ('d1-test-source-a','https://example.test/adams','Synthetic official roster','official_page'),
       ('d1-test-source-b','https://example.test/partner','Synthetic partner roster','public_document');
-    WITH RECURSIVE extra_people(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM extra_people WHERE n < 25)\n    INSERT INTO people (id,display_name) SELECT printf('synthetic-page-%02d',n),printf('Synthetic Directory %02d',n) FROM extra_people;\n    INSERT INTO person_roles (id,person_id,position_id,source_id,start_date,source_checked_at) VALUES
-      ('d1-test-role-a','d1-test-person-a','d1-test-position-a','d1-test-source-a','2025-01-01','2026-10-01T00:00:00.000Z'),
-      ('d1-test-role-b','d1-test-person-b','d1-test-position-b','d1-test-source-b','2025-02-01','2026-10-02T00:00:00.000Z');
+    WITH RECURSIVE extra_people(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM extra_people WHERE n < 25)\n    INSERT INTO people (id,display_name) SELECT printf('synthetic-page-%02d',n),printf('Synthetic Directory %02d',n) FROM extra_people;\n    INSERT INTO person_roles (id,person_id,position_id,source_id,start_date,source_checked_at,published_title) VALUES
+      ('d1-test-role-a','d1-test-person-a','d1-test-position-a','d1-test-source-a','2025-01-01','2026-10-01T00:00:00.000Z','Synthetic Clerk'),
+      ('d1-test-role-b','d1-test-person-b','d1-test-position-b','d1-test-source-b','2025-02-01','2026-10-02T00:00:00.000Z','Synthetic Liaison');
     -- Directory paging people need a qualifying role to be public (migration 0034).
     INSERT INTO person_roles (id,person_id,source_id,county_fips,published_title)
       SELECT 'synthetic-page-role-' || substr(id, 16), id, 'd1-test-source-a', '08125', 'Synthetic Directory Title'

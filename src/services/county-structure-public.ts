@@ -255,11 +255,10 @@ export class D1CountyStructurePublicService implements CountyStructureReader {
       title: string | null;
     }>(
       `SELECT d.listing, d.unit_id, p.id AS person_id, p.display_name,
-              COALESCE(r.published_title, pos.title) AS title
+              COALESCE(r.published_title, r.inferred_title) AS title
        FROM county_role_display d
        JOIN person_roles r ON r.id = d.person_role_id
        JOIN people p ON p.id = r.person_id
-       LEFT JOIN positions pos ON pos.id = r.position_id
        WHERE d.county_fips = ? AND ${personIsPublicSql("p.id")}
        ORDER BY p.display_name, p.id, d.id`,
       LIMIT,

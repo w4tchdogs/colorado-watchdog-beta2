@@ -34,6 +34,7 @@ export interface PersonProfileRole {
     /** Documented text, kept apart from the structured links below. */
     readonly publishedOffice: string | null;
     readonly publishedTitle: string | null;
+    readonly inferredTitle?: string;
     readonly jobDescription: string | null;
   };
   /** Null when the role rests on documented text alone. */

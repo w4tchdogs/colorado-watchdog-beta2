@@ -136,6 +136,7 @@ const ENTITY_COLUMNS: Readonly<Record<SyncEntity, readonly string[]>> = {
     "county_fips",
     "published_office",
     "published_title",
+    "inferred_title",
     "job_description",
   ],
   profile_names: [
@@ -888,6 +889,8 @@ const IMPORTER_ONLY_PERSON_FIELDS = [
 function usesImporterOnlyFields(changes: readonly SyncChange[]): boolean {
   return changes.some((change) => {
     if (change.entity === "profile_names") return true;
+    if (change.entity === "person_roles" && isRecord(change.fields))
+      return Object.hasOwn(change.fields, "inferred_title");
     if (change.entity !== "people" || !isRecord(change.fields)) return false;
     return IMPORTER_ONLY_PERSON_FIELDS.some((field) =>
       Object.hasOwn(change.fields, field),

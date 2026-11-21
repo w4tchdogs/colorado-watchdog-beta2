@@ -82,7 +82,7 @@ export function listCountyRoleEntries(
   const rows = database
     .prepare(
       `SELECT pr.id AS role_id, pr.version AS role_version, pr.start_date, pr.end_date,
-            pr.source_checked_at, pr.published_office, pr.published_title, pr.job_description,
+            pr.source_checked_at, pr.published_office, pr.published_title, pr.inferred_title, pr.job_description,
             p.id AS person_id, p.display_name, p.version AS person_version,
             pos.id AS position_id, pos.title AS position_title, pos.version AS position_version,
             o.id AS organization_id, o.name AS organization_name,
@@ -138,6 +138,9 @@ export function listCountyRoleEntries(
         sourceCheckedAt: asString(row.source_checked_at ?? ""),
         publishedOffice: nullableString(row.published_office),
         publishedTitle: nullableString(row.published_title),
+        ...(typeof row.inferred_title === "string"
+          ? { inferredTitle: row.inferred_title }
+          : {}),
         jobDescription: nullableString(row.job_description),
       },
       position:

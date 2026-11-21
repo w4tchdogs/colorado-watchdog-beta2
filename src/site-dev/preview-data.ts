@@ -55,14 +55,14 @@ export function seedFictionalDirectory(database: WebsiteDatabase): void {
            ('demo-person-morgan','Morgan Sample (fictional)'),
            ('demo-person-quinn','Quinn Specimen (fictional)'),
            ('demo-person-no-roles','Harper Unlisted (fictional)');
-    INSERT INTO person_roles (id, person_id, position_id, source_id, start_date, end_date, source_checked_at)
-    VALUES ('demo-role-01','demo-person-jordan-a','demo-pos-clerk','demo-src-adams','2023-01-10',NULL,'2026-10-02'),
-           ('demo-role-02','demo-person-jordan-a','demo-pos-deputy','demo-src-minutes','2019-03-01','2023-01-09','2026-10-02'),
-           ('demo-role-03','demo-person-jordan-b','demo-pos-larimer-clerk','demo-src-larimer',NULL,NULL,'2026-09-18'),
-           ('demo-role-04','demo-person-riley','demo-pos-director','demo-src-adams',NULL,NULL,'2026-10-02'),
-           ('demo-role-05','demo-person-morgan','demo-pos-health','demo-src-health','2021-06-15',NULL,'2026-08-30'),
-           ('demo-role-06','demo-person-quinn','demo-pos-library','demo-src-news',NULL,'2025-12-31','2026-07-04'),
-           ('demo-role-07','demo-person-riley','demo-pos-roads','demo-src-minutes','2015-05-01','2020-04-30','2026-10-02');
+    INSERT INTO person_roles (id, person_id, position_id, source_id, start_date, end_date, source_checked_at, published_title)
+    VALUES ('demo-role-01','demo-person-jordan-a','demo-pos-clerk','demo-src-adams','2023-01-10',NULL,'2026-10-02', 'Fictional Clerk and Recorder'),
+           ('demo-role-02','demo-person-jordan-a','demo-pos-deputy','demo-src-minutes','2019-03-01','2023-01-09','2026-10-02', 'Fictional Deputy Clerk'),
+           ('demo-role-03','demo-person-jordan-b','demo-pos-larimer-clerk','demo-src-larimer',NULL,NULL,'2026-09-18', 'Fictional Clerk and Recorder'),
+           ('demo-role-04','demo-person-riley','demo-pos-director','demo-src-adams',NULL,NULL,'2026-10-02', 'Fictional Public Works Director'),
+           ('demo-role-05','demo-person-morgan','demo-pos-health','demo-src-health','2021-06-15',NULL,'2026-08-30', 'Fictional District Health Officer'),
+           ('demo-role-06','demo-person-quinn','demo-pos-library','demo-src-news',NULL,'2025-12-31','2026-07-04', 'Fictional Partnership Coordinator'),
+           ('demo-role-07','demo-person-riley','demo-pos-roads','demo-src-minutes','2015-05-01','2020-04-30','2026-10-02', 'Fictional Road Supervisor');
   `);
   // Larimer: a department with a division, a second office and a person who
   // also has a role in another county.
@@ -89,24 +89,24 @@ export function seedFictionalDirectory(database: WebsiteDatabase): void {
            ('demo-l-06','Frankie Dummy (fictional)'),
            ('demo-l-07','Greer Standin (fictional)'),
            ('demo-l-08','Hollis Standin (fictional)');
-    INSERT INTO person_roles (id, person_id, position_id, source_id, start_date, end_date, source_checked_at)
-    VALUES ('demo-role-l-01','demo-l-01','demo-pos-l-assessor','demo-src-larimer','2023-01-10',NULL,'2026-09-18'),
-           ('demo-role-l-02','demo-l-02','demo-pos-l-director','demo-src-larimer-dev','2020-02-03',NULL,'2026-10-20'),
-           ('demo-role-l-03','demo-l-03','demo-pos-l-planner','demo-src-larimer-dev',NULL,NULL,'2026-10-20'),
-           ('demo-role-l-04','demo-l-04','demo-pos-l-planner','demo-src-larimer-dev',NULL,'2025-06-30','2026-10-20'),
-           ('demo-role-l-05','demo-l-05','demo-pos-l-inspector','demo-src-larimer-dev',NULL,NULL,'2026-10-21'),
-           ('demo-role-l-06','demo-l-06','demo-pos-l-inspector','demo-src-larimer-dev',NULL,NULL,'2026-10-21'),
-           ('demo-role-l-07','demo-l-07','demo-pos-l-permit','demo-src-larimer-dev','2024-08-12',NULL,'2026-10-21'),
-           ('demo-role-l-08','demo-l-08','demo-pos-l-permit','demo-src-larimer-dev',NULL,NULL,'2026-10-21'),
-           ('demo-role-l-09','demo-l-05','demo-pos-l-permit','demo-src-larimer-dev','2019-01-07','2022-03-31','2026-10-21'),
-           ('demo-role-l-10','demo-person-riley','demo-pos-l-director','demo-src-larimer-dev','2012-04-02','2015-04-30','2026-10-20');
+    INSERT INTO person_roles (id, person_id, position_id, source_id, start_date, end_date, source_checked_at, published_title)
+    VALUES ('demo-role-l-01','demo-l-01','demo-pos-l-assessor','demo-src-larimer','2023-01-10',NULL,'2026-09-18', 'Fictional Assessor'),
+           ('demo-role-l-02','demo-l-02','demo-pos-l-director','demo-src-larimer-dev','2020-02-03',NULL,'2026-10-20', 'Fictional Community Development Director'),
+           ('demo-role-l-03','demo-l-03','demo-pos-l-planner','demo-src-larimer-dev',NULL,NULL,'2026-10-20', 'Fictional Senior Planner for Long-Range Land Use and Rural Area Coordination'),
+           ('demo-role-l-04','demo-l-04','demo-pos-l-planner','demo-src-larimer-dev',NULL,'2025-06-30','2026-10-20', 'Fictional Senior Planner for Long-Range Land Use and Rural Area Coordination'),
+           ('demo-role-l-05','demo-l-05','demo-pos-l-inspector','demo-src-larimer-dev',NULL,NULL,'2026-10-21', 'Fictional Building Inspector'),
+           ('demo-role-l-06','demo-l-06','demo-pos-l-inspector','demo-src-larimer-dev',NULL,NULL,'2026-10-21', 'Fictional Building Inspector'),
+           ('demo-role-l-07','demo-l-07','demo-pos-l-permit','demo-src-larimer-dev','2024-08-12',NULL,'2026-10-21', 'Fictional Permit Technician'),
+           ('demo-role-l-08','demo-l-08','demo-pos-l-permit','demo-src-larimer-dev',NULL,NULL,'2026-10-21', 'Fictional Permit Technician'),
+           ('demo-role-l-09','demo-l-05','demo-pos-l-permit','demo-src-larimer-dev','2019-01-07','2022-03-31','2026-10-21', 'Fictional Permit Technician'),
+           ('demo-role-l-10','demo-person-riley','demo-pos-l-director','demo-src-larimer-dev','2012-04-02','2015-04-30','2026-10-20', 'Fictional Community Development Director');
   `);
   const person = database.prepare(
     "INSERT INTO people (id, display_name) VALUES (?, ?)",
   );
   const role = database.prepare(
-    `INSERT INTO person_roles (id, person_id, position_id, source_id, source_checked_at)
-     VALUES (?, ?, 'demo-pos-crew', 'demo-src-adams', '2026-10-02')`,
+    `INSERT INTO person_roles (id, person_id, position_id, source_id, source_checked_at, published_title)
+     VALUES (?, ?, 'demo-pos-crew', 'demo-src-adams', '2026-10-02', 'Fictional Road Crew Member')`,
   );
   // Enough crew records to demonstrate bounded pagination.
   for (let index = 0; index < 32; index += 1) {

@@ -298,7 +298,11 @@ async function describeListedEmployees(
       for (const item of page.items) {
         if (!roleIds.has(item.role.id)) continue;
         roles[item.role.id] = {
-          title: item.role.publishedTitle ?? item.position?.title ?? null,
+          title:
+            item.role.publishedTitle ??
+            item.role.inferredTitle ??
+            item.position?.title ??
+            null,
           office: item.role.publishedOffice ?? item.organization?.name ?? null,
           sourceCheckedAt: item.role.sourceCheckedAt,
           startDate: item.role.startDate,

@@ -92,6 +92,19 @@ test("identically named people remain distinct records", async () => {
   });
 });
 
+test("a public Profile shows office and organization details without inventing a title", async () => {
+  await withPreview("fictional", async (preview) => {
+    preview.database.exec(
+      "UPDATE person_roles SET published_title = NULL, version = version + 1 WHERE id = 'demo-role-01'",
+    );
+    const person = await get(preview, "/people/demo-person-jordan-a");
+    const role = person.$(".role-entry");
+    assert.equal(role.querySelector("h3"), null);
+    assert.ok(role.querySelector('a[href="/organizations/demo-adams-clerk"]'));
+    assert.match(role.textContent, /Fictional Clerk and Recorder Office/);
+  });
+});
+
 test("person profile shows role history, counties and dates without citations", async () => {
   await withPreview("fictional", async (preview) => {
     const page = await get(preview, "/people/demo-person-jordan-a");

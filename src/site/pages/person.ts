@@ -39,16 +39,14 @@ export function countyAssociations(
 }
 
 function roleCard(entry: PersonProfileRole): SafeHtml {
-  const { position, organization, role } = entry;
-  const heading =
-    position?.title ?? role.publishedTitle ?? role.publishedOffice ?? "Role";
+  const { organization, role } = entry;
+  const title = role.publishedTitle ?? role.inferredTitle;
   return html`<li class="role-entry">
     <div class="role-head">
-      <h3>${heading}</h3>
+      ${title ? html`<h3>${title}</h3>` : ""}
       ${organization ? html`<p class="role-position">${organizationLink(organization.id, organization.name)} ${organizationTypeBadge(organization.type)}</p>` : ""}
     </div>
-    ${role.publishedOffice && (position || role.publishedTitle) ? html`<p class="role-office"><span class="quiet">Office as published:</span> ${role.publishedOffice}</p>` : ""}
-    ${role.publishedTitle && position && role.publishedTitle !== position.title ? html`<p class="role-title"><span class="quiet">Title as published:</span> ${role.publishedTitle}</p>` : ""}
+    ${role.publishedOffice ? html`<p class="role-office"><span class="quiet">Office as published:</span> ${role.publishedOffice}</p>` : ""}
     ${role.jobDescription ? html`<p class="role-duties"><span class="quiet">Duties as published:</span> ${role.jobDescription}</p>` : ""}
     ${role.county ? html`<p class="role-county"><span class="quiet">County:</span> ${countyLink(role.county.fips, role.county.name)}</p>` : ""}
     ${organization ? countyAssociations(organization.counties) : ""}

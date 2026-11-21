@@ -20,7 +20,7 @@ Headers are matched after lowercasing and replacing spaces and hyphens with unde
 | --- | --- | --- |
 | `profile.csv` | `profile_id`, `display_name` | `first_name`, `middle_name`, `last_name`, `name_prefix`, `name_suffix`, `preferred_first_name` |
 | `profile_name.csv` | `profile_name_id`, `profile_id`, `name_type`, `published_name` | `first_name`, `middle_name`, `last_name`, `name_prefix`, `name_suffix`, `applies_from`, `applies_until`, `verification_status`, `public_display` |
-| `profile_role.csv` | `role_id`, `profile_id`, `county_fips` | `published_office`, `published_title`, `job_description`, `start_date`, `end_date` |
+| `profile_role.csv` | `role_id`, `profile_id`, `county_fips` | `published_office`, `published_title`, `inferred_title`, `job_description`, `start_date`, `end_date` |
 
 ### Excel workbook
 
@@ -91,9 +91,17 @@ The real Adams send stays a separate step. It needs the owner's exact reviewed s
 
 The importer reads stable-ID mappings only from sync batches it committed itself. Importer batches are stored with the idempotency key prefix `pi:` and mappings use the `dash:profile:` and `dash:role:` client references. A mapping is ignored when its batch has a reversal record, when its key lacks the `pi:` prefix, or when the batch belongs to another account. The reverse route refuses any batch that is not an importer batch of the signed-in owner. Tests cover import, reverse and re-preview, an unrelated batch that reuses the `dash:` namespace, and a synthetic 5-Profile, 7-role follow-on batch.
 
-## Title only roles
+## Role title display
 
-A role row may carry only published_title, with published_office and job_description blank and no structured position link. The exact title, including commas and an ampersand when the field is quoted, is stored in person_roles.published_title and is shown in the Position column of the Profiles tab (the column reads the published title first and the structured position second). A regression test uses the synthetic title Training, Records & Development Manager through preview, commit, readback, search and an unchanged re-upload.
+A role row may carry only published_title, with published_office and job_description blank and no structured position link. The exact title, including commas and an ampersand when the field is quoted, is stored in person_roles.published_title and is shown in the Position column of the Profiles tab (the column reads the published title first, then the inferred title, then the linked position). A regression test uses the synthetic title Training, Records & Development Manager through preview, commit, readback, search and an unchanged re-upload.
+
+The optional `inferred_title` column stores a display label separately from
+`published_title`. Public profile and directory entries use the published title
+first and the inferred title when the published title is blank. Both blank values
+omit the title and retain the role's other details. The workbook's standard
+header rules apply when updating an existing role: an omitted column preserves
+the saved value and a blank value in an included column clears it.
+An inferred label is presentation only and the existing role-detail requirement applies.
 
 ## Reserved marker and version guard
 

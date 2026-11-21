@@ -37,12 +37,12 @@ const sourceMigrations = (await readdir(resolve(root, "website/migrations")))
   .filter((name) => /^\d{4}_[a-z0-9_]+\.sql$/.test(name))
   .sort();
 if (
-  sourceMigrations.length !== 39 ||
-  !sourceMigrations.at(-1)?.startsWith("0039_") ||
+  sourceMigrations.length !== 40 ||
+  !sourceMigrations.at(-1)?.startsWith("0040_") ||
   sourceMigrations.some((name, index) => Number(name.slice(0, 4)) !== index + 1)
 ) {
   throw new Error(
-    `Expected the staging catalog of 39 migrations; found ${sourceMigrations.length}`,
+    `Expected the staging catalog of 40 migrations; found ${sourceMigrations.length}`,
   );
 }
 const historyTable =

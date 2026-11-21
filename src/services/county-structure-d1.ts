@@ -1007,7 +1007,7 @@ export class D1CountyStructureAdministration {
     await this.authorize(principal);
     const rows = await this.database.all<Record<string, unknown>>(
       `SELECT d.id, d.person_role_id, r.person_id, p.display_name, d.listing, d.unit_id,
-              COALESCE(r.published_title, pos.title) AS title
+              COALESCE(r.published_title, r.inferred_title, pos.title) AS title
        FROM county_role_display d
        JOIN person_roles r ON r.id = d.person_role_id
        JOIN people p ON p.id = r.person_id

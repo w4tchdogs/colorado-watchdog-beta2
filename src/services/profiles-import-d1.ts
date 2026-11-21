@@ -716,11 +716,12 @@ async function buildPlan(
     end_date: string | null;
     published_office: string | null;
     published_title: string | null;
+    inferred_title: string | null;
     job_description: string | null;
   }>(
     db,
     "person_roles",
-    "id, person_id, version, county_fips, position_id, start_date, end_date, published_office, published_title, job_description",
+    "id, person_id, version, county_fips, position_id, start_date, end_date, published_office, published_title, inferred_title, job_description",
     mappedRoleIds,
   );
   const hidden = new Set<string>();
@@ -1038,6 +1039,7 @@ async function buildPlan(
     const label =
       role.publishedOffice ??
       role.publishedTitle ??
+      role.inferredTitle ??
       role.jobDescription ??
       role.roleId;
     const blockedRow = (reason: string, code: string) => {
@@ -1095,6 +1097,9 @@ async function buildPlan(
             ...(role.publishedTitle
               ? { published_title: role.publishedTitle }
               : {}),
+            ...(role.inferredTitle
+              ? { inferred_title: role.inferredTitle }
+              : {}),
             ...(role.jobDescription
               ? { job_description: role.jobDescription }
               : {}),
@@ -1143,6 +1148,7 @@ async function buildPlan(
     const roleText = [
       ["published_office", role.publishedOffice, current.published_office],
       ["published_title", role.publishedTitle, current.published_title],
+      ["inferred_title", role.inferredTitle, current.inferred_title],
       ["job_description", role.jobDescription, current.job_description],
     ] as const;
     for (const [field, value, now_] of roleText)
@@ -1176,8 +1182,10 @@ async function buildPlan(
     if (
       masterWorkbook &&
       !current.position_id &&
-      !roleText.some(([field, value, before]) =>
-        roleHeaders.includes(field) ? value : before,
+      !roleText.some(
+        ([field, value, before]) =>
+          field !== "inferred_title" &&
+          (roleHeaders.includes(field) ? value : before),
       )
     ) {
       blockedRow(

@@ -117,7 +117,7 @@ test("migrations produce the same schema and are safe to reapply", async () => {
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
           .count,
-        39,
+        40,
       );
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM counties").get().count,
@@ -232,7 +232,7 @@ test("M2 migrations add schema without changing existing M1 rows", async () => {
       [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
         21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
-        39,
+        39, 40,
       ],
     );
     assert.equal(
@@ -403,7 +403,7 @@ test("0015 corrects only the county names and preserves dependent FIPS reference
     assert.equal(
       database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
         .count,
-      39,
+      40,
     );
     assert.deepEqual(
       database
