@@ -16,7 +16,11 @@ import {
 import { D1BannerAdministration } from "../services/banner-admin-d1.js";
 import { MemoryBannerObjectStorage } from "../services/banner-storage.js";
 import { createContentService } from "../services/content.js";
+import { D1CountyRoleAttachments } from "../services/county-role-attachment-d1.js";
+import { D1CountyStructureAdministration } from "../services/county-structure-d1.js";
 import { createDashboardService } from "../services/dashboard.js";
+import { createD1ProfilesService } from "../services/profiles-d1.js";
+import { createD1ProfilesImportService } from "../services/profiles-import-d1.js";
 import {
   createTestHumanIdentityAdapter,
   hasCapability,
@@ -32,7 +36,15 @@ import {
   createContentApiTransport,
   createContentTransportOperations,
 } from "../transport/content-api.js";
+import {
+  createCountyStructureApiTransport,
+  isCountyStructurePath,
+} from "../transport/county-structure-api.js";
 import { createDashboardApiTransport } from "../transport/dashboard-api.js";
+import {
+  createProfilesApiTransport,
+  isProfilesPath,
+} from "../transport/profiles-api.js";
 import { createLocalD1Binding } from "./d1-binding.js";
 import { LookupRequestError, parseLookupRequest, runLookup } from "./lookup.js";
 
@@ -157,8 +169,13 @@ const STATIC_FILES: Readonly<
   },
   "/app/main.js": {
     directory: "script",
-    file: "main.js",
+    file: "sandbox-app.js",
     type: "text/javascript; charset=utf-8",
+  },
+  "/app/dashboard-app.css": {
+    directory: "script",
+    file: "dashboard-app.css",
+    type: "text/css; charset=utf-8",
   },
   "/app/app.js": {
     directory: "script",
@@ -321,6 +338,8 @@ export async function createEditorSandbox(
   });
   const publicSiteUrl = loopbackUrl(options.publicSiteUrl);
   const adapter = createTestHumanIdentityAdapter(SUBJECTS);
+  const localPrincipal = (request: Request) =>
+    resolvePrincipal(database, request, adapter);
   const token = options.token ?? randomBytes(32).toString("base64url");
   const allowedHosts = new Set(
     options.allowedHosts.map((h) => h.toLowerCase()),
@@ -332,7 +351,7 @@ export async function createEditorSandbox(
     timeoutMs: options.aiTimeoutMs ?? 5_000,
   });
   const transport = createContentApiTransport({
-    resolvePrincipal: (request) => resolvePrincipal(database, request, adapter),
+    resolvePrincipal: localPrincipal,
     authorize: (principal) => sandboxPolicy(principal),
     operations: {
       ...createContentTransportOperations(service),
@@ -341,21 +360,35 @@ export async function createEditorSandbox(
     },
   });
   const dashboardTransport = createDashboardApiTransport({
-    resolvePrincipal: (request) => resolvePrincipal(database, request, adapter),
+    resolvePrincipal: localPrincipal,
     service: dashboard,
   });
-  // The merged banner administration service runs over a sync->async database
-  // adapter with an in-memory object store, so the local preview behaves like
-  // the hosted deployment without touching any real binding.
+  // Reuse the hosted services on disposable local storage. Only this sandbox
+  // supplies the synthetic principal and in-memory database and object adapters.
+  const localD1 = new AsyncD1Database(createLocalD1Binding(database));
   const bannerStorage = new MemoryBannerObjectStorage();
   const bannerTransport = createBannerAdminApiTransport({
-    resolvePrincipal: (request) => resolvePrincipal(database, request, adapter),
+    resolvePrincipal: localPrincipal,
     authorize: (principal) =>
       hasCapability(database, principal, "banner.manage"),
-    administration: new D1BannerAdministration(
-      new AsyncD1Database(createLocalD1Binding(database)),
-      bannerStorage,
-    ),
+    administration: new D1BannerAdministration(localD1, bannerStorage),
+  });
+  const authorizeProfiles = async (principal: TrustedPrincipal) =>
+    hasCapability(database, principal, "profile.manage");
+  const profilesTransport = createProfilesApiTransport({
+    resolvePrincipal: localPrincipal,
+    authorize: authorizeProfiles,
+    service: createD1ProfilesService(localD1, { authorize: authorizeProfiles }),
+    importService: createD1ProfilesImportService(localD1, {
+      authorize: authorizeProfiles,
+    }),
+  });
+  const countyStructureTransport = createCountyStructureApiTransport({
+    resolvePrincipal: localPrincipal,
+    authorize: async (principal) =>
+      hasCapability(database, principal, "county_structure.manage"),
+    administration: new D1CountyStructureAdministration(localD1),
+    roleAttachments: new D1CountyRoleAttachments(localD1),
   });
 
   await seedContent(database, service);
@@ -401,7 +434,7 @@ export async function createEditorSandbox(
     if (request.method !== "POST") {
       return sandboxJson(405, { error: "method_not_allowed" });
     }
-    const principal = await resolvePrincipal(database, request, adapter);
+    const principal = await localPrincipal(request);
     if (!principal)
       return sandboxJson(401, { error: "authentication_required" });
     if (!sandboxPolicy(principal, "content.read")) {
@@ -435,12 +468,16 @@ export async function createEditorSandbox(
     if (!allowedHosts.has(url.host.toLowerCase())) {
       return sandboxJson(403, { error: "forbidden" });
     }
+    const isProfiles = isProfilesPath(url.pathname);
+    const isCountyStructure = isCountyStructurePath(url.pathname);
     const isApi =
       url.pathname === SANDBOX_INFO_PATH ||
       url.pathname === SANDBOX_LOOKUP_PATH ||
       url.pathname === DASHBOARD_API_PATHS.session ||
       url.pathname === DASHBOARD_API_PATHS.view ||
       isBannerAdminPath(url.pathname) ||
+      isProfiles ||
+      isCountyStructure ||
       Object.values(CONTENT_API_PATHS).includes(
         url.pathname as (typeof CONTENT_API_PATHS)[keyof typeof CONTENT_API_PATHS],
       );
@@ -475,13 +512,16 @@ export async function createEditorSandbox(
     if (url.pathname === SANDBOX_LOOKUP_PATH) {
       return handleLookup(request);
     }
-    const response = await (url.pathname === DASHBOARD_API_PATHS.session ||
-    url.pathname === DASHBOARD_API_PATHS.view
-      ? dashboardTransport
-      : isBannerAdminPath(url.pathname)
-        ? bannerTransport
-        : transport
-    ).fetch(request);
+    let api = transport;
+    if (
+      url.pathname === DASHBOARD_API_PATHS.session ||
+      url.pathname === DASHBOARD_API_PATHS.view
+    )
+      api = dashboardTransport;
+    else if (isBannerAdminPath(url.pathname)) api = bannerTransport;
+    else if (isProfiles) api = profilesTransport;
+    else if (isCountyStructure) api = countyStructureTransport;
+    const response = await api.fetch(request);
     const headers = new Headers(response.headers);
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
       headers.set(name, value);
@@ -544,6 +584,16 @@ function seedAccountsAndDirectory(database: WebsiteDatabase): void {
     INSERT INTO person_roles (id, person_id, position_id, source_id, source_checked_at)
     VALUES ('sbx-role-1','sbx-person-1','sbx-pos-1','sbx-src-1','2026-01-01'),
            ('sbx-role-2','sbx-person-4','sbx-pos-2','sbx-src-2','2026-01-01');
+    INSERT INTO county_unit_display (id, county_fips, name)
+    VALUES ('sbx-county-offices','08001','Fictional Offices');
+    INSERT INTO county_unit
+      (id, county_fips, display_group_id, parent_relationship, name, organization_type)
+    VALUES
+      ('sbx-county-records','08001','sbx-county-offices','display_group','Fictional Records Office','office');
+    INSERT INTO county_unit
+      (id, county_fips, parent_unit_id, parent_relationship, name, organization_type)
+    VALUES
+      ('sbx-county-records-section','08001','sbx-county-records','part_of','Fictional Archives Section','section');
   `);
 }
 

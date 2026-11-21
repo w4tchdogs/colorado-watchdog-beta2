@@ -68,10 +68,11 @@ preview on port 8790 if that port is available. The dashboard uses a
 disposable sandbox with synthetic accounts and data. See the
 [dashboard guide](docs/architecture/dashboard.md) for details.
 
-The sandbox covers Overview, My Account, Posts & Stories, and Banners.
-Profiles and County Structure use the hosted dashboard entry. For changes
-to those views, ask the implementer for a local Worker preview with synthetic
-data and the exact URL they verified.
+Choose **Olive Owner (owner)** under **Acting as** to open
+[Profiles](http://127.0.0.1:8788/#/profiles) or
+[County Structure](http://127.0.0.1:8788/#/county-structure). The County
+Structure workspace has a fictional hierarchy in Adams County. Edits are
+discarded when you stop the sandbox.
 
 For the report form, run `npm run report:demo` and open
 [Submit or Track a Report demo](http://127.0.0.1:8791/).

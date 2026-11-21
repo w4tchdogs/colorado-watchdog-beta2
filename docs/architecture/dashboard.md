@@ -1,6 +1,6 @@
 # Dashboard foundation (EDIT-2 local slice)
 
-One WordPress-style dashboard for signed-in human accounts. This slice delivers the shared shell and three working views: Overview, My Account and Posts & Stories. The sandbox runs only locally with fictional data. The hosted Alpha-1 entry (Overview and My Account) is described in the hosted section below.
+One WordPress-style dashboard for signed-in human accounts. The local sandbox serves Overview, My Account, Posts & Stories, Banners, Profiles and County Structure using fictional data. The hosted Alpha-1 entry is described below.
 
 ## Start the preview
 
@@ -11,6 +11,12 @@ Requirements: Node.js 22 and `npm install` run once in the checkout.
 3. Stop with `Ctrl+C`. Every change is discarded on exit.
 
 The same command also starts the read-only fictional public site preview at `http://127.0.0.1:8790/`, which is where “View public site” goes. Set `EDITOR_PORT` or `SITE_PORT` to change either port. If the site port is already in use, the dashboard still starts and the link points at whatever preview holds that port.
+
+In **Acting as**, select **Olive Owner (owner)** for the
+[Profiles](http://127.0.0.1:8788/#/profiles) and
+[County Structure](http://127.0.0.1:8788/#/county-structure) workspaces. The
+sandbox runs both sets of services and transports on disposable in-memory
+Website data. Seeded Profiles and the example Adams County hierarchy are fictional.
 
 ## What the shell provides
 
@@ -43,7 +49,8 @@ A role change, a disabled account or a revoked link applies on the next request.
 | Posts & Stories | Working | `content.publish` | No | Yes | Yes | Yes |
 | Reports | Planned | `report.review` | No | Yes | Yes | Yes |
 | Banners | Working | `banner.manage` | No | No | Yes | Yes |
-| Profiles | Working, hosted only. The local sandbox lists it as planned | `profile.manage` | No | No | No | Yes |
+| Profiles | Working | `profile.manage` | No | No | No | Yes |
+| County Structure | Working | `county_structure.manage` | No | No | No | Yes |
 | Accounts | Planned | `account.read` | No | No | Yes | Yes |
 | Audit | Planned | `audit.read` | No | No | Yes | Yes |
 | System Status | Planned | `d1.inspect` | No | No | Yes | Yes |

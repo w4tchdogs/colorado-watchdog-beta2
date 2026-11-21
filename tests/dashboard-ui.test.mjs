@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { JSDOM } from "jsdom";
+import { JSDOM, VirtualConsole } from "jsdom";
 import { createEditorApiClient } from "../dist/editor/api-client.js";
 import { createDashboardClient } from "../dist/editor/dashboard-client.js";
 import {
@@ -379,6 +379,8 @@ test("signed-out and disabled accounts see no navigation, data or account menu",
       "My Account",
       "Posts & Stories",
       "Banners",
+      "Profiles",
+      "County Structure",
     ]);
     d.go("#/overview");
     await waitFor(() => d.$("#overview-planned"), "owner overview");
@@ -397,6 +399,83 @@ test("signed-out and disabled accounts see no navigation, data or account menu",
     assert.deepEqual(d.nav(), ["Overview", "My Account"]);
   } finally {
     d.close();
+  }
+});
+
+test("the built local dashboard opens both fictional owner workspaces", async () => {
+  const sandbox = await startSandbox();
+  const page = await sandbox.fetch(new Request(ORIGIN));
+  const dom = new JSDOM(await page.text(), {
+    url: ORIGIN,
+    runScripts: "outside-only",
+    pretendToBeVisual: true,
+    virtualConsole: new VirtualConsole(),
+  });
+  const { window } = dom;
+  window.Headers = Headers;
+  window.fetch = (path, init) => {
+    const headers = new Headers(init?.headers);
+    headers.set("origin", ORIGIN);
+    return sandbox.fetch(
+      new Request(new URL(path, ORIGIN), { ...init, headers }),
+    );
+  };
+  window.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  // jsdom has no layout. Tabulator needs a nonzero table size to render rows.
+  for (const [name, value] of [
+    ["offsetHeight", 600],
+    ["clientHeight", 600],
+    ["offsetWidth", 1200],
+    ["clientWidth", 1200],
+  ])
+    Object.defineProperty(window.HTMLElement.prototype, name, {
+      get: () => value,
+    });
+  try {
+    const bundle = await sandbox.fetch(new Request(`${ORIGIN}/app/main.js`));
+    assert.equal(bundle.status, 200);
+    window.eval(await bundle.text());
+    const $ = (selector) => window.document.querySelector(selector);
+    const owner = await waitFor(
+      () => $('#sandbox-account option[value="owner"]'),
+      "sandbox owner option",
+    );
+    const select = owner.parentElement;
+    select.value = "owner";
+    select.dispatchEvent(new window.Event("change", { bubbles: true }));
+    await waitFor(() => $('a[data-view="profiles"]'), "Profiles navigation");
+
+    window.location.hash = "#/profiles";
+    await waitFor(
+      () => $("#profiles-grid")?.textContent.includes("Fictional Person"),
+      "fictional Profiles in the table",
+    );
+    window.location.hash = "#/county-structure";
+    const adams = await waitFor(
+      () => $('#cs-county option[value="08001"]'),
+      "Adams County option",
+    );
+    adams.parentElement.value = "08001";
+    adams.parentElement.dispatchEvent(
+      new window.Event("change", { bubbles: true }),
+    );
+    await waitFor(
+      () => $(".cs-tree")?.textContent.includes("Fictional Archives Section"),
+      "fictional Adams County hierarchy",
+    );
+    assert.equal($("#cs-county").value, "08001");
+    const css = await sandbox.fetch(
+      new Request(`${ORIGIN}/app/dashboard-app.css`),
+    );
+    assert.equal(css.status, 200);
+    assert.match(await css.text(), /\.tabulator-header/);
+  } finally {
+    window.close();
+    sandbox.close();
   }
 });
 

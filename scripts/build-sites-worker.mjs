@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { cp, mkdir, readdir, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -23,6 +23,15 @@ await Promise.all([
 ]);
 
 await Promise.all([
+  build({
+    entryPoints: [join(root, "src", "editor", "main.ts")],
+    outfile: join(dist, "editor", "sandbox-app.js"),
+    bundle: true,
+    platform: "browser",
+    format: "esm",
+    target: "es2022",
+    logLevel: "info",
+  }),
   build({
     entryPoints: [join(root, "src", "site", "report-browser.ts")],
     outfile: join(siteBundle, "report-interface.js"),
@@ -89,7 +98,7 @@ assetData["staff-reports.js"] = (
 assetData["dashboard-app.js"] = (
   await readFile(join(siteBundle, "dashboard-app.js"))
 ).toString("base64");
-assetData["dashboard-app.css"] = Buffer.concat([
+const dashboardStyles = Buffer.concat([
   await readFile(join(root, "website", "editor", "editor.css")),
   Buffer.from("\n"),
   await readFile(join(root, "website", "editor", "dashboard.css")),
@@ -108,7 +117,9 @@ assetData["dashboard-app.css"] = Buffer.concat([
   await readFile(join(root, "website", "editor", "profiles.css")),
   Buffer.from("\n"),
   await readFile(join(root, "website", "editor", "county-structure.css")),
-]).toString("base64");
+]);
+assetData["dashboard-app.css"] = dashboardStyles.toString("base64");
+await writeFile(join(dist, "editor", "dashboard-app.css"), dashboardStyles);
 const hosting = JSON.parse(
   await readFile(join(root, ".openai", "hosting.json"), "utf8"),
 );
