@@ -304,7 +304,7 @@ export const PROFILE_FIELDS: readonly ProfileFieldDefinition[] = [
     status: "read-only",
     scope: "profile",
     source:
-      "Visible on Website and the publication rule (profile_publication_ready, migration 0034)",
+      "Visible on Website and the publication rule (profile_publication_ready, migration 0037)",
     owner:
       "Website. Computed, never stored. Says Visible, Hidden, or Hidden with what is missing, such as Hidden · Missing role.",
     defaultVisible: true,
@@ -666,7 +666,7 @@ export interface ProfileRow {
   readonly visible: boolean;
   /** True when the Profile meets the publication rule. */
   readonly publicationReady: boolean;
-  /** What is missing, such as "role" or "source". Empty when ready. */
+  /** What is missing, such as "role" or "county". Empty when ready. */
   readonly missingForPublication: readonly string[];
   /** `incomplete` when the Website hid the Profile automatically. */
   readonly hiddenReason: "incomplete" | null;

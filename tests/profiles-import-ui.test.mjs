@@ -234,11 +234,7 @@ async function runImport(format) {
       1,
       "preview wrote nothing",
     );
-    assert.equal(
-      $$rows().length,
-      5,
-      "two Profiles, two roles, one source row shown",
-    );
+    assert.equal($$rows().length, 4, "two Profiles and two roles shown");
     assert.equal($("#import-commit").hasAttribute("disabled"), false);
     if (format === "XLSX") {
       $("#import-workbook-file").dispatchEvent(new window.Event("change"));
@@ -250,7 +246,7 @@ async function runImport(format) {
     await waitFor(() => $("#import-receipt"), "receipt");
     assert.match(
       $("#import-receipt").textContent,
-      /Created 2 Profiles, 2 roles and 1 sources/,
+      /Created 2 Profiles and 2 roles/,
     );
     assert.match($("#import-receipt").textContent, /2 new Profiles are hidden/);
     assert.equal(

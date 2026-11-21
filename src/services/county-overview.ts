@@ -47,7 +47,6 @@ export function getCountyOverview(
          FROM county_organizations co
          JOIN positions pos ON pos.organization_id = co.organization_id
          JOIN person_roles pr ON pr.position_id = pos.id
-         JOIN role_sources source ON source.id = pr.source_id
          WHERE ${personIsPublicSql("pr.person_id")}
          GROUP BY pos.organization_id
        )
@@ -56,7 +55,6 @@ export function getCountyOverview(
               COALESCE(SUM(co.direct), 0) AS direct_organizations,
               COALESCE(SUM(co.affiliated), 0) AS affiliated_organizations,
               COALESCE(SUM(rc.role_count), 0) + (SELECT COUNT(*) FROM person_roles unstructured
-                JOIN role_sources unstructured_source ON unstructured_source.id = unstructured.source_id
                 WHERE unstructured.position_id IS NULL AND unstructured.county_fips = ?
                   AND ${personIsPublicSql("unstructured.person_id")}) AS documented_role_count
        FROM counties c

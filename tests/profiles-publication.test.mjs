@@ -22,24 +22,14 @@ const ROLE_HEAD = [
   "profile_id",
   "county_fips",
   "published_title",
-  "source_id",
-  "source_url",
-  "source_title",
-  "publisher_classification",
-  "source_type",
-  "source_checked_at",
+  "start_date",
 ];
 const role = (id, profile, title = "Synthetic Title", county = "08001") => [
   id,
   profile,
   county,
   title,
-  "S1",
-  "https://example.invalid/publication-source",
-  "Synthetic publication source",
-  "official",
-  "official_page",
-  "2026-11-01T00:00:00Z",
+  "",
 ];
 const profiles = (rows) => lines([["profile_id", "display_name"], ...rows]);
 const roles = (rows) => lines([ROLE_HEAD, ...rows]);
@@ -213,7 +203,7 @@ test("Last Uploaded follows the latest committed import and sorts newest first",
       profile: profiles([["P-b", "Synthetic Beta"]]),
       profileRole: roles([
         role("R-b", "P-b", "Synthetic Title", "08001").map((value, index) =>
-          index === 9 ? "2026-11-18T00:00:00Z" : value,
+          index === 4 ? "2026-11-18" : value,
         ),
       ]),
     });

@@ -298,6 +298,10 @@ export async function commitSyncChangesetD1(
   }
 
   const dryRun = { ...request, intent: "dry_run" as const };
+  const planOptions = {
+    maxRequestBytes,
+    allowRolesWithoutSource: options.importerBatch,
+  };
   // One set-based read of everything the request names. It is taken after the
   // generation snapshot above, and every table it reads advances that generation
   // on write, so the guarded batch fails if any of it changes before the write.
@@ -310,7 +314,7 @@ export async function commitSyncChangesetD1(
     dryRun,
     now,
     reads,
-    maxRequestBytes,
+    planOptions,
   );
   planReads = reads.queries;
   marks.plan = Date.now() - phase;
@@ -507,7 +511,7 @@ export async function commitSyncChangesetD1(
     dryRun,
     now,
     reads,
-    maxRequestBytes,
+    planOptions,
   );
   finalPlanReads = reads.queries - before;
   marks.finalPlan = Date.now() - phase;

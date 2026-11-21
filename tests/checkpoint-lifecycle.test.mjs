@@ -124,7 +124,7 @@ test("a created checkpoint is recorded as published but unverified", async (t) =
   assert.equal(record.verificationStatus, "pending");
   assert.equal(record.verifiedAt, null);
   assert.equal(record.applicationCommit, COMMIT);
-  assert.equal(record.migrationVersion, 36);
+  assert.equal(record.migrationVersion, 37);
   const row = checkpointRow(fixture);
   assert.equal(row.verification_json, "{}");
   assert.equal(sha256(row.manifest_json), row.manifest_sha256);

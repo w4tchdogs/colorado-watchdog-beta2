@@ -184,7 +184,7 @@ test("preview is read-only and reports exact adds, hidden-on-create and untouche
     assert.equal(preview.canCommit, true);
     assert.equal(preview.profiles.add, 2);
     assert.equal(preview.roles.add, 2);
-    assert.equal(preview.sources.add, 1, "one source shared by two roles");
+    assert.equal(preview.sources.add, 0, "source columns are ignored");
     assert.equal(preview.newProfilesHidden, 2);
     assert.ok(
       preview.rows
@@ -219,7 +219,7 @@ test("commit is atomic, assigns Website IDs and creates every new Profile hidden
     assert.deepEqual(receipt.created, {
       profiles: 2,
       roles: 2,
-      sources: 1,
+      sources: 0,
       reusedSources: 0,
       names: 0,
     });
@@ -244,7 +244,7 @@ test("commit is atomic, assigns Website IDs and creates every new Profile hidden
       "Website assigns IDs",
     );
     // The shared service wrote its audit event and a per-item inverse for reversal.
-    assert.equal(count("sync_batch_items"), 5);
+    assert.equal(count("sync_batch_items"), 4);
     assert.ok(
       database
         .prepare(
@@ -331,10 +331,11 @@ test("a stale preview is refused when the Website or the files changed after rev
         }),
       ImportStalePreviewError,
     );
-    // Website changed after review: the source URL now exists with other metadata.
-    database.exec(
-      "INSERT INTO role_sources (id, url, title, source_type, publisher_classification) VALUES ('src-new', 'https://example.invalid/S1', 'Different title', 'official_page', 'official')",
-    );
+    // A separate commit applied this workbook after the first preview.
+    await service.commit(owner, "key-concurrent-0001", {
+      files,
+      digest: reviewed.digest,
+    });
     const before = snapshot(count);
     await assert.rejects(
       () =>
@@ -345,10 +346,9 @@ test("a stale preview is refused when the Website or the files changed after rev
       ImportStalePreviewError,
     );
     assert.deepEqual(snapshot(count), before);
-    // A fresh preview now shows the conflict as a blocking issue.
     const fresh = await service.preview(owner, { files });
-    assert.equal(fresh.canCommit, false);
-    assert.ok(fresh.issues.some((i) => i.code === "source_metadata_conflict"));
+    assert.equal(fresh.canCommit, true);
+    assert.equal(fresh.roles.unchanged, 2);
   });
 });
 
@@ -644,7 +644,7 @@ test("created Profiles are absent from every public read until explicitly publis
   });
 });
 
-test("a role without its Profile or source is a missing dependency and blocks the commit", async () => {
+test("a role without its Profile is a missing dependency and blocks the commit", async () => {
   await withService(async ({ service, owner, count }) => {
     const noProfile = {
       profile: csv([PROFILE_HEAD, ["P1", "Synthetic Alpha"]]),
@@ -661,25 +661,12 @@ test("a role without its Profile or source is a missing dependency and blocks th
       ),
     );
     assert.equal(a.roles.blocked, 1);
-    const blankSource = ROLE_HEAD.map((h) =>
-      h.startsWith("source_") && h !== "source_checked_at" ? "" : null,
-    );
-    const row = role("R2", "P1").map((value, i) =>
-      blankSource[i] === "" ? "" : value,
-    );
-    const noSource = {
-      profile: csv([PROFILE_HEAD, ["P1", "Synthetic Alpha"]]),
-      profileRole: csv([ROLE_HEAD, row]),
-    };
-    const b = await service.preview(owner, { files: noSource });
-    assert.equal(b.canCommit, false);
-    assert.ok(b.issues.some((i) => i.code === "missing_source"));
     const before = snapshot(count);
     await assert.rejects(
       () =>
         service.commit(owner, "key-missing-0001", {
-          files: noSource,
-          digest: b.digest,
+          files: noProfile,
+          digest: a.digest,
         }),
       ImportValidationError,
     );
@@ -698,7 +685,7 @@ test("Adams-sized synthetic file previews and commits 262 Profiles and 413 roles
     );
     assert.equal(preview.profiles.add, 262);
     assert.equal(preview.roles.add, 413);
-    assert.equal(preview.sources.add, 138);
+    assert.equal(preview.sources.add, 0);
     const receipt = await service.commit(owner, "key-adams-00001", {
       files,
       digest: preview.digest,
@@ -838,7 +825,7 @@ test("after a reversal the same keys preview as adds and the reversed IDs are ne
     const again = await service.preview(owner, { files });
     assert.equal(again.profiles.add, 2);
     assert.equal(again.roles.add, 2);
-    assert.equal(again.sources.add, 1);
+    assert.equal(again.sources.add, 0);
     assert.equal(
       again.profiles.update +
         again.profiles.unchanged +
@@ -911,7 +898,7 @@ const followOn = (sourceFields = {}) => {
   };
 };
 
-test("a follow-on batch keeps three distinct roles on one Profile, reuses the shared source and hides each Profile once", async () => {
+test("a follow-on batch keeps three distinct roles on one Profile, skips citations and hides each Profile once", async () => {
   await withService(async ({ service, owner, database, count }) => {
     // Pilot batch first: 3 Profiles, 3 roles, the same shared source.
     const pilotRole = (id, profile) => [
@@ -948,28 +935,17 @@ test("a follow-on batch keeps three distinct roles on one Profile, reuses the sh
     assert.deepEqual(rp.created, {
       profiles: 3,
       roles: 3,
-      sources: 1,
+      sources: 0,
       reusedSources: 0,
       names: 0,
     });
     const sourceCount = count("role_sources");
-    const sharedId = database
-      .prepare(
-        "SELECT id FROM role_sources WHERE url = 'https://example.invalid/shared-source'",
-      )
-      .get().id;
-
     const files = followOn();
     const preview = await service.preview(owner, { files });
     assert.equal(preview.canCommit, true, JSON.stringify(preview.issues));
     assert.equal(preview.profiles.add, 5);
     assert.equal(preview.roles.add, 7);
     assert.equal(preview.sources.add, 0);
-    assert.equal(
-      preview.sources.unchanged,
-      1,
-      "the existing shared source is reused",
-    );
     assert.equal(preview.newProfilesHidden, 5);
     const receipt = await service.commit(owner, "key-follow-0001", {
       files,
@@ -982,7 +958,7 @@ test("a follow-on batch keeps three distinct roles on one Profile, reuses the sh
       reusedSources: 0,
       names: 0,
     });
-    assert.equal(count("role_sources"), sourceCount, "no second source row");
+    assert.equal(count("role_sources"), sourceCount, "no source imported");
     const f1 = idFor(database, "F1");
     const f1Roles = database
       .prepare(
@@ -1002,7 +978,7 @@ test("a follow-on batch keeps three distinct roles on one Profile, reuses the sh
       .all();
     assert.deepEqual(
       followRoleSources.map((r) => r.s),
-      [sharedId],
+      [null],
     );
     // Visibility is applied once per new Profile: 3 pilot + 5 follow-on, one row each, all hidden at version 1.
     const vis = database
@@ -1029,7 +1005,7 @@ test("a follow-on batch keeps three distinct roles on one Profile, reuses the sh
   });
 });
 
-test("a shared source that already exists on the Website but was never imported is reused, not duplicated", async () => {
+test("legacy citation values are ignored and existing Website source links are retained", async () => {
   await withService(async ({ service, owner, count, database }) => {
     database.exec(
       "UPDATE role_sources SET publisher_classification = 'official', version = version + 1 WHERE id = 'src-keep'",
@@ -1047,9 +1023,9 @@ test("a shared source that already exists on the Website but was never imported 
       "KEEP",
       existing.url,
       existing.title,
-      "official",
-      existing.source_type,
-      "2026-11-01T00:00:00Z",
+      "unreviewed",
+      "offline",
+      "unknown date",
     ];
     const files = {
       profile: csv([PROFILE_HEAD, ["F1", "Synthetic Follow One"]]),
@@ -1068,7 +1044,7 @@ test("a shared source that already exists on the Website but was never imported 
       digest: preview.digest,
     });
     assert.equal(receipt.created.sources, 0);
-    assert.equal(receipt.created.reusedSources, 1);
+    assert.equal(receipt.created.reusedSources, 0);
     assert.equal(count("role_sources"), sources);
     assert.equal(
       database
@@ -1076,7 +1052,7 @@ test("a shared source that already exists on the Website but was never imported 
           "SELECT COUNT(*) c FROM person_roles WHERE source_id = 'src-keep'",
         )
         .get().c,
-      4,
+      1,
     );
     assert.equal(
       database.prepare("SELECT COUNT(*) c FROM person_visibility").get().c,

@@ -188,8 +188,12 @@ export async function planSyncChangesetD1(
   input: unknown,
   now: () => Date = () => new Date(),
   reads?: SyncPlanReads,
-  maxRequestBytes = MAX_SYNC_REQUEST_BYTES,
+  options: {
+    maxRequestBytes?: number;
+    allowRolesWithoutSource?: boolean;
+  } = {},
 ): Promise<SyncPlan> {
+  const maxRequestBytes = options.maxRequestBytes ?? MAX_SYNC_REQUEST_BYTES;
   const errors: SyncPlanError[] = [];
   const add = (
     code: SyncErrorCode,
@@ -416,7 +420,8 @@ export async function planSyncChangesetD1(
         continue;
       if (
         entity === "person_roles" &&
-        relation.id === "position_id" &&
+        (relation.id === "position_id" ||
+          (relation.id === "source_id" && options.allowRolesWithoutSource)) &&
         !hasId &&
         !hasRef
       )

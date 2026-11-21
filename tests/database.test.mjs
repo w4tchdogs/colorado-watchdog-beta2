@@ -49,6 +49,61 @@ function schemaSnapshot(database) {
     .all();
 }
 
+test("migration 0037 preserves cited roles and reviewed county links and allows roles without citations", async () => {
+  await withDatabase((database) => {
+    const migrations = loadWebsiteMigrations();
+    migrateWebsiteDatabase(database, migrations.slice(0, -1));
+    insertAccount(database, "reviewer");
+    database.exec(`
+      INSERT INTO people (id, display_name) VALUES
+        ('cited-person', 'Synthetic Cited Person'), ('private-person', 'Synthetic Private Evidence');
+      INSERT INTO role_sources (id, url, title, source_type)
+        VALUES ('existing-source', 'https://example.invalid/source', 'Synthetic Source', 'official_page');
+      INSERT INTO person_roles (id, person_id, source_id, county_fips, published_title, version)
+        VALUES ('existing-role', 'cited-person', 'existing-source', '08001', 'Synthetic Role', 4);
+      INSERT INTO county_role_display (id, person_role_id, county_fips, listing, reviewed_by_account_id, version)
+        VALUES ('existing-link', 'existing-role', '08001', 'elected_official', 'reviewer', 3);
+    `);
+    const readRole = () =>
+      database
+        .prepare("SELECT * FROM person_roles WHERE id = 'existing-role'")
+        .get();
+    const readDisplay = () =>
+      database
+        .prepare("SELECT * FROM county_role_display WHERE id = 'existing-link'")
+        .get();
+    const before = [readRole(), readDisplay()];
+    migrateWebsiteDatabase(database, migrations);
+    assert.deepEqual([readRole(), readDisplay()], before);
+    assert.deepEqual(database.prepare("PRAGMA foreign_key_check").all(), []);
+    assert.throws(
+      () =>
+        database
+          .prepare("DELETE FROM person_roles WHERE id = 'existing-role'")
+          .run(),
+      /foreign key/i,
+    );
+    database.exec(`
+      INSERT INTO person_roles (id, person_id, county_fips, published_title)
+        VALUES ('private-role', 'private-person', '08001', 'Synthetic Clerk');
+    `);
+    assert.equal(
+      database
+        .prepare("SELECT source_id FROM person_roles WHERE id = 'private-role'")
+        .get().source_id,
+      null,
+    );
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS n FROM profile_publication_ready WHERE person_id = 'private-person'",
+        )
+        .get().n,
+      1,
+    );
+  });
+});
+
 test("migrations produce the same schema and are safe to reapply", async () => {
   await withDatabase(async (first) => {
     await withDatabase((second) => {
@@ -60,7 +115,7 @@ test("migrations produce the same schema and are safe to reapply", async () => {
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
           .count,
-        36,
+        37,
       );
       assert.equal(
         first.prepare("SELECT COUNT(*) AS count FROM counties").get().count,
@@ -174,7 +229,7 @@ test("M2 migrations add schema without changing existing M1 rows", async () => {
         .map((row) => row.version),
       [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
+        21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
       ],
     );
     assert.equal(
@@ -345,7 +400,7 @@ test("0015 corrects only the county names and preserves dependent FIPS reference
     assert.equal(
       database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()
         .count,
-      36,
+      37,
     );
     assert.deepEqual(
       database

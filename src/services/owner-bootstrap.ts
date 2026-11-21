@@ -165,11 +165,11 @@ async function verifySchema(database: AsyncD1Database): Promise<void> {
     sha256: unknown;
   }>(
     "SELECT version, name, sha256 FROM schema_migrations ORDER BY version",
-    36,
+    37,
   );
   const expected = loadWebsiteMigrations();
   if (
-    expected.length !== 36 ||
+    expected.length !== 37 ||
     history.length !== expected.length ||
     history.some((row, index) => {
       const migration = expected[index];

@@ -669,6 +669,7 @@ async function main() {
     "0034_profile_publication_rule.sql",
     "0035_profile_delete.sql",
     "0036_county_structure_pinned_layout.sql",
+    "0037_private_profile_role_evidence.sql",
   ];
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(

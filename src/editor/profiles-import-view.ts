@@ -105,8 +105,6 @@ export function createImportPanel(options: {
         preview.profiles.update +
         preview.roles.add +
         preview.roles.update +
-        preview.sources.add +
-        preview.sources.update +
         preview.names.add +
         preview.names.update >
         0;
@@ -404,7 +402,7 @@ export function createImportPanel(options: {
             {},
             receipt.status === "nothing_to_commit"
               ? "Nothing needed to change."
-              : `Batch ${receipt.batchId}. Created ${receipt.created.profiles} Profiles, ${receipt.created.roles} roles and ${receipt.created.sources} sources (${receipt.created.reusedSources} existing sources reused). Updated ${receipt.updated.profiles} Profiles and ${receipt.updated.roles} roles. ${receipt.newProfilesHidden} new Profiles are hidden until you publish them. Created ${receipt.created.names} alternate names and updated ${receipt.updated.names}. ${receipt.newNamesPrivate} new alternate names are private until you review and publish them.`,
+              : `Batch ${receipt.batchId}. Created ${receipt.created.profiles} Profiles and ${receipt.created.roles} roles. Updated ${receipt.updated.profiles} Profiles and ${receipt.updated.roles} roles. ${receipt.newProfilesHidden} new Profiles are hidden until you publish them. Created ${receipt.created.names} alternate names and updated ${receipt.updated.names}. ${receipt.newNamesPrivate} new alternate names are private until you review and publish them.`,
           ),
         ),
       );
@@ -442,7 +440,6 @@ export function createImportPanel(options: {
             {},
             countsRow("Profiles", p.profiles),
             countsRow("Roles", p.roles),
-            countsRow("Sources", p.sources),
             countsRow("Alternate names", p.names),
           ),
         ),

@@ -68,7 +68,7 @@ export function getPersonProfile(
        LEFT JOIN positions pos ON pos.id = pr.position_id
        LEFT JOIN organizations o ON o.id = pos.organization_id
        LEFT JOIN counties rc ON rc.fips = pr.county_fips
-       JOIN role_sources s ON s.id = pr.source_id
+       LEFT JOIN role_sources s ON s.id = pr.source_id
        WHERE pr.person_id = ? AND (? IS NULL OR pr.id COLLATE BINARY > ? COLLATE BINARY)
        ORDER BY pr.id COLLATE BINARY LIMIT ?`,
     )
@@ -119,17 +119,22 @@ export function getPersonProfile(
               counties:
                 countiesByOrganization.get(asString(row.organization_id)) ?? [],
             },
-      source: {
-        id: asString(row.source_id),
-        title: asString(row.source_title),
-        url: asString(row.source_url),
-        type: row.source_type as PersonProfileRole["source"]["type"],
-        ...(row.publisher_classification === "official" ||
-        row.publisher_classification === "unofficial"
-          ? { publisherClassification: row.publisher_classification }
-          : {}),
-        version: asNumber(row.source_version),
-      },
+      source:
+        row.source_id == null
+          ? null
+          : {
+              id: asString(row.source_id),
+              title: asString(row.source_title),
+              url: asString(row.source_url),
+              type: row.source_type as NonNullable<
+                PersonProfileRole["source"]
+              >["type"],
+              ...(row.publisher_classification === "official" ||
+              row.publisher_classification === "unofficial"
+                ? { publisherClassification: row.publisher_classification }
+                : {}),
+              version: asNumber(row.source_version),
+            },
     }),
   );
   const lastItem = items.at(-1);
