@@ -21,6 +21,17 @@ test("homepage renders navigation, discovery entry points and honest content", a
     assert.equal(page.status, 200);
     assert.ok(page.$("body.home-page"));
     assert.equal(page.$$("h1").length, 1);
+    const stats = page.$('main section[aria-label="Statewide totals"]');
+    assert.ok(stats.querySelector(".stat-row"));
+    assert.ok(stats.nextElementSibling.matches(".home-discovery"));
+    assert.deepEqual(
+      [...stats.querySelectorAll("dt")].map((label) => label.textContent),
+      [
+        "Colorado counties",
+        "Departments and offices",
+        "County officials and employees",
+      ],
+    );
     assert.deepEqual(
       page
         .$$("#site-nav a")
@@ -180,6 +191,10 @@ test("homepage on an empty database stays useful and claims nothing", async () =
     assert.equal(page.$(".preview-notice"), null);
     assert.equal(page.$$(".discovery-card").length, 4);
     assert.equal(page.$$(".article-card").length, 0);
+    assert.deepEqual(
+      page.$$(".stat-row dd").map((value) => value.textContent),
+      ["64", "0", "0"],
+    );
     assert.match(page.main(), /Nothing has been published yet/);
     assert.equal(page.$$(".cv-pathway").length, 3);
     assert.deepEqual(

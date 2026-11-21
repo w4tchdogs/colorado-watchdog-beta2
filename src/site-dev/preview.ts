@@ -146,7 +146,11 @@ export async function createSitePreview(
     application: createApplication(services),
     site: createPublicSite({
       services,
-      countyStructure: options.countyStructure,
+      countyStructure:
+        options.countyStructure ??
+        new D1CountyStructurePublicService(
+          new AsyncD1Database(createLocalD1Binding(database)),
+        ),
       assets: options.bannerFixtures ? withBannerFixtures(files) : files,
       ...(options.banners
         ? { banners: options.banners }

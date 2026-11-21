@@ -8,6 +8,7 @@ import type { SafeHtml } from "./html.js";
 export type PublicSiteServices = Pick<
   ApplicationServices,
   | "listCounties"
+  | "countPublicPeople"
   | "listOfficials"
   | "getCountyStructure"
   | "getCountyOverview"

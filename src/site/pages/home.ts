@@ -36,19 +36,31 @@ const discoveryCards = [
   },
 ] as const;
 
+async function available<T>(read: () => T): Promise<Awaited<T> | null> {
+  try {
+    return await read();
+  } catch {
+    return null;
+  }
+}
+
 export async function homePage(context: SiteContext): Promise<Page> {
   const previews = async (type: "story" | "post", limit: number) =>
     context.editorial.previews
       ? context.editorial.previews(type, limit)
       : (await context.editorial.list(type)).slice(0, limit);
-  const [stories, posts] = await Promise.all([
+  const [stories, posts, counties, units, people, banners] = await Promise.all([
     previews("story", 2),
     previews("post", 3),
+    available(() => context.services.listCounties()),
+    available(() => context.countyStructure.countPublicUnits()),
+    available(() => context.services.countPublicPeople()),
+    context.banners.forHome(),
   ]);
 
   const lead = bannerHero({
     variant: "home",
-    banners: await context.banners.forHome(),
+    banners,
     countyFips: null,
     eyebrow: "Colorado · Independent & community-run",
     title: "Community Voices. Government Accountability.",
@@ -56,7 +68,26 @@ export async function homePage(context: SiteContext): Promise<Page> {
     actions: html`<a class="button" href="/counties">Explore the counties</a> <a class="button button-light" href="/reading-records">How to read the records</a>`,
   });
 
+  const stats = [
+    ["Colorado counties", counties?.length],
+    ["Departments and offices", units],
+    ["County officials and employees", people],
+  ] as const;
   const body = html`
+  <section class="section section-first" aria-label="Statewide totals">
+    <dl class="stat-row">
+      ${stats.map(
+        ([label, count]) =>
+          html`<div><dt>${label}</dt><dd>${count?.toLocaleString("en-US") ?? "—"}</dd></div>`,
+      )}
+    </dl>
+    ${
+      counties && units !== null && people !== null
+        ? html`<p class="stat-note">Each public unit and profile is counted once statewide.</p>`
+        : html`<p class="stat-note">Some statewide totals are temporarily unavailable.</p>`
+    }
+  </section>
+
   <section class="section section-first home-discovery" aria-labelledby="discover-heading">
     ${eyebrow("Find the county. Find the record.")}
     <h2 id="discover-heading">Accountability starts locally.</h2>

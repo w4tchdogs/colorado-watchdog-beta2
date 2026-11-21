@@ -946,6 +946,11 @@ img {
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
+.stat-note {
+  margin: var(--space-3) 0 0;
+  color: var(--ink-soft);
+  font-size: var(--step--1);
+}
 
 .link-list {
   padding: 0;

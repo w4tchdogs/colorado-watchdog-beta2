@@ -108,6 +108,7 @@ function unavailableServices() {
     health: async () => unavailable(),
     resolvePrincipal: async () => null,
     listCounties: unavailable,
+    countPublicPeople: unavailable,
     getCountyOverview: unavailable,
     listCountyOrganizations: unavailable,
     listCountyRoleEntries: unavailable,
