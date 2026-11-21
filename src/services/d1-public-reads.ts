@@ -97,12 +97,12 @@ export function createD1PublicReadServices(
     ), role_counts AS (
       SELECT pos.organization_id, COUNT(*) role_count FROM county_organizations co
       JOIN positions pos ON pos.organization_id = co.organization_id
-      JOIN person_roles pr ON pr.position_id = pos.id JOIN role_sources s ON s.id = pr.source_id
+      JOIN person_roles pr ON pr.position_id = pos.id
       WHERE ${personIsPublicSql("pr.person_id")}
       GROUP BY pos.organization_id
     ) SELECT c.fips, c.name, COUNT(co.organization_id) total_organizations,
       COALESCE(SUM(co.direct),0) direct_organizations, COALESCE(SUM(co.affiliated),0) affiliated_organizations,
-      COALESCE(SUM(rc.role_count),0) + (SELECT COUNT(*) FROM person_roles u JOIN role_sources us ON us.id=u.source_id WHERE u.position_id IS NULL AND u.county_fips=? AND ${personIsPublicSql("u.person_id")}) documented_role_count FROM counties c
+      COALESCE(SUM(rc.role_count),0) + (SELECT COUNT(*) FROM person_roles u WHERE u.position_id IS NULL AND u.county_fips=? AND ${personIsPublicSql("u.person_id")}) documented_role_count FROM counties c
       LEFT JOIN county_organizations co ON 1=1 LEFT JOIN role_counts rc ON rc.organization_id=co.organization_id
       WHERE c.fips=? GROUP BY c.fips,c.name`,
       input.countyFips,
@@ -181,7 +181,7 @@ export function createD1PublicReadServices(
         WHERE a.organization_id=o.id AND a.county_fips=? ORDER BY relationship_type)), '') affiliation_types,
       s.id source_id,s.title source_title,s.url source_url,s.source_type,s.publisher_classification,s.version source_version
       FROM person_roles pr JOIN people p ON p.id=pr.person_id LEFT JOIN positions pos ON pos.id=pr.position_id
-      LEFT JOIN organizations o ON o.id=pos.organization_id JOIN role_sources s ON s.id=pr.source_id
+      LEFT JOIN organizations o ON o.id=pos.organization_id LEFT JOIN role_sources s ON s.id=pr.source_id
       WHERE (pr.county_fips=? OR o.county_fips=? OR EXISTS (SELECT 1 FROM organization_county_affiliations a WHERE a.organization_id=o.id AND a.county_fips=?))
       AND ${personIsPublicSql("p.id")} AND (? IS NULL OR pr.id COLLATE BINARY>?) ORDER BY pr.id COLLATE BINARY LIMIT ?`,
       page.countyFips,
@@ -234,17 +234,22 @@ export function createD1PublicReadServices(
                     .filter(Boolean) as CountyAffiliationType[],
                 },
               },
-        source: {
-          id: str(r.source_id),
-          title: str(r.source_title),
-          url: str(r.source_url),
-          type: r.source_type as CountyRoleEntry["source"]["type"],
-          ...(r.publisher_classification === "official" ||
-          r.publisher_classification === "unofficial"
-            ? { publisherClassification: r.publisher_classification }
-            : {}),
-          version: num(r.source_version),
-        },
+        source:
+          r.source_id == null
+            ? null
+            : {
+                id: str(r.source_id),
+                title: str(r.source_title),
+                url: str(r.source_url),
+                type: r.source_type as NonNullable<
+                  CountyRoleEntry["source"]
+                >["type"],
+                ...(r.publisher_classification === "official" ||
+                r.publisher_classification === "unofficial"
+                  ? { publisherClassification: r.publisher_classification }
+                  : {}),
+                version: num(r.source_version),
+              },
       }),
     );
     return makePage(items, rows.length > page.limit, (item) => item.role.id);
@@ -376,7 +381,7 @@ export function createD1PublicReadServices(
       pos.id position_id,pos.title position_title,pos.version position_version,o.id organization_id,o.name organization_name,o.organization_type,o.version organization_version,
       s.id source_id,s.title source_title,s.url source_url,s.source_type,s.publisher_classification,s.version source_version FROM person_roles pr
       LEFT JOIN positions pos ON pos.id=pr.position_id LEFT JOIN organizations o ON o.id=pos.organization_id
-      LEFT JOIN counties rc ON rc.fips=pr.county_fips JOIN role_sources s ON s.id=pr.source_id
+      LEFT JOIN counties rc ON rc.fips=pr.county_fips LEFT JOIN role_sources s ON s.id=pr.source_id
       WHERE pr.person_id=? AND (? IS NULL OR pr.id COLLATE BINARY>?) ORDER BY pr.id COLLATE BINARY LIMIT ?`,
       personId,
       after,
@@ -426,17 +431,22 @@ export function createD1PublicReadServices(
                 version: num(r.organization_version),
                 counties: counties.get(str(r.organization_id)) ?? [],
               },
-        source: {
-          id: str(r.source_id),
-          title: str(r.source_title),
-          url: str(r.source_url),
-          type: r.source_type as PersonProfileRole["source"]["type"],
-          ...(r.publisher_classification === "official" ||
-          r.publisher_classification === "unofficial"
-            ? { publisherClassification: r.publisher_classification }
-            : {}),
-          version: num(r.source_version),
-        },
+        source:
+          r.source_id == null
+            ? null
+            : {
+                id: str(r.source_id),
+                title: str(r.source_title),
+                url: str(r.source_url),
+                type: r.source_type as NonNullable<
+                  PersonProfileRole["source"]
+                >["type"],
+                ...(r.publisher_classification === "official" ||
+                r.publisher_classification === "unofficial"
+                  ? { publisherClassification: r.publisher_classification }
+                  : {}),
+                version: num(r.source_version),
+              },
       }),
     );
     return {
@@ -544,7 +554,7 @@ export function createD1PublicReadServices(
     const rows = await all<Row>(
       `SELECT pr.id role_id,pr.version role_version,pr.start_date,pr.end_date,pr.source_checked_at,p.id person_id,p.display_name,p.version person_version,
       pos.id position_id,pos.title position_title,pos.version position_version,s.id source_id,s.title source_title,s.url source_url,s.source_type,s.publisher_classification,s.version source_version
-      FROM person_roles pr JOIN people p ON p.id=pr.person_id JOIN positions pos ON pos.id=pr.position_id JOIN role_sources s ON s.id=pr.source_id
+      FROM person_roles pr JOIN people p ON p.id=pr.person_id JOIN positions pos ON pos.id=pr.position_id LEFT JOIN role_sources s ON s.id=pr.source_id
       WHERE pos.organization_id=? AND ${personIsPublicSql("p.id")} AND (? IS NULL OR pr.id COLLATE BINARY>?) ORDER BY pr.id COLLATE BINARY LIMIT ?`,
       id,
       after,
@@ -570,17 +580,22 @@ export function createD1PublicReadServices(
           title: str(r.position_title),
           version: num(r.position_version),
         },
-        source: {
-          id: str(r.source_id),
-          title: str(r.source_title),
-          url: str(r.source_url),
-          type: r.source_type as OrganizationRoleEntry["source"]["type"],
-          ...(r.publisher_classification === "official" ||
-          r.publisher_classification === "unofficial"
-            ? { publisherClassification: r.publisher_classification }
-            : {}),
-          version: num(r.source_version),
-        },
+        source:
+          r.source_id == null
+            ? null
+            : {
+                id: str(r.source_id),
+                title: str(r.source_title),
+                url: str(r.source_url),
+                type: r.source_type as NonNullable<
+                  OrganizationRoleEntry["source"]
+                >["type"],
+                ...(r.publisher_classification === "official" ||
+                r.publisher_classification === "unofficial"
+                  ? { publisherClassification: r.publisher_classification }
+                  : {}),
+                version: num(r.source_version),
+              },
       }),
     );
     return {

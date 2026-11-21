@@ -162,7 +162,7 @@ const LAST_UPLOAD_SQL = `
       AND i.entity IN ('people', 'person_roles', 'profile_names')
   ) WHERE person_id IS NOT NULL GROUP BY person_id`;
 
-/** Publication rule (migration 0034): the one definition is the view. */
+/** Publication rule (migration 0037): the one definition is the view. */
 const READY_SQL =
   "EXISTS (SELECT 1 FROM profile_publication_ready rd WHERE rd.person_id = p.id)";
 const ROLE_COUNTY_SQL = `(COALESCE(xr.county_fips, xo.county_fips) IS NOT NULL
@@ -177,7 +177,6 @@ const READINESS_COLUMNS = `
   ${READY_SQL} AS publication_ready,
   (SELECT COUNT(*) FROM person_roles xr WHERE xr.person_id = p.id) AS role_count,
   EXISTS (SELECT 1 ${ROLE_FROM_SQL} AND ${ROLE_COUNTY_SQL}) AS any_county,
-  EXISTS (SELECT 1 ${ROLE_FROM_SQL} AND xr.source_id IS NOT NULL) AS any_source,
   EXISTS (SELECT 1 ${ROLE_FROM_SQL} AND ${ROLE_DETAIL_SQL}) AS any_detail`;
 
 const FROM_CLAUSE = `
@@ -617,7 +616,7 @@ export function createD1ProfilesService(
             issue(
               index,
               "not_eligible",
-              `This Profile cannot be visible yet. Missing ${missing.join(", ")}. A Profile needs a display name and at least one role with a county, a source and an office, position or duties.`,
+              `This Profile cannot be visible yet. Missing ${missing.join(", ")}. A Profile needs a display name and at least one role with a county and an office, position or duties.`,
             ),
           );
           return;
@@ -1489,11 +1488,10 @@ function missingForPublication(row: Row): string[] {
     return missing;
   }
   if (num(row.any_county) !== 1) missing.push("county");
-  if (num(row.any_source) !== 1) missing.push("source");
   if (num(row.any_detail) !== 1) missing.push("office, position or duties");
   if (missing.length === 0)
     missing.push(
-      "one role with a county, a source and an office, position or duties together",
+      "one role with a county and an office, position or duties together",
     );
   return missing;
 }

@@ -108,28 +108,8 @@ test("draft workbook, county CSV and layout pins survive restart and share publi
       ["draft-person", "Synthetic Draft Officer"],
     ],
     Roles: [
-      [
-        "role_id",
-        "profile_id",
-        "county_fips",
-        "published_office",
-        "source_id",
-        "source_url",
-        "source_title",
-        "publisher_classification",
-        "source_type",
-      ],
-      [
-        "draft-role",
-        "draft-person",
-        "08001",
-        "Synthetic Recorder",
-        "draft-source",
-        "https://example.invalid/draft-source",
-        "Synthetic Source",
-        "official",
-        "official_page",
-      ],
+      ["role_id", "profile_id", "county_fips", "published_office"],
+      ["draft-role", "draft-person", "08001", "Synthetic Recorder"],
     ],
   }).toString("base64");
   let sandbox = await start();
@@ -207,7 +187,14 @@ test("draft workbook, county CSV and layout pins survive restart and share publi
     );
     const person = await requestPage(site, `/people/${personId}`);
     assert.equal(person.status, 200);
-    assert.match(await person.text(), /Synthetic Draft Officer/);
+    const personHtml = await person.text();
+    assert.match(personHtml, /Synthetic Draft Officer/);
+    assert.match(personHtml, /Synthetic Recorder/);
+    const officials = await requestPage(
+      site,
+      "/officials?q=Synthetic+Draft+Officer",
+    );
+    assert.match(await officials.text(), /Synthetic Draft Officer/);
   } finally {
     sandbox.close();
   }
@@ -301,7 +288,7 @@ test("large workbook previews and commits only in private draft review", async (
     );
     assert.equal(receipt.newProfilesHidden, count);
     assert.equal(receipt.created.roles, count);
-    assert.equal(receipt.created.sources, 1);
+    assert.equal(receipt.created.sources, 0);
   } finally {
     draft.close();
   }

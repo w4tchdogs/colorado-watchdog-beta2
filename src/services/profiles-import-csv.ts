@@ -223,21 +223,12 @@ export interface RoleRecord {
   readonly roleId: string;
   readonly profileId: string;
   readonly countyFips: string;
-  readonly sourceId: string;
-  readonly sourceUrl: string;
-  readonly sourceTitle: string;
-  readonly publisherClassification: "official" | "unofficial";
-  readonly sourceType: "official_page" | "public_document" | "other_public";
   readonly publishedOffice?: string;
   readonly publishedTitle?: string;
   readonly jobDescription?: string;
-  readonly sourceCheckedAt?: string;
   readonly startDate?: string;
   readonly endDate?: string;
 }
-
-const CLASSIFICATIONS = ["official", "unofficial"];
-const SOURCE_TYPES = ["official_page", "public_document", "other_public"];
 
 function validDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -455,10 +446,6 @@ export function validateRoleRows(parsed: ParsedFile): {
   const issues: ImportIssue[] = [];
   const records: RoleRecord[] = [];
   const keys = new Set<string>();
-  const sources = new Map<
-    string,
-    { url: string; title: string; classification: string; type: string }
-  >();
   for (const { line, values: v } of parsed.rows) {
     const id = v.role_id;
     const bad = (code: string, message: string) => {
@@ -494,24 +481,6 @@ export function validateRoleRows(parsed: ParsedFile): {
         "invalid_county",
         "county_fips must be a five digit Colorado FIPS code such as 08001.",
       );
-    // A role without its source is a missing dependency. Nothing is guessed.
-    if (!validId(v.source_id) || !v.source_url || !v.source_title)
-      ok = bad(
-        "missing_source",
-        "A role needs source_id, source_url and source_title.",
-      );
-    else if (!/^https?:\/\/\S+$/i.test(v.source_url))
-      ok = bad("invalid_url", "source_url must be an http or https URL.");
-    if (!CLASSIFICATIONS.includes(v.publisher_classification ?? ""))
-      ok = bad(
-        "invalid_classification",
-        "publisher_classification must be official or unofficial.",
-      );
-    if (!SOURCE_TYPES.includes(v.source_type ?? ""))
-      ok = bad(
-        "invalid_source_type",
-        "source_type must be official_page, public_document or other_public.",
-      );
     if (!v.published_office && !v.published_title && !v.job_description)
       ok = bad(
         "role_detail_required",
@@ -535,47 +504,15 @@ export function validateRoleRows(parsed: ParsedFile): {
       v.end_date < v.start_date
     )
       ok = bad("date_order", "end_date is before start_date.");
-    if (
-      v.source_checked_at &&
-      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(
-        v.source_checked_at,
-      )
-    )
-      ok = bad(
-        "invalid_timestamp",
-        "source_checked_at must be a UTC timestamp such as 2026-11-01T00:00:00Z.",
-      );
-    if (ok && validId(v.source_id)) {
-      const prior = sources.get(v.source_id);
-      const current = {
-        url: v.source_url as string,
-        title: v.source_title as string,
-        classification: v.publisher_classification as string,
-        type: v.source_type as string,
-      };
-      if (prior && JSON.stringify(prior) !== JSON.stringify(current))
-        ok = bad(
-          "source_conflict",
-          `source_id ${v.source_id} has different details on another row.`,
-        );
-      else sources.set(v.source_id, current);
-    }
     if (!ok) continue;
     records.push({
       line,
       roleId: id,
       profileId: v.profile_id as string,
       countyFips: v.county_fips as string,
-      sourceId: v.source_id as string,
-      sourceUrl: v.source_url as string,
-      sourceTitle: v.source_title as string,
-      publisherClassification:
-        v.publisher_classification as RoleRecord["publisherClassification"],
-      sourceType: v.source_type as RoleRecord["sourceType"],
       ...(v.published_office ? { publishedOffice: v.published_office } : {}),
       ...(v.published_title ? { publishedTitle: v.published_title } : {}),
       ...(v.job_description ? { jobDescription: v.job_description } : {}),
-      ...(v.source_checked_at ? { sourceCheckedAt: v.source_checked_at } : {}),
       ...(v.start_date ? { startDate: v.start_date } : {}),
       ...(v.end_date ? { endDate: v.end_date } : {}),
     });

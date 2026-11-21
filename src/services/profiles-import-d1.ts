@@ -122,7 +122,7 @@ interface Mapped {
   readonly deletedFor: string | null;
 }
 interface Origin {
-  readonly kind: "profile" | "role" | "source" | "name";
+  readonly kind: "profile" | "role" | "name";
   readonly key: string;
   readonly line: number;
 }
@@ -483,9 +483,6 @@ const nameIdentity = (
     until ?? "",
   ].join("|");
 
-const sameInstant = (a: string | null, b: string) =>
-  a === b || (a !== null && Date.parse(a) === Date.parse(b));
-
 async function buildPlan(
   db: AsyncD1Database,
   files: ProfilesImportFiles,
@@ -621,10 +618,6 @@ async function buildPlan(
   const mappedRoleIds = roles.flatMap(
     (r) => mapOf(IMPORT_REF.role, r.roleId)?.websiteId ?? [],
   );
-  const sourceIds = [...new Set(roles.map((r) => r.sourceId))];
-  const mappedSourceIds = sourceIds.flatMap(
-    (s) => mapOf(IMPORT_REF.source, s)?.websiteId ?? [],
-  );
   const referencedProfileIds = roles.flatMap(
     (r) => mapOf(IMPORT_REF.profile, r.profileId)?.websiteId ?? [],
   );
@@ -697,26 +690,19 @@ async function buildPlan(
   }
   const roleRows = await readRows<{
     person_id: string;
-    source_id: string;
     version: number;
     county_fips: string | null;
     start_date: string | null;
     end_date: string | null;
-    source_checked_at: string | null;
     published_office: string | null;
     published_title: string | null;
     job_description: string | null;
   }>(
     db,
     "person_roles",
-    "id, person_id, source_id, version, county_fips, start_date, end_date, source_checked_at, published_office, published_title, job_description",
+    "id, person_id, version, county_fips, start_date, end_date, published_office, published_title, job_description",
     mappedRoleIds,
   );
-  const sourceRows = await readRows<{
-    url: string;
-    title: string;
-    version: number;
-  }>(db, "role_sources", "id, url, title, version", mappedSourceIds);
   const hidden = new Set<string>();
   const hiddenRows: string[] = [...new Set(mappedProfileIds)];
   for (const part of chunks(hiddenRows)) {
@@ -742,124 +728,6 @@ async function buildPlan(
   };
   // Origins are recorded in change order. Updates are appended after creates.
   const updateOrigins: Origin[] = [];
-
-  // Sources first so a role can refer to the one registered earlier.
-  const sourceFirstRow = new Map<string, RoleRecord>();
-  for (const role of roles)
-    if (!sourceFirstRow.has(role.sourceId))
-      sourceFirstRow.set(role.sourceId, role);
-  const sourceBlocked = new Set<string>();
-  for (const [sourceId, role] of sourceFirstRow) {
-    const origin = { kind: "source" as const, key: sourceId, line: role.line };
-    const mapped = mapOf(IMPORT_REF.source, sourceId);
-    if (!mapped) {
-      addChange(
-        {
-          op: "register_source",
-          entity: "role_sources",
-          clientRef: IMPORT_REF.source + sourceId,
-          fields: {
-            url: role.sourceUrl,
-            title: role.sourceTitle,
-            publisher_classification: role.publisherClassification,
-            source_type: role.sourceType,
-          },
-        },
-        origin,
-      );
-      rows.push({
-        kind: "source",
-        key: sourceId,
-        line: role.line,
-        label: role.sourceTitle,
-        action: "add",
-        visibility: "not_applicable",
-      });
-      continue;
-    }
-    const current = sourceRows.get(mapped.websiteId);
-    if (!current || current.url !== role.sourceUrl) {
-      sourceBlocked.add(sourceId);
-      const reason = !current
-        ? "The mapped Website source no longer exists."
-        : "A source URL cannot change through import. Register the new source under a new source_id.";
-      rows.push({
-        kind: "source",
-        key: sourceId,
-        line: role.line,
-        label: role.sourceTitle,
-        action: "blocked",
-        websiteId: mapped.websiteId,
-        visibility: "not_applicable",
-        reason,
-      });
-      issues.push({
-        file: ROLE_FILE,
-        line: role.line,
-        key: sourceId,
-        code: "source_unusable",
-        message: reason,
-      });
-    } else if (current.title === role.sourceTitle) {
-      rows.push({
-        kind: "source",
-        key: sourceId,
-        line: role.line,
-        label: role.sourceTitle,
-        action: "unchanged",
-        websiteId: mapped.websiteId,
-        visibility: "not_applicable",
-      });
-    } else if (current.version === mapped.baselineVersion) {
-      addChange(
-        {
-          op: "update_record",
-          entity: "role_sources",
-          targetId: mapped.websiteId,
-          expectedVersion: current.version,
-          fields: { title: role.sourceTitle },
-        },
-        origin,
-        updates,
-      );
-      updateOrigins.push(origin);
-      rows.push({
-        kind: "source",
-        key: sourceId,
-        line: role.line,
-        label: role.sourceTitle,
-        action: "update",
-        websiteId: mapped.websiteId,
-        visibility: "not_applicable",
-        fields: [
-          {
-            field: "title",
-            current: current.title,
-            proposed: role.sourceTitle,
-          },
-        ],
-      });
-    } else {
-      rows.push({
-        kind: "source",
-        key: sourceId,
-        line: role.line,
-        label: role.sourceTitle,
-        action: "conflict",
-        websiteId: mapped.websiteId,
-        visibility: "not_applicable",
-        reason:
-          "The source title was edited on the Website after the last import. The Website value is kept.",
-        fields: [
-          {
-            field: "title",
-            current: current.title,
-            proposed: role.sourceTitle,
-          },
-        ],
-      });
-    }
-  }
 
   // Profiles.
   const duplicateNameCandidates: ProfileRecord[] = [];
@@ -1181,16 +1049,8 @@ async function buildPlan(
       );
       continue;
     }
-    if (sourceBlocked.has(role.sourceId)) {
-      blockedRow(
-        `Source ${role.sourceId} cannot be used. See its row.`,
-        "source_unusable_for_role",
-      );
-      continue;
-    }
     const mappedRole = mapOf(IMPORT_REF.role, role.roleId);
     if (!mappedRole) {
-      const mappedSource = mapOf(IMPORT_REF.source, role.sourceId);
       addChange(
         {
           op: "create_person_role",
@@ -1209,15 +1069,9 @@ async function buildPlan(
               : {}),
             ...(role.startDate ? { start_date: role.startDate } : {}),
             ...(role.endDate ? { end_date: role.endDate } : {}),
-            ...(role.sourceCheckedAt
-              ? { source_checked_at: role.sourceCheckedAt }
-              : {}),
             ...(mappedProfile
               ? { person_id: mappedProfile.websiteId }
               : { person_ref: IMPORT_REF.profile + role.profileId }),
-            ...(mappedSource
-              ? { source_id: mappedSource.websiteId }
-              : { source_ref: IMPORT_REF.source + role.sourceId }),
           },
         } as SyncChange,
         origin,
@@ -1262,13 +1116,6 @@ async function buildPlan(
     ] as const)
       if (value !== undefined && value !== now_)
         fixed.push({ field, current: now_, proposed: value });
-    const mappedSource = mapOf(IMPORT_REF.source, role.sourceId);
-    if (mappedSource && current.source_id !== mappedSource.websiteId)
-      fixed.push({
-        field: "source",
-        current: current.source_id,
-        proposed: mappedSource.websiteId,
-      });
     if (fixed.length) {
       rows.push({
         kind: "role",
@@ -1285,7 +1132,7 @@ async function buildPlan(
       continue;
     }
     const diffs: {
-      field: "start_date" | "end_date" | "source_checked_at";
+      field: "start_date" | "end_date";
       current: string | null;
       proposed: string;
     }[] = [];
@@ -1300,15 +1147,6 @@ async function buildPlan(
         field: "end_date",
         current: current.end_date,
         proposed: role.endDate,
-      });
-    if (
-      role.sourceCheckedAt &&
-      !sameInstant(current.source_checked_at, role.sourceCheckedAt)
-    )
-      diffs.push({
-        field: "source_checked_at",
-        current: current.source_checked_at,
-        proposed: role.sourceCheckedAt,
       });
     if (diffs.length === 0) {
       rows.push({
@@ -1411,19 +1249,14 @@ async function buildPlan(
     };
   }
   if (request && !blocking) {
-    const dryRun = await planSyncChangesetD1(
-      db,
-      request,
-      now,
-      undefined,
+    const dryRun = await planSyncChangesetD1(db, request, now, undefined, {
       maxRequestBytes,
-    );
+      allowRolesWithoutSource: true,
+    });
     for (const error of dryRun.errors) issues.push(issueFor(error, allOrigins));
   }
 
-  const counts = (
-    kind: "profile" | "role" | "source" | "name",
-  ): ProfilesImportCounts => {
+  const counts = (kind: "profile" | "role" | "name"): ProfilesImportCounts => {
     const c = emptyCounts();
     for (const row of rows) if (row.kind === kind) c[row.action]++;
     return c;
@@ -1483,7 +1316,7 @@ async function buildPlan(
       canCommit: issues.length === 0,
       profiles: profileCounts,
       roles: roleCounts,
-      sources: counts("source"),
+      sources: emptyCounts(),
       names: nameCounts,
       newProfilesHidden: profileCounts.add,
       newNamesPrivate: nameCounts.add,

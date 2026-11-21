@@ -64,7 +64,7 @@ export interface OfficialsDirectoryRole {
     readonly url: string;
     readonly type: string;
     readonly publisherClassification?: "official" | "unofficial";
-  };
+  } | null;
 }
 
 export interface OfficialsDirectoryEntry {

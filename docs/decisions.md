@@ -423,6 +423,11 @@ The [offline application proposal](architecture/county-structure.md#proposed-app
 - A visible Profile that becomes incomplete is hidden automatically with the reason recorded. Existing incomplete records previously treated as visible are hidden the same way. Restoring the missing information enables the checkbox, and the Profile stays hidden until the owner publishes it.
 - Implemented by migration 0034 and the [Profiles sheet](architecture/profiles-sheet.md#publication-rule-migration-0034).
 
+## Private role evidence in Profiles uploads — November 21, 2026
+
+- The Profiles dashboard accepts both CSV and XLSX role rows without sources or citations. Supporting evidence stays in the private Profiles store. The upload ignores legacy source IDs, URLs, titles, classifications, types and source-check dates. This supersedes the earlier dashboard role-citation and publication-source requirements.
+- A role still needs its Profile, county and at least one accepted role detail. New Profiles start hidden. A role with the required county and details can qualify for owner publication without a Website citation. Existing Website source records and links are retained for historical compatibility.
+
 ## Single-Profile Website deletion — November 20, 2026
 
 - The offline Profiles master is authoritative. The owner can permanently remove one Website copy through the dashboard, with a reviewed dependency preview and an audit receipt. Deletion does not propagate to the offline master.

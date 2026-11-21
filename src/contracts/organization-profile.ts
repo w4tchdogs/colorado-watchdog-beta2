@@ -90,7 +90,7 @@ export interface OrganizationRoleEntry {
     readonly type: "official_page" | "public_document" | "other_public";
     readonly publisherClassification?: "official" | "unofficial";
     readonly version: number;
-  };
+  } | null;
 }
 
 export interface OrganizationRolePage

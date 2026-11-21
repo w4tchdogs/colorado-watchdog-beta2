@@ -339,7 +339,7 @@ function matchingPeopleSql(input: ValidatedRequest): {
       JOIN people AS person ON person.id = role.person_id
       LEFT JOIN positions AS position ON position.id = role.position_id
       LEFT JOIN organizations AS org ON org.id = position.organization_id
-      JOIN role_sources AS source ON source.id = role.source_id
+      LEFT JOIN role_sources AS source ON source.id = role.source_id
       LEFT JOIN counties AS county
         ON county.fips = COALESCE(org.county_fips, role.county_fips)
       LEFT JOIN counties AS role_county ON role_county.fips = role.county_fips
@@ -501,16 +501,19 @@ export async function listOfficials(
                 type: text(row.organization_type) as OrganizationType,
                 counties: counties.get(organizationId) ?? [],
               },
-        source: {
-          id: text(row.source_id),
-          title: text(row.source_title),
-          url: text(row.source_url),
-          type: text(row.source_type),
-          ...(row.publisher_classification === "official" ||
-          row.publisher_classification === "unofficial"
-            ? { publisherClassification: row.publisher_classification }
-            : {}),
-        },
+        source:
+          row.source_id == null
+            ? null
+            : {
+                id: text(row.source_id),
+                title: text(row.source_title),
+                url: text(row.source_url),
+                type: text(row.source_type),
+                ...(row.publisher_classification === "official" ||
+                row.publisher_classification === "unofficial"
+                  ? { publisherClassification: row.publisher_classification }
+                  : {}),
+              },
       },
     };
   });

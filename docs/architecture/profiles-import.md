@@ -20,25 +20,24 @@ Headers are matched after lowercasing and replacing spaces and hyphens with unde
 | --- | --- | --- |
 | `profile.csv` | `profile_id`, `display_name` | `first_name`, `middle_name`, `last_name`, `name_prefix`, `name_suffix`, `preferred_first_name` |
 | `profile_name.csv` | `profile_name_id`, `profile_id`, `name_type`, `published_name` | `first_name`, `middle_name`, `last_name`, `name_prefix`, `name_suffix`, `applies_from`, `applies_until`, `verification_status`, `public_display` |
-| `profile_role.csv` | `role_id`, `profile_id`, `county_fips`, `source_id`, `source_url`, `source_title`, `publisher_classification`, `source_type` | `published_office`, `published_title`, `job_description`, `source_checked_at`, `start_date`, `end_date` |
+| `profile_role.csv` | `role_id`, `profile_id`, `county_fips` | `published_office`, `published_title`, `job_description`, `start_date`, `end_date` |
 
 ### Excel workbook
 
 - Put `profile.csv` columns on **Profiles**, `profile_role.csv` columns on **Roles**, and `profile_name.csv` columns on **Alternate Names**. Use the first row for headers and store stable IDs as text.
 - **Profiles** is required. The Roles and Alternate Names tabs may be omitted or supplied with headers only. An empty Alternate Names tab leaves existing names unchanged.
-- Choose one `.xlsx` file of up to 3 MiB. Each worksheet may contain up to 20,000 data rows and 64 columns. The records are subject to the same combined 4 MiB limit as the CSV inputs after conversion. Use the supported columns and include the selected role source citation fields.
+- Choose one `.xlsx` file of up to 3 MiB. Each worksheet may contain up to 20,000 data rows and 64 columns. The records are subject to the same combined 4 MiB limit as the CSV inputs after conversion. Use the supported columns. Private draft review uses the [larger local limits](../../README.md#private-draft-review).
 - The server accepts literal values. Replace formulas with values before upload. Excel dates in date fields are normalized to ISO format. A Colorado FIPS code such as `8001` is restored to `08001` if Excel dropped the leading zero.
 - The preview and commit routes accept `workbook` in place of `files` in the JSON body. The workbook is parsed into the same input contract before the shared preview and commit logic runs. Row validation uses the corresponding CSV filename and line in the converted input.
 
 - A role needs at least one of `published_office`, `published_title` or `job_description`.
-- `publisher_classification` is `official` or `unofficial`. `source_type` is `official_page`, `public_document` or `other_public`.
-- The Website holds one source per role. Role rows repeat their source fields and a source is registered once per `source_id`. A source URL that already exists with identical metadata is reused.
-- Keys (`profile_id`, `role_id`, `source_id`) are the private export keys. They are 1 to 100 letters, digits, dots, colons, underscores or hyphens.
+- Source and citation columns are ignored. Evidence stays in the private Profiles store. Existing Website source links are preserved when a role is re-imported.
+- Keys (`profile_id`, `role_id`) are the private export keys. They are 1 to 100 letters, digits, dots, colons, underscores or hyphens.
 - `profile_role.csv` is optional. Without it only Profiles are previewed. A valid Profile row without a role is saved as a hidden draft. It appears in the Profiles tab as one row with the status Hidden · Missing role and cannot be made visible until it has a qualifying role (see the publication rule in [profiles-sheet.md](profiles-sheet.md#publication-rule-migration-0034)).
 
 This is the contract the Profiles Audit handoff on [Issue #141](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/141#issuecomment-7000870240) describes for the first slice.
 
-Private evidence files (`profile_evidence*.csv`), claim IDs, research evidence-link IDs and review metadata stay in the private Profiles store. Each role can carry its selected source citation inline.
+Private evidence files (`profile_evidence*.csv`), claim IDs, research evidence-link IDs and review metadata stay in the private Profiles store.
 
 The first slice defers these imports:
 
@@ -57,8 +56,8 @@ The initial launch Profiles already have private sources. Include launch Profile
 
 ## Matching, versions and preservation
 
-- **Stable keys.** Each created record is stored with a namespaced client reference (`dash:profile:<id>`, `dash:role:<id>`, `dash:source:<id>`) on its committed sync item. A later upload of the same key matches the Website record that commit created. Matching is never by name or label. A reversed batch releases its keys.
-- **Updates.** A mapped Profile or role is updated only when it has not changed since the last import. Each update carries the current version as `expectedVersion`, and the shared engine rechecks it inside the batch. Updatable fields are `display_name`, `start_date`, `end_date`, `source_checked_at` and a source `title`.
+- **Stable keys.** Each created record is stored with a namespaced client reference (`dash:profile:<id>`, `dash:role:<id>`) on its committed sync item. A later upload of the same key matches the Website record that commit created. Matching is never by name or label. A reversed batch releases its keys.
+- **Updates.** A mapped Profile or role is updated only when it has not changed since the last import. Each update carries the current version as `expectedVersion`, and the shared engine rechecks it inside the batch. Updatable fields are `display_name`, `start_date` and `end_date`.
 - **Conflicts.** A mapped record whose version moved past its last import and whose value differs from the file is reported as a conflict and skipped. Role fields the sync contract cannot change (office, title, duties, county, source) are also reported as conflicts. The Website value is kept.
 - **Absent records.** Records the file does not mention are never touched. The preview counts them.
 - **Visibility.** Existing Profiles keep their visibility. New Profiles are created hidden in the same atomic batch, so a Profile is never publicly readable before an explicit publication. Public reads omit hidden Profiles through the #257 visibility predicate. Reversal removes the visibility row it created.
@@ -69,26 +68,26 @@ A commit returns the batch ID, counts and the hidden Profiles it created. Its co
 
 ## Cloudflare synthetic acceptance checklist
 
-Use a synthetic file only. Generate one with `node scripts/profiles-import-fixture.mjs --out <folder>` (262 Profiles, 413 roles, 138 sources, all `example.invalid`). Do not send real Adams data until this passes and the owner approves the reviewed pilot scope.
+Use a synthetic file only. Generate one with `node scripts/profiles-import-fixture.mjs --out <folder>` (262 synthetic Profiles and 413 roles with legacy source columns marked ignored). Do not send real Adams data until this passes and the owner approves the reviewed pilot scope.
 
 1. Deploy this branch to the Cloudflare staging Worker that has migration 0030 or later applied. Confirm the verifier reports the expected migration count. This change adds no migration.
 2. Sign in as the owner. Open Dashboard, Profiles, Import CSV. Confirm the panel is absent for an editor and that the routes answer 401 or 403 without an owner session.
-3. Upload `profile.csv` and `profile_role.csv`. Choose Preview. Confirm 262 Profiles, 413 roles and 138 sources are adds, zero blocking issues, and 262 new Profiles are shown as created hidden. Confirm the preview wrote nothing (Profiles tab row count unchanged, no new sync batch).
-4. Commit. Confirm the receipt shows 262 Profiles, 413 roles and 138 sources and that all 262 are hidden.
+3. Upload `profile.csv` and `profile_role.csv`. Choose Preview. Confirm 262 Profiles, 413 roles and zero sources are adds, zero blocking issues, and 262 new Profiles are shown as created hidden. Confirm the preview wrote nothing (Profiles tab row count unchanged, no new sync batch).
+4. Commit. Confirm the receipt shows 262 Profiles, 413 roles and zero sources and that all 262 are hidden.
 5. Public readback. In a signed-out browser confirm none of the 262 names appear in search, browse, the Adams county page, role listings or by direct Profile URL (404).
 6. Same-key retry. Repeat the commit request with the same key (browser network replay or the same panel session). Confirm `replayed: true` and unchanged counts.
 7. Stale preview. Preview again, edit one synthetic Profile name in the Profiles sheet, then commit the earlier preview. Confirm `stale_preview` and no new batch.
-8. Stable update. Change one display name in the CSV and one `source_checked_at`, add one new row, and preview. Confirm one Profile update, one role update, one add and everything else unchanged. Commit and confirm the Website IDs did not change.
+8. Stable update. Change one display name in the CSV and one `start_date`, add one new row, and preview. Confirm one Profile update, one role update, one add and everything else unchanged. Commit and confirm the Website IDs did not change.
 9. Preserve owner edits. Edit a synthetic Profile name in the sheet, upload a file that renames the same Profile, preview and confirm a conflict. Publish one synthetic Profile in the sheet, re-upload and confirm it stays visible.
-10. Missing dependency. Upload a `profile_role.csv` row with an unknown `profile_id` and another with a blank `source_url`. Confirm both are blocking and Commit stays disabled.
-11. Reverse. Reverse the first batch. Confirm the Profiles, roles, sources and visibility rows it created are gone and the Profiles tab count returns to the starting total.
+10. Missing dependency. Upload a `profile_role.csv` row with an unknown `profile_id` and another without role details. Confirm both are blocking and Commit stays disabled.
+11. Reverse. Reverse the first batch. Confirm the Profiles, roles and visibility rows it created are gone and the Profiles tab count returns to the starting total.
 12. Record the Worker version, source SHA, receipts and results in the PR. Revoke any temporary access.
 
 The real Adams send stays a separate step. It needs the owner's exact reviewed selection and uses this same workflow after the synthetic run passes.
 
 ## Mapping isolation
 
-The importer reads stable-ID mappings only from sync batches it committed itself. Importer batches are stored with the idempotency key prefix `pi:` and mappings use the `dash:profile:`, `dash:role:` and `dash:source:` client references. A mapping is ignored when its batch has a reversal record, when its key lacks the `pi:` prefix, or when the batch belongs to another account. The reverse route refuses any batch that is not an importer batch of the signed-in owner. Tests cover import, reverse and re-preview, an unrelated batch that reuses the `dash:` namespace, and a synthetic 5 Profile, 7 role, 1 shared source follow-on batch.
+The importer reads stable-ID mappings only from sync batches it committed itself. Importer batches are stored with the idempotency key prefix `pi:` and mappings use the `dash:profile:` and `dash:role:` client references. A mapping is ignored when its batch has a reversal record, when its key lacks the `pi:` prefix, or when the batch belongs to another account. The reverse route refuses any batch that is not an importer batch of the signed-in owner. Tests cover import, reverse and re-preview, an unrelated batch that reuses the `dash:` namespace, and a synthetic 5-Profile, 7-role follow-on batch.
 
 ## Title only roles
 

@@ -144,7 +144,7 @@ export function listOrganizationRoleEntries(
        FROM person_roles pr
        JOIN people p ON p.id = pr.person_id
        JOIN positions pos ON pos.id = pr.position_id
-       JOIN role_sources s ON s.id = pr.source_id
+       LEFT JOIN role_sources s ON s.id = pr.source_id
        WHERE pos.organization_id = ?
          AND ${personIsPublicSql("p.id")}
          AND (? IS NULL OR pr.id COLLATE BINARY > ? COLLATE BINARY)
@@ -180,17 +180,22 @@ export function listOrganizationRoleEntries(
           title: asString(row.position_title),
           version: asNumber(row.position_version),
         },
-        source: {
-          id: asString(row.source_id),
-          title: asString(row.source_title),
-          url: asString(row.source_url),
-          type: row.source_type as OrganizationRoleEntry["source"]["type"],
-          ...(row.publisher_classification === "official" ||
-          row.publisher_classification === "unofficial"
-            ? { publisherClassification: row.publisher_classification }
-            : {}),
-          version: asNumber(row.source_version),
-        },
+        source:
+          row.source_id == null
+            ? null
+            : {
+                id: asString(row.source_id),
+                title: asString(row.source_title),
+                url: asString(row.source_url),
+                type: row.source_type as NonNullable<
+                  OrganizationRoleEntry["source"]
+                >["type"],
+                ...(row.publisher_classification === "official" ||
+                row.publisher_classification === "unofficial"
+                  ? { publisherClassification: row.publisher_classification }
+                  : {}),
+                version: asNumber(row.source_version),
+              },
       }),
     ),
     hasMore,

@@ -69,7 +69,7 @@ Visible on Website is a Profile-level publication control stored in `person_visi
 
 ### Publication rule (migration 0034)
 
-A Profile may be visible only when it has a nonblank display name and at least one role with a county, a source and an office, position or duties. The county is the role's own county, its office's county, or a county the office is affiliated with. Text-only roles qualify. A verified County Structure attachment and an alternate name are optional. The view `profile_publication_ready` is the one definition, and every reader uses it.
+A Profile may be visible only when it has a nonblank display name and at least one role with a county and an office, position or duties. The county is the role's own county, its office's county, or a county the office is affiliated with. Text-only roles qualify. Migration 0037 removes the citation requirement and keeps upload evidence private. A verified County Structure attachment and an alternate name are optional. The view `profile_publication_ready` is the one definition, and every reader uses it.
 
 - **Import.** New Profiles are created hidden. A valid `profile.csv` row without a role is saved as a hidden draft.
 - **Sheet.** Visible on Website is disabled while the Profile is incomplete. Its label and tooltip say what is missing. Bulk Restore leaves incomplete Profiles out and says how many.
@@ -88,7 +88,7 @@ Each save writes its audit events and an entry in `profile_write_receipts` in th
 
 ## Deploy order
 
-Migration 0030 must be applied before the Worker that contains these changes, because the public read queries join `person_visibility`. Migration 0034 must likewise be applied before the Worker that reads `profile_publication_ready` and `person_visibility.hidden_reason`. The staging verifier now expects 34 migrations.
+Migration 0030 must be applied before the Worker that contains these changes, because the public read queries join `person_visibility`. Migration 0034 must likewise be applied before the Worker that reads `profile_publication_ready` and `person_visibility.hidden_reason`. Migration 0037 adds support for Website roles without citation links.
 
 ## Not in this slice
 

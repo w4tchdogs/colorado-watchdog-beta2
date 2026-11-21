@@ -94,22 +94,12 @@ export const NAME_FILE_COLUMNS = {
   ],
 } as const;
 export const ROLE_FILE_COLUMNS = {
-  required: [
-    "role_id",
-    "profile_id",
-    "county_fips",
-    "source_id",
-    "source_url",
-    "source_title",
-    "publisher_classification",
-    "source_type",
-  ],
+  required: ["role_id", "profile_id", "county_fips"],
   /** At least one of published_office, published_title or job_description per row. */
   optional: [
     "published_office",
     "published_title",
     "job_description",
-    "source_checked_at",
     "start_date",
     "end_date",
   ],
