@@ -51,6 +51,8 @@ declare module "tabulator-tables" {
     renderHorizontal?: string;
     pagination?: boolean;
     paginationMode?: string;
+    paginationElement?: HTMLElement;
+    paginationOutOfRange?: "last";
     paginationSize?: number;
     paginationSizeSelector?: number[];
     paginationCounter?: string | ((...args: number[]) => string);
