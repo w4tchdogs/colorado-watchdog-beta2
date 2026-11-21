@@ -360,6 +360,46 @@ test("service failures become clear error pages", async () => {
   assert.equal((await get(noDatabase, "/about")).status, 200);
 });
 
+test("the hosted county index searches and redirects without D1 reads", async () => {
+  let databaseReads = 0;
+  const site = {
+    fetch: (request) =>
+      sitesWorker.fetch(request, {
+        DB: {
+          prepare() {
+            databaseReads += 1;
+            throw new Error("D1 unavailable");
+          },
+        },
+      }),
+  };
+  const index = await get(site, "/counties?q=08065");
+  assert.equal(index.status, 200);
+  assert.equal(index.$$("#county-directory a").length, 64);
+  assert.match(
+    index.$('[data-result-row][data-fips="08065"]').textContent,
+    /Lake/,
+  );
+  assert.match(
+    index.$('[data-result-row][data-fips="08067"]').textContent,
+    /La Plata/,
+  );
+  assert.equal(index.$$("[data-result-row]:not([hidden])").length, 1);
+
+  const redirect = await site.fetch(
+    new Request("https://watchdog.test/counties?county=08065"),
+  );
+  assert.equal(redirect.status, 303);
+  assert.equal(redirect.headers.get("location"), "/counties/08065");
+  assert.equal(databaseReads, 0);
+
+  const missingBinding = await sitesWorker.fetch(
+    new Request("https://watchdog.test/counties"),
+    {},
+  );
+  assert.equal(missingBinding.status, 200);
+});
+
 test("existing public APIs are unchanged behind the composed website", async () => {
   const database = await openWebsiteDatabase();
   try {
