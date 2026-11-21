@@ -10,6 +10,14 @@ Bulk actions are Set selected values for supported role fields and Profile visib
 
 The remote grid defaults to 50 rows per page. Owners can choose 50, 100, 250, 500 or 1,000 rows; the server accepts up to 1,000 rows per request. Changing page size returns to page 1 while keeping filters, sort, selection and staged edits. The selector and result counter describe rows because one Profile can occupy multiple role rows.
 
+**Export view as CSV** downloads saved rows across all pages matching the current
+search and filters, in the current sort order. The file uses the displayed
+column names and order from the column picker and includes no selection controls
+or private evidence. Saving an edit makes it available to the next export.
+Values that a spreadsheet might evaluate as formulas are prefixed with a text
+marker in the CSV. The owner-only `GET /api/admin/profiles/export` route returns
+the file as a private download.
+
 ## Routes and authorization
 
 All routes are under `/api/admin/profiles` and are default-deny. Every request resolves the signed-in human principal first, then checks the `profile.manage` capability, which only the owner role holds. Agent credentials never pass. Writes also require an exact same-origin request, a JSON body under 256 KB and an `idempotency-key` header. Responses are `no-store`.

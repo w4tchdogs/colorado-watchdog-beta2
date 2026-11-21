@@ -3,6 +3,7 @@ import test from "node:test";
 import { AsyncD1Database } from "../dist/database/d1.js";
 import { migrateWebsiteDatabase } from "../dist/database/migrations.js";
 import { openWebsiteDatabase } from "../dist/database/sqlite.js";
+import { readCsvTable } from "../dist/services/county-structure-csv.js";
 import { createD1ProfilesService } from "../dist/services/profiles-d1.js";
 import {
   createTestHumanIdentityAdapter,
@@ -12,14 +13,16 @@ import { createProfilesApiTransport } from "../dist/transport/profiles-api.js";
 
 const ORIGIN = "https://watchdog.invalid";
 
-function d1Over(database) {
+function d1Over(database, afterRows) {
   const statement = (sql, values = []) => ({
     bind: (...bound) => statement(sql, bound),
     async first() {
       return database.prepare(sql).get(...values) ?? null;
     },
     async all() {
-      return { success: true, results: database.prepare(sql).all(...values) };
+      const results = database.prepare(sql).all(...values);
+      afterRows?.(database, sql);
+      return { success: true, results };
     },
     async run() {
       database.prepare(sql).run(...values);
@@ -48,7 +51,7 @@ const SEED = `
   INSERT INTO person_roles (id, person_id, position_id, source_id, source_checked_at) VALUES ('role-a', 'person-a', 'pos-adams', 'src-a', '2026-10-01T00:00:00Z');
 `;
 
-async function withApi(callback) {
+async function withApi(callback, afterRows) {
   const database = await openWebsiteDatabase();
   migrateWebsiteDatabase(database);
   database.exec(SEED);
@@ -69,7 +72,7 @@ async function withApi(callback) {
       };
     return subject ? resolvePrincipal(database, request, adapter) : null;
   };
-  const service = createD1ProfilesService(d1Over(database), {
+  const service = createD1ProfilesService(d1Over(database, afterRows), {
     authorize: async (p) => p.accountId === "acct-owner",
   });
   const transport = createProfilesApiTransport({
@@ -97,6 +100,92 @@ async function withApi(callback) {
     database.close();
   }
 }
+
+test("CSV exports all matching saved rows in sort and column order", async () => {
+  await withApi(async ({ call, database }) => {
+    database.exec(`
+      WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM n WHERE x < 1002)
+      INSERT INTO person_roles (id, person_id, county_fips, published_office, published_title)
+      SELECT printf('role-csv-%04d', x), 'person-a', '08001', 'Synthetic CSV Office', printf('Role %04d', x) FROM n;
+      INSERT INTO people (id, display_name) VALUES ('other-county-csv', 'Another Person');
+      INSERT INTO person_roles (id, person_id, county_fips, published_office, published_title)
+      VALUES ('other-csv', 'other-county-csv', '08069', 'Synthetic CSV Office', 'Role 4000');
+    `);
+    database
+      .prepare(
+        "UPDATE person_roles SET job_description = ?, version = version + 1 WHERE id = 'role-csv-1002'",
+      )
+      .run('  =1+1, "works"\nNext line');
+    const base = "/api/admin/profiles/export";
+    const params = new URLSearchParams({
+      county: "08001",
+      office: "Synthetic CSV Office",
+      sort: "position",
+      direction: "desc",
+      columns: "position,roleDuties,visible",
+    });
+    const path = `${base}?${params}`;
+    assert.equal((await call(path)).status, 401);
+    for (const subject of ["editor", "agent"])
+      assert.equal((await call(path, { subject })).status, 403);
+    const response = await call(path, { subject: "owner" });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type"), /^text\/csv/);
+    assert.equal(response.headers.get("cache-control"), "no-store, private");
+    assert.match(
+      response.headers.get("content-disposition"),
+      /attachment.*profiles-view[.]csv/,
+    );
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf]);
+    const { rows } = readCsvTable(new TextDecoder().decode(bytes));
+    assert.deepEqual(rows[0], ["Position", "Role / Duties", "Visible"]);
+    assert.equal(rows.length, 1003);
+    assert.deepEqual(rows[1], [
+      "Role 1002",
+      '\'  =1+1, "works"\nNext line',
+      "Yes",
+    ]);
+    assert.deepEqual(rows.at(-1), ["Role 0001", "", "Yes"]);
+    for (const columns of ["roleSource", "displayName,displayName"]) {
+      const invalid = await call(`${base}?columns=${columns}`, {
+        subject: "owner",
+      });
+      assert.equal(invalid.status, 400);
+    }
+    const empty = await call(`${base}?columns=displayName&query=no-matches`, {
+      subject: "owner",
+    });
+    assert.equal(empty.status, 200);
+    assert.equal(await empty.text(), "Display Name\r\n");
+  });
+});
+
+test("CSV requests return no file if a reviewed visibility write interrupts the export", async () => {
+  let changed = false;
+  await withApi(
+    async ({ call }) => {
+      const response = await call(
+        "/api/admin/profiles/export?columns=displayName,visible",
+        { subject: "owner" },
+      );
+      assert.equal(changed, true);
+      assert.equal(response.status, 409);
+      assert.equal(response.headers.has("content-disposition"), false);
+      assert.equal((await response.json()).error, "stale_version");
+    },
+    (database, sql) => {
+      if (changed || !sql.includes("LIMIT 1000 OFFSET 0")) return;
+      changed = true;
+      database.exec(`
+      INSERT INTO person_visibility (person_id, visible, changed_by_account_id)
+      VALUES ('person-a', 0, 'acct-owner');
+      INSERT INTO audit_events (id, actor_account_id, action, target_type, target_id, summary)
+      VALUES ('export-test-audit', 'acct-owner', 'profile.hide', 'person', 'person-a', 'Synthetic concurrent change');
+    `);
+    },
+  );
+});
 
 test("protected routes deny anonymous, non-owner, agent and cross-origin callers", async () => {
   await withApi(async ({ call }) => {

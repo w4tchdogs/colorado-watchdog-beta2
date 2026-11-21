@@ -8,6 +8,7 @@ import {
   type MatchingProfileVisibilityPreview,
   type MatchingProfileVisibilityReceipt,
   PROFILE_FIELDS,
+  PROFILE_GRID_FIELDS,
   PROFILE_NAME_COMPONENT_COLUMNS,
   PROFILE_NO_COUNTY,
   PROFILE_SORT_FIELDS,
@@ -44,6 +45,7 @@ import {
   createProfileUnitLinks,
   readProfileUnitLinks,
 } from "./profile-unit-links.js";
+import { profileCsvLine, profileCsvRow } from "./profiles-csv.js";
 import { createProfilesDelete } from "./profiles-delete-d1.js";
 import { AuthorizationError, type TrustedPrincipal } from "./security.js";
 import { IMPORTER_BATCH_KEY_PREFIX } from "./sync-commit-d1.js";
@@ -263,6 +265,11 @@ export interface ProfilesServiceOptions {
 export interface ProfilesService
   extends ReturnType<typeof createProfilesDelete> {
   listRows(principal: TrustedPrincipal, input: unknown): Promise<ProfilePage>;
+  exportCsv(
+    principal: TrustedPrincipal,
+    input: unknown,
+    columnIds: readonly string[],
+  ): Promise<string>;
   suggestUnits(
     principal: TrustedPrincipal,
     input: unknown,
@@ -453,6 +460,45 @@ export function createD1ProfilesService(
       profileUpdatedOn: str(row.profile_updated_on),
     };
   }
+
+  async function readGridRows(
+    query: ProfileQuery,
+    { where, values }: ReturnType<typeof filterClause>,
+    offset: number,
+    includeUnitLinks = true,
+  ): Promise<ProfileRow[]> {
+    const rows = await database.all<Row>(
+      `SELECT ${ROW_COLUMNS} ${FROM_CLAUSE} ${where} ${orderClause(query)}
+       LIMIT ${query.pageSize} OFFSET ${offset}`,
+      query.pageSize,
+      values,
+    );
+    const links = includeUnitLinks
+      ? await readProfileUnitLinks(
+          database,
+          rows.flatMap((row) =>
+            typeof row.role_id === "string"
+              ? [
+                  {
+                    roleId: row.role_id,
+                    countyFips: nullable(row.county_fips),
+                    office: nullable(row.office),
+                  },
+                ]
+              : [],
+          ),
+        )
+      : null;
+    return rows.map((row) => toRow(row, links?.get(str(row.role_id)) ?? null));
+  }
+
+  // Audit rows are append-only. They cover grid visibility and reviewed unit
+  // writes that may leave the sync generation unchanged.
+  const exportRevision = () =>
+    database.first<{ generation: number; audit: number }>(
+      `SELECT generation, (SELECT COALESCE(MAX(rowid), 0) FROM audit_events) AS audit
+     FROM website_dependency_generation WHERE id = 1`,
+    );
 
   async function loadFieldTargets(changes: readonly ProfileChange[]): Promise<{
     people: Map<string, Row>;
@@ -1074,35 +1120,64 @@ export function createD1ProfilesService(
       const total = num(countRow?.total);
       const lastPage = Math.max(1, Math.ceil(total / query.pageSize));
       const page = Math.min(query.page, lastPage);
-      const rows = await database.all<Row>(
-        `SELECT ${ROW_COLUMNS} ${FROM_CLAUSE} ${where} ${orderClause(query)}
-         LIMIT ${query.pageSize} OFFSET ${(page - 1) * query.pageSize}`,
-        query.pageSize,
-        values,
-      );
-      const links = await readProfileUnitLinks(
-        database,
-        rows.flatMap((row) =>
-          typeof row.role_id === "string"
-            ? [
-                {
-                  roleId: row.role_id,
-                  countyFips: nullable(row.county_fips),
-                  office: nullable(row.office),
-                },
-              ]
-            : [],
-        ),
-      );
       return {
-        rows: rows.map((row) =>
-          toRow(row, links.get(str(row.role_id)) ?? null),
+        rows: await readGridRows(
+          query,
+          { where, values },
+          (page - 1) * query.pageSize,
         ),
         total,
         page,
         pageSize: query.pageSize,
         lastPage,
       };
+    },
+    async exportCsv(principal, input, columnIds) {
+      await require(principal);
+      const columns = columnIds.flatMap((id) =>
+        PROFILE_GRID_FIELDS.filter((field) => field.id === id),
+      );
+      if (
+        columns.length === 0 ||
+        new Set(columnIds).size !== columnIds.length ||
+        columns.length !== columnIds.length
+      )
+        throw new ProfilesInputError("Choose valid export columns.");
+
+      const query = { ...parseQuery(input), pageSize: PROFILES_MAX_PAGE_SIZE };
+      const filter = filterClause(query);
+      const started = await exportRevision();
+      if (!started) throw new StorageUnavailableError();
+      const count = await database.first<Row>(
+        `SELECT COUNT(*) AS total ${FROM_CLAUSE} ${filter.where}`,
+        filter.values,
+      );
+      const total = num(count?.total);
+      const lines = [
+        "\uFEFF",
+        profileCsvLine(columns.map((field) => field.label)),
+      ];
+      const includeUnitLinks = columnIds.includes("unitLink");
+      let written = 0;
+      for (let offset = 0; offset < total; offset += query.pageSize) {
+        const rows = await readGridRows(
+          query,
+          filter,
+          offset,
+          includeUnitLinks,
+        );
+        for (const row of rows) lines.push(profileCsvRow(row, columns));
+        written += rows.length;
+      }
+      const finished = await exportRevision();
+      if (
+        finished?.generation !== started.generation ||
+        finished.audit !== started.audit ||
+        written !== total
+      )
+        throw new ProfilesConflictError([]);
+      await require(principal);
+      return lines.join("");
     },
     async facets(principal, after) {
       await require(principal);

@@ -1,5 +1,8 @@
 import { exactSameOrigin } from "../auth/http.js";
-import { PROFILES_API_PREFIX } from "../contracts/profiles.js";
+import {
+  PROFILES_API_PREFIX,
+  PROFILES_EXPORT_FILENAME,
+} from "../contracts/profiles.js";
 import { PROFILES_IMPORT_MAX_BYTES } from "../contracts/profiles-import.js";
 import { StorageUnavailableError } from "../contracts/storage.js";
 import { ProfileUnitLinkError } from "../services/profile-unit-links.js";
@@ -71,6 +74,7 @@ type Op =
   | "rows"
   | "facets"
   | "selectAll"
+  | "exportCsv"
   | "matchingVisibilityPreview"
   | "matchingVisibilitySave"
   | "unitLinksPreview"
@@ -103,6 +107,7 @@ function match(
     rows: ["rows", "GET"],
     facets: ["facets", "GET"],
     "select-all": ["selectAll", "GET"],
+    export: ["exportCsv", "GET"],
     "matching-visibility/preview": ["matchingVisibilityPreview", "POST"],
     "matching-visibility/save": ["matchingVisibilitySave", "POST"],
     "unit-links/preview": ["unitLinksPreview", "POST"],
@@ -273,6 +278,22 @@ async function handle(
         return json(200, {
           ...(await service.listRows(principal, params(url))),
         });
+      case "exportCsv": {
+        const { columns, ...filters } = params(url, true);
+        const csv = await service.exportCsv(
+          principal,
+          filters,
+          columns?.split(",") ?? [],
+        );
+        return new Response(csv, {
+          headers: {
+            "cache-control": "no-store, private",
+            "content-type": "text/csv; charset=utf-8",
+            "content-disposition": `attachment; filename="${PROFILES_EXPORT_FILENAME}"`,
+            "x-content-type-options": "nosniff",
+          },
+        });
+      }
       case "facets": {
         const keys = [...url.searchParams.keys()];
         if (keys.length > 1 || (keys.length && keys[0] !== "afterOffice"))
@@ -325,7 +346,7 @@ async function handle(
   }
 }
 
-function params(url: URL): Record<string, string> {
+function params(url: URL, exportCsv = false): Record<string, string> {
   const allowed = new Set([
     "query",
     "county",
@@ -334,8 +355,7 @@ function params(url: URL): Record<string, string> {
     "unitLink",
     "sort",
     "direction",
-    "page",
-    "pageSize",
+    ...(exportCsv ? ["columns"] : ["page", "pageSize"]),
   ]);
   const out: Record<string, string> = {};
   for (const [key, value] of url.searchParams) {
