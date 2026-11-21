@@ -546,7 +546,7 @@ test("the complete alphabetical grid stays in front of changing county results",
   });
 });
 
-test("county page separates county organizations from affiliated ones", async () => {
+test("county home links to the directory and County Structure without duplicating their lists", async () => {
   await withPreview("fictional", async (preview) => {
     const page = await get(preview, "/counties/08001");
     assert.equal(page.status, 200);
@@ -584,116 +584,19 @@ test("county page separates county organizations from affiliated ones", async ()
       /County directory eligibility does not require a unit attachment/,
     );
 
-    const lists = page.$$("#organizations .record-list");
-    assert.equal(lists.length, 2);
-    const [direct, affiliated] = lists;
-    const names = (list) =>
-      [...list.querySelectorAll(".record-title")].map((n) => n.textContent);
-    assert.equal(names(direct).length, 4);
-    assert.ok(names(direct).includes("Fictional Public Works Department"));
-    assert.ok(affiliated.classList.contains("affiliated"));
-    assert.deepEqual(names(affiliated).sort(), [
-      "Fictional Community Library Partnership",
-      "Fictional Front Range Health District",
-      "Fictional Shared Dispatch Center",
-    ]);
-    assert.ok(!names(direct).some((name) => names(affiliated).includes(name)));
-    assert.match(affiliated.textContent, /Serves Adams County/);
-    assert.match(affiliated.textContent, /Partner for Adams County/);
-    assert.match(affiliated.textContent, /Shared service for Adams County/);
-    assert.match(
-      page.$("#organizations").textContent,
-      /They are not county departments/,
-    );
-    assert.match(
-      direct.textContent,
-      /Grouped under Fictional Adams County Government/,
-    );
-    assert.match(
-      direct.textContent,
-      /Reports to Fictional Public Works Department/,
-    );
-
-    // Roles at an affiliated organization are flagged where they appear.
-    const health = page
-      .$$(".role-entry")
-      .find((e) => /Morgan Sample/.test(e.textContent));
-    assert.match(
-      health.textContent,
-      /Affiliated organization, not a county department/,
-    );
-    const clerk = page
-      .$$(".role-entry")
-      .find((e) => /Fictional Clerk and Recorder,/.test(e.textContent));
-    assert.doesNotMatch(clerk.textContent, /Affiliated organization/);
-    assert.ok(clerk.querySelector('a[href="/people/demo-person-jordan-a"]'));
-    assert.ok(clerk.querySelector('a[href="/organizations/demo-adams-clerk"]'));
-  });
-});
-
-test("county roles paginate with bounded pages and stable links", async () => {
-  await withPreview("fictional", async (preview) => {
-    const first = await get(preview, "/counties/08001");
-    assert.equal(first.$$(".role-entry").length, 25);
-    const next = first.$('#roles a[rel="next"]');
-    assert.match(
-      next.getAttribute("href"),
-      /^\/counties\/08001\?roleAfter=[\w-]+#roles$/,
-    );
-    assert.equal(
-      first.$("#roles .pager").textContent.includes("Back to first page"),
-      false,
-    );
-
-    const second = await get(
+    assert.equal(page.$("#organizations"), null);
+    assert.equal(page.$("#roles"), null);
+    assert.ok(page.$("#structure"));
+    assert.ok(page.$('.county-entry-card[href="/officials?county=08001"]'));
+    assert.ok(page.$('.county-entry-card[href="/counties/08001#structure"]'));
+    const bookmark = await get(
       preview,
-      next.getAttribute("href").replace(/#.*/, ""),
+      "/counties/08001?orgAfter=old-office&roleAfter=old-role",
     );
-    assert.equal(second.$$(".role-entry").length, 13);
-    assert.equal(second.$('#roles a[rel="next"]'), null);
-    assert.equal(
-      second.$("#roles .pager a").getAttribute("href"),
-      "/counties/08001#roles",
-    );
-    const ids = (page) =>
-      page.$$(".role-entry h3 a").map((a) => a.getAttribute("href"));
-    assert.equal(new Set([...ids(first), ...ids(second)]).size, 36);
-  });
-});
-
-test("county role cards retain dates without publishing citations", async () => {
-  await withPreview("fictional", async (preview) => {
-    const page = await get(preview, "/counties/08001");
-    const entry = page
-      .$$(".role-entry")
-      .find((e) => /Fictional Clerk and Recorder,/.test(e.textContent));
-    assert.equal(page.$$(".citation").length, 0);
-    assert.doesNotMatch(page.text, /fictional-adams\/staff-directory/);
-    assert.doesNotMatch(page.main(), /Fictional Adams County staff directory/);
-    const dates = entry.querySelector(".role-dates").textContent;
-    assert.match(dates, /Source checked\s*October 2, 2026/);
-    assert.match(
-      dates,
-      /Role start\s*January 10, 2023\s*Role end\s*Not recorded/,
-    );
-
-    // No role anywhere is described as current, and a check date is never a start date.
-    const undated = page
-      .$$(".role-entry")
-      .find(
-        (e) =>
-          /Riley Placeholder/.test(e.textContent) &&
-          /Director/.test(e.textContent),
-      );
-    assert.match(
-      undated.querySelector(".role-dates").textContent,
-      /Role start\s*Not recorded/,
-    );
-    assert.doesNotMatch(
-      page.$("#roles .role-list").textContent,
-      /\b(current|present|incumbent|vacant)\b/i,
-    );
-    assert.match(page.$("#roles").textContent, /not confirmed as current/);
+    assert.equal(bookmark.status, 200);
+    assert.equal(bookmark.$("h1").textContent, "Adams County");
+    assert.equal(bookmark.$("#organizations"), null);
+    assert.equal(bookmark.$("#roles"), null);
   });
 });
 
