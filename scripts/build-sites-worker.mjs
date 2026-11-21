@@ -140,6 +140,32 @@ const migrationCatalog = await Promise.all(
   }),
 );
 
+// Use the same name/FIPS pairs the staging verifier checks. Only this fixed
+// public reference data is bundled. No Website records are read at build time.
+const countyCorrection = await readFile(
+  join(root, "website/migrations/0015_correct_lake_la_plata_county_names.sql"),
+  "utf8",
+);
+const countyValues = countyCorrection
+  .split("INSERT INTO vis8_fips_expected (fips, name) VALUES")[1]
+  ?.split(";")[0];
+const countyRegistry = [
+  ...(countyValues ?? "").matchAll(/\('(08\d{3})', '([^']+)'\)/g),
+].map(([, fips, name]) => ({ fips, name }));
+if (
+  countyRegistry.length !== 64 ||
+  new Set(countyRegistry.map((county) => county.fips)).size !== 64 ||
+  new Set(countyRegistry.map((county) => county.name)).size !== 64
+) {
+  throw new Error("Expected 64 unique Colorado county names and FIPS codes");
+}
+// Names in the registry are ASCII. Match the database's NOCASE ordering.
+countyRegistry.sort((left, right) => {
+  const a = left.name.toLowerCase();
+  const b = right.name.toLowerCase();
+  return a < b ? -1 : a > b ? 1 : 0;
+});
+
 await build({
   entryPoints: [join(root, "src", "worker.ts")],
   outfile: join(server, "index.js"),
@@ -151,6 +177,7 @@ await build({
     __WATCHDOG_SITE_ASSETS__: JSON.stringify(assetData),
     __WATCHDOG_SITES_PROJECT_ID__: JSON.stringify(hosting.project_id ?? null),
     __WATCHDOG_WEBSITE_MIGRATIONS__: JSON.stringify(migrationCatalog),
+    __WATCHDOG_PUBLIC_COUNTY_REGISTRY__: JSON.stringify(countyRegistry),
   },
   logLevel: "info",
 });

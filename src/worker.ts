@@ -3,6 +3,7 @@ import { readHumanSignIn } from "./auth/config.js";
 import { exactSameOrigin, hasSessionCookie } from "./auth/http.js";
 import { createSessionIdentityAdapter } from "./auth/identity.js";
 import { handleAuthRequest, isAuthPath } from "./auth/routes.js";
+import type { CountyRegistryEntry } from "./contracts/county-registry.js";
 import type { ReportIntakeStore } from "./contracts/report-intake.js";
 import type { RuntimeEnvironment } from "./contracts/runtime.js";
 import { StorageUnavailableError } from "./contracts/storage.js";
@@ -39,7 +40,7 @@ import { createSitesIdentityAdapter } from "./services/sites-identity.js";
 import { createHostedSyncTransportDependencies } from "./services/sync-hosted.js";
 import { createD1EditorialSource } from "./site/d1-editorial-source.js";
 import { createPublicSite, createWebsite } from "./site/index.js";
-import type { PublicSiteServices } from "./site/types.js";
+import type { PublicSiteServiceResults } from "./site/types.js";
 import { bundledSiteAssets } from "./site/worker-assets.js";
 import {
   bannerAdminUnavailable,
@@ -69,6 +70,7 @@ import {
 import { createSyncApiTransport, isSyncApiPath } from "./transport/sync-api.js";
 
 declare const __WATCHDOG_SITES_PROJECT_ID__: string | null;
+declare const __WATCHDOG_PUBLIC_COUNTY_REGISTRY__: readonly CountyRegistryEntry[];
 declare const __WATCHDOG_WEBSITE_MIGRATIONS__: readonly {
   version: number;
   name: string;
@@ -79,6 +81,17 @@ declare const __WATCHDOG_WEBSITE_MIGRATIONS__: readonly {
 const BETA2_SITES_PROJECT_ID = "appgprj_6af7fb8f615c81918da0e4450ba336de";
 const ALPHA1_PUBLIC_ORIGIN =
   "https://colorado-watchdog-alpha1.futureguild2.chatgpt.site";
+
+function publicSiteReads(
+  services: PublicSiteServiceResults,
+): PublicSiteServiceResults {
+  if (typeof __WATCHDOG_PUBLIC_COUNTY_REGISTRY__ === "undefined")
+    return services;
+  return {
+    ...services,
+    listCounties: () => __WATCHDOG_PUBLIC_COUNTY_REGISTRY__,
+  };
+}
 
 // Sites currently documents identity headers but does not expose an
 // authenticated identity context or a verifiable Worker gateway assertion.
@@ -370,7 +383,7 @@ const routes = {
         fallback as unknown as ReportApiOptions["services"],
       );
       const site = createPublicSite({
-        services: fallback as unknown as PublicSiteServices,
+        services: publicSiteReads(fallback),
         assets: bundledSiteAssets,
         reportReviewAccess: async () => 401,
       });
@@ -592,7 +605,7 @@ const routes = {
         return principal?.kind === "human" ? principal.accountId : null;
       };
       const site = createPublicSite({
-        services: reads,
+        services: publicSiteReads(reads),
         editorial: createD1EditorialSource(database),
         assets: bundledSiteAssets,
         allowChatGptEditor:
