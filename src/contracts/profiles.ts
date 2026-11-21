@@ -520,7 +520,8 @@ export const PROFILE_FIELDS: readonly ProfileFieldDefinition[] = [
     label: "Position",
     status: "read-only",
     scope: "role",
-    source: "person_roles.published_title, else positions.title",
+    source:
+      "person_roles.published_title, then person_roles.inferred_title, then positions.title",
     owner:
       "Role text is written by a reviewed sync. A shared position title is not edited from a single row.",
     defaultVisible: true,

@@ -987,7 +987,7 @@ test("upgrading from migration 29 keeps every existing Profile visible and chang
       assert.equal(
         database.prepare("SELECT MAX(version) v FROM schema_migrations").get()
           .v,
-        39,
+        40,
       );
       assert.equal(
         database.prepare("SELECT COUNT(*) c FROM person_visibility").get().c,

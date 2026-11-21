@@ -255,6 +255,114 @@ test("draft Profiles and County Structure workbooks and layout pins survive rest
   }
 });
 
+test("Roles workbook titles display in order of precedence and clear independently", async () => {
+  const sandbox = await startSandbox({
+    draftDatabase: openDraftPreviewDatabase(
+      mkdtempSync(join(tmpdir(), "watchdog-role-titles-")),
+    ),
+  });
+  try {
+    const { profiles, site } = clients(sandbox);
+    const file = (inferred, includeColumn = true) => ({
+      workbook: buildProfilesWorkbook({
+        Profiles: [
+          ["profile_id", "display_name"],
+          ["title-person", "Synthetic Title Review"],
+        ],
+        Roles: [
+          [
+            "role_id",
+            "profile_id",
+            "county_fips",
+            "published_office",
+            "published_title",
+            ...(includeColumn ? ["inferred_title"] : []),
+          ],
+          [
+            "r-published",
+            "title-person",
+            "08001",
+            "Synthetic Published Office",
+            "Published Clerk",
+            ...(includeColumn ? ["Unused Inference"] : []),
+          ],
+          [
+            "r-inferred",
+            "title-person",
+            "08001",
+            "Synthetic Inferred Office",
+            "",
+            ...(includeColumn ? [inferred] : []),
+          ],
+          [
+            "r-blank",
+            "title-person",
+            "08001",
+            "Office Without Title",
+            "",
+            ...(includeColumn ? [""] : []),
+          ],
+        ],
+      }).toString("base64"),
+    });
+    const review = async (source, key) => {
+      const preview = await profiles.importPreview(source);
+      assert.equal(preview.canCommit, true, JSON.stringify(preview.issues));
+      return profiles.importCommit(source, preview.digest, key);
+    };
+    await review(file("Inferred Technician"), "role-titles-initial");
+    const person = sandbox.database
+      .prepare(
+        "SELECT id FROM people WHERE display_name = 'Synthetic Title Review'",
+      )
+      .get();
+    await profiles.save(
+      [
+        {
+          kind: "visibility",
+          personId: person.id,
+          expectedVersion: 1,
+          visible: true,
+        },
+      ],
+      "role-titles-publish",
+    );
+    const render = async () =>
+      await (await requestPage(site, `/people/${person.id}`)).text();
+    const html = await render();
+    assert.match(html, /<h3>Published Clerk<\/h3>/);
+    assert.match(html, /<h3>Inferred Technician<\/h3>/);
+    assert.doesNotMatch(
+      html,
+      /Unused Inference|<h3>Office Without Title<\/h3>/,
+    );
+    assert.match(html, /Office as published:<\/span> Office Without Title/);
+    const directory = await (
+      await requestPage(site, "/officials?q=Inferred+Technician")
+    ).text();
+    assert.match(directory, /class="person-title">Inferred Technician<\/span>/);
+
+    const omitted = await profiles.importPreview(file("", false));
+    assert.equal(omitted.roles.unchanged, 3);
+    const edited = await review(
+      file("Updated Technician"),
+      "role-titles-update",
+    );
+    assert.equal(edited.updated.roles, 1);
+    assert.match(await render(), /<h3>Updated Technician<\/h3>/);
+    const cleared = await review(file(""), "role-titles-clear");
+    assert.equal(cleared.updated.roles, 1);
+    assert.doesNotMatch(
+      await render(),
+      /Updated Technician|<h3>Synthetic Inferred Office<\/h3>/,
+    );
+    await profiles.importReverse(cleared.batchId, "role-titles-reverse");
+    assert.match(await render(), /<h3>Updated Technician<\/h3>/);
+  } finally {
+    sandbox.close();
+  }
+});
+
 test("large workbook previews and commits only in private draft review", async () => {
   const count = 4_000;
   const duties = "Synthetic office duty. ".repeat(84).trim();

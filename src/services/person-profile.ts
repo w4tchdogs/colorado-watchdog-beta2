@@ -57,7 +57,7 @@ export function getPersonProfile(
     .prepare(
       `SELECT pr.id AS role_id, pr.version AS role_version, pr.start_date, pr.end_date,
               pr.source_checked_at, pr.county_fips AS role_county_fips,
-              rc.name AS role_county_name, pr.published_office, pr.published_title,
+              rc.name AS role_county_name, pr.published_office, pr.published_title, pr.inferred_title,
               pr.job_description, pos.id AS position_id, pos.title AS position_title,
               pos.version AS position_version, o.id AS organization_id,
               o.name AS organization_name, o.organization_type,
@@ -98,6 +98,9 @@ export function getPersonProfile(
               },
         publishedOffice: nullableString(row.published_office),
         publishedTitle: nullableString(row.published_title),
+        ...(typeof row.inferred_title === "string"
+          ? { inferredTitle: row.inferred_title }
+          : {}),
         jobDescription: nullableString(row.job_description),
       },
       position:

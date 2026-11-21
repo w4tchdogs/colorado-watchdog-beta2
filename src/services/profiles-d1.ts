@@ -149,7 +149,8 @@ const PROFILES_NAME_PAGE_LIMIT = 500;
 
 const COUNTY_EXPRESSION = "COALESCE(pr.county_fips, o.county_fips)";
 const OFFICE_EXPRESSION = "COALESCE(pr.published_office, o.name)";
-const POSITION_EXPRESSION = "COALESCE(pr.published_title, pos.title)";
+const POSITION_EXPRESSION =
+  "COALESCE(pr.published_title, pr.inferred_title, pos.title)";
 
 /**
  * Last Uploaded: the commit time of the latest dashboard Profiles import

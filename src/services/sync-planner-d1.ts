@@ -387,6 +387,8 @@ export async function planSyncChangesetD1(
     const fields = raw.fields;
     const fieldNames = Object.keys(fields);
     const supported = supportedCreateFields(entity);
+    if (entity === "person_roles" && options.allowRolesWithoutSource)
+      supported.push("inferred_title");
     if (fieldNames.some((field) => !supported.includes(field))) {
       add("unsupported_field", i, clientRef);
       items.push({
@@ -852,14 +854,11 @@ async function validateCreateFields(
       ok = false;
     }
     let hasText = false;
-    for (const [key, max] of [
-      ["published_office", 500],
-      ["published_title", 500],
-      ["job_description", 2000],
-    ] as const) {
+    for (const [key, max] of ROLE_TEXT_FIELDS) {
       if (!Object.hasOwn(f, key)) continue;
-      if (validNonempty(f[key], max)) hasText = true;
-      else {
+      if (validNonempty(f[key], max)) {
+        if (key !== "inferred_title") hasText = true;
+      } else {
         add("invalid_field", i, ref);
         ok = false;
       }
@@ -1002,7 +1001,12 @@ async function validateRoleUpdate(
         return false;
       }
     }
-    if (!row.position_id && !ROLE_TEXT_FIELDS.some(([key]) => proposed(key))) {
+    if (
+      !row.position_id &&
+      !ROLE_TEXT_FIELDS.some(
+        ([key]) => key !== "inferred_title" && proposed(key),
+      )
+    ) {
       add("invalid_field", i);
       return false;
     }

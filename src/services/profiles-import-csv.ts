@@ -226,6 +226,7 @@ export interface RoleRecord {
   readonly countyFips: string;
   readonly publishedOffice?: string;
   readonly publishedTitle?: string;
+  readonly inferredTitle?: string;
   readonly jobDescription?: string;
   readonly startDate?: string;
   readonly endDate?: string;
@@ -517,6 +518,7 @@ export function validateRoleRows(
       countyFips: v.county_fips as string,
       ...(v.published_office ? { publishedOffice: v.published_office } : {}),
       ...(v.published_title ? { publishedTitle: v.published_title } : {}),
+      ...(v.inferred_title ? { inferredTitle: v.inferred_title } : {}),
       ...(v.job_description ? { jobDescription: v.job_description } : {}),
       ...(v.start_date ? { startDate: v.start_date } : {}),
       ...(v.end_date ? { endDate: v.end_date } : {}),

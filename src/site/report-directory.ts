@@ -122,7 +122,11 @@ export async function reportDirectoryResponse(
         for (const item of page.items) {
           roles.push({
             id: item.role.id,
-            title: item.role.publishedTitle ?? item.position?.title ?? null,
+            title:
+              item.role.publishedTitle ??
+              item.role.inferredTitle ??
+              item.position?.title ??
+              null,
             office:
               item.role.publishedOffice ?? item.organization?.name ?? null,
             county: item.role.county,
@@ -186,7 +190,10 @@ export async function reportDirectoryResponse(
         ? {
             id: entry.role.id,
             title:
-              entry.role.publishedTitle ?? entry.role.position?.title ?? null,
+              entry.role.publishedTitle ??
+              entry.role.inferredTitle ??
+              entry.role.position?.title ??
+              null,
             office:
               entry.role.publishedOffice ??
               entry.role.organization?.name ??

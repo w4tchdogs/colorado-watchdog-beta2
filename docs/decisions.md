@@ -469,3 +469,11 @@ The owner requested direct Excel upload in the County Structure tab. Accept
 a single worksheet with the existing 17-column layout and use the same
 reviewed preview and commit workflow as CSV. See the
 [County Structure import contract](architecture/county-structure-csv.md#excel-workbook).
+
+## Inferred role title display — November 21, 2026
+
+Accept the optional `inferred_title` column on the Roles sheet. The public
+Profile and Officials & Employees directory show the published title first,
+then the inferred title, and omit the title when both are blank. Store the
+inferred label separately from published text. See the
+[Profiles import contract](architecture/profiles-import.md#role-title-display).

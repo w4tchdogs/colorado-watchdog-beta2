@@ -50,6 +50,7 @@ const MUTABLE: Readonly<Record<SyncEntity, readonly string[]>> = {
     "county_fips",
     "published_office",
     "published_title",
+    "inferred_title",
     "job_description",
   ],
   profile_names: [

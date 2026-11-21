@@ -337,6 +337,7 @@ function profileRow(
   from: string,
 ): SafeHtml {
   const role = entry.role;
+  const title = role?.publishedTitle ?? role?.inferredTitle;
   const profile = withQuery(path("people", entry.person.id), { from });
   const others = entry.matchingRoleCount - 1;
   return html`<tr>
@@ -344,7 +345,7 @@ function profileRow(
       <span class="avatar" aria-hidden="true">${initials(entry.person.displayName)}</span>
       <div class="person-summary">
         <a class="person-name" href="${profile}">${entry.person.displayName}</a>
-        <span class="person-title">${role ? (role.position?.title ?? role.publishedTitle ?? role.publishedOffice ?? "Duties as published below") : "No documented role"}</span>
+        ${title ? html`<span class="person-title">${title}</span>` : ""}
         ${role?.jobDescription ? html`<span class="row-note">Duties as published: ${role.jobDescription}</span>` : ""}
         ${role ? html`<span class="status-chip">Documented role</span>` : ""}
         ${role?.endDate ? html`<span class="row-note">Role end recorded: ${formatStoredDate(role.endDate)}</span>` : ""}
