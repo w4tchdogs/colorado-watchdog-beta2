@@ -134,6 +134,15 @@ Never delete local files. Move them to `_trash\`, which only the owner
 empties. Keep the Website D1 and Profiles databases separate on disk as well
 as in code.
 
+## Paste-ready PowerShell
+
+- Put PowerShell commands for the owner in a fenced `powershell` block.
+  Keep each block on one physical line. Separate multiple statements with
+  semicolons and wrap a multi-step script in `& { ... }`.
+- Keep prose outside the block and guard dependent commands so they stop if
+  a prerequisite fails. The owner must be able to paste the block as-is
+  even when the chat interface collapses line breaks.
+
 ## Documents and names
 
 - Separately revisioned documents use `Title revYYYY-MM-DD vX.ext`: Title
