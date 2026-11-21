@@ -111,8 +111,8 @@ class UpgradeCase(unittest.TestCase):
     def test_upgrade_preserves_everything_and_adds_expected_objects(self):
         before = all_rows(self.db)
         history = [tuple(r) for r in self.db.execute("SELECT * FROM schema_migrations ORDER BY name")]
-        migrate(self.db)
-        migrate(self.db)
+        migrate(self.db, through_version=7)
+        migrate(self.db, through_version=7)
         after = all_rows(self.db)
         new_tables = {"profile", "profile_county", "profile_county_unit", "profile_evidence", "profile_evidence_citation",
                       "profile_evidence_role", "profile_position", "profile_revisions", "profile_role"}
@@ -134,13 +134,13 @@ class UpgradeCase(unittest.TestCase):
 
     def test_migrations_001_to_006_are_unchanged_and_checksums_recorded(self):
         digests = {p.name: hashlib.sha256(p.read_text(encoding="utf-8").encode()).hexdigest()
-                   for p in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql"))}
-        migrate(self.db)
+                   for p in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")) if p.name[:3] <= "007"}
+        migrate(self.db, through_version=7)
         self.assertEqual(dict(tuple(r) for r in self.db.execute("SELECT name,sha256 FROM schema_migrations")), digests)
         self.assertEqual(len(digests), 7)
 
     def test_backup_restore_matches_v7_schema(self):
-        migrate(self.db)
+        migrate(self.db, through_version=7)
         self.db.commit()
         with patch.object(backup_module, "_protect", side_effect=lambda payload, _: payload), \
                 patch.object(backup_module, "_unprotect", side_effect=lambda payload, _: payload):
@@ -163,7 +163,7 @@ class ProfilesCase(unittest.TestCase):
         self.db = connect()
         migrate(self.db, through_version=6)
         seed_research(self.db)
-        migrate(self.db)
+        migrate(self.db, through_version=7)
 
     def tearDown(self):
         self.db.close()

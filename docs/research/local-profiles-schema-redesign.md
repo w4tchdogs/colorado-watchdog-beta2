@@ -1,7 +1,7 @@
 # Local Profiles database redesign
 
 Design record, November 17, 2026. Baseline: Profiles SQLite schema v5,
-migrations 001–005. Migrations 006 and 007 implement the names and tables. The owner distinguishes People Research, County Research
+migrations 001–005. Migrations 006–008 implement the names, tables and review grid. The owner distinguishes People Research, County Research
 and Profiles prepared for the Website. Use the [human operation decision](../decisions.md#human-operation-of-profiles-november-17-2026)
 as the editing and sync requirement.
 
@@ -111,7 +111,7 @@ legacy table requires a preservation plan before retirement.
 
 ## Full table and view list
 
-The target has 34 tables and 4 views, listed in alphabetical picker order.
+Schema v8 has 35 tables and 5 views, listed in alphabetical picker order.
 
 ```text
 county
@@ -122,6 +122,7 @@ county_research_unit_names
 county_research_unit_sources
 county_research_unit_structure
 profile
+profile_alternate_name
 profile_county
 profile_county_unit
 profile_evidence
@@ -137,6 +138,7 @@ profile_research_role_selected (view)
 profile_revisions
 profile_role
 profiles_overview (view)
+profiles_website_review (view)
 research_evidence
 research_history
 research_runs
@@ -209,6 +211,8 @@ Migration 006 implements the existing-object names and conditional retirement
 of the three legacy tables. See the [Windows rehearsal and upgrade guide](R0-foundation.md#upgrade-the-working-database-from-v5-to-v6).
 Migration 007 adds the confirmed Profile tables and the conclusion and overview
 views. See the [v6 to v7 guide](R0-foundation.md#upgrade-the-working-database-from-v6-to-v7).
+Migration 008 adds verified name components, confirmed alternate names and the
+private review grid. See the [v7 to v8 guide](R0-foundation.md#upgrade-the-working-database-from-v7-to-v8).
 The editing workflow, reviewed promotion and Website sync integration remain
 part of the design. The current local database and
 hosted receipts are the source of truth for any actual pilot already in progress.

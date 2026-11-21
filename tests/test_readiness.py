@@ -63,7 +63,7 @@ class ReadinessCase(unittest.TestCase):
         # authentication is covered independently on Windows.
         with patch.object(backup_module, "_protect", side_effect=lambda payload, _: payload), \
                 patch.object(backup_module, "_unprotect", side_effect=lambda payload, _: payload):
-            for version, table in ((5, "counties"), (6, "county"), (7, "county")):
+            for version, table in ((5, "counties"), (6, "county"), (7, "county"), (8, "county")):
                 with self.subTest(version=version):
                     source = self.root / f"v{version}.sqlite"
                     with closing(connect(source)) as db:
@@ -80,7 +80,7 @@ class ReadinessCase(unittest.TestCase):
                     self.assertEqual(restored["table_counts"][table], 1)
 
     def test_backup_snapshot_requires_exact_migration_derived_schema(self):
-        self.assertEqual(backup_module._database_snapshot(self.db)["schema_version"], 7)
+        self.assertEqual(backup_module._database_snapshot(self.db)["schema_version"], 8)
         alterations = {
             "missing county index": "DROP INDEX claims_county_person",
             "missing lineage trigger": "DROP TRIGGER batch_lineage_update",
