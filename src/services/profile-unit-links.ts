@@ -3,6 +3,7 @@ import type {
   ProfileUnitLinkPreview,
   ProfileUnitLinkReceipt,
   ProfileUnitLinkState,
+  ProfileUnitSuggestions,
 } from "../contracts/profiles.js";
 import type { AsyncD1Database } from "../database/d1.js";
 import { authorizeCountyStructure } from "./county-structure-auth.js";
@@ -14,6 +15,18 @@ type Scope = {
   readonly values: readonly (string | number)[];
 };
 
+const SUGGESTION_ACTION = "county_structure.role_attachment.suggested";
+
+function unitPaths(seeds: string): string {
+  return `paths(id, unit_id, path) AS (
+    ${seeds}
+    UNION ALL
+    SELECT parent.id, p.unit_id, parent.name || ' › ' || p.path
+    FROM paths p JOIN county_unit child ON child.id = p.id
+    JOIN county_unit parent ON parent.id = child.parent_unit_id
+  )`;
+}
+
 // SQLite compares these names byte-for-byte within the role's county. A
 // display group is a heading, so only county_unit is eligible to match.
 function classified(scope: Scope): string {
@@ -23,13 +36,19 @@ function classified(scope: Scope): string {
       FROM county_unit GROUP BY county_fips, name COLLATE BINARY
     ),
     homes AS (
-      SELECT d.person_role_id, COUNT(*) AS total, MIN(d.unit_id) AS unit_id
+      SELECT d.person_role_id, COUNT(*) AS total, MIN(d.unit_id) AS unit_id,
+        MAX(EXISTS (
+          SELECT 1 FROM audit_events e WHERE e.id = d.id AND e.action = '${SUGGESTION_ACTION}'
+            AND d.version = 1 AND json_extract(e.details_json, '$.unitId') = d.unit_id
+            AND json_extract(e.details_json, '$.office') = s.office COLLATE BINARY
+        )) AS suggested
       FROM scope s JOIN county_role_display d ON d.person_role_id = s.role_id
       WHERE d.listing = 'home' GROUP BY d.person_role_id
     ),
     classified AS (
       SELECT s.*, n.unit_id,
-        CASE WHEN h.total = 1 AND n.total = 1 AND h.unit_id = n.unit_id THEN 'linked'
+        CASE WHEN h.total = 1 AND
+               (h.suggested = 1 OR (n.total = 1 AND h.unit_id = n.unit_id)) THEN 'linked'
              WHEN h.total IS NOT NULL THEN 'review'
              WHEN n.total > 1 THEN 'multiple'
              WHEN n.total = 1 THEN 'ready'
@@ -61,16 +80,12 @@ export async function readProfileUnitLinks(
     paths: string;
   }>(
     `${classified(scope)},
-      paths(id, unit_id, path) AS (
+      ${unitPaths(`
         SELECT u.id, u.id, u.name
         FROM county_unit u
         WHERE EXISTS (SELECT 1 FROM classified c WHERE c.state = 'multiple'
           AND c.county_fips = u.county_fips AND c.office = u.name COLLATE BINARY)
-        UNION ALL
-        SELECT parent.id, p.unit_id, parent.name || ' › ' || p.path
-        FROM paths p JOIN county_unit child ON child.id = p.id
-        JOIN county_unit parent ON parent.id = child.parent_unit_id
-      )
+      `)}
       SELECT c.role_id, c.state, (SELECT json_group_array(
           COALESCE(g.name || ' › ', '') || p.path || ' (' || p.unit_id || ')'
           ORDER BY p.path, p.unit_id)
@@ -113,6 +128,110 @@ type PlanRow = {
 };
 
 export function createProfileUnitLinks(database: AsyncD1Database) {
+  async function replaySaved(
+    principal: TrustedPrincipal,
+    key: string,
+    fingerprint: string,
+  ) {
+    const stored = await database.first<{
+      request_fingerprint: string;
+      response_json: string;
+    }>(
+      `SELECT request_fingerprint, response_json FROM profile_write_receipts
+       WHERE actor_account_id = ? AND idempotency_key = ?`,
+      [principal.accountId, key],
+    );
+    if (!stored) return null;
+    if (stored.request_fingerprint !== fingerprint)
+      throw new ProfileUnitLinkError(
+        "idempotency_conflict",
+        "This key belongs to another review.",
+      );
+    return {
+      ...(JSON.parse(stored.response_json) as ProfileUnitLinkReceipt),
+      replayed: true,
+    };
+  }
+
+  const saveReceipt = (
+    principal: TrustedPrincipal,
+    key: string,
+    fingerprint: string,
+    receipt: ProfileUnitLinkReceipt,
+  ) =>
+    database.prepare(
+      `INSERT INTO profile_write_receipts
+       (actor_account_id, idempotency_key, request_fingerprint, response_json)
+       VALUES (?, ?, ?, ?)`,
+      [principal.accountId, key, fingerprint, JSON.stringify(receipt)],
+    );
+
+  const assertion = (total: number) =>
+    database.prepare(
+      "INSERT INTO website_write_assertions (id, valid) VALUES (?, changes() = ?)",
+      [crypto.randomUUID(), total],
+    );
+
+  async function suggestions(roleId: string) {
+    const role = await database.first<{
+      county_fips: string | null;
+      office: string | null;
+      version: number;
+    }>(
+      `SELECT COALESCE(r.county_fips, o.county_fips) AS county_fips,
+              COALESCE(r.published_office, o.name) AS office, r.version
+       FROM person_roles r
+       LEFT JOIN positions pos ON pos.id = r.position_id
+       LEFT JOIN organizations o ON o.id = pos.organization_id
+       WHERE r.id = ? AND NOT EXISTS (
+         SELECT 1 FROM county_role_display d WHERE d.person_role_id = r.id AND d.listing = 'home')`,
+      [roleId],
+    );
+    if (!role)
+      throw new ProfileUnitLinkError(
+        "stale_preview",
+        "This role is no longer available for linking. Refresh Profiles.",
+      );
+    const prefix = role.office?.trim().toLowerCase() ?? "";
+    if (!role.county_fips || prefix.length < 2) return { role, units: [] };
+    const candidates = await database.all<{
+      id: string;
+      path: string;
+      version: number;
+    }>(
+      `WITH RECURSIVE prefixes(value) AS (
+         VALUES(?) UNION ALL SELECT substr(value, 1, length(value) - 1)
+         FROM prefixes WHERE length(value) > 3
+       ), candidates AS (
+         SELECT u.id, u.name, u.version, MAX(length(p.value)) AS score
+         FROM county_unit u JOIN prefixes p ON substr(lower(u.name), 1, length(p.value)) = p.value
+         WHERE u.county_fips = ? AND u.status = 'active'
+         GROUP BY u.id
+         ORDER BY score DESC, length(u.name), u.name COLLATE NOCASE, u.id
+         LIMIT 5
+       ), ${unitPaths("SELECT id, id, name FROM candidates")}
+       SELECT c.id, c.version, COALESCE(g.name || ' › ', '') || p.path AS path
+       FROM candidates c JOIN paths p ON p.unit_id = c.id
+       JOIN county_unit root ON root.id = p.id
+       LEFT JOIN county_unit_display g ON g.id = root.display_group_id
+       WHERE root.parent_unit_id IS NULL
+       ORDER BY c.score DESC, length(c.name), c.name COLLATE NOCASE, c.id`,
+      5,
+      [prefix, role.county_fips],
+    );
+    return {
+      role,
+      units: await Promise.all(
+        candidates.map(async (unit) => ({
+          unitId: unit.id,
+          path: unit.path,
+          version: unit.version,
+          digest: await sha256Hex(JSON.stringify([roleId, role, unit])),
+        })),
+      ),
+    };
+  }
+
   async function plan(scope: Scope) {
     // Group reviewed IDs into bounded D1 cells, retaining deterministic order
     // across the whole filtered set. The API returns only summary counts.
@@ -168,6 +287,101 @@ export function createProfileUnitLinks(database: AsyncD1Database) {
     );
 
   return {
+    async suggest(
+      principal: TrustedPrincipal,
+      roleId: string,
+    ): Promise<ProfileUnitSuggestions> {
+      await authorizeCountyStructure(database, principal);
+      const { role, units } = await suggestions(roleId);
+      return {
+        office: role.office,
+        units: units.map(({ unitId, path, digest }) => ({
+          unitId,
+          path,
+          digest,
+        })),
+      };
+    },
+    async choose(
+      principal: TrustedPrincipal,
+      roleId: string,
+      unitId: string,
+      digest: string,
+      key: string,
+    ): Promise<ProfileUnitLinkReceipt> {
+      await authorizeCountyStructure(database, principal);
+      const fingerprint = await sha256Hex(
+        JSON.stringify([SUGGESTION_ACTION, roleId, unitId, digest]),
+      );
+      const prior = await replaySaved(principal, key, fingerprint);
+      if (prior) return prior;
+      const generation = await database.readDependencyGeneration();
+      const checkChoice = async () => {
+        const { role, units } = await suggestions(roleId);
+        const unit = units.find(
+          (candidate) =>
+            candidate.unitId === unitId && candidate.digest === digest,
+        );
+        if (!unit)
+          throw new ProfileUnitLinkError(
+            "stale_preview",
+            "The suggestions changed. Review the role again.",
+          );
+        return { role, unit };
+      };
+      const { role, unit } = await checkChoice();
+      // Sharing the attachment ID supports an indexed lookup of the owner's
+      // reviewed spelling difference when displaying the link status.
+      const attachmentId = crypto.randomUUID();
+      const receipt = { attached: 1, replayed: false };
+      try {
+        await database.guardedBatch(generation, principal, [
+          database.prepare(
+            `INSERT INTO county_role_display
+               (id, person_role_id, county_fips, unit_id, listing, reviewed_by_account_id)
+             SELECT ?, r.id, u.county_fips, u.id, 'home', ?
+             FROM person_roles r
+             LEFT JOIN positions pos ON pos.id = r.position_id
+             LEFT JOIN organizations o ON o.id = pos.organization_id
+             JOIN county_unit u ON u.county_fips = COALESCE(r.county_fips, o.county_fips)
+             WHERE r.id = ? AND r.version = ? AND u.id = ? AND u.version = ?
+               AND u.status = 'active' AND COALESCE(r.published_office, o.name) = ? COLLATE BINARY
+               AND NOT EXISTS (
+                 SELECT 1 FROM county_role_display d WHERE d.person_role_id = r.id AND d.listing = 'home')`,
+            [
+              attachmentId,
+              principal.accountId,
+              roleId,
+              role.version,
+              unitId,
+              unit.version,
+              role.office,
+            ],
+          ),
+          assertion(1),
+          database.prepare(
+            `INSERT INTO audit_events (id, actor_account_id, action, target_type, target_id, summary, details_json)
+             VALUES (?, ?, ?, 'county_structure', ?, ?, ?)`,
+            [
+              attachmentId,
+              principal.accountId,
+              SUGGESTION_ACTION,
+              roleId,
+              "Attached a Profile role to an owner-reviewed suggested unit",
+              JSON.stringify({ office: role.office, unitId }),
+            ],
+          ),
+          saveReceipt(principal, key, fingerprint, receipt),
+        ]);
+      } catch (error) {
+        await authorizeCountyStructure(database, principal);
+        const raced = await replaySaved(principal, key, fingerprint);
+        if (raced) return raced;
+        await checkChoice();
+        throw error;
+      }
+      return receipt;
+    },
     async preview(
       principal: TrustedPrincipal,
       scope: Scope,
@@ -185,26 +399,7 @@ export function createProfileUnitLinks(database: AsyncD1Database) {
       const fingerprint = await sha256Hex(
         JSON.stringify([ACTION, scope.sql, scope.values, digest]),
       );
-      const replay = async () => {
-        const stored = await database.first<{
-          request_fingerprint: string;
-          response_json: string;
-        }>(
-          `SELECT request_fingerprint, response_json FROM profile_write_receipts
-           WHERE actor_account_id = ? AND idempotency_key = ?`,
-          [principal.accountId, key],
-        );
-        if (!stored) return null;
-        if (stored.request_fingerprint !== fingerprint)
-          throw new ProfileUnitLinkError(
-            "idempotency_conflict",
-            "This key belongs to another review.",
-          );
-        return {
-          ...(JSON.parse(stored.response_json) as ProfileUnitLinkReceipt),
-          replayed: true,
-        };
-      };
+      const replay = () => replaySaved(principal, key, fingerprint);
       const prior = await replay();
       if (prior) return prior;
       const generation = await database.readDependencyGeneration();
@@ -212,14 +407,6 @@ export function createProfileUnitLinks(database: AsyncD1Database) {
       if (preview.digest !== digest) throw stale();
       const receipt = { attached: preview.ready, replayed: false };
       if (!preview.ready) return receipt;
-      const assertion = (
-        condition: string,
-        values: readonly (string | number)[],
-      ) =>
-        database.prepare(
-          `INSERT INTO website_write_assertions (id, valid) SELECT ?, ${condition}`,
-          [crypto.randomUUID(), ...values],
-        );
       const statements = parts.flatMap((part) => [
         database.prepare(
           `INSERT INTO county_role_display
@@ -240,7 +427,7 @@ export function createProfileUnitLinks(database: AsyncD1Database) {
                SELECT 1 FROM county_role_display d WHERE d.person_role_id = r.id AND d.listing = 'home')`,
           [principal.accountId, part.pairs],
         ),
-        assertion("changes() = ?", [part.total]),
+        assertion(part.total),
       ]);
       statements.push(
         database.prepare(
@@ -255,12 +442,7 @@ export function createProfileUnitLinks(database: AsyncD1Database) {
             JSON.stringify({ attached: String(receipt.attached), digest }),
           ],
         ),
-        database.prepare(
-          `INSERT INTO profile_write_receipts
-             (actor_account_id, idempotency_key, request_fingerprint, response_json)
-           VALUES (?, ?, ?, ?)`,
-          [principal.accountId, key, fingerprint, JSON.stringify(receipt)],
-        ),
+        saveReceipt(principal, key, fingerprint, receipt),
       );
       try {
         await database.guardedBatch(generation, principal, statements);

@@ -34,6 +34,7 @@ import {
   type ProfileUnitLink,
   type ProfileUnitLinkPreview,
   type ProfileUnitLinkReceipt,
+  type ProfileUnitSuggestions,
 } from "../contracts/profiles.js";
 import { StorageUnavailableError } from "../contracts/storage.js";
 import type { AsyncD1Database, D1BatchStatement } from "../database/d1.js";
@@ -261,6 +262,15 @@ export interface ProfilesServiceOptions {
 export interface ProfilesService
   extends ReturnType<typeof createProfilesDelete> {
   listRows(principal: TrustedPrincipal, input: unknown): Promise<ProfilePage>;
+  suggestUnits(
+    principal: TrustedPrincipal,
+    input: unknown,
+  ): Promise<ProfileUnitSuggestions>;
+  linkSuggestedUnit(
+    principal: TrustedPrincipal,
+    key: string,
+    input: unknown,
+  ): Promise<ProfileUnitLinkReceipt>;
   previewUnitLinks(
     principal: TrustedPrincipal,
     input: unknown,
@@ -371,6 +381,11 @@ export function createD1ProfilesService(
     if (query.visibility === "hidden")
       conditions.push("COALESCE(pv.visible, 1) = 0");
     if (query.visibility === "incomplete") conditions.push(`NOT ${READY_SQL}`);
+    if (query.unitLink === "unlinked" || query.unitLink === "linked") {
+      conditions.push(`pr.id IS NOT NULL AND ${query.unitLink === "unlinked" ? "NOT " : ""}EXISTS (
+        SELECT 1 FROM county_role_display d WHERE d.person_role_id = pr.id AND d.listing = 'home'
+      )`);
+    }
     return {
       where: conditions.length ? `WHERE ${conditions.join(" AND ")}` : "",
       values,
@@ -883,7 +898,10 @@ export function createD1ProfilesService(
       typeof filters !== "object" ||
       Array.isArray(filters) ||
       Object.keys(filters).some(
-        (key) => !["query", "county", "office", "visibility"].includes(key),
+        (key) =>
+          !["query", "county", "office", "visibility", "unitLink"].includes(
+            key,
+          ),
       ) ||
       typeof visible !== "boolean"
     )
@@ -974,7 +992,10 @@ export function createD1ProfilesService(
       typeof filters !== "object" ||
       Array.isArray(filters) ||
       Object.keys(filters).some(
-        (key) => !["query", "county", "office", "visibility"].includes(key),
+        (key) =>
+          !["query", "county", "office", "visibility", "unitLink"].includes(
+            key,
+          ),
       )
     )
       throw new ProfilesInputError("Choose valid role filters.");
@@ -992,6 +1013,33 @@ export function createD1ProfilesService(
 
   return {
     ...createProfilesDelete(database, require, now),
+    async suggestUnits(principal, input) {
+      await require(principal);
+      const { roleId } = (input ?? {}) as Record<string, unknown>;
+      if (typeof roleId !== "string" || !ID.test(roleId))
+        throw new ProfilesInputError("Choose a role.");
+      return unitLinks.suggest(principal, roleId);
+    },
+    async linkSuggestedUnit(principal, key, input) {
+      await require(principal);
+      const { roleId, unitId, digest } = (input ?? {}) as Record<
+        string,
+        unknown
+      >;
+      if (
+        typeof roleId !== "string" ||
+        !ID.test(roleId) ||
+        typeof unitId !== "string" ||
+        !ID.test(unitId) ||
+        typeof digest !== "string" ||
+        !/^[0-9a-f]{64}$/.test(digest) ||
+        !/^[A-Za-z0-9._:-]{8,128}$/.test(key)
+      )
+        throw new ProfilesInputError(
+          "A reviewed suggestion and idempotency key are required.",
+        );
+      return unitLinks.choose(principal, roleId, unitId, digest, key);
+    },
     async previewUnitLinks(principal, input) {
       await require(principal);
       return unitLinks.preview(principal, unitLinkScope(input).scope);
@@ -2239,6 +2287,9 @@ export function parseQuery(input: unknown): ProfileQuery {
   const visibility = text("visibility", 12) || "all";
   if (!["all", "visible", "hidden", "incomplete"].includes(visibility))
     throw new ProfilesInputError("Invalid visibility");
+  const unitLink = text("unitLink", 8) || "all";
+  if (unitLink !== "all" && unitLink !== "unlinked" && unitLink !== "linked")
+    throw new ProfilesInputError("Invalid unit link filter");
   const sort = text("sort", 40) || "displayName";
   if (!PROFILE_SORT_FIELDS.includes(sort))
     throw new ProfilesInputError("Invalid sort");
@@ -2258,6 +2309,7 @@ export function parseQuery(input: unknown): ProfileQuery {
     countyFips: county || null,
     office: office || null,
     visibility: visibility as ProfileQuery["visibility"],
+    unitLink,
     sort,
     direction: direction as ProfileQuery["direction"],
     page: integer("page", 1, 1, PROFILES_MAX_PAGE),

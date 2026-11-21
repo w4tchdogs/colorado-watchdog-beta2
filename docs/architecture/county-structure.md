@@ -96,6 +96,14 @@ or changed placement that affects the preview requires a fresh review.
 The batch is atomic and retry safe. Visibility, other listings, and the
 separate reviewed CSV workflow are unchanged.
 
+Use **Unit link → Unlinked** in Profiles to show role rows without a saved
+home placement. The filter applies across the grid, including pagination and
+bulk review. **Suggest units** offers up to five active units in that role's
+county, ranked by the longest shared start of the Office / Department name,
+ignoring case. Review the unit's hierarchy path and choose **Link selected
+unit** to save that one role. A confirmed suggestion shows as **Linked** and
+uses the same home placement and public visibility rules as an exact match.
+
 ### Public totals and badge counts (STATS-1 follow-up)
 
 Homepage and county totals use public County Structure units (all types, including

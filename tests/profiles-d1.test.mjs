@@ -27,6 +27,92 @@ import { siteAssets } from "./site-fixtures.mjs";
 
 const NOW = () => new Date("2026-11-18T12:00:00.000Z");
 
+test("unlinked roles across pages can be linked to a reviewed same-county suggestion", async () => {
+  await fixture(async ({ database, d1, service, owner, editor }) => {
+    database.exec(`
+      INSERT INTO county_unit (id, county_fips, name, organization_type, status) VALUES
+        ('assessment', '08001', 'Synthetic Assessment', 'office', 'active'),
+        ('assessor', '08001', 'Synthetic Assessor', 'office', 'active'),
+        ('other-county', '08069', 'Synthetic Assessor Office', 'office', 'active'),
+        ('hidden-assessor', '08001', 'Synthetic Assessor Office', 'office', 'hidden'),
+        ('dissimilar', '08001', 'Records', 'office', 'active');
+      INSERT INTO people (id, display_name) VALUES ('roleless', 'Synthetic Roleless');
+      INSERT INTO county_role_display (id, person_role_id, county_fips, unit_id, listing, reviewed_by_account_id)
+      VALUES ('preexisting', 'role-former', '08001', 'dissimilar', 'home', 'acct-owner');
+    `);
+    const unlinked = query({ unitLink: "unlinked", pageSize: 1, page: 2 });
+    assert.equal((await service.listRows(owner, unlinked)).total, 3);
+    assert.equal((await service.selectAll(owner, unlinked)).entries.length, 3);
+    assert.equal(
+      (await service.listRows(owner, query({ unitLink: "linked" }))).total,
+      1,
+    );
+    const roleId = "role-office";
+    await assert.rejects(service.suggestUnits(editor, { roleId }), {
+      name: "AuthorizationError",
+    });
+    const suggestions = await service.suggestUnits(owner, { roleId });
+    assert.equal(suggestions.office, "Synthetic Assessor Office");
+    assert.deepEqual(
+      suggestions.units.map((unit) => unit.unitId),
+      ["assessor", "assessment"],
+    );
+    const first = suggestions.units[0];
+    await assert.rejects(
+      service.linkSuggestedUnit(owner, "other-county-1", {
+        roleId,
+        unitId: "other-county",
+        digest: first.digest,
+      }),
+      { code: "stale_preview" },
+    );
+    database
+      .prepare(
+        "UPDATE county_unit SET name = 'Synthetic Assessor Division', version = 2 WHERE id='assessor'",
+      )
+      .run();
+    await assert.rejects(
+      service.linkSuggestedUnit(owner, "stale-choice-1", { roleId, ...first }),
+      { code: "stale_preview" },
+    );
+    const reviewed = (await service.suggestUnits(owner, { roleId })).units[0];
+    const input = { roleId, ...reviewed };
+    assert.deepEqual(
+      await service.linkSuggestedUnit(owner, "suggested-link-1", input),
+      { attached: 1, replayed: false },
+    );
+    assert.deepEqual(
+      await service.linkSuggestedUnit(owner, "suggested-link-1", input),
+      { attached: 1, replayed: true },
+    );
+    await assert.rejects(service.suggestUnits(owner, { roleId }), {
+      code: "stale_preview",
+    });
+    assert.equal((await service.listRows(owner, unlinked)).total, 2);
+    const attached = await service.listRows(
+      owner,
+      query({ unitLink: "linked" }),
+    );
+    assert.equal(
+      attached.rows.find((row) => row.roleId === roleId).unitLink.state,
+      "linked",
+    );
+    assert.equal(
+      attached.rows.find((row) => row.roleId === "role-former").unitLink.state,
+      "review",
+    );
+    const preview = await new D1CountyStructurePublicService(
+      d1,
+    ).getCountyStructure("08001");
+    assert.equal(
+      preview.groups
+        .flatMap((group) => group.units)
+        .find((unit) => unit.id === "assessor").profileCount,
+      1,
+    );
+  });
+});
+
 test("exact unit links use county and literal office names and preserve reviewed placements", async () => {
   await fixture(async ({ database, d1, service, owner, editor }) => {
     database.exec(`

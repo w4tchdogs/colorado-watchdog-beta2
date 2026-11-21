@@ -75,6 +75,8 @@ type Op =
   | "matchingVisibilitySave"
   | "unitLinksPreview"
   | "unitLinksCommit"
+  | "unitSuggestions"
+  | "unitSuggestionCommit"
   | "names"
   | "preview"
   | "save"
@@ -105,6 +107,8 @@ function match(
     "matching-visibility/save": ["matchingVisibilitySave", "POST"],
     "unit-links/preview": ["unitLinksPreview", "POST"],
     "unit-links/commit": ["unitLinksCommit", "POST"],
+    "unit-links/suggestions": ["unitSuggestions", "POST"],
+    "unit-links/choose": ["unitSuggestionCommit", "POST"],
     names: ["names", "GET"],
     preview: ["preview", "POST"],
     save: ["save", "POST"],
@@ -213,7 +217,12 @@ async function handle(
         ...(await importService.reverse(principal, batchId, key)),
       });
     }
-    if (matched.op === "unitLinksPreview" || matched.op === "unitLinksCommit") {
+    if (
+      matched.op === "unitLinksPreview" ||
+      matched.op === "unitLinksCommit" ||
+      matched.op === "unitSuggestions" ||
+      matched.op === "unitSuggestionCommit"
+    ) {
       const input = await readObject(request, limit);
       if (!input) return json(400, { error: "invalid_json" });
       if (matched.op === "unitLinksPreview")
@@ -221,7 +230,13 @@ async function handle(
           ...(await service.previewUnitLinks(principal, input)),
         });
       const key = request.headers.get("idempotency-key");
+      if (matched.op === "unitSuggestions")
+        return json(200, { ...(await service.suggestUnits(principal, input)) });
       if (!key) return json(400, { error: "idempotency_key_required" });
+      if (matched.op === "unitSuggestionCommit")
+        return json(200, {
+          ...(await service.linkSuggestedUnit(principal, key, input)),
+        });
       return json(200, {
         ...(await service.commitUnitLinks(principal, key, input)),
       });
@@ -307,6 +322,7 @@ function params(url: URL): Record<string, string> {
     "county",
     "office",
     "visibility",
+    "unitLink",
     "sort",
     "direction",
     "page",
