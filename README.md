@@ -71,8 +71,10 @@ disposable sandbox with synthetic accounts and data. See the
 Choose **Olive Owner (owner)** under **Acting as** to open
 [Profiles](http://127.0.0.1:8788/#/profiles) or
 [County Structure](http://127.0.0.1:8788/#/county-structure). The County
-Structure workspace has a fictional hierarchy in Adams County. Edits are
-discarded when you stop the sandbox.
+Structure workspace has a fictional hierarchy in Adams County. Select
+**Adams**, open **Public page layout**, and save a column and position for
+one or more headings. Refresh the [Adams County Structure preview](http://127.0.0.1:8790/counties/08001#structure)
+to review the placement. Edits are discarded when you stop the sandbox.
 
 ### Private draft review
 
@@ -91,6 +93,8 @@ use the same database on loopback. Under **Acting as**, select **Olive
 Owner (owner)**. In **County Structure**, preview and commit the draft
 `county.csv`. In **Profiles → Import Profiles**, choose the draft Excel
 workbook, preview it, and commit after reviewing the totals and issues.
+**Public page layout** saves per-county preferences in this local draft
+database. Refresh the corresponding county page to review saved pins.
 
 New Profiles start hidden. Set eligible records to **Visible** in the
 local dashboard to see them on the public-page preview. Use the dashboard

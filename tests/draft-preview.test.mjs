@@ -98,7 +98,7 @@ test("the local owner can pin a fictional group and see it in the companion prev
   }
 });
 
-test("draft workbook and county CSV survive restart and share public visibility", async () => {
+test("draft workbook, county CSV and layout pins survive restart and share public visibility", async () => {
   const directory = mkdtempSync(join(tmpdir(), "watchdog-draft-review-"));
   const start = () =>
     startSandbox({ draftDatabase: openDraftPreviewDatabase(directory) });
@@ -134,6 +134,7 @@ test("draft workbook and county CSV survive restart and share public visibility"
   }).toString("base64");
   let sandbox = await start();
   let personId;
+  let pinnedGroup;
   try {
     const { profiles, structure, site, fetch } = clients(sandbox);
     assert.equal(
@@ -159,6 +160,17 @@ test("draft workbook and county CSV survive restart and share public visibility"
         expectedVersion: (await structure.counties()).version,
       },
       "draft-preview-counties",
+    );
+    const layout = await structure.countyLayout("08001");
+    const group = layout.availableGroups.find(
+      ({ name }) => name === "Elected Official",
+    );
+    assert.ok(group);
+    pinnedGroup = { groupId: group.id, column: "left", position: 1 };
+    await structure.saveCountyLayout(
+      "08001",
+      { expectedVersion: layout.version, pinnedGroups: [pinnedGroup] },
+      "draft-preview-pin-officials",
     );
     const planned = await profiles.importPreview({ workbook });
     assert.equal(planned.canCommit, true, JSON.stringify(planned.issues));
@@ -207,6 +219,16 @@ test("draft workbook and county CSV survive restart and share public visibility"
     assert.equal(page.rows[0].profileId, personId);
     assert.equal(page.rows[0].visible, true);
     assert.ok((await structure.county("08001")).counts.units > 0);
+    assert.deepEqual((await structure.countyLayout("08001")).pinnedGroups, [
+      pinnedGroup,
+    ]);
+    const countyHtml = await (
+      await requestPage(site, "/counties/08001")
+    ).text();
+    assert.match(
+      countyHtml,
+      /aria-label="Pinned left column">\s*<section[^>]*>\s*<h3[^>]*>Elected Official<\/h3>/,
+    );
     assert.equal((await requestPage(site, `/people/${personId}`)).status, 200);
   } finally {
     sandbox.close();
