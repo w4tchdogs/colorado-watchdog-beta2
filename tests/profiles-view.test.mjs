@@ -210,7 +210,7 @@ async function waitFor(check, label, timeout = 4000) {
   }
 }
 
-async function mount(callback, { pageSize = 2 } = {}) {
+async function mount(callback, { pageSize = 2, intercept } = {}) {
   const database = await openWebsiteDatabase();
   migrateWebsiteDatabase(database);
   database.exec(SEED);
@@ -224,17 +224,20 @@ async function mount(callback, { pageSize = 2 } = {}) {
     service,
   });
   const client = createProfilesClient({
-    fetch: (path, init = {}) =>
-      transport.fetch(
-        new Request(`${ORIGIN}${path}`, {
-          ...init,
-          headers: {
-            ...init.headers,
-            origin: ORIGIN,
-            "x-test-human-subject": "owner",
-          },
-        }),
-      ),
+    fetch: (path, init = {}) => {
+      const send = () =>
+        transport.fetch(
+          new Request(`${ORIGIN}${path}`, {
+            ...init,
+            headers: {
+              ...init.headers,
+              origin: ORIGIN,
+              "x-test-human-subject": "owner",
+            },
+          }),
+        );
+      return intercept ? intercept(new URL(path, ORIGIN), send) : send();
+    },
   });
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
@@ -325,7 +328,7 @@ async function type(cellElement, value, key = "Enter") {
 }
 
 test("the grid pages, searches across pages and labels row selection separately from visibility", async () => {
-  await mount(async ({ $, rows, cell, container }) => {
+  await mount(async ({ $, rows, cell, click, container }) => {
     assert.equal($("h1").textContent, "Profiles");
     assert.equal(rows().length, 2, "page size 2");
     assert.match($(".cw-profiles-counts").textContent, /4 rows match/);
@@ -339,6 +342,20 @@ test("the grid pages, searches across pages and labels row selection separately 
       ["Select", "Visible", "Display Name"],
     );
     assert.equal($("#profiles-grid").style.height, "87.5vh");
+    const pagination = $("[aria-label='Profiles pagination']");
+    assert.equal(pagination.nextElementSibling, $("#profiles-grid"));
+    assert.equal($("#profiles-grid").querySelector(".tabulator-pages"), null);
+    assert.match($(".cw-profiles-counts").textContent, /Page 1 of 2\./);
+    click(pagination.querySelector('button[data-page="2"]'));
+    await waitFor(
+      () => /Page 2 of 2/.test($(".cw-profiles-counts").textContent),
+      "numbered page above the grid opens page two",
+    );
+    click(pagination.querySelector('button[data-page="1"]'));
+    await waitFor(
+      () => /Page 1 of 2/.test($(".cw-profiles-counts").textContent),
+      "return to first page",
+    );
     assert.equal(
       $("#profiles-hide").nextElementSibling.id,
       "profiles-delete-selected",
@@ -373,6 +390,54 @@ test("the grid pages, searches across pages and labels row selection separately 
       null,
     );
   });
+});
+
+test("a delayed, superseded Profiles response cannot reset the current page count", async () => {
+  const slowRequest = Promise.withResolvers();
+  let slowStarted = false;
+  await mount(
+    async ({ $, click, rows }) => {
+      const search = $("#profiles-search");
+      const apply = (value) => {
+        search.value = value;
+        search.form.dispatchEvent(
+          new window.Event("submit", { bubbles: true, cancelable: true }),
+        );
+      };
+      apply("Office Only");
+      await waitFor(() => slowStarted, "one-page search in flight");
+      apply("Multi Role");
+      await waitFor(
+        () => /2 rows match/.test($(".cw-profiles-counts").textContent),
+        "newer multi-page search",
+      );
+      slowRequest.resolve();
+      await wait(30);
+      click($("button[aria-label='Next Page']"));
+      await waitFor(
+        () => $(".tabulator-page.active")?.dataset.page === "2",
+        "page two after stale search",
+      );
+      assert.equal(rows().length, 1);
+      assert.match(
+        $(".cw-profiles-counts").textContent,
+        /2 rows match\. Page 2 of 2\./,
+      );
+    },
+    {
+      pageSize: 1,
+      intercept: async (url, send) => {
+        if (
+          url.pathname.endsWith("/rows") &&
+          url.searchParams.get("query") === "Office Only"
+        ) {
+          slowStarted = true;
+          await slowRequest.promise;
+        }
+        return send();
+      },
+    },
+  );
 });
 
 test("keyboard edit stages a change, Escape cancels, save and reload keep the value", async () => {
@@ -1021,7 +1086,7 @@ test("remote pagination returns exactly 1000 rows then the remainder without dup
       );
       assert.match(
         $(".cw-profiles-counts").textContent,
-        /1006 rows match\. Page 1\./,
+        /1006 rows match\. Page 1 of 21\./,
       );
       pageSize.value = "1000";
       pageSize.dispatchEvent(new window.Event("change", { bubbles: true }));
@@ -1032,7 +1097,7 @@ test("remote pagination returns exactly 1000 rows then the remainder without dup
         "first thousand rows",
         15000,
       );
-      assert.match($(".tabulator-page-counter").textContent, /rows/);
+      assert.match($(".cw-profiles-counts").textContent, /Page 1 of 2\./);
       const firstPageKeys = rows().map((row) =>
         row
           .querySelector("input[data-select-role]")

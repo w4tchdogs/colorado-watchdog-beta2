@@ -228,6 +228,7 @@ export function createProfilesView(options: {
       ).map((field) => field.id),
     );
     let total = 0;
+    let lastPage = 1;
     let destroyed = false;
     let reviewKey: string | null = null;
     let reviewing = false;
@@ -288,6 +289,11 @@ export function createProfilesView(options: {
       class: "cw-profiles-grid",
       id: "profiles-grid",
       "aria-label": "Profiles, one row per role",
+    });
+    const pagination = el(doc, "nav", {
+      class: "cw-profiles-pagination",
+      "aria-label": "Profiles pagination",
+      "aria-controls": "profiles-grid",
     });
     const picker = el(doc, "details", { class: "cw-profiles-picker" });
     const reviewPanel = el(doc, "section", {
@@ -474,6 +480,7 @@ export function createProfilesView(options: {
         matchingVisibilityPanel,
         unitLinkPanel,
         deletePanel,
+        pagination,
         gridHost,
       ),
     );
@@ -548,7 +555,7 @@ export function createProfilesView(options: {
     }
 
     function refreshStatus(): void {
-      counts.textContent = `${total} ${total === 1 ? "row" : "rows"} match. Page ${query.page}. A Profile with no role has one row.`;
+      counts.textContent = `${total} ${total === 1 ? "row" : "rows"} match. Page ${query.page} of ${lastPage}. A Profile with no role has one row.`;
       refreshSelectionState();
       const dirty = staged.size;
       stagedStatus.textContent = dirty
@@ -2457,9 +2464,11 @@ export function createProfilesView(options: {
         announce(describeError(error));
         throw error;
       }
+      // Tabulator reads metadata even for superseded responses.
       if (token !== requestToken || destroyed)
-        return { last_page: 1, data: [] };
+        return { last_page: lastPage, data: [] };
       total = page.total;
+      lastPage = page.lastPage;
       query = { ...query, page: page.page };
       base.clear();
       for (const row of page.rows) {
@@ -2790,9 +2799,10 @@ export function createProfilesView(options: {
       renderVertical: "basic",
       pagination: true,
       paginationMode: "remote",
+      paginationElement: pagination,
       paginationSize: query.pageSize,
       paginationSizeSelector: [50, 100, 250, 500, 1_000],
-      paginationCounter: "rows",
+      paginationOutOfRange: "last",
       locale: "default",
       langs: { default: { pagination: { page_size: "Rows per page" } } },
       sortMode: "remote",
