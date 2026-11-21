@@ -5,10 +5,13 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { DASHBOARD_API_PATHS } from "../dist/contracts/dashboard.js";
+import { createBannerAdminClient } from "../dist/editor/banner-admin-client.js";
 import { createCountyStructureClient } from "../dist/editor/county-structure-client.js";
 import { createProfilesClient } from "../dist/editor/profiles-client.js";
 import { openDraftPreviewDatabase } from "../dist/editor-dev/draft-database.js";
 import { createDraftSitePreview } from "../dist/site-dev/preview.js";
+import { bannerAdminFixtures } from "./d1/banner-admin-fixtures.mjs";
 import { ORIGIN, startSandbox } from "./editor-fixtures.mjs";
 import { buildProfilesWorkbook } from "./support/profiles-workbook.mjs";
 
@@ -20,28 +23,35 @@ const countyCsv = readFileSync(
   "utf8",
 );
 
-function clients(sandbox) {
+function clients(sandbox, account = "owner") {
   const fetch = (path, init = {}) => {
     const headers = new Headers(init.headers);
     headers.set("origin", ORIGIN);
     headers.set("x-editor-token", sandbox.token);
-    headers.set("x-test-human-subject", "owner");
+    headers.set("x-test-human-subject", account);
     return sandbox.fetch(new Request(`${ORIGIN}${path}`, { ...init, headers }));
   };
   return {
     fetch,
+    banners: createBannerAdminClient({ fetch }),
     profiles: createProfilesClient({ fetch }),
     structure: createCountyStructureClient({ fetch }),
-    site: createDraftSitePreview(sandbox.database, staticDirectory),
+    site: createDraftSitePreview(
+      sandbox.database,
+      staticDirectory,
+      sandbox.bannerStorage,
+    ),
   };
+}
+
+function requestPage(site, path) {
+  return site.fetch(new Request(`http://127.0.0.1:8790${path}`));
 }
 
 test("draft workbook and county CSV survive restart and share public visibility", async () => {
   const directory = mkdtempSync(join(tmpdir(), "watchdog-draft-review-"));
   const start = () =>
     startSandbox({ draftDatabase: openDraftPreviewDatabase(directory) });
-  const requestPage = (site, path) =>
-    site.fetch(new Request(`http://127.0.0.1:8790${path}`));
   const workbook = buildProfilesWorkbook({
     Profiles: [
       ["profile_id", "display_name"],
@@ -80,7 +90,6 @@ test("draft workbook and county CSV survive restart and share public visibility"
       (await (await fetch("/sandbox/info")).json()).draftReview,
       true,
     );
-    assert.equal((await fetch("/api/admin/banners/counties")).status, 404);
     assert.equal(
       sandbox.database.prepare("SELECT COUNT(*) AS n FROM people").get().n,
       0,
@@ -166,4 +175,113 @@ test("draft review refuses an existing SQLite file without its marker", () => {
     /not a Website draft preview/,
   );
   assert.deepEqual(readFileSync(path), original);
+});
+
+test("local banner bytes and publication survive restart with private preview and withdrawal", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "watchdog-draft-banner-"));
+  const start = () =>
+    startSandbox({ draftDatabase: openDraftPreviewDatabase(directory) });
+  const { publishJpeg } = bannerAdminFixtures();
+  const bytes = new Uint8Array(Buffer.from(publishJpeg.base64, "base64"));
+  const bannerId = "synthetic-draft-banner";
+  const caption = "Synthetic Adams draft banner caption";
+  const altText = "Generated pattern for local review";
+  const upload = {
+    bannerId,
+    countyFips: "08001",
+    sourceFilename: "synthetic-draft-banner.jpg",
+    mediaType: "image/jpeg",
+    idempotencyKey: "local-banner-stage",
+    metadata: {
+      caption,
+      altText,
+      displayOrder: 0,
+      isPrimary: true,
+      displayMode: "cover",
+      focalX: 0.5,
+      focalY: 0.5,
+    },
+    bytes,
+  };
+  let staged;
+  let sandbox = await start();
+  try {
+    const { banners, site, fetch } = clients(sandbox);
+    const dashboard = await (await fetch(DASHBOARD_API_PATHS.session)).json();
+    assert.ok(dashboard.modules.some((module) => module.id === "banners"));
+    staged = await banners.stageNew(upload);
+    assert.equal(staged.verified, true);
+    assert.deepEqual(
+      (await banners.versionImage(staged.version.id)).bytes,
+      bytes,
+    );
+    const path = `/banner-assets/${staged.version.id}`;
+    assert.equal((await requestPage(site, path)).status, 404);
+    assert.doesNotMatch(
+      await (await requestPage(site, "/counties/08001")).text(),
+      /Synthetic Adams draft banner caption/,
+    );
+    const visitor = clients(sandbox, "anonymous");
+    const privateImage = `/api/admin/banners/versions/${staged.version.id}/image`;
+    assert.equal((await visitor.fetch(privateImage)).status, 401);
+    assert.equal((await requestPage(site, privateImage)).status, 404);
+  } finally {
+    sandbox.close();
+  }
+
+  sandbox = await start();
+  let published;
+  try {
+    const { banners, site } = clients(sandbox);
+    const replay = await banners.stageNew(upload);
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.version.id, staged.version.id);
+    assert.equal(
+      (await sandbox.bannerStorage.listKeys("banner-assets/")).length,
+      1,
+    );
+    assert.deepEqual(
+      (await banners.versionImage(staged.version.id)).bytes,
+      bytes,
+    );
+    published = await banners.publish({
+      bannerId,
+      versionId: staged.version.id,
+      expectedRowVersion: staged.bannerRowVersion,
+      idempotencyKey: "local-banner-publish",
+    });
+    assert.equal(published.status, "active");
+    const countyHtml = await (
+      await requestPage(site, "/counties/08001")
+    ).text();
+    assert.ok(countyHtml.includes(caption));
+    assert.ok(countyHtml.includes(altText));
+    assert.ok((await (await requestPage(site, "/")).text()).includes(caption));
+  } finally {
+    sandbox.close();
+  }
+
+  sandbox = await start();
+  try {
+    const { banners, site } = clients(sandbox);
+    const path = `/banner-assets/${staged.version.id}`;
+    const image = await requestPage(site, path);
+    assert.equal(image.status, 200);
+    assert.equal(image.headers.get("content-type"), "image/jpeg");
+    assert.deepEqual(new Uint8Array(await image.arrayBuffer()), bytes);
+    const result = await banners.withdraw(
+      bannerId,
+      published.rowVersion,
+      "local-banner-withdraw",
+    );
+    assert.equal(result.status, "withdrawn");
+    assert.equal((await requestPage(site, path)).status, 404);
+    assert.ok((await banners.listPublications(bannerId)).length > 0);
+    assert.deepEqual(
+      (await banners.versionImage(staged.version.id)).bytes,
+      bytes,
+    );
+  } finally {
+    sandbox.close();
+  }
 });

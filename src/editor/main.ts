@@ -73,7 +73,12 @@ if (root) {
         overview: overviewView,
         account: accountView,
         posts: createPostsView({ client: editorClient, session }),
-        banners: createBannersView({ client: bannerClient }),
+        banners: createBannersView({
+          client: bannerClient,
+          draftPreviewUrl: draftReview
+            ? (publicSiteUrl ?? undefined)
+            : undefined,
+        }),
         profiles: createProfilesView({
           client: createProfilesClient({ fetch: sandboxFetch }),
         }),

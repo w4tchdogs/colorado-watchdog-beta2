@@ -36,8 +36,6 @@ export class DashboardViewNotFoundError extends Error {
 }
 
 export interface DashboardServiceOptions {
-  /** Draft review keeps banners out because local banner files are temporary. */
-  readonly draftReview?: boolean;
   /**
    * Recent Posts and Stories for the Overview. Wire this to the content
    * service, which applies its own policy. Absent means none are shown.
@@ -67,8 +65,6 @@ export function createDashboardService(
   database: WebsiteDatabase,
   options: DashboardServiceOptions = {},
 ): DashboardService {
-  const stateOf = (module: DashboardModuleDefinition) =>
-    options.draftReview && module.id === "banners" ? "planned" : module.state;
   const isHuman = (
     principal: TrustedPrincipal | null,
   ): principal is TrustedPrincipal =>
@@ -96,7 +92,7 @@ export function createDashboardService(
     state: "active" | "planned",
   ) =>
     DASHBOARD_MODULES.filter(
-      (module) => stateOf(module) === state && allows(principal, module),
+      (module) => module.state === state && allows(principal, module),
     ).map(link);
 
   function requireHuman(principal: TrustedPrincipal): void {
@@ -170,7 +166,7 @@ export function createDashboardService(
     view(principal, id) {
       requireHuman(principal);
       const module = DASHBOARD_MODULES.find(
-        (entry) => entry.id === id && stateOf(entry) === "active",
+        (entry) => entry.id === id && entry.state === "active",
       );
       // Unknown and not-yet-built views are the same answer for everyone.
       if (!module) throw new DashboardViewNotFoundError();
@@ -209,7 +205,7 @@ export function createDashboardService(
     },
     mayOpen(principal, id) {
       const module = DASHBOARD_MODULES.find(
-        (entry) => entry.id === id && stateOf(entry) === "active",
+        (entry) => entry.id === id && entry.state === "active",
       );
       return !!module && principal !== null && allows(principal, module);
     },

@@ -5,6 +5,7 @@ import type {
 import type { AsyncD1Database } from "../database/d1.js";
 import type { BannerPresentation, BannerSource } from "../site/banner.js";
 import {
+  type ImmutableObjectStorage,
   R2BannerObjectStorage,
   type R2BucketLike,
   sha256Hex,
@@ -162,15 +163,16 @@ function toPresentation(banner: ResolvedBanner): BannerPresentation {
   };
 }
 
-/** Async D1/R2 public read adapter. It has no mutation or key-lookup API. */
+/** Public read adapter. It has no mutation or key-lookup API. */
 export class D1BannerPublicService implements BannerSource {
-  private readonly storage: R2BannerObjectStorage;
+  private readonly storage: Pick<ImmutableObjectStorage, "get" | "head">;
 
   constructor(
     private readonly database: AsyncD1Database,
-    bucket: R2BucketLike,
+    source: R2BucketLike | ImmutableObjectStorage,
   ) {
-    this.storage = new R2BannerObjectStorage(bucket);
+    this.storage =
+      "putIfAbsent" in source ? source : new R2BannerObjectStorage(source);
   }
 
   async resolveCounty(fips: string): Promise<readonly ResolvedBanner[]> {

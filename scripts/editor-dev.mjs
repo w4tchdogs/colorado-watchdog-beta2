@@ -123,7 +123,11 @@ const staticDirectory = fileURLToPath(
   new URL("../website/site/", import.meta.url),
 );
 const sitePreview = draftDatabase
-  ? createDraftSitePreview(sandbox.database, staticDirectory)
+  ? createDraftSitePreview(
+      sandbox.database,
+      staticDirectory,
+      sandbox.bannerStorage,
+    )
   : await createSitePreview({ staticDirectory, data: "fictional" });
 const siteServer = createServer(async (incoming, outgoing) => {
   try {

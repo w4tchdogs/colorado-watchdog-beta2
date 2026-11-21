@@ -41,6 +41,7 @@ const RETRYABLE_CODES = new Set([
 
 export interface BannersViewOptions {
   readonly client: BannerAdminClient;
+  readonly draftPreviewUrl?: string;
   readonly newIdempotencyKey?: () => string;
   readonly createPreviewUrl?: (bytes: Uint8Array, mediaType: string) => string;
   readonly revokePreviewUrl?: (url: string) => void;
@@ -300,7 +301,9 @@ export function createBannersView(
         h(
           "p",
           { class: "dash-lede" },
-          "Manage the banners displayed on county pages.",
+          options.draftPreviewUrl
+            ? "Banner uploads, edits and publication apply only to this private local preview."
+            : "Manage the banners displayed on county pages.",
         ),
       ];
       if (state.notice)
@@ -500,6 +503,7 @@ export function createBannersView(
     };
 
     const countyCard = (detail: NonNullable<State["detail"]>) => {
+      const countyPath = `/counties/${detail.county.fips}`;
       const rows: Node[] = [
         h(
           "p",
@@ -509,7 +513,9 @@ export function createBannersView(
             "a",
             {
               class: "banner-county-link",
-              href: `/counties/${detail.county.fips}`,
+              href: options.draftPreviewUrl
+                ? new URL(countyPath, options.draftPreviewUrl).href
+                : countyPath,
               target: "_blank",
               rel: "noopener noreferrer",
               title: `Open the ${detail.county.name} County page in a new tab`,

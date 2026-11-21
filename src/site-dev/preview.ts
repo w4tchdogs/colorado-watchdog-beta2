@@ -8,6 +8,8 @@ import {
   type WebsiteDatabase,
 } from "../database/sqlite.js";
 import { createLocalD1Binding } from "../editor-dev/d1-binding.js";
+import { D1BannerPublicService } from "../services/banner-public.js";
+import type { ImmutableObjectStorage } from "../services/banner-storage.js";
 import { D1CountyStructurePublicService } from "../services/county-structure-public.js";
 import { createD1PublicReadServices } from "../services/d1-public-reads.js";
 import { createServices } from "../services/index.js";
@@ -107,13 +109,17 @@ export interface SitePreview {
 export function createDraftSitePreview(
   database: WebsiteDatabase,
   staticDirectory: string,
+  bannerStorage: ImmutableObjectStorage,
 ) {
   const localD1 = new AsyncD1Database(createLocalD1Binding(database));
+  const banners = new D1BannerPublicService(localD1, bannerStorage);
   return createWebsite({
     application: createApplication(createServices({ database })),
     site: createPublicSite({
       services: createD1PublicReadServices(localD1),
       countyStructure: new D1CountyStructurePublicService(localD1),
+      banners,
+      bannerDelivery: banners,
       editorial: createD1EditorialSource(localD1),
       assets: createFileAssets(staticDirectory),
       preview: "draft-review",
