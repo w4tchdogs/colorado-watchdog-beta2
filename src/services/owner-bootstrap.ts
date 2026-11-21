@@ -159,17 +159,17 @@ function validProvider(provider: unknown): boolean {
 }
 
 async function verifySchema(database: AsyncD1Database): Promise<void> {
+  const expected = loadWebsiteMigrations();
   const history = await database.all<{
     version: unknown;
     name: unknown;
     sha256: unknown;
   }>(
     "SELECT version, name, sha256 FROM schema_migrations ORDER BY version",
-    38,
+    expected.length + 1,
   );
-  const expected = loadWebsiteMigrations();
   if (
-    expected.length !== 38 ||
+    expected.length !== 39 ||
     history.length !== expected.length ||
     history.some((row, index) => {
       const migration = expected[index];
