@@ -27,26 +27,30 @@ function unitPaths(seeds: string): string {
   )`;
 }
 
-// SQLite compares these names byte-for-byte within the role's county. A
-// display group is a heading, so only county_unit is eligible to match.
+/** Compare names after folding the typographic right apostrophe to ASCII. */
+const unitNameKey = (expression: string) =>
+  `replace(${expression}, char(8217), char(39))`;
+
+// A display group is a heading, so only county_unit is eligible to match.
 function classified(scope: Scope): string {
   return `WITH RECURSIVE scope AS MATERIALIZED (${scope.sql}),
     names AS (
-      SELECT county_fips, name, COUNT(*) AS total, MIN(id) AS unit_id
-      FROM county_unit GROUP BY county_fips, name COLLATE BINARY
+      SELECT county_fips, ${unitNameKey("name")} AS name_key,
+             COUNT(*) AS total, MIN(id) AS unit_id
+      FROM county_unit GROUP BY county_fips, name_key COLLATE BINARY
     ),
     homes AS (
       SELECT d.person_role_id, COUNT(*) AS total, MIN(d.unit_id) AS unit_id,
         MAX(EXISTS (
           SELECT 1 FROM audit_events e WHERE e.id = d.id AND e.action = '${SUGGESTION_ACTION}'
             AND d.version = 1 AND json_extract(e.details_json, '$.unitId') = d.unit_id
-            AND json_extract(e.details_json, '$.office') = s.office COLLATE BINARY
+            AND ${unitNameKey("json_extract(e.details_json, '$.office')")} = ${unitNameKey("s.office")} COLLATE BINARY
         )) AS suggested
       FROM scope s JOIN county_role_display d ON d.person_role_id = s.role_id
       WHERE d.listing = 'home' GROUP BY d.person_role_id
     ),
     classified AS (
-      SELECT s.*, n.unit_id,
+      SELECT s.*, n.unit_id, ${unitNameKey("s.office")} AS office_key,
         CASE WHEN h.total = 1 AND
                (h.suggested = 1 OR (n.total = 1 AND h.unit_id = n.unit_id)) THEN 'linked'
              WHEN h.total IS NOT NULL THEN 'review'
@@ -54,7 +58,7 @@ function classified(scope: Scope): string {
              WHEN n.total = 1 THEN 'ready'
              ELSE 'unmatched' END AS state
       FROM scope s LEFT JOIN names n ON n.county_fips = s.county_fips
-        AND n.name = s.office COLLATE BINARY
+        AND n.name_key = ${unitNameKey("s.office")} COLLATE BINARY
       LEFT JOIN homes h ON h.person_role_id = s.role_id
     )`;
 }
@@ -84,7 +88,7 @@ export async function readProfileUnitLinks(
         SELECT u.id, u.id, u.name
         FROM county_unit u
         WHERE EXISTS (SELECT 1 FROM classified c WHERE c.state = 'multiple'
-          AND c.county_fips = u.county_fips AND c.office = u.name COLLATE BINARY)
+          AND c.county_fips = u.county_fips AND c.office_key = ${unitNameKey("u.name")} COLLATE BINARY)
       `)}
       SELECT c.role_id, c.state, (SELECT json_group_array(
           COALESCE(g.name || ' › ', '') || p.path || ' (' || p.unit_id || ')'
@@ -93,7 +97,7 @@ export async function readProfileUnitLinks(
         LEFT JOIN county_unit_display g ON g.id = root.display_group_id
         JOIN county_unit leaf ON leaf.id = p.unit_id
         WHERE root.parent_unit_id IS NULL AND leaf.county_fips = c.county_fips
-          AND leaf.name = c.office COLLATE BINARY AND c.state = 'multiple') AS paths
+          AND ${unitNameKey("leaf.name")} = c.office_key COLLATE BINARY AND c.state = 'multiple') AS paths
       FROM classified c`,
     roles.length,
     scope.values,
@@ -200,11 +204,11 @@ export function createProfileUnitLinks(database: AsyncD1Database) {
       version: number;
     }>(
       `WITH RECURSIVE prefixes(value) AS (
-         VALUES(?) UNION ALL SELECT substr(value, 1, length(value) - 1)
+         VALUES(${unitNameKey("?")}) UNION ALL SELECT substr(value, 1, length(value) - 1)
          FROM prefixes WHERE length(value) > 3
        ), candidates AS (
          SELECT u.id, u.name, u.version, MAX(length(p.value)) AS score
-         FROM county_unit u JOIN prefixes p ON substr(lower(u.name), 1, length(p.value)) = p.value
+         FROM county_unit u JOIN prefixes p ON substr(lower(${unitNameKey("u.name")}), 1, length(p.value)) = p.value
          WHERE u.county_fips = ? AND u.status = 'active'
          GROUP BY u.id
          ORDER BY score DESC, length(u.name), u.name COLLATE NOCASE, u.id
@@ -418,10 +422,11 @@ export function createProfileUnitLinks(database: AsyncD1Database) {
            LEFT JOIN positions pos ON pos.id = r.position_id
            LEFT JOIN organizations o ON o.id = pos.organization_id
            WHERE u.county_fips = COALESCE(r.county_fips, o.county_fips)
-             AND u.name = COALESCE(r.published_office, o.name) COLLATE BINARY
+             AND ${unitNameKey("u.name")} = ${unitNameKey("COALESCE(r.published_office, o.name)")} COLLATE BINARY
              AND NOT EXISTS (
                SELECT 1 FROM county_unit other
-               WHERE other.county_fips = u.county_fips AND other.name = u.name COLLATE BINARY
+               WHERE other.county_fips = u.county_fips
+                 AND ${unitNameKey("other.name")} = ${unitNameKey("u.name")} COLLATE BINARY
                  AND other.id <> u.id)
              AND NOT EXISTS (
                SELECT 1 FROM county_role_display d WHERE d.person_role_id = r.id AND d.listing = 'home')`,

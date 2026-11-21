@@ -82,7 +82,8 @@ Hidden Profiles stay off County Structure and county browse even when attached, 
 
 **Profiles → Unit Linked** compares each role's displayed **Office / Department**
 with the saved unit name in the same county. The comparison uses the stored
-spelling, case and punctuation. A group heading or alternate name cannot match.
+spelling and case. Straight and typographic right apostrophes are equivalent.
+A group heading or alternate name cannot match.
 One matching unit is ready to link. No match is shown on the row, and multiple
 matches expose their hierarchy paths and stable IDs for review. An existing
 home placement is preserved, with a review status when the text no longer
