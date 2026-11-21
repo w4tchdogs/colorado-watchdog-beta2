@@ -9,6 +9,7 @@ import {
   type MatchingProfileVisibilityReceipt,
   PROFILE_FIELDS,
   PROFILE_NAME_COMPONENT_COLUMNS,
+  PROFILE_NO_COUNTY,
   PROFILE_SORT_FIELDS,
   PROFILES_DEFAULT_PAGE_SIZE,
   PROFILES_MAX_CHANGES,
@@ -280,7 +281,10 @@ export interface ProfilesService
     key: string,
     input: unknown,
   ): Promise<ProfileUnitLinkReceipt>;
-  facets(principal: TrustedPrincipal): Promise<ProfileFacets>;
+  facets(
+    principal: TrustedPrincipal,
+    after?: string | null,
+  ): Promise<ProfileFacets>;
   selectAll(
     principal: TrustedPrincipal,
     input: unknown,
@@ -368,7 +372,9 @@ export function createD1ProfilesService(
         pattern,
       );
     }
-    if (query.countyFips) {
+    if (query.countyFips === PROFILE_NO_COUNTY) {
+      conditions.push(`${COUNTY_EXPRESSION} IS NULL`);
+    } else if (query.countyFips) {
       conditions.push(`${COUNTY_EXPRESSION} = ?`);
       values.push(query.countyFips);
     }
@@ -1098,24 +1104,61 @@ export function createD1ProfilesService(
         lastPage,
       };
     },
-    async facets(principal) {
+    async facets(principal, after) {
       await require(principal);
+      let cursor: [string, string] = ["", ""];
+      if (after !== null && after !== undefined) {
+        try {
+          if (after.length > 3100) throw new Error();
+          const pair = JSON.parse(after);
+          if (
+            !Array.isArray(pair) ||
+            pair.length !== 2 ||
+            typeof pair[0] !== "string" ||
+            (pair[0] !== "" && !FIPS.test(pair[0])) ||
+            typeof pair[1] !== "string" ||
+            pair[1].length > 500
+          )
+            throw new Error();
+          cursor = [pair[0], pair[1]];
+        } catch {
+          throw new ProfilesInputError("Invalid office continuation");
+        }
+      }
       const counties = await database.all<Row>(
         "SELECT fips, name FROM counties ORDER BY name COLLATE NOCASE",
         100,
       );
-      const offices = await database.all<Row>(
-        `SELECT DISTINCT ${OFFICE_EXPRESSION} AS office ${FROM_CLAUSE}
-         WHERE ${OFFICE_EXPRESSION} IS NOT NULL
-         ORDER BY ${OFFICE_EXPRESSION} COLLATE NOCASE`,
-        500,
+      const pageSize = 500;
+      const matches = await database.all<{ county: string; name: string }>(
+        `WITH offices AS (
+             SELECT DISTINCT COALESCE(${COUNTY_EXPRESSION}, '') AS county,
+               ${OFFICE_EXPRESSION} AS name
+             FROM person_roles pr
+             LEFT JOIN positions pos ON pos.id = pr.position_id
+             LEFT JOIN organizations o ON o.id = pos.organization_id
+             WHERE ${OFFICE_EXPRESSION} IS NOT NULL
+           )
+           SELECT county, name FROM offices
+           WHERE (county, name) > (?, ?) ORDER BY county, name`,
+        pageSize + 1,
+        cursor,
       );
+      const page = matches.slice(0, pageSize);
+      const last = page.at(-1);
       return {
         counties: counties.map((row) => ({
           fips: str(row.fips),
           name: str(row.name),
         })),
-        offices: offices.map((row) => str(row.office)),
+        offices: page.map((row) => ({
+          name: row.name,
+          countyFips: row.county || null,
+        })),
+        nextOfficeCursor:
+          matches.length > pageSize && last
+            ? JSON.stringify([last.county, last.name])
+            : null,
       };
     },
     async selectAll(principal, input) {
@@ -2281,7 +2324,7 @@ export function parseQuery(input: unknown): ProfileQuery {
   };
   const query = text("query", PROFILES_MAX_QUERY_LENGTH);
   const county = text("county", 5);
-  if (county && !FIPS.test(county))
+  if (county && county !== PROFILE_NO_COUNTY && !FIPS.test(county))
     throw new ProfilesInputError("Invalid county");
   const office = text("office", 500);
   const visibility = text("visibility", 12) || "all";

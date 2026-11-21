@@ -298,7 +298,18 @@ export function createProfilesClient(options: {
     importReverse: (batchId, key) =>
       importPost<ProfilesImportReversal>("reverse", { batchId }, key),
     rows: (query) => call<ProfilePage>(`/rows?${queryString(query, true)}`),
-    facets: () => call<ProfileFacets>("/facets"),
+    async facets() {
+      const first = await call<ProfileFacets>("/facets");
+      const offices = [...first.offices];
+      let cursor = first.nextOfficeCursor;
+      while (cursor) {
+        const params = new URLSearchParams({ afterOffice: cursor });
+        const page = await call<ProfileFacets>(`/facets?${params}`);
+        offices.push(...page.offices);
+        cursor = page.nextOfficeCursor;
+      }
+      return { ...first, offices, nextOfficeCursor: null };
+    },
     selectAll: (query) => call(`/select-all?${queryString(query, false)}`),
     alternateNames: (profileId) =>
       call<AlternateNameList>(
