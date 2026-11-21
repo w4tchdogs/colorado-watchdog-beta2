@@ -59,16 +59,19 @@ test("County Structure count links select the exact public unit throughout the d
     const county = await get(preview, "/counties/08081");
     const section = county.$("#structure");
     assert.equal(section.querySelector('[href^="/people/"]'), null);
-    const counts = [...section.querySelectorAll("a.structure-count")];
+    const zero = section.querySelector("span.structure-count");
+    assert.equal(zero.querySelector("[aria-hidden]").textContent, "—");
+    assert.equal(
+      zero.querySelector(".visually-hidden").textContent,
+      "0 profiles",
+    );
+    const links = [...section.querySelectorAll("a.structure-count")];
     assert.deepEqual(
-      counts.map((link) => link.textContent),
-      ["0 profiles", "26 profiles"],
+      links.map((link) => link.textContent),
+      ["26 profiles"],
     );
-    const [parent, linked] = await Promise.all(
-      counts.map((link) => get(preview, link.getAttribute("href"))),
-    );
-    assert.equal(parent.$("#directory-office").value, "unit/root");
-    assert.match(parent.main(), /No documented profiles match/);
+    const href = links[0].getAttribute("href");
+    const linked = await get(preview, href);
     assert.equal(linked.$("#directory-county").value, "08081");
     assert.equal(linked.$("#directory-office").value, "unit/section:one");
     assert.equal(
@@ -93,7 +96,7 @@ test("County Structure count links select the exact public unit throughout the d
     const profile = await get(preview, profileHref);
     assert.equal(
       profile.$('.breadcrumbs a[href^="/officials"]').getAttribute("href"),
-      counts[1].getAttribute("href"),
+      href,
     );
     for (const path of [
       "/officials?county=08001&office=unit%2Fsection%3Aone",
