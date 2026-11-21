@@ -1739,15 +1739,12 @@ async function main() {
     ).status,
     503,
   );
-  assert.equal(
-    (
-      await siteWorker.default.fetch(
-        new Request("https://site.test/counties"),
-        {},
-      )
-    ).status,
-    503,
+  const countyIndex = await siteWorker.default.fetch(
+    new Request("https://site.test/counties"),
+    {},
   );
+  assert.equal(countyIndex.status, 200);
+  assert.match(await countyIndex.text(), /64 counties/);
   for (const environment of [
     {},
     {
