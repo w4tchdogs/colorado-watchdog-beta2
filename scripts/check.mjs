@@ -273,6 +273,7 @@ const allowed = new Set([
   "tests/auth-signin.test.mjs",
   "tests/d1/human-sign-in-checks.mjs",
   "docs/architecture/human-sign-in.md",
+  "docs/architecture/auth-5-invitations.md",
   "src/services/report-challenge.ts",
   "src/site/turnstile-widget.ts",
   "tests/report-challenge.test.mjs",
