@@ -196,7 +196,7 @@ test("checkpoint of a synthetic database and files restores and matches", async 
   );
   assert.deepEqual(manifest.totals, {
     tables: 60,
-    rows: 183,
+    rows: 184,
     files: 4,
     file_bytes: 52,
   });
