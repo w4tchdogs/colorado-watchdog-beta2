@@ -5,6 +5,8 @@ import {
   type AlternateNameFields,
   type AlternateNameList,
   type AlternateNameRecord,
+  type MatchingProfileVisibilityPreview,
+  type MatchingProfileVisibilityReceipt,
   PROFILE_FIELDS,
   PROFILE_NAME_COMPONENT_COLUMNS,
   PROFILE_SORT_FIELDS,
@@ -258,6 +260,15 @@ export interface ProfilesService
     readonly entries: readonly ProfileSelectionEntry[];
     readonly truncated: boolean;
   }>;
+  previewMatchingVisibility(
+    principal: TrustedPrincipal,
+    input: unknown,
+  ): Promise<MatchingProfileVisibilityPreview>;
+  saveMatchingVisibility(
+    principal: TrustedPrincipal,
+    idempotencyKey: string,
+    input: unknown,
+  ): Promise<MatchingProfileVisibilityReceipt>;
   /** Every alternate name of one Profile, removed ones included and flagged. */
   alternateNames(
     principal: TrustedPrincipal,
@@ -822,10 +833,10 @@ export function createD1ProfilesService(
     };
   }
 
-  async function savedResult(
+  async function savedResult<Result = ProfileSaveResult>(
     actorId: string,
     key: string,
-  ): Promise<{ fingerprint: string; response: ProfileSaveResult } | null> {
+  ): Promise<{ fingerprint: string; response: Result } | null> {
     const row = await database.first<Row>(
       `SELECT request_fingerprint, response_json FROM profile_write_receipts
        WHERE actor_account_id = ? AND idempotency_key = ?`,
@@ -834,8 +845,100 @@ export function createD1ProfilesService(
     if (!row) return null;
     return {
       fingerprint: str(row.request_fingerprint),
-      response: JSON.parse(str(row.response_json)) as ProfileSaveResult,
+      response: JSON.parse(str(row.response_json)) as Result,
     };
+  }
+
+  function readVisibilityScope(input: unknown) {
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      throw new ProfilesInputError(
+        "Choose the matching Profiles and visibility.",
+      );
+    const { filters, visible, digest } = input as Record<string, unknown>;
+    if (
+      !filters ||
+      typeof filters !== "object" ||
+      Array.isArray(filters) ||
+      Object.keys(filters).some(
+        (key) => !["query", "county", "office", "visibility"].includes(key),
+      ) ||
+      typeof visible !== "boolean"
+    )
+      throw new ProfilesInputError("Choose valid filters and visibility.");
+    return { query: parseQuery(filters), visible, digest };
+  }
+
+  function matchingProfiles(query: ProfileQuery) {
+    const { where, values } = filterClause(query);
+    // The grid is one row per role. Deduplicate before counting or changing
+    // Profiles, without paging or depending on the display order.
+    return {
+      sql: `SELECT DISTINCT p.id AS person_id ${FROM_CLAUSE} ${where}`,
+      values,
+    };
+  }
+
+  async function reviewMatchingVisibility(
+    query: ProfileQuery,
+    visible: boolean,
+  ) {
+    const { sql, values } = matchingProfiles(query);
+    const row = await database.first<Row>(
+      `WITH matching AS (${sql})
+       SELECT (SELECT generation FROM website_dependency_generation WHERE id = 1) AS generation,
+              (SELECT COUNT(*) FROM profile_write_receipts) AS profile_writes,
+              COUNT(*) AS matched,
+              COUNT(CASE WHEN COALESCE(v.visible, 1) = ? THEN 1 END) AS already_set,
+              COUNT(CASE WHEN ? = 1 AND v.visible = 0 AND ready.person_id IS NULL THEN 1 END) AS incomplete
+       FROM matching m
+       LEFT JOIN person_visibility v ON v.person_id = m.person_id
+       LEFT JOIN profile_publication_ready ready ON ready.person_id = m.person_id`,
+      [...values, Number(visible), Number(visible)],
+    );
+    const generation = row?.generation;
+    if (
+      typeof generation !== "number" ||
+      !Number.isSafeInteger(generation) ||
+      generation < 0
+    )
+      throw new StorageUnavailableError();
+    const matched = num(row?.matched);
+    const profileWrites = num(row?.profile_writes);
+    const alreadySet = num(row?.already_set);
+    const incomplete = num(row?.incomplete);
+    const digest = await sha256Hex(
+      JSON.stringify([
+        "matching-profile-visibility",
+        query,
+        visible,
+        generation,
+        profileWrites,
+        matched,
+        alreadySet,
+        incomplete,
+      ]),
+    );
+    return {
+      generation,
+      profileWrites,
+      preview: {
+        matched,
+        alreadySet,
+        incomplete,
+        willChange: matched - alreadySet - incomplete,
+        digest,
+      },
+    };
+  }
+
+  function visibilityScopeChanged(): ProfilesConflictError {
+    return new ProfilesConflictError([
+      issue(
+        0,
+        "stale_version",
+        "The Website changed since this preview. Review the matching Profiles again.",
+      ),
+    ]);
   }
 
   return {
@@ -920,6 +1023,109 @@ export function createD1ProfilesService(
         }),
         truncated: num(countRow?.total) > PROFILES_MAX_SELECT_ALL,
       };
+    },
+    async previewMatchingVisibility(principal, input) {
+      await require(principal);
+      const { query, visible } = readVisibilityScope(input);
+      return (await reviewMatchingVisibility(query, visible)).preview;
+    },
+    async saveMatchingVisibility(principal, key, input) {
+      await require(principal);
+      const { query, visible, digest } = readVisibilityScope(input);
+      if (
+        !/^[A-Za-z0-9_.:-]{8,128}$/.test(key) ||
+        typeof digest !== "string" ||
+        !/^[a-f0-9]{64}$/.test(digest)
+      )
+        throw new ProfilesInputError(
+          "A reviewed preview and idempotency key are required.",
+        );
+      const fingerprint = await sha256Hex(
+        JSON.stringify(["matching-profile-visibility", query, visible, digest]),
+      );
+      const replay = async () => {
+        const prior = await savedResult<MatchingProfileVisibilityReceipt>(
+          principal.accountId,
+          key,
+        );
+        if (!prior) return null;
+        if (prior.fingerprint !== fingerprint)
+          throw new ProfilesIdempotencyError();
+        return { ...prior.response, replayed: true };
+      };
+      const prior = await replay();
+      if (prior) return prior;
+
+      const { generation, profileWrites, preview } =
+        await reviewMatchingVisibility(query, visible);
+      if (preview.digest !== digest) throw visibilityScopeChanged();
+      const response = { applied: preview.willChange, replayed: false };
+      if (!response.applied) return response;
+      const { sql, values } = matchingProfiles(query);
+      const affected = `WITH matching AS (${sql}), affected AS MATERIALIZED (
+        SELECT m.person_id FROM matching m
+        LEFT JOIN person_visibility v ON v.person_id = m.person_id
+        WHERE COALESCE(v.visible, 1) <> ?
+          AND (? = 0 OR EXISTS (
+            SELECT 1 FROM profile_publication_ready ready WHERE ready.person_id = m.person_id
+          ))
+      )`;
+      const parameters = [...values, Number(visible), Number(visible)];
+      try {
+        await database.guardedBatch(generation, principal, [
+          // Grid visibility and name edits write a receipt without advancing
+          // the sync generation. Both can change this filter scope.
+          database.prepare(
+            "INSERT INTO website_write_assertions (id, valid) SELECT ?, COUNT(*) = ? FROM profile_write_receipts",
+            [crypto.randomUUID(), profileWrites],
+          ),
+          database.prepare(
+            `${affected}
+             INSERT INTO audit_events (id, actor_account_id, action, target_type, target_id, summary, details_json)
+             SELECT lower(hex(randomblob(16))), ?, ?, 'person', person_id, ?,
+                    json_object('profileId', person_id, 'visible', json(?)) FROM affected`,
+            [
+              ...parameters,
+              principal.accountId,
+              visible ? "profile.restore" : "profile.hide",
+              visible
+                ? "Restored a Profile to the public Website"
+                : "Hid a Profile from the public Website",
+              JSON.stringify(visible),
+            ],
+          ),
+          database.prepare(
+            `${affected}
+             INSERT INTO person_visibility (person_id, visible, changed_by_account_id)
+             SELECT person_id, ?, ? FROM affected WHERE TRUE
+             ON CONFLICT (person_id) DO UPDATE SET
+               visible = excluded.visible, version = person_visibility.version + 1,
+               changed_by_account_id = excluded.changed_by_account_id, hidden_reason = NULL,
+               updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+            [...parameters, Number(visible), principal.accountId],
+          ),
+          database.prepare(
+            "INSERT INTO website_write_assertions (id, valid) VALUES (?, changes() = ?)",
+            [crypto.randomUUID(), response.applied],
+          ),
+          database.prepare(
+            `INSERT INTO profile_write_receipts (actor_account_id, idempotency_key, request_fingerprint, response_json)
+             VALUES (?, ?, ?, ?)`,
+            [principal.accountId, key, fingerprint, JSON.stringify(response)],
+          ),
+        ]);
+      } catch (error) {
+        await require(principal);
+        const winner = await replay();
+        if (winner) return winner;
+        if (
+          (await reviewMatchingVisibility(query, visible)).preview.digest !==
+          digest
+        )
+          throw visibilityScopeChanged();
+        throw error;
+      }
+      return response;
     },
     async alternateNames(principal, profileId) {
       await require(principal);

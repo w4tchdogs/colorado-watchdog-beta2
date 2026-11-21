@@ -254,6 +254,7 @@ const allowed = new Set([
   "website/migrations/0035_profile_delete.sql",
   "website/migrations/0036_county_structure_pinned_layout.sql",
   "website/migrations/0037_private_profile_role_evidence.sql",
+  "website/migrations/0038_profile_publication_point_checks.sql",
   "src/contracts/county-structure.ts",
   "src/services/county-structure-csv.ts",
   "src/services/county-role-attachment.ts",

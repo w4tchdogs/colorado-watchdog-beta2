@@ -1,5 +1,7 @@
 import {
   type AlternateNameList,
+  type MatchingProfileVisibilityPreview,
+  type MatchingProfileVisibilityReceipt,
   PROFILES_API_PREFIX,
   type ProfileChange,
   type ProfileChangeIssue,
@@ -55,6 +57,16 @@ export interface ProfilesClient {
     readonly entries: readonly ProfileSelectionEntry[];
     readonly truncated: boolean;
   }>;
+  previewMatchingVisibility(
+    query: ProfileQuery,
+    visible: boolean,
+  ): Promise<MatchingProfileVisibilityPreview>;
+  saveMatchingVisibility(
+    query: ProfileQuery,
+    visible: boolean,
+    digest: string,
+    idempotencyKey: string,
+  ): Promise<MatchingProfileVisibilityReceipt>;
   /** One Profile's alternate names with private evidence. Owner only. */
   alternateNames(profileId: string): Promise<AlternateNameList>;
   deletePreview(profileId: string): Promise<ProfileDeletePreview>;
@@ -158,7 +170,43 @@ export function createProfilesClient(options: {
         body: JSON.stringify(body),
       },
     );
+  const matchingVisibilityPost = <T>(
+    operation: "preview" | "save",
+    query: ProfileQuery,
+    visible: boolean,
+    review?: { digest: string; key: string },
+  ) =>
+    call<T>(`/matching-visibility/${operation}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(review ? { "idempotency-key": review.key } : {}),
+      },
+      body: JSON.stringify({
+        filters: {
+          query: query.query,
+          county: query.countyFips,
+          office: query.office,
+          visibility: query.visibility,
+        },
+        visible,
+        ...(review ? { digest: review.digest } : {}),
+      }),
+    });
   return {
+    previewMatchingVisibility: (query, visible) =>
+      matchingVisibilityPost<MatchingProfileVisibilityPreview>(
+        "preview",
+        query,
+        visible,
+      ),
+    saveMatchingVisibility: (query, visible, digest, key) =>
+      matchingVisibilityPost<MatchingProfileVisibilityReceipt>(
+        "save",
+        query,
+        visible,
+        { digest, key },
+      ),
     deletePreview: (profileId) =>
       call("/delete/preview", {
         method: "POST",
