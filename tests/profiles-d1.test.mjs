@@ -267,6 +267,83 @@ test("exact unit links use county and literal office names and preserve reviewed
   });
 });
 
+test("straight and curly apostrophes match the same unit without resolving duplicates", async () => {
+  await fixture(async ({ database, service, owner }) => {
+    database.exec(`
+      INSERT INTO county_unit (id, county_fips, name, organization_type) VALUES
+        ('sheriff', '08001', 'Sheriff', 'office'),
+        ('sheriff-office', '08001', 'Sheriff’s Office', 'office'),
+        ('sheriff-other-county', '08069', 'Sheriff''s Office', 'office'),
+        ('recorders-office', '08001', 'Recorder''s Office', 'office');
+      INSERT INTO person_roles (id, person_id, county_fips, published_office) VALUES
+        ('sheriff-role', 'person-multi', '08001', 'Sheriff''s Office'),
+        ('recorder-role', 'person-multi', '08001', 'Recorder’s Office');
+    `);
+    const input = { filters: { county: "08001", office: "Sheriff's Office" } };
+    const rows = () => service.listRows(owner, query(input.filters));
+    assert.equal((await rows()).rows[0].unitLink.state, "ready");
+    const opposite = await service.listRows(
+      owner,
+      query({ county: "08001", office: "Recorder’s Office" }),
+    );
+    assert.equal(opposite.rows[0].unitLink.state, "ready");
+    const suggestions = await service.suggestUnits(owner, {
+      roleId: "sheriff-role",
+    });
+    assert.deepEqual(
+      suggestions.units.map((unit) => unit.unitId),
+      ["sheriff-office", "sheriff"],
+    );
+    const preview = await service.previewUnitLinks(owner, input);
+    assert.equal(preview.ready, 1);
+
+    database.exec(`
+      INSERT INTO county_unit (id, county_fips, name, organization_type)
+      VALUES ('sheriff-duplicate', '08001', 'Sheriff''s Office', 'office');
+    `);
+    const ambiguous = await service.previewUnitLinks(owner, input);
+    assert.equal(ambiguous.multiple, 1);
+    assert.equal(ambiguous.ready, 0);
+    const link = (await rows()).rows[0].unitLink;
+    assert.equal(link.state, "multiple");
+    assert.deepEqual(
+      new Set(link.paths),
+      new Set([
+        "Sheriff’s Office (sheriff-office)",
+        "Sheriff's Office (sheriff-duplicate)",
+      ]),
+    );
+    await assert.rejects(
+      service.commitUnitLinks(owner, "punctuation-stale-01", {
+        ...input,
+        digest: preview.digest,
+      }),
+      { code: "stale_preview" },
+    );
+    database.exec(
+      "UPDATE county_unit SET name = 'Law Enforcement', version = 2 WHERE id = 'sheriff-duplicate'",
+    );
+    const reviewed = await service.previewUnitLinks(owner, input);
+    assert.equal(
+      (
+        await service.commitUnitLinks(owner, "punctuation-link-01", {
+          ...input,
+          digest: reviewed.digest,
+        })
+      ).attached,
+      1,
+    );
+    const home = database
+      .prepare(
+        "SELECT unit_id FROM county_role_display WHERE person_role_id = 'sheriff-role'",
+      )
+      .get();
+    assert.equal(home.unit_id, "sheriff-office");
+    assert.equal((await rows()).rows[0].unitLink.state, "linked");
+    assert.equal((await rows()).rows[0].officeDepartment, "Sheriff's Office");
+  });
+});
+
 test("exact match review and commit include roles beyond the grid page limit", async () => {
   await fixture(async ({ database, service, owner }) => {
     database.exec(`

@@ -448,7 +448,9 @@ The [offline application proposal](architecture/county-structure.md#proposed-app
 
 The owner approved using the reviewed Office / Department value to find a
 unique exact County Structure unit in the role's county. Show the match and
-saved placement status on each Profiles role row. A bulk review may attach
+saved placement status on each Profiles role row. Treat straight and
+typographic right apostrophes as the same character when comparing names.
+A bulk review may attach
 the unique matches using their stable IDs. Preserve existing links and leave
 unmatched or ambiguous values for review. See the
 [Profiles dashboard workflow](architecture/county-structure.md#exact-matches-from-the-profiles-dashboard).
