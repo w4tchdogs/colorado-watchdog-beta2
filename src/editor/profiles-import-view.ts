@@ -8,6 +8,7 @@ import {
 } from "../contracts/profiles-import.js";
 import { clear, el } from "./dom.js";
 import { ProfilesApiError, type ProfilesClient } from "./profiles-client.js";
+import { readUploadBase64 } from "./upload.js";
 
 /**
  * Owner import panel inside the Profiles tab (SYNC-1).
@@ -166,13 +167,7 @@ export function createImportPanel(options: {
       );
     if (file.size > PROFILES_WORKBOOK_MAX_BYTES)
       throw new ProfilesApiError(413, "request_too_large");
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const chunks: string[] = [];
-    for (let offset = 0; offset < bytes.length; offset += 0x8000)
-      chunks.push(
-        String.fromCharCode(...bytes.subarray(offset, offset + 0x8000)),
-      );
-    return btoa(chunks.join(""));
+    return readUploadBase64(file);
   }
 
   function invalidatePreview(message: string): void {

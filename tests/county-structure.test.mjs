@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { createCountyStructureView } from "../dist/editor/county-structure-view.js";
-import { parseCountyCsv } from "../dist/services/county-structure-csv.js";
+import {
+  parseCountyCsv,
+  readCsvTable,
+} from "../dist/services/county-structure-csv.js";
 import {
   CountyStructureConflictError,
   CountyStructureValidationError,
@@ -20,6 +23,7 @@ import {
   row,
   withStructure,
 } from "./county-structure-fixtures.mjs";
+import { buildProfilesWorkbook } from "./support/profiles-workbook.mjs";
 
 let keyCounter = 0;
 const key = () => {
@@ -74,6 +78,64 @@ const unitIds = (database, fips) =>
     .prepare("SELECT id FROM county_unit WHERE county_fips = ? ORDER BY id")
     .all(fips)
     .map((r) => r.id);
+
+test("County Structure workbook uses the same preview and validation as CSV", async () => {
+  await withStructure(async (ctx) => {
+    const text = csv(adamsRows());
+    const { rows } = readCsvTable(text);
+    const workbookRows = rows.map((r, i) =>
+      i === 0 ? r : [Number(r[0]), ...r.slice(1)],
+    );
+    const prepareWorkbook = (tabs, parts) =>
+      ctx.service.prepareImport(ctx.owner, {
+        fileName: "county.xlsx",
+        mode: "merge",
+        workbook: buildProfilesWorkbook(tabs, parts).toString("base64"),
+      });
+    const csvPreview = await importCsv(ctx, text);
+    const workbookPreview = await prepareWorkbook({
+      "County Structure": workbookRows,
+    });
+    assert.equal(workbookPreview.committable, true);
+    assert.equal(
+      workbookPreview.import.changesetSha256,
+      csvPreview.import.changesetSha256,
+    );
+    assert.deepEqual(workbookPreview.import.counts, csvPreview.import.counts);
+    const header = [...rows[0]];
+    header[0] = "Wrong header";
+    await assert.rejects(
+      prepareWorkbook({ "County Structure": [header, ...rows.slice(1)] }),
+      (error) =>
+        error instanceof CountyStructureValidationError &&
+        error.issues.some((issue) => issue.code === "header_mismatch"),
+    );
+    await assert.rejects(
+      prepareWorkbook({
+        "County Structure": rows,
+        "Second worksheet": [["sample"]],
+      }),
+      (error) =>
+        error instanceof CountyStructureValidationError &&
+        error.issues.some((issue) => issue.code === "invalid_workbook"),
+    );
+    await assert.rejects(
+      prepareWorkbook(
+        { "County Structure": rows },
+        {
+          "xl/worksheets/sheet1.xml":
+            '<worksheet><sheetData><row r="1"><c r="A1"><f>1+1</f><v>2</v></c></row></sheetData></worksheet>',
+        },
+      ),
+      (error) =>
+        error instanceof CountyStructureValidationError &&
+        error.issues.some(
+          (issue) =>
+            issue.code === "invalid_workbook" && /formulas/.test(issue.message),
+        ),
+    );
+  });
+});
 
 test("an empty database has no structure and exports one county-only row per county", async () => {
   await withStructure(async (ctx) => {

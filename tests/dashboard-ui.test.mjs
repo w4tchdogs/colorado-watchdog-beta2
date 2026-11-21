@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { COUNTY_CSV_COLUMNS } from "../dist/contracts/county-structure.js";
 import { createEditorApiClient } from "../dist/editor/api-client.js";
 import { createDashboardClient } from "../dist/editor/dashboard-client.js";
 import {
@@ -18,6 +19,7 @@ import {
   startSandbox,
   waitFor,
 } from "./editor-fixtures.mjs";
+import { buildProfilesWorkbook } from "./support/profiles-workbook.mjs";
 
 const ACCOUNTS = [
   { key: "author", label: "Avery Author (editor)" },
@@ -468,6 +470,65 @@ test("the built local dashboard opens both fictional owner workspaces", async ()
       "fictional Adams County hierarchy",
     );
     assert.equal($("#cs-county").value, "08001");
+    const workbook = buildProfilesWorkbook({
+      "County Structure": [
+        COUNTY_CSV_COLUMNS,
+        [
+          "08001",
+          "Adams",
+          "excel-test-office",
+          "Synthetic Excel Office",
+          "",
+          "Synthetic Excel Office",
+          "",
+          "",
+          "office",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "active",
+        ],
+      ],
+    });
+    const fileInput = $("#cs-file");
+    assert.match(fileInput.accept, /[.]xlsx/);
+    Object.defineProperty(fileInput, "files", {
+      configurable: true,
+      value: [
+        {
+          name: "county.xlsx",
+          size: workbook.length,
+          arrayBuffer: async () => Uint8Array.from(workbook).buffer,
+        },
+      ],
+    });
+    fileInput.dispatchEvent(new window.Event("change", { bubbles: true }));
+    const action = (label) =>
+      [...window.document.querySelectorAll(".cs-import button")].find(
+        (button) => button.textContent === label,
+      );
+    const preview = action("Validate and preview");
+    const commit = action("Commit import");
+    preview.click();
+    await waitFor(() => !commit.disabled, "county workbook preview ready");
+    assert.match(
+      $(".cs-import .cs-preview").textContent,
+      /Synthetic Excel Office/,
+    );
+    assert.doesNotMatch($(".cs-tree").textContent, /Synthetic Excel Office/);
+    fileInput.dispatchEvent(new window.Event("change", { bubbles: true }));
+    assert.equal(commit.disabled, true);
+    preview.click();
+    await waitFor(() => !commit.disabled, "county workbook preview refreshed");
+    commit.click();
+    await waitFor(
+      () => $(".cs-tree")?.textContent.includes("Synthetic Excel Office"),
+      "committed Excel unit in the tree",
+    );
     const css = await sandbox.fetch(
       new Request(`${ORIGIN}/app/dashboard-app.css`),
     );

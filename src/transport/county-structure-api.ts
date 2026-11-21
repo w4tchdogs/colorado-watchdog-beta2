@@ -322,9 +322,15 @@ async function execute(
     case "prepare": {
       const input = await body(request);
       if (!input) return json(400, { error: "invalid_json" });
-      const { fileName, csv, mode, countyFips } = input;
+      const { fileName, csv, workbook, mode, countyFips } = input;
+      const file =
+        typeof csv === "string" && workbook === undefined
+          ? { csv }
+          : typeof workbook === "string" && csv === undefined
+            ? { workbook }
+            : null;
       if (
-        typeof csv !== "string" ||
+        !file ||
         typeof fileName !== "string" ||
         typeof mode !== "string" ||
         !(IMPORT_MODES as readonly string[]).includes(mode) ||
@@ -336,7 +342,7 @@ async function execute(
       return json(200, {
         ...(await service.prepareImport(principal, {
           fileName,
-          csv,
+          ...file,
           mode: mode as ImportMode,
           countyFips: (countyFips as string | null | undefined) ?? null,
         })),

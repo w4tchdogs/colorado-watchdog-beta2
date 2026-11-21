@@ -110,6 +110,17 @@ export interface CountyStructureLayout {
 export const UNIT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 export const MAX_CSV_BYTES = 1_048_576;
 export const MAX_CSV_ROWS = 20_000;
+export const MAX_COUNTY_WORKBOOK_BYTES = MAX_CSV_BYTES;
+
+/** One uploaded file, with workbook values normalized on the server. */
+export type CountyStructureImportRequest = {
+  readonly fileName: string;
+  readonly mode: ImportMode;
+  readonly countyFips?: string | null;
+} & (
+  | { readonly csv: string; readonly workbook?: never }
+  | { readonly workbook: string; readonly csv?: never }
+);
 /**
  * Limit for each private provenance field (Evidence for relationship, Source
  * references). Migration 0033 raised it from 4,000 so long source lists, such

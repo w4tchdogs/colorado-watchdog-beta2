@@ -7,6 +7,7 @@ import {
   IMPORT_MODES,
   type ImportMode,
   type ImportSummary,
+  MAX_COUNTY_WORKBOOK_BYTES,
   ORGANIZATION_TYPES,
   type ParentRelationship,
   type PreparedImport,
@@ -27,6 +28,7 @@ import {
 } from "./county-structure-client.js";
 import type { DashboardViewFactory } from "./dashboard.js";
 import { clear, el } from "./dom.js";
+import { readUploadBase64 } from "./upload.js";
 
 const MODE_LABELS: Readonly<Record<ImportMode, string>> = {
   merge: "Merge into existing structure",
@@ -1405,7 +1407,8 @@ export function createCountyStructureView(options: {
     const fileInput = el(doc, "input", {
       id: "cs-file",
       type: "file",
-      accept: ".csv,text/csv",
+      accept:
+        ".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv",
     });
     const modeSelect = el(
       doc,
@@ -1443,7 +1446,7 @@ export function createCountyStructureView(options: {
         { class: "cs-note" },
         "Import is two steps. Validate and preview changes nothing. Commit applies the exact previewed change in one transaction.",
       ),
-      field(doc, "county.csv file", "cs-file", fileInput),
+      field(doc, "County workbook (.xlsx) or CSV", "cs-file", fileInput),
       field(doc, "Import mode", "cs-mode", modeSelect),
       el(doc, "div", { class: "cs-actions" }, prepare, commit, exportButton),
       preview,
@@ -1519,10 +1522,30 @@ export function createCountyStructureView(options: {
       );
     }
 
+    function clearImportPreview(): void {
+      prepared = null;
+      commitKey = null;
+      renderPreview();
+    }
+
+    function setImportBusy(busy: boolean): void {
+      for (const input of [
+        fileInput,
+        modeSelect,
+        countySelect,
+        prepare,
+        commit,
+      ])
+        input.disabled = busy;
+    }
+
+    fileInput.addEventListener("change", clearImportPreview);
+    modeSelect.addEventListener("change", clearImportPreview);
+
     prepare.addEventListener("click", async () => {
       const file = fileInput.files?.[0];
       if (!file) {
-        say("Choose a county.csv file first.");
+        say("Choose a county Excel workbook or CSV first.");
         return;
       }
       const mode = modeSelect.value as ImportMode;
@@ -1530,11 +1553,20 @@ export function createCountyStructureView(options: {
         say("Choose the county to replace first.");
         return;
       }
+      const workbook = /\.xlsx$/i.test(file.name);
+      clearImportPreview();
+      if (workbook && file.size > MAX_COUNTY_WORKBOOK_BYTES) {
+        say("The Excel workbook must be 1 MiB or smaller.");
+        return;
+      }
+      setImportBusy(true);
       try {
-        const text = await file.text();
+        const data = workbook
+          ? { workbook: await readUploadBase64(file) }
+          : { csv: await file.text() };
         prepared = await client.prepare({
           fileName: file.name,
-          csv: text,
+          ...data,
           mode,
           countyFips: mode === "replace_county" ? selectedCounty : null,
         });
@@ -1548,19 +1580,21 @@ export function createCountyStructureView(options: {
         prepared = null;
         commitKey = null;
         say(describe(error));
+      } finally {
+        setImportBusy(false);
+        renderPreview();
       }
-      renderPreview();
     });
 
     commit.addEventListener("click", async () => {
-      if (!prepared || !commitKey) return;
-      commit.disabled = true;
+      if (!prepared?.committable || !commitKey) return;
+      setImportBusy(true);
       try {
         const result = await client.commit(
           prepared.import.id,
           {
             changesetSha256: prepared.import.changesetSha256,
-            expectedVersion: version,
+            expectedVersion: prepared.import.baseVersion,
           },
           commitKey,
         );
@@ -1571,13 +1605,13 @@ export function createCountyStructureView(options: {
               ? "This import had already been committed."
               : "Import committed.",
         );
-        prepared = null;
-        commitKey = null;
-        renderPreview();
         await refresh();
+        clearImportPreview();
       } catch (error) {
         say(describe(error));
-        commit.disabled = false;
+      } finally {
+        setImportBusy(false);
+        renderPreview();
       }
     });
 
@@ -1638,6 +1672,7 @@ export function createCountyStructureView(options: {
     }
 
     countySelect.addEventListener("change", () => {
+      if (modeSelect.value === "replace_county") clearImportPreview();
       void loadCounty(countySelect.value || null);
     });
 

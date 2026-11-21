@@ -91,7 +91,7 @@ This opens or creates `website-draft.sqlite` in that directory. The
 [dashboard](http://127.0.0.1:8788/) and [public-page preview](http://127.0.0.1:8790/)
 use the same database on loopback. Under **Acting as**, select **Olive
 Owner (owner)**. In **County Structure**, preview and commit the draft
-`county.csv`. In **Profiles → Import Profiles**, choose the draft Excel
+`county.xlsx` or `county.csv`. In **Profiles → Import Profiles**, choose the draft Excel
 workbook, preview it, and commit after reviewing the totals and issues.
 **Public page layout** saves per-county preferences in this local draft
 database. Refresh the corresponding county page to review saved pins.
