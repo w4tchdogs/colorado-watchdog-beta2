@@ -1313,12 +1313,21 @@ async function buildPlan(
     update: 3,
     unchanged: 4,
   } as const;
-  const reported = [...rows].sort(
-    (a, b) =>
-      Number(!!b.deletedOnWebsite) - Number(!!a.deletedOnWebsite) ||
-      order[a.action] - order[b.action] ||
-      a.line - b.line,
-  );
+  // Keep unchanged Profiles and roles in the counts and reviewed digest.
+  // Deleted records still need their detail rows for review and re-add.
+  const reported = rows
+    .filter(
+      (row) =>
+        row.deletedOnWebsite ||
+        row.action !== "unchanged" ||
+        row.kind === "name",
+    )
+    .sort(
+      (a, b) =>
+        Number(!!b.deletedOnWebsite) - Number(!!a.deletedOnWebsite) ||
+        order[a.action] - order[b.action] ||
+        a.line - b.line,
+    );
   return {
     preview: {
       contract: PROFILES_IMPORT_CONTRACT,

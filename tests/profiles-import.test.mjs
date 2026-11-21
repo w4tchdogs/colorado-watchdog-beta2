@@ -701,6 +701,9 @@ test("Adams-sized synthetic file previews and commits 262 Profiles and 413 roles
     );
     const again = await service.preview(owner, { files });
     assert.equal(again.profiles.unchanged, 262);
+    assert.equal(again.roles.unchanged, 413);
+    assert.deepEqual(again.rows, []);
+    assert.equal(again.rowsTruncated, false);
     assert.equal(again.profiles.add + again.roles.add + again.sources.add, 0);
   });
 });
