@@ -829,6 +829,7 @@ async function main() {
     const homepage = await fetch(base);
     const homeHtml = await homepage.text();
     assert.match(homeHtml, /64 counties/);
+    assert.match(homeHtml, /County officials and employees<\/dt><dd>27<\/dd>/);
     assert.match(homeHtml, /data-banner-count="0"/);
 
     await verifyPublication(base, {

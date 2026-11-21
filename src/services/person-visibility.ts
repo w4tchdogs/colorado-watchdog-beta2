@@ -3,6 +3,11 @@ import {
   ALTERNATE_NAME_PUBLIC_LABELS,
   type AlternateNameType,
 } from "../contracts/profiles.js";
+import type { DirectoryQueryRunner } from "./officials-directory.js";
+
+function personIsNotHiddenSql(idExpression: string): string {
+  return `NOT EXISTS (SELECT 1 FROM person_visibility hidden_pv WHERE hidden_pv.person_id = ${idExpression} AND hidden_pv.visible = 0)`;
+}
 
 /**
  * Public visibility for Profiles (PROFILES-1).
@@ -25,7 +30,21 @@ import {
  * never built from request input.
  */
 export function personIsPublicSql(idExpression: string): string {
-  return `(NOT EXISTS (SELECT 1 FROM person_visibility hidden_pv WHERE hidden_pv.person_id = ${idExpression} AND hidden_pv.visible = 0) AND EXISTS (SELECT 1 FROM profile_publication_ready ready_pv WHERE ready_pv.person_id = ${idExpression}))`;
+  return `(${personIsNotHiddenSql(idExpression)} AND EXISTS (SELECT 1 FROM profile_publication_ready ready_pv WHERE ready_pv.person_id = ${idExpression}))`;
+}
+
+/** One count per public Profile, including people with roles in several counties. */
+export async function countPublicPeople(
+  runner: Pick<DirectoryQueryRunner, "first">,
+): Promise<number> {
+  const row = await runner.first(
+    `SELECT COUNT(*) AS total FROM profile_publication_ready p
+     WHERE ${personIsNotHiddenSql("p.person_id")}`,
+    [],
+  );
+  if (typeof row?.total !== "number")
+    throw new Error("Public Profile count is unavailable");
+  return row.total;
 }
 
 /**

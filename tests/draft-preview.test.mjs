@@ -110,6 +110,7 @@ test("draft workbook, county CSV and layout pins survive restart and share publi
     Roles: [
       ["role_id", "profile_id", "county_fips", "published_office"],
       ["draft-role", "draft-person", "08001", "Synthetic Recorder"],
+      ["draft-second-role", "draft-person", "08003", "Synthetic Clerk"],
     ],
   }).toString("base64");
   let sandbox = await start();
@@ -165,6 +166,15 @@ test("draft workbook, county CSV and layout pins survive restart and share publi
     assert.equal(row.visible, false);
     personId = row.profileId;
     assert.equal((await requestPage(site, `/people/${personId}`)).status, 404);
+    const home = await requestPage(site, "/");
+    assert.equal(home.status, 200);
+    const homeHtml = await home.text();
+    assert.match(homeHtml, /<dt>Colorado counties<\/dt><dd>64<\/dd>/);
+    assert.match(homeHtml, /<dt>Departments and offices<\/dt><dd>7<\/dd>/);
+    assert.match(
+      homeHtml,
+      /<dt>County officials and employees<\/dt><dd>0<\/dd>/,
+    );
     const countyPage = await requestPage(site, "/counties/08001");
     assert.equal(countyPage.status, 200);
     const html = await countyPage.text();
@@ -195,6 +205,10 @@ test("draft workbook, county CSV and layout pins survive restart and share publi
       "/officials?q=Synthetic+Draft+Officer",
     );
     assert.match(await officials.text(), /Synthetic Draft Officer/);
+    assert.match(
+      await (await requestPage(site, "/")).text(),
+      /<dt>County officials and employees<\/dt><dd>1<\/dd>/,
+    );
   } finally {
     sandbox.close();
   }

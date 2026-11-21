@@ -49,6 +49,7 @@ import {
 import { OrganizationProfileInputError } from "./organization-profile.js";
 import { PersonProfileInputError } from "./person-profile.js";
 import {
+  countPublicPeople,
   PUBLIC_ALTERNATE_NAMES_SQL,
   personIsPublicSql,
   publicPersonNameMatchSql,
@@ -608,6 +609,7 @@ export function createD1PublicReadServices(
 
   return {
     listCounties,
+    countPublicPeople: () => countPublicPeople(directoryRunner),
     getCountyOverview,
     listCountyOrganizations,
     listCountyRoleEntries,

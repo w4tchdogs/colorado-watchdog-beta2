@@ -74,6 +74,7 @@ import {
   listOrganizationRoleEntries,
 } from "./organization-profile.js";
 import { getPersonProfile } from "./person-profile.js";
+import { countPublicPeople } from "./person-visibility.js";
 import {
   type Capability,
   createTestHumanIdentityAdapter,
@@ -190,6 +191,7 @@ export interface ApplicationServices {
     input: CountyOverviewRequest,
   ): ReturnType<typeof getCountyOverview>;
   listCounties(): ReturnType<typeof listCounties>;
+  countPublicPeople(): ReturnType<typeof countPublicPeople>;
   listOfficials(
     input?: OfficialsDirectoryRequest,
   ): ReturnType<typeof listOfficials>;
@@ -371,6 +373,9 @@ export function createServices(
     },
     listCounties() {
       return listCounties(requireDatabase());
+    },
+    async countPublicPeople() {
+      return countPublicPeople(sqliteDirectoryRunner(requireDatabase()));
     },
     listOfficials(input) {
       return listOfficials(sqliteDirectoryRunner(requireDatabase()), input);

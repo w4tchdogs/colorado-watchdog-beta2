@@ -46,7 +46,8 @@ that show the state of profiles, departments and grievances.
   folder. Cloudflare staging passed the R2 storage round trip and the
   [protected banner API exercise with one synthetic PNG](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/137#issuecomment-6933294436). The separate
   [Sites R2 attachment and object inventory](https://github.com/w4tchdogs/colorado-watchdog-beta2/issues/122)
-  remains open. Public pages show no counts.
+  remains open. The first STATS-1 slice adds homepage totals for Colorado
+  counties, public County Structure units and distinct visible Profiles.
 - **Remaining:** finish the campaign-2 validation and resolve the intake
   decision in DATA-1. Research migration 003 and the post-003 restore test
   are complete. Finish review and receipt-based verification for the first
@@ -146,7 +147,7 @@ is lifted.
 | 11 | SYNC-1 | Build the Profiles dashboard CSV importer and stage the first reviewed county pilot | #257 Profiles tab; reviewed pilot CSV and synthetic staging acceptance | 2 |
 | 12 | SYNC-2 | Import the remaining reviewed county Profiles through the dashboard | SYNC-1 | 2 |
 | 13 | BANNERS-IMPORT-1 | Reconcile the banner manifest, fill missing county coverage and resolve permanent publication in R2 and D1 | Staging bulk publication recorded in PR #242. R2-1, MCP-3 | 2 |
-| 14 | STATS-1 | Public per-county counts for profiles, departments and reviewed grievances | SYNC-1 | 2 |
+| 14 | STATS-1 | Homepage totals for counties, units and visible Profiles first, then corresponding county-page totals. Public report and grievance totals are a later slice. | SYNC-1 | 2 |
 
 ### Phase 4. Public features
 

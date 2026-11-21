@@ -59,10 +59,14 @@ export interface PublicCountyStructure {
 
 export interface CountyStructureReader {
   getCountyStructure(countyFips: string): Promise<PublicCountyStructure>;
+  countPublicUnits(): Promise<number | null>;
 }
 
 /** The reader used when no County Structure database is attached. */
 export const emptyCountyStructure: CountyStructureReader = {
+  async countPublicUnits() {
+    return null;
+  },
   async getCountyStructure(countyFips: string): Promise<PublicCountyStructure> {
     return {
       countyFips,
@@ -136,6 +140,30 @@ const headingKey = (value: string): string =>
 
 export class D1CountyStructurePublicService implements CountyStructureReader {
   constructor(private readonly database: AsyncD1Database) {}
+
+  /** Each public reporting unit counts once. Browse headings are separate records. */
+  async countPublicUnits(): Promise<number> {
+    const row = await this.database.first<{ total: number }>(
+      `WITH RECURSIVE public_units(id, county_fips) AS (
+         SELECT u.id, u.county_fips
+         FROM county_unit u
+         WHERE u.parent_unit_id IS NULL AND u.status = 'active'
+           AND (u.display_group_id IS NULL OR EXISTS (
+             SELECT 1 FROM county_unit_display g
+             WHERE g.id = u.display_group_id AND g.status = 'active'
+           ))
+         UNION ALL
+         SELECT u.id, u.county_fips
+         FROM county_unit u JOIN public_units parent
+           ON parent.id = u.parent_unit_id AND parent.county_fips = u.county_fips
+         WHERE u.status = 'active'
+       )
+       SELECT COUNT(*) AS total FROM public_units`,
+    );
+    if (typeof row?.total !== "number")
+      throw new Error("Public County Structure count is unavailable");
+    return row.total;
+  }
 
   async getCountyStructure(countyFips: string): Promise<PublicCountyStructure> {
     if (!/^08\d{3}$/.test(countyFips))
