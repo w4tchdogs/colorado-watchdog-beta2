@@ -212,7 +212,13 @@ async function runImport(format) {
         Profiles: rows(PROFILE_CSV),
         Roles: rows(ROLE_CSV),
         "Alternate Names": [
-          ["profile_name_id", "profile_id", "name_type", "published_name"],
+          [
+            "profile_name_id",
+            "profile_id",
+            "name_type",
+            "full_name_as_published",
+          ],
+          ["N1", "P1", "nickname", "Unused Alternate Name"],
         ],
       });
       Object.defineProperty($("#import-workbook-file"), "files", {
@@ -237,6 +243,29 @@ async function runImport(format) {
     assert.equal($$rows().length, 4, "two Profiles and two roles shown");
     assert.equal($("#import-commit").hasAttribute("disabled"), false);
     if (format === "XLSX") {
+      const includeNames = $("#import-include-alternate-names");
+      assert.equal(includeNames.checked, false);
+      assert.match(
+        $("#import-preview-result").textContent,
+        /Alternate Names worksheet is excluded/,
+      );
+      click(includeNames);
+      assert.equal($("#import-commit").hasAttribute("disabled"), true);
+      click($("#import-preview"));
+      await waitFor(
+        () =>
+          $(".cw-import-issues")?.textContent.includes(
+            'needs a "published_name" column',
+          ),
+        "blocking issue when including the incomplete worksheet",
+      );
+      click(includeNames);
+      click($("#import-preview"));
+      await waitFor(
+        () => $("#import-preview-result"),
+        "preview with the worksheet excluded",
+      );
+      assert.equal($(".cw-import-issues"), null);
       $("#import-workbook-file").dispatchEvent(new window.Event("change"));
       assert.equal($("#import-commit").hasAttribute("disabled"), true);
       click($("#import-preview"));
@@ -249,6 +278,10 @@ async function runImport(format) {
       /Created 2 Profiles and 2 roles/,
     );
     assert.match($("#import-receipt").textContent, /2 new Profiles are hidden/);
+    assert.equal(
+      database.prepare("SELECT COUNT(*) AS c FROM profile_names").get().c,
+      0,
+    );
     assert.equal(
       database
         .prepare("SELECT COUNT(*) c FROM person_visibility WHERE visible = 0")

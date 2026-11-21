@@ -131,7 +131,10 @@ function tabCsv(
     .join("\r\n");
 }
 
-export async function readProfilesWorkbook(encoded: string): Promise<{
+export async function readProfilesWorkbook(
+  encoded: string,
+  includeAlternateNames = true,
+): Promise<{
   profile: string;
   profileRole?: string;
   profileName?: string;
@@ -148,7 +151,7 @@ export async function readProfilesWorkbook(encoded: string): Promise<{
         "Include a Profiles tab with column headers.",
       );
     const roles = tabs.get("Roles");
-    const names = tabs.get("Alternate Names");
+    const names = includeAlternateNames ? tabs.get("Alternate Names") : null;
     return {
       profile: tabCsv(profiles),
       ...(roles && roles.length > 1 ? { profileRole: tabCsv(roles) } : {}),

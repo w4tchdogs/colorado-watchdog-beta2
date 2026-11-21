@@ -26,9 +26,11 @@ Headers are matched after lowercasing and replacing spaces and hyphens with unde
 
 - Put `profile.csv` columns on **Profiles**, `profile_role.csv` columns on **Roles**, and `profile_name.csv` columns on **Alternate Names**. Use the first row for headers and store stable IDs as text.
 - **Profiles** is required. The Roles and Alternate Names tabs may be omitted or supplied with headers only. An empty Alternate Names tab leaves existing names unchanged.
+- The dashboard reads the Profile's primary display name from `display_name` on **Profiles**. For workbook uploads, **Include the Alternate Names worksheet** is unchecked by default. Preview and commit include **Alternate Names** only when selected. Changing the selection requires a fresh preview.
 - Choose one `.xlsx` file of up to 3 MiB. Each worksheet may contain up to 20,000 data rows and 64 columns. The records are subject to the same combined 4 MiB limit as the CSV inputs after conversion. Use the supported columns. Private draft review uses the [larger local limits](../../README.md#private-draft-review).
 - The server accepts literal values. Replace formulas with values before upload. Excel dates in date fields are normalized to ISO format. A Colorado FIPS code such as `8001` is restored to `08001` if Excel dropped the leading zero.
 - The preview and commit routes accept `workbook` in place of `files` in the JSON body. The workbook is parsed into the same input contract before the shared preview and commit logic runs. Row validation uses the corresponding CSV filename and line in the converted input.
+- Existing API clients can omit `includeAlternateNames` to include that worksheet. Set it to `false` on both preview and commit to skip it. Supplying a separate `profile_name.csv` includes those rows.
 
 - A role needs at least one of `published_office`, `published_title` or `job_description`.
 - Source and citation columns are ignored. Evidence stays in the private Profiles store. Existing Website source links are preserved when a role is re-imported.

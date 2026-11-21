@@ -56,6 +56,10 @@ export function createImportPanel(options: {
       ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     id: "import-workbook-file",
   });
+  const includeAlternateNames = el(doc, "input", {
+    type: "checkbox",
+    id: "import-include-alternate-names",
+  });
   const csvInputs = [profileInput, roleInput, nameInput];
   const status = el(doc, "p", {
     class: "cw-import-status",
@@ -87,7 +91,8 @@ export function createImportPanel(options: {
   };
   const setBusy = (value: boolean) => {
     busy = value;
-    for (const input of [workbookInput, ...csvInputs]) input.disabled = value;
+    for (const input of [workbookInput, includeAlternateNames, ...csvInputs])
+      input.disabled = value;
     for (const control of [
       previewButton,
       commitButton,
@@ -170,6 +175,22 @@ export function createImportPanel(options: {
     return btoa(chunks.join(""));
   }
 
+  function invalidatePreview(message: string): void {
+    if (!preview || receipt) return;
+    files = null;
+    preview = null;
+    readdProfileId = undefined;
+    render();
+    refreshControls();
+    say(message);
+  }
+
+  includeAlternateNames.addEventListener("change", () =>
+    invalidatePreview(
+      "Worksheet selection changed. Preview it before committing.",
+    ),
+  );
+
   for (const input of [workbookInput, ...csvInputs]) {
     input.addEventListener("change", () => {
       if (input.files?.length) {
@@ -178,13 +199,9 @@ export function createImportPanel(options: {
           : [workbookInput])
           other.value = "";
       }
-      if (!preview || receipt) return;
-      files = null;
-      preview = null;
-      readdProfileId = undefined;
-      render();
-      refreshControls();
-      say("The file selection changed. Preview it before committing.");
+      invalidatePreview(
+        "The file selection changed. Preview it before committing.",
+      );
     });
   }
 
@@ -206,7 +223,10 @@ export function createImportPanel(options: {
     say("Reading the files. Nothing is written during a preview.");
     try {
       if (workbook) {
-        files = { workbook: await readWorkbook(workbook) };
+        files = {
+          workbook: await readWorkbook(workbook),
+          includeAlternateNames: includeAlternateNames.checked,
+        };
       } else {
         const [profile, role, names] = await Promise.all(
           csvInputs.map(readFile),
@@ -416,6 +436,14 @@ export function createImportPanel(options: {
         "div",
         { class: "cw-import-preview", id: "import-preview-result" },
         el(doc, "h3", {}, "Preview"),
+        files && "workbook" in files && files.includeAlternateNames === false
+          ? el(
+              doc,
+              "p",
+              {},
+              "The Alternate Names worksheet is excluded from this preview.",
+            )
+          : "",
         el(
           doc,
           "table",
@@ -542,7 +570,7 @@ export function createImportPanel(options: {
       doc,
       "p",
       {},
-      "Choose an Excel workbook with Profiles, Roles and Alternate Names tabs, or choose CSV files. Preview changes nothing. New Profiles are created hidden and new alternate names are created private.",
+      "Choose an Excel workbook or CSV files. Preview changes nothing. New Profiles are created hidden and new alternate names are created private.",
     ),
     el(
       doc,
@@ -554,7 +582,19 @@ export function createImportPanel(options: {
         { for: "import-workbook-file" },
         "Excel workbook (.xlsx)",
       ),
-      workbookInput,
+      el(
+        doc,
+        "div",
+        {},
+        workbookInput,
+        el(
+          doc,
+          "label",
+          { for: "import-include-alternate-names" },
+          includeAlternateNames,
+          " Include the Alternate Names worksheet",
+        ),
+      ),
       el(doc, "label", { for: "import-profile-file" }, "profile.csv"),
       profileInput,
       el(
