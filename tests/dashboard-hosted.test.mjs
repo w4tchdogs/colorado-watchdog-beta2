@@ -260,6 +260,7 @@ test("the hosted bundle and assets carry no sandbox code, fixtures or switcher",
     assert.match(script, /api\/admin\/banners/);
     assert.match(script, /x-banner-stage/);
     assert.match(script, /internal\/dashboard\/session/);
+    assert.ok(script.includes(LOGIN));
     assert.match(script, /\/auth\/logout/);
   });
 });
@@ -669,6 +670,7 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
           return { destroy() {} };
         },
       },
+      signInHref: LOGIN,
       signOut: { action: "/auth/logout" },
     });
     const $ = (selector) => window.document.querySelector(selector);
@@ -686,6 +688,7 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
     assert.ok($("#overview-planned"));
     assert.equal($("#sandbox-bar"), null);
     assert.equal($("#sandbox-account"), null);
+    assert.equal($(".dash-signin"), null);
     assert.deepEqual(
       [...window.document.querySelectorAll("#dash-sidebar a[data-view]")].map(
         (a) => a.textContent,
@@ -734,6 +737,29 @@ test("the hosted shell mounts against the real Worker with sign-out and no sandb
     window.location.hash = "#/reports";
     await waitFor("#state-not-found");
     assert.ok($("#state-not-found"));
+
+    // An already-open tab can outlive the session that served its shell.
+    const signedOut = await send(world, "/auth/logout", {
+      method: "POST",
+      headers: { origin: ORIGIN },
+      jar,
+    });
+    assert.equal(signedOut.status, 303);
+    jar.absorb(signedOut);
+    window.location.hash = "#/profiles";
+    await waitFor("#state-signed-out");
+    assert.equal($("#state-signed-out h1")?.textContent, "Sign in required");
+    assert.equal($("#account-menu-button"), null);
+    assert.equal($("#dash-sidebar a[data-view]"), null);
+    const topLink = $(".dash-topbar .dash-account a");
+    const panelLink = $("#state-signed-out p + a");
+    for (const link of [topLink, panelLink]) {
+      assert.equal(link?.textContent, "Sign in");
+      assert.equal(link?.getAttribute("href"), LOGIN);
+      assert.equal(link?.tabIndex, 0);
+    }
+    const login = await send(world, panelLink.getAttribute("href"), { jar });
+    assert.equal(login.status, 302);
   });
 });
 

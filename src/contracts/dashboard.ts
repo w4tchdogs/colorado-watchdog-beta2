@@ -221,6 +221,9 @@ export type DashboardView =
   | DashboardProfilesView
   | DashboardCountyStructureView;
 
+/** Same-origin sign-in start that returns the visitor to the dashboard. */
+export const DASHBOARD_LOGIN_HREF = "/auth/login?return_to=%2Fdashboard";
+
 export const DASHBOARD_API_PATHS = {
   session: "/internal/dashboard/session",
   view: "/internal/dashboard/views/get",
