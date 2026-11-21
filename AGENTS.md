@@ -142,6 +142,12 @@ as in code.
 - Keep prose outside the block and guard dependent commands so they stop if
   a prerequisite fails. The owner must be able to paste the block as-is
   even when the chat interface collapses line breaks.
+- After every local Website change, include both the paste-ready PowerShell
+  startup command and a clickable link to the updated local page in the
+  owner-facing handoff. The command must start the right preview from the
+  checkout or worktree that contains the change. Use the preview's actual
+  localhost port and page path, including any route fragment. If several
+  pages changed, give a direct link to each.
 
 ## Documents and names
 
