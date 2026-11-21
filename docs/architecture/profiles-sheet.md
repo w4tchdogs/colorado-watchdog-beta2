@@ -80,6 +80,8 @@ A Profile may be visible only when it has a nonblank display name and at least o
 
 A hidden Profile is removed from the public directory and browse lists, people search, the officials directory, county role lists and county role counts, county structure counts, organization role lists, the report grievance pickers and validation, and related people in editorial content. Its direct page and its `/api/people/<id>` response return 404. Existing staff report references stay intact. Public responses never include reviewer notes, review metadata or private citations, and the sheet payload omits them as well.
 
+**Select all matching** opens a visibility review across every page of the active filters. The server counts each Profile once, previews how many will change, and shows how many already have that visibility or are incomplete. The owner confirms the change separately. A changed database snapshot forces a new preview. A confirmed change writes visibility, per-Profile audit events, and one retry receipt in the same batch. **Select matching rows** remains available for individual row edits.
+
 The dashboard importer creates Profiles hidden. The external sync create path still creates a Profile without a visibility row, and the publication rule keeps it private until it is complete.
 
 ## Retry safety and audit
@@ -88,7 +90,7 @@ Each save writes its audit events and an entry in `profile_write_receipts` in th
 
 ## Deploy order
 
-Migration 0030 must be applied before the Worker that contains these changes, because the public read queries join `person_visibility`. Migration 0034 must likewise be applied before the Worker that reads `profile_publication_ready` and `person_visibility.hidden_reason`. Migration 0037 adds support for Website roles without citation links.
+Migration 0030 must be applied before the Worker that contains these changes, because the public read queries join `person_visibility`. Migration 0034 must likewise be applied before the Worker that reads `profile_publication_ready` and `person_visibility.hidden_reason`. Migration 0037 adds support for Website roles without citation links. Migration 0038 makes the publication triggers check each Profile by ID for large visibility changes.
 
 ## Not in this slice
 

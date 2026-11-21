@@ -129,7 +129,12 @@ test("protected routes deny anonymous, non-owner, agent and cross-origin callers
       (await call("/api/admin/profiles/rows", { subject: "agent" })).status,
       403,
     );
-    for (const path of ["preview", "save"]) {
+    for (const path of [
+      "preview",
+      "save",
+      "matching-visibility/preview",
+      "matching-visibility/save",
+    ]) {
       const target = `/api/admin/profiles/${path}`;
       assert.equal(
         (await call(target, { method: "POST", body, headers: key })).status,
@@ -165,6 +170,169 @@ test("protected routes deny anonymous, non-owner, agent and cross-origin callers
       });
       assert.equal(crossOrigin.status, 403);
     }
+  });
+});
+
+test("matching visibility reviews and changes more than 13,000 profiles in one guarded save", async () => {
+  await withApi(async ({ call, database }) => {
+    database.exec(`
+      WITH RECURSIVE numbers(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM numbers WHERE n < 13000)
+      INSERT INTO people (id, display_name) SELECT 'bulk-' || n, 'Bulk candidate ' || n FROM numbers;
+      INSERT INTO people (id, display_name) VALUES
+        ('no-role', 'Bulk candidate incomplete'), ('no-visibility', 'Bulk candidate roleless'),
+        ('already', 'Bulk candidate visible'), ('outside', 'Outside filter');
+      INSERT INTO person_roles (id, person_id, county_fips, published_office)
+      SELECT 'r-' || id, id, '08001', 'Test office'
+      FROM people WHERE id LIKE 'bulk-%' OR id IN ('already', 'outside');
+      INSERT INTO person_roles (id, person_id, county_fips, published_office)
+      VALUES ('r-duplicate', 'bulk-1', '08001', 'Second test role');
+      INSERT INTO person_visibility (person_id, visible, changed_by_account_id)
+      SELECT id, 0, 'acct-owner' FROM people WHERE id LIKE 'bulk-%' OR id IN ('no-role', 'outside');
+    `);
+    const input = { filters: { query: "Bulk candidate" }, visible: true };
+    const post = (path, body, key) =>
+      call(`/api/admin/profiles/matching-visibility/${path}`, {
+        method: "POST",
+        subject: "owner",
+        body,
+        headers: key ? { "idempotency-key": key } : {},
+      });
+    const review = async () => {
+      const reply = await post("preview", input);
+      assert.equal(reply.status, 200);
+      return reply.json();
+    };
+    const first = await review();
+    assert.deepEqual(
+      [first.matched, first.willChange, first.alreadySet, first.incomplete],
+      [13003, 13000, 1, 2],
+    );
+    assert.equal(
+      database
+        .prepare("SELECT COUNT(*) n FROM person_visibility WHERE visible = 1")
+        .get().n,
+      0,
+    );
+    database.exec(
+      "UPDATE people SET display_name = 'Bulk candidate changed', version = version + 1 WHERE id = 'bulk-1'",
+    );
+    const stale = await post(
+      "save",
+      { ...input, digest: first.digest },
+      "bulk-vis-stale-key",
+    );
+    assert.equal(stale.status, 409);
+    assert.equal((await stale.json()).error, "stale_version");
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) n FROM audit_events WHERE action = 'profile.restore'",
+        )
+        .get().n,
+      0,
+    );
+
+    const ready = await review();
+    const payload = { ...input, digest: ready.digest };
+    const key = "bulk-visibility-commit";
+    const commit = await post("save", payload, key);
+    assert.equal(commit.status, 200);
+    assert.deepEqual(await commit.json(), { applied: 13000, replayed: false });
+    const replay = await post("save", payload, key);
+    assert.equal(replay.status, 200);
+    assert.deepEqual(await replay.json(), { applied: 13000, replayed: true });
+    assert.equal(
+      (await post("save", { ...payload, visible: false }, key)).status,
+      409,
+    );
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) n FROM person_visibility WHERE visible = 1 AND version = 2",
+        )
+        .get().n,
+      13000,
+    );
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) n FROM audit_events WHERE action = 'profile.restore'",
+        )
+        .get().n,
+      13000,
+    );
+    assert.deepEqual(
+      database
+        .prepare(
+          "SELECT person_id FROM person_visibility WHERE visible = 0 ORDER BY person_id",
+        )
+        .all()
+        .map((r) => r.person_id),
+      ["no-role", "outside"],
+    );
+  });
+});
+
+test("an equal-count visibility swap invalidates the matching preview", async () => {
+  await withApi(async ({ call, database }) => {
+    database.exec(`
+      INSERT INTO people (id, display_name) VALUES ('person-b', 'Synthetic Person B');
+      INSERT INTO person_roles (id, person_id, county_fips, published_office)
+      VALUES ('role-b', 'person-b', '08001', 'Synthetic Claims Office');
+      INSERT INTO person_visibility (person_id, visible, changed_by_account_id)
+      VALUES ('person-b', 0, 'acct-owner');
+    `);
+    const post = (path, body, key) =>
+      call(`/api/admin/profiles/${path}`, {
+        method: "POST",
+        subject: "owner",
+        body,
+        headers: key ? { "idempotency-key": key } : {},
+      });
+    const input = { filters: { visibility: "hidden" }, visible: true };
+    const first = await (
+      await post("matching-visibility/preview", input)
+    ).json();
+    assert.equal(first.willChange, 1);
+    const swap = await post(
+      "save",
+      {
+        changes: [
+          {
+            kind: "visibility",
+            personId: "person-a",
+            expectedVersion: 0,
+            visible: false,
+          },
+          {
+            kind: "visibility",
+            personId: "person-b",
+            expectedVersion: 1,
+            visible: true,
+          },
+        ],
+      },
+      "ordinary-visibility-swap",
+    );
+    assert.equal(swap.status, 200);
+    const after = await (
+      await post("matching-visibility/preview", input)
+    ).json();
+    assert.equal(after.willChange, 1);
+    assert.notEqual(after.digest, first.digest);
+    const stale = await post(
+      "matching-visibility/save",
+      { ...input, digest: first.digest },
+      "matching-visibility-swap",
+    );
+    assert.equal(stale.status, 409);
+    assert.deepEqual(
+      database
+        .prepare("SELECT person_id FROM person_visibility WHERE visible = 0")
+        .all()
+        .map((row) => row.person_id),
+      ["person-a"],
+    );
   });
 });
 

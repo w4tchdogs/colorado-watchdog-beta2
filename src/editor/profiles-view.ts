@@ -232,6 +232,8 @@ export function createProfilesView(options: {
     let reviewing = false;
     let deleting = false;
     let deleteRequest = 0;
+    let matchingVisibilityRequest = 0;
+    let matchingVisibilitySaving = false;
     let table: Tabulator | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let requestToken = 0;
@@ -281,6 +283,11 @@ export function createProfilesView(options: {
     const reviewPanel = el(doc, "section", {
       class: "cw-profiles-review",
       "aria-labelledby": "profiles-review-h",
+      hidden: true,
+    });
+    const matchingVisibilityPanel = el(doc, "section", {
+      class: "cw-profiles-review",
+      "aria-labelledby": "profiles-matching-visibility-h",
       hidden: true,
     });
     const deletePanel = el(doc, "section", {
@@ -348,8 +355,14 @@ export function createProfilesView(options: {
       id: "profiles-select-page",
     });
     const selectMatching = button(
-      `Select all matching (up to ${PROFILES_MAX_SELECT_ALL})`,
+      `Select matching rows (up to ${PROFILES_MAX_SELECT_ALL})`,
       () => void selectAllMatching(),
+      { id: "profiles-select-matching-rows" },
+    );
+    const selectMatchingProfiles = button(
+      "Select all matching",
+      () => openMatchingVisibility(),
+      { id: "profiles-select-all-matching" },
     );
     const clearSelection = button("Clear selection", () => {
       selected.clear();
@@ -418,6 +431,7 @@ export function createProfilesView(options: {
             "aria-label": "Profiles actions",
           },
           selectPage,
+          selectMatchingProfiles,
           selectMatching,
           clearSelection,
           setButton,
@@ -433,6 +447,7 @@ export function createProfilesView(options: {
         setPanel,
         namesPanel,
         reviewPanel,
+        matchingVisibilityPanel,
         deletePanel,
         gridHost,
       ),
@@ -873,6 +888,149 @@ export function createProfilesView(options: {
         );
       } catch (error) {
         announce(describeError(error));
+      }
+    }
+
+    function closeMatchingVisibility(): void {
+      matchingVisibilityRequest++;
+      matchingVisibilityPanel.hidden = true;
+      clear(matchingVisibilityPanel);
+    }
+
+    function openMatchingVisibility(): void {
+      if (matchingVisibilitySaving) return;
+      if (staged.size || reviewing || deleting) {
+        announce(
+          "Finish or discard the current edits before changing visibility for all matching Profiles.",
+        );
+        return;
+      }
+      // Read the controls directly so a pending search debounce cannot
+      // accidentally select the preceding search results.
+      const scope: ProfileQuery = {
+        ...query,
+        query: searchInput.value.trim(),
+        countyFips: countySelect.value || null,
+        office: officeSelect.value || null,
+        visibility: (visibilitySelect.value ||
+          "all") as ProfileQuery["visibility"],
+      };
+      closeMatchingVisibility();
+      matchingVisibilityPanel.hidden = false;
+      const heading = el(
+        doc,
+        "h2",
+        { id: "profiles-matching-visibility-h", tabindex: -1 },
+        "All matching Profiles",
+      );
+      const status = el(doc, "p", { role: "status" });
+      const confirmation = el(doc, "div", {});
+      const cancel = button("Cancel", () => {
+        closeMatchingVisibility();
+        selectMatchingProfiles.focus();
+      });
+      const show = button("Preview making visible", () => void preview(true));
+      const hide = button("Preview hiding", () => void preview(false));
+      matchingVisibilityPanel.append(
+        heading,
+        el(
+          doc,
+          "p",
+          {},
+          "Applies to all Profiles matched by the current filters, across every page.",
+        ),
+        show,
+        hide,
+        cancel,
+        status,
+        confirmation,
+      );
+      heading.focus();
+
+      async function preview(visible: boolean): Promise<void> {
+        const requestId = ++matchingVisibilityRequest;
+        clear(confirmation);
+        status.textContent = "Counting matching Profiles.";
+        try {
+          const reviewed = await client.previewMatchingVisibility(
+            scope,
+            visible,
+          );
+          if (destroyed || requestId !== matchingVisibilityRequest) return;
+          status.textContent = `${reviewed.matched.toLocaleString()} Profiles match. ${reviewed.willChange.toLocaleString()} will become ${visible ? "visible" : "hidden"}. ${reviewed.alreadySet.toLocaleString()} already have that visibility.${reviewed.incomplete ? ` ${reviewed.incomplete.toLocaleString()} incomplete Profiles will stay hidden.` : ""}`;
+          if (reviewed.willChange === 0) return;
+          const key = newKey();
+          const confirm = button(
+            visible
+              ? `Make ${reviewed.willChange.toLocaleString()} Profiles visible`
+              : `Hide ${reviewed.willChange.toLocaleString()} Profiles`,
+            () => void commit(),
+            { id: "profiles-confirm-matching-visibility" },
+          );
+          confirmation.appendChild(confirm);
+
+          async function commit(): Promise<void> {
+            if (
+              matchingVisibilitySaving ||
+              requestId !== matchingVisibilityRequest
+            )
+              return;
+            if (staged.size || reviewing || deleting) {
+              announce(
+                "Finish or discard the current edits before changing all matching Profiles.",
+              );
+              return;
+            }
+            matchingVisibilitySaving = true;
+            confirm.disabled = true;
+            show.disabled = true;
+            hide.disabled = true;
+            cancel.disabled = true;
+            status.textContent = "Saving visibility changes.";
+            try {
+              const result = await client.saveMatchingVisibility(
+                scope,
+                visible,
+                reviewed.digest,
+                key,
+              );
+              if (destroyed) return;
+              closeMatchingVisibility();
+              selected.clear();
+              refreshSelectionState();
+              announce(
+                `${result.applied.toLocaleString()} Profiles ${visible ? "made visible" : "hidden"}.`,
+              );
+              await reload().catch(() =>
+                announce(
+                  "Visibility saved. Reload the page to refresh the grid.",
+                ),
+              );
+              selectMatchingProfiles.focus();
+            } catch (error) {
+              if (destroyed || requestId !== matchingVisibilityRequest) return;
+              if (
+                error instanceof ProfilesApiError &&
+                error.code === "stale_version"
+              ) {
+                clear(confirmation);
+                status.textContent =
+                  "The Website changed since this preview. Preview the matching Profiles again.";
+              } else {
+                status.textContent = describeError(error);
+                confirm.disabled = false;
+              }
+            } finally {
+              matchingVisibilitySaving = false;
+              show.disabled = false;
+              hide.disabled = false;
+              cancel.disabled = false;
+            }
+          }
+        } catch (error) {
+          if (!destroyed && requestId === matchingVisibilityRequest)
+            status.textContent = describeError(error);
+        }
       }
     }
 
@@ -2367,15 +2525,20 @@ export function createProfilesView(options: {
       }) as never,
     );
     searchInput.addEventListener("input", () => {
+      closeMatchingVisibility();
       if (timer) clearTimeout(timer);
       timer = setTimeout(applyFilters, 350);
     });
     for (const control of [countySelect, officeSelect, visibilitySelect])
-      control.addEventListener("change", applyFilters);
+      control.addEventListener("change", () => {
+        closeMatchingVisibility();
+        applyFilters();
+      });
     container
       .querySelector("form.cw-profiles-filters")
       ?.addEventListener("submit", (event) => {
         event.preventDefault();
+        closeMatchingVisibility();
         applyFilters();
       });
     void client

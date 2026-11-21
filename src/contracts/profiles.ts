@@ -803,3 +803,16 @@ export interface ProfileSaveResult {
     readonly newVersion: number;
   }[];
 }
+
+export interface MatchingProfileVisibilityPreview {
+  readonly matched: number;
+  readonly willChange: number;
+  readonly alreadySet: number;
+  readonly incomplete: number;
+  readonly digest: string;
+}
+
+export interface MatchingProfileVisibilityReceipt {
+  readonly applied: number;
+  readonly replayed: boolean;
+}

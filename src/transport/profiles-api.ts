@@ -70,6 +70,8 @@ type Op =
   | "rows"
   | "facets"
   | "selectAll"
+  | "matchingVisibilityPreview"
+  | "matchingVisibilitySave"
   | "names"
   | "preview"
   | "save"
@@ -96,6 +98,8 @@ function match(
     rows: ["rows", "GET"],
     facets: ["facets", "GET"],
     "select-all": ["selectAll", "GET"],
+    "matching-visibility/preview": ["matchingVisibilityPreview", "POST"],
+    "matching-visibility/save": ["matchingVisibilitySave", "POST"],
     names: ["names", "GET"],
     preview: ["preview", "POST"],
     save: ["save", "POST"],
@@ -213,6 +217,22 @@ async function handle(
       if (!key) return json(400, { error: "idempotency_key_required" });
       return json(200, {
         ...(await service.commitDelete(principal, key, body)),
+      });
+    }
+    if (
+      matched.op === "matchingVisibilityPreview" ||
+      matched.op === "matchingVisibilitySave"
+    ) {
+      const input = await readObject(request, limit);
+      if (!input) return json(400, { error: "invalid_json" });
+      if (matched.op === "matchingVisibilityPreview")
+        return json(200, {
+          ...(await service.previewMatchingVisibility(principal, input)),
+        });
+      const key = request.headers.get("idempotency-key");
+      if (!key) return json(400, { error: "idempotency_key_required" });
+      return json(200, {
+        ...(await service.saveMatchingVisibility(principal, key, input)),
       });
     }
     switch (matched.op) {

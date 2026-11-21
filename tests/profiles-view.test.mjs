@@ -969,9 +969,7 @@ test("remote pagination returns exactly 1000 rows then the remainder without dup
         .map((row) => row.id);
       assert.deepEqual(new Set(allKeys), new Set(expected));
 
-      const selectAll = $$(".cw-profiles-actions button").find((button) =>
-        button.textContent.startsWith("Select all matching"),
-      );
+      const selectAll = $("#profiles-select-matching-rows");
       click(selectAll);
       await waitFor(
         () =>
@@ -1055,10 +1053,8 @@ test("the owner grid confirms a single Profile deletion from the selection toolb
 });
 
 test("deleting selected Profiles reviews cross-page selections once and stops on a stale target", async () => {
-  await mount(async ({ $, $$, database }) => {
-    const selectAll = $$(".cw-profiles-actions button").find((button) =>
-      button.textContent.startsWith("Select all matching"),
-    );
+  await mount(async ({ $, database }) => {
+    const selectAll = $("#profiles-select-matching-rows");
     selectAll.click();
     await waitFor(
       () =>
@@ -1111,6 +1107,41 @@ test("deleting selected Profiles reviews cross-page selections once and stops on
     assert.match(
       $(".cw-profiles-selection").textContent,
       /3 role rows selected across 2 Profiles/,
+    );
+  });
+});
+
+test("Select all matching reviews a filtered visibility change across pages", async () => {
+  await mount(async ({ $, database, announcements }) => {
+    $("#profiles-search").value = "Synthetic";
+    $("#profiles-search").dispatchEvent(
+      new window.Event("input", { bubbles: true }),
+    );
+    $("#profiles-select-all-matching").click();
+    const panel = $("#profiles-matching-visibility-h").parentElement;
+    const preview = [...panel.querySelectorAll("button")].find(
+      (button) => button.textContent === "Preview hiding",
+    );
+    preview.click();
+    const confirm = await waitFor(
+      () => $("#profiles-confirm-matching-visibility"),
+      "matching visibility confirmation",
+    );
+    assert.match(panel.textContent, /3 Profiles match. 3 will become hidden/);
+    assert.equal(
+      database.prepare("SELECT COUNT(*) n FROM person_visibility").get().n,
+      0,
+    );
+    confirm.click();
+    await waitFor(
+      () => announcements.includes("3 Profiles hidden."),
+      "bulk visibility saved",
+    );
+    assert.equal(
+      database
+        .prepare("SELECT COUNT(*) n FROM person_visibility WHERE visible = 0")
+        .get().n,
+      3,
     );
   });
 });
