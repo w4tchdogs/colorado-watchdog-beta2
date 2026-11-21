@@ -5,6 +5,7 @@ import {
 } from "../contracts/profiles.js";
 import {
   HEADER_ALIASES,
+  IMPORT_ROLE_TEXT_LIMITS,
   type ImportIssue,
   NAME_FILE,
   NAME_FILE_COLUMNS,
@@ -439,7 +440,10 @@ export function validateNameRows(parsed: ParsedFile): {
   return { records, issues };
 }
 
-export function validateRoleRows(parsed: ParsedFile): {
+export function validateRoleRows(
+  parsed: ParsedFile,
+  allowPartial = false,
+): {
   readonly records: readonly RoleRecord[];
   readonly issues: readonly ImportIssue[];
 } {
@@ -481,16 +485,17 @@ export function validateRoleRows(parsed: ParsedFile): {
         "invalid_county",
         "county_fips must be a five digit Colorado FIPS code such as 08001.",
       );
-    if (!v.published_office && !v.published_title && !v.job_description)
+    if (
+      !allowPartial &&
+      !v.published_office &&
+      !v.published_title &&
+      !v.job_description
+    )
       ok = bad(
         "role_detail_required",
         "A role needs published_office, published_title or job_description.",
       );
-    for (const [field, max] of [
-      ["published_office", 500],
-      ["published_title", 500],
-      ["job_description", 2000],
-    ] as const)
+    for (const [field, max] of Object.entries(IMPORT_ROLE_TEXT_LIMITS))
       if ((v[field] ?? "").length > max)
         ok = bad("invalid_field", `${field} is longer than ${max} characters.`);
     for (const field of ["start_date", "end_date"] as const)

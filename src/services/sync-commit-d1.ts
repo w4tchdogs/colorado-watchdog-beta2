@@ -1,3 +1,4 @@
+import { IMPORT_ROLE_TEXT_LIMITS } from "../contracts/profiles-import.js";
 import type {
   PlannedSyncItem,
   SyncChange,
@@ -171,7 +172,13 @@ const UPDATE_COLUMNS: Readonly<Record<SyncEntity, readonly string[]>> = {
   ],
   positions: ["title"],
   role_sources: ["title"],
-  person_roles: ["start_date", "end_date", "source_checked_at", "source_id"],
+  person_roles: [
+    "start_date",
+    "end_date",
+    "source_checked_at",
+    "source_id",
+    ...Object.keys(IMPORT_ROLE_TEXT_LIMITS),
+  ],
   profile_names: [
     "name_type",
     "published_name",
@@ -217,6 +224,8 @@ export async function commitSyncChangesetD1(
      * with, a key that starts with IMPORTER_BATCH_KEY_PREFIX.
      */
     importerBatch?: boolean;
+    /** True only for the reviewed dashboard master workbook. */
+    allowImporterRoleTextUpdates?: boolean;
     /** Internal request limit for the private draft workbook importer. */
     maxImporterRequestBytes?: number;
     /**
@@ -301,6 +310,8 @@ export async function commitSyncChangesetD1(
   const planOptions = {
     maxRequestBytes,
     allowRolesWithoutSource: options.importerBatch,
+    allowImporterRoleTextUpdates:
+      options.importerBatch && options.allowImporterRoleTextUpdates,
   };
   // One set-based read of everything the request names. It is taken after the
   // generation snapshot above, and every table it reads advances that generation
