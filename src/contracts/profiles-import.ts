@@ -117,7 +117,7 @@ export interface ProfilesImportFiles {
 
 export type ProfilesImportSource =
   | ProfilesImportFiles
-  | { readonly workbook: string };
+  | { readonly workbook: string; readonly includeAlternateNames?: boolean };
 
 export type ImportAction =
   | "add"

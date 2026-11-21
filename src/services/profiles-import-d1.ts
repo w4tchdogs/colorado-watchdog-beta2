@@ -326,7 +326,17 @@ async function parseFiles(
       throw new ProfilesWorkbookError(
         "Choose one Excel workbook or CSV files.",
       );
-    files = await readProfilesWorkbook(body.workbook);
+    if (
+      body.includeAlternateNames !== undefined &&
+      typeof body.includeAlternateNames !== "boolean"
+    )
+      throw new ProfilesWorkbookError(
+        "Choose whether to include the Alternate Names worksheet.",
+      );
+    files = await readProfilesWorkbook(
+      body.workbook,
+      body.includeAlternateNames,
+    );
   }
   if (!files || typeof files !== "object" || Array.isArray(files))
     throw new ImportInputError("The request needs a files object");
