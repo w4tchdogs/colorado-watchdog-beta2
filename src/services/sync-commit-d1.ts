@@ -90,7 +90,6 @@ interface PlannedCommit {
 
 const SAFE_MESSAGES: Readonly<Record<string, string>> = {
   invalid_request: "The changeset structure is invalid.",
-  request_too_large: "The request exceeds the 8 MiB limit.",
   no_changes: "A changeset must contain at least one change.",
   item_too_large: "A change exceeds the 32 KiB item limit.",
   too_many_duplicate_flags: "A request may contain at most 20 duplicate flags.",
@@ -218,6 +217,8 @@ export async function commitSyncChangesetD1(
      * with, a key that starts with IMPORTER_BATCH_KEY_PREFIX.
      */
     importerBatch?: boolean;
+    /** Internal request limit for the private draft workbook importer. */
+    maxImporterRequestBytes?: number;
     /**
      * The dependency generation the caller sampled before it read anything
      * its plan depends on. The guarded write fails if the Website changed
@@ -228,6 +229,9 @@ export async function commitSyncChangesetD1(
   } = {},
 ): Promise<D1SyncCommitResult> {
   const now = options.now ?? (() => new Date());
+  const maxRequestBytes =
+    (options.importerBatch ? options.maxImporterRequestBytes : undefined) ??
+    MAX_SYNC_REQUEST_BYTES;
   const started = Date.now();
   const marks = { plan: 0, prepare: 0, finalPlan: 0, write: 0 };
   let planReads = 0;
@@ -258,7 +262,11 @@ export async function commitSyncChangesetD1(
       "The trusted Website principal cannot apply synchronization",
     );
   }
-  const structural = validateStructure(request, idempotencyKey);
+  const structural = validateStructure(
+    request,
+    idempotencyKey,
+    maxRequestBytes,
+  );
   if (structural) return rejected(requestId, structural);
   const reserved = idempotencyKey.startsWith(IMPORTER_BATCH_KEY_PREFIX);
   if (reserved !== (options.importerBatch === true))
@@ -297,7 +305,13 @@ export async function commitSyncChangesetD1(
   let phase = Date.now();
   const reads = new SyncPlanReads(database);
   await reads.prefetch(dryRun);
-  const plan = await planSyncChangesetD1(database, dryRun, now, reads);
+  const plan = await planSyncChangesetD1(
+    database,
+    dryRun,
+    now,
+    reads,
+    maxRequestBytes,
+  );
   planReads = reads.queries;
   marks.plan = Date.now() - phase;
   if (!plan.eligible) {
@@ -488,7 +502,13 @@ export async function commitSyncChangesetD1(
   // plan reuses the same reads and only reads anything it did not already hold.
   phase = Date.now();
   const before = reads.queries;
-  const finalPlan = await planSyncChangesetD1(database, dryRun, now, reads);
+  const finalPlan = await planSyncChangesetD1(
+    database,
+    dryRun,
+    now,
+    reads,
+    maxRequestBytes,
+  );
   finalPlanReads = reads.queries - before;
   marks.finalPlan = Date.now() - phase;
   if (!finalPlan.eligible) {
@@ -863,6 +883,7 @@ function usesImporterOnlyFields(changes: readonly SyncChange[]): boolean {
 function validateStructure(
   request: SyncChangeSetRequest,
   key: string,
+  maxRequestBytes: number,
 ): SyncPlanError | null {
   if (
     !isRecord(request) ||
@@ -903,7 +924,11 @@ function validateStructure(
   } catch {
     return error("invalid_request");
   }
-  if (size > MAX_SYNC_REQUEST_BYTES) return error("request_too_large");
+  if (size > maxRequestBytes)
+    return {
+      code: "request_too_large",
+      message: `The request exceeds the ${maxRequestBytes / 1024 / 1024} MiB limit.`,
+    };
   if (request.changes.length < 1) return error("no_changes");
   try {
     for (const change of request.changes) {

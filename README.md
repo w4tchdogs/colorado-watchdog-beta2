@@ -105,8 +105,10 @@ the rendered image, crop and caption. **Withdraw** removes it from those local
 views and retains its history. Image copies and edits are saved in the same
 private SQLite file. The original images stay in `banners\approved`.
 
+Private draft review accepts up to 24 MiB of tab data after workbook conversion
+and up to 48 MiB for the resulting import changeset. The 3 MiB workbook upload
+limit, worksheet row and column limits, and publication checks still apply.
 The local database can retain larger import receipts than hosted D1.
-The import formats and publication checks still apply.
 
 For the report form, run `npm run report:demo` and open
 [Submit or Track a Report demo](http://127.0.0.1:8791/).
