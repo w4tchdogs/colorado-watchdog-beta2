@@ -641,12 +641,14 @@ export type ProfileVisibilityFilter =
   | "hidden"
   | "incomplete";
 export type ProfileSortDirection = "asc" | "desc";
+export type ProfileUnitLinkFilter = "all" | "unlinked" | "linked";
 
 export interface ProfileQuery {
   readonly query: string;
   readonly countyFips: string | null;
   readonly office: string | null;
   readonly visibility: ProfileVisibilityFilter;
+  readonly unitLink?: ProfileUnitLinkFilter;
   readonly sort: string;
   readonly direction: ProfileSortDirection;
   readonly page: number;
@@ -723,6 +725,17 @@ export type ProfileUnitLinkPreview = Readonly<
 export interface ProfileUnitLinkReceipt {
   readonly attached: number;
   readonly replayed: boolean;
+}
+
+export interface ProfileUnitSuggestion {
+  readonly unitId: string;
+  readonly path: string;
+  readonly digest: string;
+}
+
+export interface ProfileUnitSuggestions {
+  readonly office: string | null;
+  readonly units: readonly ProfileUnitSuggestion[];
 }
 
 export interface ProfilePage {

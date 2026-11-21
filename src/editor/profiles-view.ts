@@ -213,6 +213,7 @@ export function createProfilesView(options: {
       countyFips: null,
       office: null,
       visibility: "all",
+      unitLink: "all",
       sort: "displayName",
       direction: "asc",
       page: 1,
@@ -234,6 +235,7 @@ export function createProfilesView(options: {
     let deleteRequest = 0;
     let matchingVisibilityRequest = 0;
     let matchingVisibilitySaving = false;
+    let unitLinkSaving = false;
     let table: Tabulator | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let requestToken = 0;
@@ -267,6 +269,14 @@ export function createProfilesView(options: {
       role: "status",
       "aria-live": "polite",
     });
+    const unitLinkSelect = el(
+      doc,
+      "select",
+      { id: "profiles-unit-link" },
+      el(doc, "option", { value: "all" }, "All"),
+      el(doc, "option", { value: "unlinked" }, "Unlinked"),
+      el(doc, "option", { value: "linked" }, "Linked"),
+    );
     const selectionStatus = el(doc, "p", { class: "cw-profiles-selection" });
     const stagedStatus = el(doc, "p", { class: "cw-profiles-staged" });
     const message = el(doc, "p", {
@@ -412,6 +422,7 @@ export function createProfilesView(options: {
           field("County", countySelect, "profiles-county"),
           field("Office / Unit", officeSelect, "profiles-office"),
           field("Visibility", visibilitySelect, "profiles-visibility"),
+          field("Unit link", unitLinkSelect, "profiles-unit-link"),
           button(
             "Clear filters",
             () => {
@@ -420,6 +431,7 @@ export function createProfilesView(options: {
               countySelect.value = "";
               officeSelect.value = "";
               visibilitySelect.value = "all";
+              unitLinkSelect.value = "all";
               applyFilters();
             },
             { id: "profiles-clear" },
@@ -909,7 +921,117 @@ export function createProfilesView(options: {
       clear(unitLinkPanel);
     }
 
+    async function openUnitSuggestions(row: ProfileRow): Promise<void> {
+      if (unitLinkSaving || !row.roleId) return;
+      if (staged.size || reviewing || deleting) {
+        announce("Finish or discard the current edits before linking roles.");
+        return;
+      }
+      const roleId = row.roleId;
+      closeUnitLinks();
+      unitLinkPanel.hidden = false;
+      const heading = el(
+        doc,
+        "h2",
+        { id: "profiles-unit-links-h", tabindex: -1 },
+        "Suggested units",
+      );
+      const status = el(
+        doc,
+        "p",
+        { role: "status" },
+        "Finding units in this role’s county.",
+      );
+      const close = button("Close", closeUnitLinks);
+      unitLinkPanel.append(
+        heading,
+        el(
+          doc,
+          "p",
+          {},
+          [row.displayName, row.officeDepartment, row.county]
+            .filter(Boolean)
+            .join(" · "),
+        ),
+        status,
+        close,
+      );
+      heading.focus();
+      try {
+        const { units } = await client.suggestUnits(roleId);
+        if (destroyed || !unitLinkPanel.contains(status)) return;
+        status.textContent = units.length
+          ? "Suggestions share the start of the office name. Review the unit and its parent before linking."
+          : "No unit names in this county start with the same letters.";
+        if (!units.length) return;
+        const choices = el(
+          doc,
+          "select",
+          { id: "profiles-suggested-unit" },
+          el(doc, "option", { value: "" }, "Choose a unit"),
+          ...units.map(({ unitId, path }) =>
+            el(doc, "option", { value: unitId }, `${path} (${unitId})`),
+          ),
+        );
+        let key = newKey();
+        const confirm = button(
+          "Link selected unit",
+          async () => {
+            const unit = units.find(
+              (choice) => choice.unitId === choices.value,
+            );
+            if (!unit || unitLinkSaving) return;
+            if (staged.size || reviewing || deleting) {
+              announce(
+                "Finish or discard the current edits before linking roles.",
+              );
+              return;
+            }
+            unitLinkSaving = true;
+            confirm.disabled = choices.disabled = close.disabled = true;
+            try {
+              await client.linkSuggestedUnit(roleId, unit, key);
+              if (destroyed) return;
+              closeUnitLinks();
+              announce(`Linked this role to ${unit.path}.`);
+              await reload().catch(() =>
+                announce("Link saved. Reload the page to refresh the grid."),
+              );
+            } catch (error) {
+              if (destroyed || !unitLinkPanel.contains(status)) return;
+              if (
+                error instanceof ProfilesApiError &&
+                error.code === "stale_preview"
+              ) {
+                status.textContent =
+                  "The role or its suggestions changed. Open Suggest units again to review the current options.";
+                confirm.remove();
+              } else {
+                status.textContent = describeError(error);
+                confirm.disabled = choices.disabled = false;
+              }
+            } finally {
+              unitLinkSaving = false;
+              close.disabled = false;
+            }
+          },
+          { id: "profiles-link-suggested-unit" },
+        );
+        confirm.disabled = true;
+        choices.addEventListener("change", () => {
+          key = newKey();
+          confirm.disabled = !choices.value;
+        });
+        unitLinkPanel.insertBefore(field("Unit", choices, choices.id), close);
+        unitLinkPanel.insertBefore(confirm, close);
+      } catch (error) {
+        if (!destroyed && unitLinkPanel.contains(status))
+          status.textContent = describeError(error);
+      }
+    }
+
     async function openUnitLinks(): Promise<void> {
+      if (unitLinkSaving) return;
       if (staged.size || reviewing || deleting) {
         announce("Finish or discard the current edits before linking roles.");
         return;
@@ -920,6 +1042,7 @@ export function createProfilesView(options: {
         countyFips: countySelect.value || null,
         office: officeSelect.value || null,
         visibility: visibilitySelect.value as ProfileQuery["visibility"],
+        unitLink: unitLinkSelect.value as ProfileQuery["unitLink"],
       };
       closeUnitLinks();
       unitLinkPanel.hidden = false;
@@ -960,12 +1083,14 @@ export function createProfilesView(options: {
         const confirm = button(
           `Link ${reviewed.ready.toLocaleString()} ${reviewed.ready === 1 ? "role" : "roles"}`,
           async () => {
+            if (unitLinkSaving) return;
             if (staged.size || reviewing || deleting) {
               announce(
                 "Finish or discard the current edits before linking roles.",
               );
               return;
             }
+            unitLinkSaving = true;
             confirm.disabled =
               cancel.disabled =
               linkExactMatches.disabled =
@@ -999,6 +1124,7 @@ export function createProfilesView(options: {
                 confirm.disabled = false;
               }
             } finally {
+              unitLinkSaving = false;
               cancel.disabled = linkExactMatches.disabled = false;
             }
           },
@@ -1034,6 +1160,7 @@ export function createProfilesView(options: {
         office: officeSelect.value || null,
         visibility: (visibilitySelect.value ||
           "all") as ProfileQuery["visibility"],
+        unitLink: unitLinkSelect.value as ProfileQuery["unitLink"],
       };
       closeMatchingVisibility();
       matchingVisibilityPanel.hidden = false;
@@ -2468,15 +2595,20 @@ export function createProfilesView(options: {
         return {
           ...common,
           formatter: (cell) => {
-            const link = (cell.getRow().getData() as unknown as ProfileRow)
-              .unitLink;
+            const row = cell.getRow().getData() as unknown as ProfileRow;
+            const link = row.unitLink;
             if (!link) return "";
-            if (link.state === "multiple") {
+            const suggest = () =>
+              button("Suggest units", () => void openUnitSuggestions(row), {
+                "aria-label": `Suggest units for ${row.displayName}, ${row.officeDepartment}`,
+              });
+            if (link.state === "multiple")
               return el(
                 doc,
                 "details",
                 {},
                 el(doc, "summary", {}, "Multiple matches"),
+                suggest(),
                 el(
                   doc,
                   "ul",
@@ -2484,7 +2616,6 @@ export function createProfilesView(options: {
                   ...link.paths.map((path) => el(doc, "li", {}, path)),
                 ),
               );
-            }
             return el(
               doc,
               "span",
@@ -2495,6 +2626,11 @@ export function createProfilesView(options: {
                 unmatched: "No exact match",
                 review: "Review existing link",
               }[link.state],
+              ...(row.officeDepartment &&
+              row.countyFips &&
+              link.state === "unmatched"
+                ? [doc.createTextNode(" "), suggest()]
+                : []),
             );
           },
         };
@@ -2565,6 +2701,7 @@ export function createProfilesView(options: {
         countyFips: countySelect.value || null,
         office: officeSelect.value || null,
         visibility: visibilitySelect.value as ProfileQuery["visibility"],
+        unitLink: unitLinkSelect.value as ProfileQuery["unitLink"],
         page: 1,
       };
       void reload();
@@ -2685,7 +2822,12 @@ export function createProfilesView(options: {
       if (timer) clearTimeout(timer);
       timer = setTimeout(applyFilters, 350);
     });
-    for (const control of [countySelect, officeSelect, visibilitySelect])
+    for (const control of [
+      countySelect,
+      officeSelect,
+      visibilitySelect,
+      unitLinkSelect,
+    ])
       control.addEventListener("change", () => {
         closeMatchingVisibility();
         closeUnitLinks();

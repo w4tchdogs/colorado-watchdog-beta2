@@ -103,6 +103,47 @@ const SEED = `
 `;
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+test("the Unlinked filter drops a row after the owner saves a suggestion", async () => {
+  await mount(
+    async ({ database, $, click, rowFor, cell }) => {
+      database
+        .prepare(`INSERT INTO county_unit (id, county_fips, name, organization_type)
+      VALUES ('ui-adams-suggestion', '08001', 'Synthetic Adams', 'office')`)
+        .run();
+      const filter = $("#profiles-unit-link");
+      filter.value = "unlinked";
+      filter.dispatchEvent(new window.Event("change", { bubbles: true }));
+      const suggest = await waitFor(() => {
+        const row = rowFor("Multi Role", "Clerk");
+        return row && cell(row, "unitLink").querySelector("button");
+      }, "suggestions action");
+      click(suggest);
+      const picker = await waitFor(
+        () => $("#profiles-suggested-unit"),
+        "suggested units menu",
+      );
+      const save = $("#profiles-link-suggested-unit");
+      assert.equal(save.disabled, true);
+      picker.value = "ui-adams-suggestion";
+      picker.dispatchEvent(new window.Event("change", { bubbles: true }));
+      click(save);
+      await waitFor(
+        () => !rowFor("Multi Role", "Clerk"),
+        "linked row leaves the filtered grid",
+      );
+      assert.equal(
+        database
+          .prepare(
+            "SELECT unit_id FROM county_role_display WHERE person_role_id='role-multi-a'",
+          )
+          .get().unit_id,
+        "ui-adams-suggestion",
+      );
+    },
+    { pageSize: 10 },
+  );
+});
+
 test("Unit Linked shows the current match and updates after a reviewed bulk link", async () => {
   await mount(
     async ({ database, $, click, cell, rowFor }) => {

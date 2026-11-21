@@ -13,6 +13,8 @@ import {
   type ProfileSelectionEntry,
   type ProfileUnitLinkPreview,
   type ProfileUnitLinkReceipt,
+  type ProfileUnitSuggestion,
+  type ProfileUnitSuggestions,
 } from "../contracts/profiles.js";
 import type {
   ProfileDeletePreview,
@@ -55,6 +57,12 @@ export class ProfilesApiError extends Error {
 export interface ProfilesClient {
   rows(query: ProfileQuery): Promise<ProfilePage>;
   facets(): Promise<ProfileFacets>;
+  suggestUnits(roleId: string): Promise<ProfileUnitSuggestions>;
+  linkSuggestedUnit(
+    roleId: string,
+    unit: ProfileUnitSuggestion,
+    key: string,
+  ): Promise<ProfileUnitLinkReceipt>;
   previewUnitLinks(query: ProfileQuery): Promise<ProfileUnitLinkPreview>;
   commitUnitLinks(
     query: ProfileQuery,
@@ -115,6 +123,8 @@ function queryString(query: ProfileQuery, paged: boolean): string {
   if (query.countyFips) params.set("county", query.countyFips);
   if (query.office) params.set("office", query.office);
   if (query.visibility !== "all") params.set("visibility", query.visibility);
+  if (query.unitLink && query.unitLink !== "all")
+    params.set("unitLink", query.unitLink);
   params.set("sort", query.sort);
   params.set("direction", query.direction);
   if (paged) {
@@ -196,6 +206,7 @@ export function createProfilesClient(options: {
           county: query.countyFips,
           office: query.office,
           visibility: query.visibility,
+          unitLink: query.unitLink,
         },
         visible,
         ...(review ? { digest: review.digest } : {}),
@@ -218,11 +229,28 @@ export function createProfilesClient(options: {
           county: query.countyFips,
           office: query.office,
           visibility: query.visibility,
+          unitLink: query.unitLink,
         },
         ...(review ? { digest: review.digest } : {}),
       }),
     });
   return {
+    suggestUnits: (roleId) =>
+      call("/unit-links/suggestions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ roleId }),
+      }),
+    linkSuggestedUnit: (roleId, unit, key) =>
+      call("/unit-links/choose", {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": key },
+        body: JSON.stringify({
+          roleId,
+          unitId: unit.unitId,
+          digest: unit.digest,
+        }),
+      }),
     previewUnitLinks: (query) =>
       unitLinkPost<ProfileUnitLinkPreview>("preview", query),
     commitUnitLinks: (query, digest, key) =>
