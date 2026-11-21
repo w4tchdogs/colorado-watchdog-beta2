@@ -15,7 +15,7 @@
 export const PROFILES_API_PREFIX = "/api/admin/profiles";
 export const PROFILES_CAPABILITY = "profile.manage";
 
-export const PROFILES_MAX_PAGE_SIZE = 100;
+export const PROFILES_MAX_PAGE_SIZE = 1_000;
 export const PROFILES_DEFAULT_PAGE_SIZE = 50;
 export const PROFILES_MAX_PAGE = 10_000;
 export const PROFILES_MAX_SELECT_ALL = 1_000;

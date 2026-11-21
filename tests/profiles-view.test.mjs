@@ -113,7 +113,7 @@ async function waitFor(check, label, timeout = 4000) {
   }
 }
 
-async function mount(callback) {
+async function mount(callback, { pageSize = 2 } = {}) {
   const database = await openWebsiteDatabase();
   migrateWebsiteDatabase(database);
   database.exec(SEED);
@@ -145,7 +145,7 @@ async function mount(callback) {
   let keys = 0;
   const handle = createProfilesView({
     client,
-    pageSize: 2,
+    pageSize,
     newKey: () => `ui-key-${String(++keys).padStart(6, "0")}`,
   })({
     doc: window.document,
@@ -358,7 +358,9 @@ test("selecting both roles of one person stages one visibility change, hides and
     click($("#profiles-hide"));
     assert.ok(
       announcements.some((a) =>
-        /Hide staged for 1 Profile from 2 selected role rows/.test(a),
+        /Hidden: 1 Profile will change; 0 already have the requested value/.test(
+          a,
+        ),
       ),
       announcements.join(" | "),
     );
@@ -618,7 +620,9 @@ test("a roleless Profile has one row with its status, and Visible stays disabled
     click($("#profiles-restore"));
     assert.ok(
       announcements.some((a) =>
-        /1 not restored because it is missing required information/.test(a),
+        /1 Profile cannot be made Visible because it is missing required information/.test(
+          a,
+        ),
       ),
       announcements.join(" | "),
     );
@@ -642,6 +646,360 @@ test("a roleless Profile has one row with its status, and Visible stays disabled
     assert.equal(ready.checked, false);
     assert.ok($$(".tabulator-row").length >= 1);
   });
+});
+
+test("Set selected values stages visibility once per Profile across filters and skips drafts", async () => {
+  await mount(async ({ $, $$, click, rows, database, announcements }) => {
+    database.exec(`
+      INSERT INTO person_visibility (person_id, visible, changed_by_account_id)
+        VALUES ('person-multi', 0, 'acct-owner');
+      INSERT INTO people (id, display_name) VALUES ('person-draft', 'Synthetic Draft Profile');
+      INSERT INTO person_visibility (person_id, visible, changed_by_account_id)
+        VALUES ('person-draft', 0, 'acct-owner');
+    `);
+    const search = $("#profiles-search");
+    const find = async (term, expected) => {
+      search.value = term;
+      search.dispatchEvent(new window.Event("input", { bubbles: true }));
+      await waitFor(
+        () =>
+          rows().length === expected &&
+          $$(".cw-profiles-counts").some((el) =>
+            el.textContent.includes(
+              `${expected} ${expected === 1 ? "row" : "rows"} match`,
+            ),
+          ) &&
+          (term === "" || rows().some((row) => row.textContent.includes(term))),
+        `${term || "all"} filtered rows`,
+      );
+    };
+    const selectRows = () => {
+      for (const box of $$("input[data-select-role]")) {
+        box.checked = true;
+        box.dispatchEvent(new window.Event("change", { bubbles: true }));
+      }
+    };
+    await find("Synthetic Multi Role", 2);
+    selectRows();
+    assert.match(
+      $(".cw-profiles-selection").textContent,
+      /2 role rows selected across 1 Profile/,
+    );
+    await find("Draft Profile", 1);
+    selectRows();
+    await find("Office Only", 1);
+    selectRows();
+    assert.match(
+      $(".cw-profiles-selection").textContent,
+      /4 role rows selected across 3 Profiles/,
+    );
+
+    const openAndStage = async (value) => {
+      click($("#profiles-set"));
+      const fieldSelect = $("#profiles-set-field");
+      assert.ok(
+        [...fieldSelect.options].some(
+          (option) =>
+            option.value === "visible" && option.textContent === "Visible",
+        ),
+      );
+      fieldSelect.value = "visible";
+      fieldSelect.dispatchEvent(new window.Event("change", { bubbles: true }));
+      const visibility = $("#profiles-set-visibility-value");
+      assert.equal(visibility.hidden, false);
+      assert.deepEqual(
+        [...visibility.options].map((option) => option.textContent),
+        ["Visible", "Hidden"],
+      );
+      visibility.value = String(value);
+      click(
+        [...$(".cw-profiles-set").querySelectorAll("button")].find(
+          (button) => button.textContent === "Stage values",
+        ),
+      );
+    };
+
+    await openAndStage(true);
+    assert.ok(
+      announcements.some((text) =>
+        /Visible: 1 Profile will change; 1 already have the requested value \(Visible\)\. 1 Profile cannot be made Visible because it is missing required information/.test(
+          text,
+        ),
+      ),
+      announcements.join(" | "),
+    );
+    assert.match($(".cw-profiles-staged").textContent, /1 unsaved change/);
+    click($("#profiles-save"));
+    await waitFor(() => {
+      const confirm = $("#profiles-confirm");
+      return confirm && !confirm.closest(".cw-profiles-review")?.hidden;
+    }, "visibility preview");
+    assert.equal($(".cw-profiles-diff tbody").rows.length, 1);
+    click($("#profiles-confirm"));
+    await waitFor(
+      () =>
+        database
+          .prepare(
+            "SELECT visible FROM person_visibility WHERE person_id='person-multi'",
+          )
+          .get()?.visible === 1,
+      "bulk Visible readback",
+    );
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) n FROM audit_events WHERE action='profile.restore'",
+        )
+        .get().n,
+      1,
+    );
+
+    await openAndStage(false);
+    assert.ok(
+      announcements.some((text) =>
+        /Hidden: 2 Profiles will change; 1 already have the requested value \(Hidden\)/.test(
+          text,
+        ),
+      ),
+      announcements.join(" | "),
+    );
+    click($("#profiles-save"));
+    await waitFor(() => {
+      const confirm = $("#profiles-confirm");
+      return confirm && !confirm.closest(".cw-profiles-review")?.hidden;
+    }, "visibility hide preview");
+    click($("#profiles-confirm"));
+    await waitFor(
+      () =>
+        database
+          .prepare(
+            "SELECT visible FROM person_visibility WHERE person_id='person-office'",
+          )
+          .get()?.visible === 0,
+      "bulk Hidden readback",
+    );
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) n FROM audit_events WHERE action='profile.hide'",
+        )
+        .get().n,
+      2,
+    );
+    assert.equal(
+      database
+        .prepare(
+          "SELECT visible FROM person_visibility WHERE person_id='person-draft'",
+        )
+        .get().visible,
+      0,
+    );
+    assert.equal(
+      database
+        .prepare(
+          "SELECT visible FROM person_visibility WHERE person_id='person-multi'",
+        )
+        .get().visible,
+      0,
+    );
+  });
+});
+
+test("changing page size preserves filters, sort, selection and staged edits", async () => {
+  await mount(
+    async ({ $, $$, click, rows, database, announcements }) => {
+      const search = $("#profiles-search");
+      search.value = "Synthetic";
+      search.dispatchEvent(new window.Event("input", { bubbles: true }));
+      await waitFor(
+        () =>
+          rows().length === 2 &&
+          $(".cw-profiles-counts").textContent.includes("4 rows match"),
+        "filtered page one",
+      );
+      click($("button[aria-label='Next Page']"));
+      await waitFor(
+        () =>
+          rows().length === 2 &&
+          $(".tabulator-page.active")?.textContent === "2",
+        "filtered page two",
+      );
+      click($("#profiles-select-page"));
+      click($("#profiles-set"));
+      const fieldSelect = $("#profiles-set-field");
+      fieldSelect.value = "employmentEnd";
+      fieldSelect.dispatchEvent(new window.Event("change", { bubbles: true }));
+      $("#profiles-set-value").value = "2027-01-01";
+      click(
+        [...$(".cw-profiles-set").querySelectorAll("button")].find(
+          (button) => button.textContent === "Stage values",
+        ),
+      );
+      assert.match($(".cw-profiles-staged").textContent, /2 unsaved changes/);
+
+      const pageSize = $("select.tabulator-page-size");
+      assert.equal(pageSize.tagName, "SELECT");
+      assert.equal(pageSize.getAttribute("aria-label"), "Rows per page");
+      assert.equal(pageSize.value, "2");
+      pageSize.value = "50";
+      pageSize.dispatchEvent(new window.Event("change", { bubbles: true }));
+      await waitFor(
+        () =>
+          rows().length === 4 &&
+          $(".tabulator-page.active")?.textContent === "1",
+        "page size reset to page one",
+      );
+      assert.equal(search.value, "Synthetic");
+      assert.match(
+        $(".cw-profiles-selection").textContent,
+        /2 role rows selected/,
+      );
+      assert.match($(".cw-profiles-staged").textContent, /2 unsaved changes/);
+      assert.ok(
+        rows().some((row) =>
+          row
+            .querySelector('[tabulator-field="employmentEnd"]')
+            ?.textContent.includes("2027-01-01"),
+        ),
+      );
+      assert.match(
+        $(".tabulator-col[tabulator-field='displayName']").getAttribute(
+          "aria-sort",
+        ),
+        /ascending/i,
+      );
+
+      click($("#profiles-save"));
+      await waitFor(() => $("#profiles-confirm"), "save preview after resize");
+      click($("#profiles-confirm"));
+      await waitFor(
+        () =>
+          database
+            .prepare(
+              "SELECT COUNT(*) n FROM person_roles WHERE end_date='2027-01-01'",
+            )
+            .get().n === 2,
+        "saved readback after page size change",
+      );
+      assert.ok(announcements.length > 0);
+      assert.ok($$(".tabulator-row").length === 4);
+    },
+    { pageSize: 2 },
+  );
+});
+
+test("remote pagination returns exactly 1000 rows then the remainder without duplicates", async () => {
+  await mount(
+    async ({ $, $$, click, rows, database, announcements }) => {
+      const insertPerson = database.prepare(
+        "INSERT INTO people (id, display_name) VALUES (?, ?)",
+      );
+      const insertRole = database.prepare(
+        "INSERT INTO person_roles (id, person_id, position_id, source_id) VALUES (?, ?, 'pos-adams', 'src-a')",
+      );
+      for (let i = 1; i <= 1_002; i += 1) {
+        const suffix = String(i).padStart(4, "0");
+        const personId = `scale-person-${suffix}`;
+        insertPerson.run(personId, `Synthetic Scale ${suffix}`);
+        insertRole.run(`scale-role-${suffix}`, personId);
+      }
+      click($("#profiles-clear"));
+      await waitFor(
+        () => /1006 rows match/.test($(".cw-profiles-counts").textContent),
+        "all synthetic scale rows loaded",
+      );
+
+      const pageSize = $("select.tabulator-page-size");
+      assert.equal(pageSize.getAttribute("aria-label"), "Rows per page");
+      assert.ok(
+        pageSize.tabIndex >= 0,
+        "native selector is keyboard focusable",
+      );
+      pageSize.focus();
+      assert.equal(window.document.activeElement, pageSize);
+      assert.equal(pageSize.value, "50");
+      assert.deepEqual(
+        [...pageSize.options].map((option) => option.value),
+        ["50", "100", "250", "500", "1000"],
+      );
+      assert.match(
+        $(".cw-profiles-counts").textContent,
+        /1006 rows match\. Page 1\./,
+      );
+      pageSize.value = "1000";
+      pageSize.dispatchEvent(new window.Event("change", { bubbles: true }));
+      await waitFor(
+        () =>
+          rows().length === 1000 &&
+          $(".tabulator-page.active")?.textContent === "1",
+        "first thousand rows",
+        15000,
+      );
+      assert.match($(".tabulator-page-counter").textContent, /rows/);
+      const firstPageKeys = rows().map((row) =>
+        row
+          .querySelector("input[data-select-role]")
+          .getAttribute("data-select-role"),
+      );
+      assert.equal(new Set(firstPageKeys).size, 1000);
+      click($("#profiles-select-page"));
+      click($("button[aria-label='Next Page']"));
+      await waitFor(
+        () =>
+          rows().length === 6 &&
+          $(".tabulator-page.active")?.textContent === "2",
+        "last page remainder",
+        15000,
+      );
+      const remainderKeys = rows().map((row) =>
+        row
+          .querySelector("input[data-select-role]")
+          .getAttribute("data-select-role"),
+      );
+      assert.equal(new Set(remainderKeys).size, 6);
+      assert.match(
+        $(".cw-profiles-selection").textContent,
+        /1000 role rows selected/,
+      );
+      const allKeys = [...firstPageKeys, ...remainderKeys];
+      assert.equal(new Set(allKeys).size, 1006);
+      const expected = database
+        .prepare("SELECT id FROM person_roles ORDER BY id")
+        .all()
+        .map((row) => row.id);
+      assert.deepEqual(new Set(allKeys), new Set(expected));
+
+      const selectAll = $$(".cw-profiles-actions button").find((button) =>
+        button.textContent.startsWith("Select all matching"),
+      );
+      click(selectAll);
+      await waitFor(
+        () =>
+          announcements.some((text) =>
+            /first 1000 matching role rows/.test(text),
+          ),
+        "select-all remains capped",
+      );
+      click($("#profiles-set"));
+      const fieldSelect = $("#profiles-set-field");
+      fieldSelect.value = "visible";
+      fieldSelect.dispatchEvent(new window.Event("change", { bubbles: true }));
+      $("#profiles-set-visibility-value").value = "false";
+      click(
+        [...$(".cw-profiles-set").querySelectorAll("button")].find(
+          (button) => button.textContent === "Stage values",
+        ),
+      );
+      assert.match(announcements.at(-1), /500-change save limit/);
+      assert.match(announcements.at(-1), /not split automatically/);
+      assert.match($(".cw-profiles-staged").textContent, /No unsaved changes/);
+      assert.equal(
+        database.prepare("SELECT COUNT(*) n FROM person_visibility").get().n,
+        0,
+      );
+    },
+    { pageSize: 50 },
+  );
 });
 
 test("the owner grid confirms a single Profile deletion from the selection toolbar", async () => {
