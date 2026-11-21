@@ -43,6 +43,7 @@ import {
  */
 export const MAX_PROFILES_JSON_BYTES = 256 * 1024;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+const MAX_DRAFT_WORKBOOK_RESPONSE_BYTES = 24 * 1024 * 1024;
 
 export function isProfilesPath(pathname: string): boolean {
   return (
@@ -61,6 +62,8 @@ export interface ProfilesTransportDependencies {
   readonly service?: ProfilesService;
   /** Absent means the Profiles import is unavailable. */
   readonly importService?: ProfilesImportService;
+  /** Enabled only for the persistent, loopback Website draft database. */
+  readonly privateDraftReview?: boolean;
 }
 
 type Op =
@@ -174,16 +177,26 @@ async function handle(
       if (!importService) return json(503, { error: "profiles_unavailable" });
       const input = await readObject(request, limit);
       if (!input) return json(400, { error: "invalid_json" });
+      const responseLimit =
+        dependencies.privateDraftReview && Object.hasOwn(input, "workbook")
+          ? MAX_DRAFT_WORKBOOK_RESPONSE_BYTES
+          : MAX_RESPONSE_BYTES;
       if (matched.op === "importPreview")
-        return json(200, {
-          ...(await importService.preview(principal, input)),
-        });
+        return json(
+          200,
+          { ...(await importService.preview(principal, input)) },
+          {},
+          responseLimit,
+        );
       const key = request.headers.get("idempotency-key");
       if (!key) return json(400, { error: "idempotency_key_required" });
       if (matched.op === "importCommit")
-        return json(200, {
-          ...(await importService.commit(principal, key, input)),
-        });
+        return json(
+          200,
+          { ...(await importService.commit(principal, key, input)) },
+          {},
+          responseLimit,
+        );
       const batchId = (input as { batchId?: unknown }).batchId;
       if (typeof batchId !== "string")
         return json(400, { error: "invalid_request" });
@@ -346,9 +359,10 @@ function json(
   status: number,
   body: Readonly<Record<string, unknown>>,
   extraHeaders: Record<string, string> = {},
+  maxResponseBytes = MAX_RESPONSE_BYTES,
 ): Response {
   let text = JSON.stringify(body);
-  if (new TextEncoder().encode(text).byteLength > MAX_RESPONSE_BYTES) {
+  if (new TextEncoder().encode(text).byteLength > maxResponseBytes) {
     status = 500;
     text = '{"error":"internal_error"}';
   }

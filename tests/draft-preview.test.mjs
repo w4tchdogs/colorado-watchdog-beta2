@@ -235,6 +235,78 @@ test("draft workbook, county CSV and layout pins survive restart and share publi
   }
 });
 
+test("large workbook previews and commits only in private draft review", async () => {
+  const count = 4_000;
+  const duties = "Synthetic office duty. ".repeat(84).trim();
+  const profiles = [["profile_id", "display_name"]];
+  const roles = [
+    [
+      "role_id",
+      "profile_id",
+      "county_fips",
+      "job_description",
+      "source_id",
+      "source_url",
+      "source_title",
+      "publisher_classification",
+      "source_type",
+    ],
+  ];
+  for (let index = 1; index <= count; index++) {
+    const profileId = `draft-profile-${index}`;
+    profiles.push([profileId, `Synthetic Person ${index}`]);
+    roles.push([
+      `draft-role-${index}`,
+      profileId,
+      "08001",
+      duties,
+      "draft-source",
+      "https://example.invalid/draft-source",
+      "Synthetic Source",
+      "official",
+      "official_page",
+    ]);
+  }
+  const workbook = buildProfilesWorkbook({
+    Profiles: profiles,
+    Roles: roles,
+  }).toString("base64");
+  const standard = await startSandbox();
+  try {
+    await assert.rejects(
+      clients(standard).profiles.importPreview({ workbook }),
+      /workbook's import data exceeds 4 MiB/,
+    );
+  } finally {
+    standard.close();
+  }
+  const directory = mkdtempSync(join(tmpdir(), "watchdog-large-workbook-"));
+  const draft = await startSandbox({
+    draftDatabase: openDraftPreviewDatabase(directory),
+  });
+  try {
+    const { profiles } = clients(draft);
+    const preview = await profiles.importPreview({ workbook });
+    assert.equal(preview.canCommit, true, JSON.stringify(preview.issues));
+    assert.equal(preview.profiles.add, count);
+    assert.equal(preview.roles.add, count);
+    assert.equal(
+      draft.database.prepare("SELECT COUNT(*) AS n FROM people").get().n,
+      0,
+    );
+    const receipt = await profiles.importCommit(
+      { workbook },
+      preview.digest,
+      "draft-large-workbook",
+    );
+    assert.equal(receipt.newProfilesHidden, count);
+    assert.equal(receipt.created.roles, count);
+    assert.equal(receipt.created.sources, 1);
+  } finally {
+    draft.close();
+  }
+});
+
 test("draft review refuses an existing SQLite file without its marker", () => {
   const directory = mkdtempSync(join(tmpdir(), "watchdog-unmanaged-review-"));
   const path = join(directory, "website-draft.sqlite");

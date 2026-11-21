@@ -394,9 +394,11 @@ export async function createEditorSandbox(
   const profilesTransport = createProfilesApiTransport({
     resolvePrincipal: localPrincipal,
     authorize: authorizeProfiles,
+    privateDraftReview: draftReview,
     service: createD1ProfilesService(localD1, { authorize: authorizeProfiles }),
     importService: createD1ProfilesImportService(localD1, {
       authorize: authorizeProfiles,
+      privateDraftReview: draftReview,
     }),
   });
   const countyStructureTransport = createCountyStructureApiTransport({

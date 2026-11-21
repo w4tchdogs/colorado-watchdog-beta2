@@ -112,6 +112,8 @@ export interface ProfilesImportOptions {
   /** Must resolve true only for a current principal holding `profile.manage`. */
   readonly authorize: (principal: TrustedPrincipal) => Promise<boolean>;
   readonly now?: () => Date;
+  /** Enabled only for the persistent, loopback Website draft database. */
+  readonly privateDraftReview?: boolean;
 }
 
 interface Mapped {
@@ -140,6 +142,8 @@ interface Plan {
 const IMPORT_KEY_PREFIX = IMPORTER_BATCH_KEY_PREFIX;
 const MAX_USER_KEY = 128 - IMPORT_KEY_PREFIX.length;
 const CHUNK = 80;
+const DRAFT_WORKBOOK_IMPORT_MAX_BYTES = 24 * 1024 * 1024;
+const DRAFT_WORKBOOK_CHANGESET_MAX_BYTES = 48 * 1024 * 1024;
 const emptyCounts = (): Record<keyof ProfilesImportCounts, number> => ({
   add: 0,
   update: 0,
@@ -162,15 +166,35 @@ export function createD1ProfilesImportService(
       throw new AuthorizationError();
   }
 
-  async function plan(input: unknown): Promise<Plan> {
-    const files = await parseFiles(input);
+  async function plan(input: unknown) {
+    const draftWorkbook =
+      options.privateDraftReview === true &&
+      input !== null &&
+      typeof input === "object" &&
+      Object.hasOwn(input, "workbook");
+    const files = await parseFiles(
+      input,
+      draftWorkbook
+        ? DRAFT_WORKBOOK_IMPORT_MAX_BYTES
+        : PROFILES_IMPORT_MAX_BYTES,
+    );
     const readd = (input as { readdProfileId?: unknown }).readdProfileId;
     if (
       readd !== undefined &&
       (typeof readd !== "string" || !/^[A-Za-z0-9._:-]{1,100}$/.test(readd))
     )
       throw new ImportInputError("Choose one deleted CSV Profile ID to re-add");
-    return buildPlan(database, files, now, readd);
+    const maxRequestBytes = draftWorkbook
+      ? DRAFT_WORKBOOK_CHANGESET_MAX_BYTES
+      : undefined;
+    const planned = await buildPlan(
+      database,
+      files,
+      now,
+      readd,
+      maxRequestBytes,
+    );
+    return { ...planned, maxRequestBytes };
   }
 
   return {
@@ -225,6 +249,7 @@ export function createD1ProfilesImportService(
           now,
           createdPeopleHidden: true,
           importerBatch: true,
+          maxImporterRequestBytes: planned.maxRequestBytes,
           expectedGeneration: generation,
         },
       );
@@ -287,12 +312,16 @@ export function createD1ProfilesImportService(
   };
 }
 
-async function parseFiles(input: unknown): Promise<ProfilesImportFiles> {
+async function parseFiles(
+  input: unknown,
+  maxBytes: number,
+): Promise<ProfilesImportFiles> {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new ImportInputError("The request needs a files object");
   const body = input as Record<string, unknown>;
+  const hasWorkbook = Object.hasOwn(body, "workbook");
   let files = body.files;
-  if (Object.hasOwn(body, "workbook")) {
+  if (hasWorkbook) {
     if (Object.hasOwn(body, "files") || typeof body.workbook !== "string")
       throw new ProfilesWorkbookError(
         "Choose one Excel workbook or CSV files.",
@@ -314,12 +343,11 @@ async function parseFiles(input: unknown): Promise<ProfilesImportFiles> {
   const size = (text: unknown) =>
     typeof text === "string" ? new TextEncoder().encode(text).byteLength : 0;
   const bytes = size(f.profile) + size(f.profileRole) + size(f.profileName);
-  if (bytes > PROFILES_IMPORT_MAX_BYTES && Object.hasOwn(body, "workbook"))
+  if (bytes > maxBytes && hasWorkbook)
     throw new ProfilesWorkbookError(
-      "The workbook's import data exceeds 4 MiB. Preview a smaller set of rows.",
+      `The workbook's import data exceeds ${maxBytes / 1024 / 1024} MiB. Preview a smaller set of rows.`,
     );
-  if (bytes > PROFILES_IMPORT_MAX_BYTES)
-    throw new ImportInputError("The files are too large");
+  if (bytes > maxBytes) throw new ImportInputError("The files are too large");
   return {
     profile: f.profile,
     ...(typeof f.profileRole === "string" && f.profileRole.trim() !== ""
@@ -463,6 +491,7 @@ async function buildPlan(
   files: ProfilesImportFiles,
   now: () => Date,
   readdProfileId?: string,
+  maxRequestBytes?: number,
 ): Promise<Plan> {
   const issues: ImportIssue[] = [];
   const rows: ImportRowReport[] = [];
@@ -1382,7 +1411,13 @@ async function buildPlan(
     };
   }
   if (request && !blocking) {
-    const dryRun = await planSyncChangesetD1(db, request, now);
+    const dryRun = await planSyncChangesetD1(
+      db,
+      request,
+      now,
+      undefined,
+      maxRequestBytes,
+    );
     for (const error of dryRun.errors) issues.push(issueFor(error, allOrigins));
   }
 
