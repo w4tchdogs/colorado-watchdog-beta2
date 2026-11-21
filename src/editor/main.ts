@@ -56,10 +56,12 @@ if (root) {
     // Sandbox-only details: the synthetic accounts and the local public site.
     let accounts: readonly { key: string; label: string }[] = [];
     let publicSiteUrl: string | null = null;
+    let draftReview = false;
     try {
       const info = await editorClient.sandboxInfo();
       accounts = info.accounts;
       publicSiteUrl = info.publicSiteUrl ?? null;
+      draftReview = info.draftReview === true;
     } catch {
       // The shell still loads and reports its own errors.
     }
@@ -80,6 +82,7 @@ if (root) {
         }),
       },
       sandbox: {
+        draftReview,
         accounts,
         current: () => session.account,
         switchTo: (key) => {

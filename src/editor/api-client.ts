@@ -68,6 +68,7 @@ export class EditorApiError extends Error {
 
 export interface SandboxInfo {
   readonly sandbox: true;
+  readonly draftReview?: true;
   readonly accounts: readonly {
     readonly key: string;
     readonly label: string;

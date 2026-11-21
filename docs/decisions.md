@@ -260,6 +260,7 @@ operator procedure is in [the Profiles foundation guide](research/R0-foundation.
 ## Local review and Alpha-1 staging releases, November 20, 2026
 
 - Review Website changes locally by default. Give the owner the [local preview command and link](../README.md#public-website-preview) for the affected page when handing off a change. GitHub `main` records the latest merged source.
+- The owner may load draft Profiles workbooks and County Structure CSVs into a dedicated private [local review database](../README.md#private-draft-review). The local dashboard and public-page preview share that database and apply the normal publication rules. Keep the draft inputs and database out of GitHub, hosted storage, and the private Profiles research database.
 - Deploy passing changes to the shared [Cloudflare Alpha-1 staging Worker](https://colorado-watchdog-alpha1-staging.dauthfamilymail.workers.dev/) when the owner asks for a release. Each release can include several merged changes. Use the [staging runbook](deployment/cloudflare-staging.md) and verify the affected hosted paths. Record the exact source, Worker version, and verification result in the relevant GitHub thread. If deployment access is unavailable, record the blocker and the source ready to deploy.
 - Public Sites publishing and production cutover remain separately scoped. Existing account, data, and intake boundaries apply to the shared staging release.
 

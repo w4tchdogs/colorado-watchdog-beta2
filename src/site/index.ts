@@ -268,7 +268,7 @@ function errorToPage(error: unknown): Page {
  */
 export function createPublicSite(options: PublicSiteOptions) {
   const editorial = options.editorial ?? emptyEditorialSource;
-  const preview = options.preview === true;
+  const preview = options.preview ?? false;
   const clock = options.now ?? (() => new Date());
   const banners = options.banners ?? emptyBannerSource;
   const countyStructure = options.countyStructure ?? emptyCountyStructure;
@@ -415,7 +415,7 @@ export function createPublicSite(options: PublicSiteOptions) {
         const context: SiteContext = {
           services: options.services,
           editorial,
-          preview,
+          preview: Boolean(preview),
           now: clock(),
           banners,
           countyStructure,

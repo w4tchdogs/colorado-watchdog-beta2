@@ -50,9 +50,8 @@ import { LookupRequestError, parseLookupRequest, runLookup } from "./lookup.js";
 
 /**
  * Local, disposable dashboard and editorial sandbox. It is a development tool
- * only: it owns a fresh in-memory Website database, never reads DATABASE_PATH
- * or any other environment, and is never imported by the public application or
- * Worker. The synthetic account switch below exists nowhere else.
+ * only. The launcher supplies any persistent draft database explicitly.
+ * The sandbox never reads environment settings and is not imported by the Worker.
  */
 export const SANDBOX_TOKEN_HEADER = "x-editor-token";
 export const SANDBOX_ACCOUNT_HEADER = "x-test-human-subject";
@@ -102,6 +101,8 @@ export const SANDBOX_ACCOUNTS = [
 const EDITORIAL_CAPABILITY = "content.publish";
 
 export interface EditorSandboxOptions {
+  /** Optional migrated draft database. The sandbox closes it on shutdown. */
+  readonly draftDatabase?: WebsiteDatabase;
   /** Directory holding index.html and editor.css. */
   readonly staticDirectory: string;
   /** Directory holding the compiled browser modules (dist/editor). */
@@ -317,10 +318,17 @@ function loopbackUrl(value: string | undefined): string | null {
 export async function createEditorSandbox(
   options: EditorSandboxOptions,
 ): Promise<EditorSandbox> {
-  // Always a fresh in-memory database. No path, URL or environment is read.
-  const database = await openWebsiteDatabase(":memory:");
-  migrateWebsiteDatabase(database);
-  seedAccountsAndDirectory(database);
+  const draftReview = options.draftDatabase !== undefined;
+  const database =
+    options.draftDatabase ?? (await openWebsiteDatabase(":memory:"));
+  try {
+    if (!draftReview) migrateWebsiteDatabase(database);
+    seedAccounts(database);
+    if (!draftReview) seedDirectory(database);
+  } catch (error) {
+    database.close();
+    throw error;
+  }
 
   // Development-only wiring of the existing role matrix: a synthetic
   // test-human principal may edit only while its role holds the capability.
@@ -333,6 +341,7 @@ export async function createEditorSandbox(
 
   const service = createContentService(database, { authorize: sandboxPolicy });
   const dashboard = createDashboardService(database, {
+    draftReview,
     recentContent: (principal) =>
       service.listDrafts(principal, { limit: 5, sort: "modified" }).items,
   });
@@ -391,7 +400,7 @@ export async function createEditorSandbox(
     roleAttachments: new D1CountyRoleAttachments(localD1),
   });
 
-  await seedContent(database, service);
+  if (!draftReview) await seedContent(database, service);
 
   const info = () => {
     const counties = database
@@ -400,6 +409,7 @@ export async function createEditorSandbox(
       .map((row) => ({ fips: String(row.fips), name: String(row.name) }));
     return {
       sandbox: true as const,
+      ...(draftReview ? { draftReview: true as const } : {}),
       accounts: SANDBOX_ACCOUNTS.map(({ key, label }) => ({ key, label })),
       counties,
       publicSiteUrl,
@@ -503,6 +513,8 @@ export async function createEditorSandbox(
     if (!tokensEqual(token, request.headers.get(SANDBOX_TOKEN_HEADER))) {
       return sandboxJson(403, { error: "forbidden" });
     }
+    if (draftReview && isBannerAdminPath(url.pathname))
+      return sandboxJson(404, { error: "not_found" });
     if (url.pathname === SANDBOX_INFO_PATH) {
       if (request.method !== "GET") {
         return sandboxJson(405, { error: "method_not_allowed" });
@@ -538,22 +550,29 @@ export async function createEditorSandbox(
   };
 }
 
-function seedAccountsAndDirectory(database: WebsiteDatabase): void {
-  database.exec(`
-    INSERT INTO accounts (id, kind, role, display_name, email, status)
+function seedAccounts(database: WebsiteDatabase): void {
+  database.transaction(() =>
+    database.exec(`
+    INSERT OR IGNORE INTO accounts (id, kind, role, display_name, email, status)
     VALUES ('sbx-author','human','editor','Avery Author','author@example.invalid','active'),
            ('sbx-editor','human','editor','Eli Editor','editor@example.invalid','active'),
            ('sbx-readonly','human','contributor','Riley Reader','reader@example.invalid','active'),
            ('sbx-admin','human','administrator','Ada Administrator','admin@example.invalid','active'),
            ('sbx-owner','human','owner','Olive Owner','owner@example.invalid','active'),
            ('sbx-retired','human','editor','Rene Retired',NULL,'disabled');
-    INSERT INTO identities (id, account_id, provider, subject)
+    INSERT OR IGNORE INTO identities (id, account_id, provider, subject)
     VALUES ('sbx-id-author','sbx-author','test-human','${SUBJECTS.author}'),
            ('sbx-id-editor','sbx-editor','test-human','${SUBJECTS.editor}'),
            ('sbx-id-readonly','sbx-readonly','test-human','${SUBJECTS.readonly}'),
            ('sbx-id-admin','sbx-admin','test-human','${SUBJECTS.admin}'),
            ('sbx-id-owner','sbx-owner','test-human','${SUBJECTS.owner}'),
            ('sbx-id-retired','sbx-retired','test-human','${SUBJECTS.retired}');
+  `),
+  )();
+}
+
+function seedDirectory(database: WebsiteDatabase): void {
+  database.exec(`
     INSERT INTO organizations (id, name, organization_type, county_fips)
     VALUES ('sbx-org-1','Fictional Records Office','office','08001'),
            ('sbx-org-2','Fictional Regional Board','regional',NULL),
