@@ -988,10 +988,13 @@ async function main() {
     );
     const countyHtml = await county.text();
     assert.equal(county.status, 200, countyHtml);
-    assert.match(countyHtml, /Synthetic Adams County/);
-    assert.match(countyHtml, /Synthetic Regional Partner/);
-    assert.match(countyHtml, /Synthetic Clerk/);
-    assert.match(countyHtml, /Source checked/);
+    assert.match(countyHtml, /id="overview-heading">Overview/);
+    assert.match(countyHtml, /id="structure-heading">County structure/);
+    assert.match(countyHtml, /href="\/officials\?county=08001"/);
+    assert.doesNotMatch(
+      countyHtml,
+      /id="(?:organizations|roles)"|Synthetic Regional Partner|Synthetic Clerk/,
+    );
     assert.doesNotMatch(
       countyHtml,
       /Synthetic official roster|example\.test\/adams/,

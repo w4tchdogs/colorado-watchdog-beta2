@@ -220,8 +220,9 @@ are in.
 - Role dates are shown as stored. A missing end date reads "Not recorded" and
   is never shown as current. The source-check date is labelled "Source
   checked" and kept apart from role dates.
-- County pages list county organizations and affiliated organizations
-  separately, and state that affiliates are not county departments.
+- County home pages show County Structure and link to the county-filtered
+  Officials & Employees directory. The directory's County structure view groups
+  recorded county and affiliated organizations separately.
 - People are linked by stable ID. Search results that share a name show their
   record IDs and a note that they are separate records.
 - Counts are described as database records, not staffing or completeness.
