@@ -448,13 +448,23 @@ async function peopleView(
     </div>
   </form>`;
 
+  if (state.county === null && office === null && state.query === "") {
+    return {
+      total: null,
+      body: html`${form}${emptyState(
+        "Search or filter to see profiles",
+        "Enter a name, title, or department, or select a county or office.",
+      )}`,
+    };
+  }
+
   if (state.query.length === 1) {
     return {
       total: null,
       body: html`${form}${emptyState(
         "That search is too short",
-        "Enter at least two characters, or clear the search to browse every documented profile.",
-        html`<a class="button button-quiet" href="${directoryHref(effective, { query: "", page: 1 })}">Browse without a search</a>`,
+        "Enter at least two characters.",
+        html`<a class="button button-quiet" href="${directoryHref(effective, { query: "", page: 1 })}">Clear search</a>`,
       )}`,
     };
   }
@@ -482,8 +492,6 @@ async function peopleView(
     throw error;
   }
 
-  const filtered =
-    state.county !== null || office !== null || state.query !== "";
   const scope = [
     countyName ? `County: ${countyName}.` : "All counties.",
     officeName ? `Office: ${officeName}.` : "",
@@ -495,19 +503,13 @@ async function peopleView(
 
   let results: SafeHtml;
   if (result.total === 0) {
-    results = filtered
-      ? emptyState(
-          "No documented profiles match these filters",
-          countyName && !office && !state.query
-            ? `No one has been documented for ${countyName} in this database yet. That reflects this project's research, not the county's staffing.`
-            : "Only records stored in this database are searched, and it is not a complete roster. A missing name has not been documented here.",
-          html`<a class="button button-quiet" href="/officials">Clear all filters</a>`,
-        )
-      : emptyState(
-          "No officials or employees have been documented yet",
-          "The directory fills as research is completed. Nothing here describes how any county is staffed.",
-          html`<a class="button button-quiet" href="/counties">Browse counties</a>`,
-        );
+    results = emptyState(
+      "No documented profiles match these filters",
+      countyName && !office && !state.query
+        ? `No one has been documented for ${countyName} in this database yet. That reflects this project's research, not the county's staffing.`
+        : "Only records stored in this database are searched, and it is not a complete roster. A missing name has not been documented here.",
+      html`<a class="button button-quiet" href="/officials">Clear all filters</a>`,
+    );
   } else if (result.items.length === 0) {
     results = emptyState(
       "That page is past the end of these results",
@@ -694,12 +696,14 @@ export async function officialsPage(
       <p class="directory-status" role="status">Recorded county organizations and their documented subunits. ${structure ? `County: ${countyTitle(structure.county.name)}.` : "No county selected."}</p>
       ${structureView(structure)}`;
     // The profile tab count reflects the same county with no other filter.
-    profileCount = (
-      await context.services.listOfficials({
-        countyFips: state.county,
-        limit: 1,
-      })
-    ).total;
+    if (state.county !== null) {
+      profileCount = (
+        await context.services.listOfficials({
+          countyFips: state.county,
+          limit: 1,
+        })
+      ).total;
+    }
   } else {
     const view = await peopleView(context, state, structure, counties);
     content = view.body;
@@ -739,7 +743,7 @@ export async function officialsPage(
       : {}),
     body: html`${pageHeader(
       "Search officials & employees",
-      "One profile per documented person. Browse statewide or select a county to begin. A directory entry is not a finding of misconduct.",
+      "One profile per documented person. A directory entry is not a finding of misconduct.",
       undefined,
       "County governments · Documented roles",
     )}

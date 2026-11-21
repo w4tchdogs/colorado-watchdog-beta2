@@ -107,26 +107,28 @@ test("County Structure count links select the exact public unit throughout the d
   });
 });
 
-test("named profiles can be browsed before any search term is entered", async () => {
+test("named profiles wait for a search or filter before listing anyone", async () => {
   await withPreview("fictional", async (preview) => {
     const page = await get(preview, "/officials");
     assert.equal(page.status, 200);
     assert.equal(page.$("h1").textContent, "Search officials & employees");
     assert.equal(page.$("#site-nav a[aria-current]").textContent, "Officials");
-    assert.equal(rows(page).length, 25);
+    assert.equal(page.$(".directory-table"), null);
+    assert.equal(page.$(".person-name, .result-range, .directory-match"), null);
     assert.deepEqual(tabCounts(page), [
-      ["Named profiles", "45", "page"],
+      ["Named profiles", null, "page"],
       ["County structure", null, null],
     ]);
-    assert.match(page.$(".directory-status").textContent, /All counties\./);
-    assert.match(page.$(".directory-status").textContent, /45 profiles match/);
-    assert.match(page.$(".result-range").textContent, /Showing 1 to 25 of 45/);
-    // The Beta-1 style address is accepted as-is.
-    const legacy = await get(
-      preview,
+    assert.match(page.main(), /Search or filter to see profiles/);
+    for (const url of [
       "/officials?view=People&directoryView=people",
-    );
-    assert.deepEqual(rowNames(legacy), rowNames(page));
+      "/officials?q=+++",
+      "/officials?sort=name-desc&page=2",
+    ]) {
+      const unfiltered = await get(preview, url);
+      assert.equal(unfiltered.status, 200, url);
+      assert.equal(unfiltered.$(".directory-table"), null, url);
+    }
 
     // Controls: search, county, office and sort, all labelled.
     const form = page.$("form.directory-filters");
@@ -162,7 +164,18 @@ test("named profiles can be browsed before any search term is entered", async ()
     assert.equal(page.$$("#directory-sort option").length, 10);
 
     // Table headings sort, and the active one is announced.
-    const headings = page.$$(".directory-table thead th");
+    const matched = await get(preview, "/officials?q=fictional");
+    assert.equal(rows(matched).length, 25);
+    assert.match(
+      matched.$(".result-range").textContent,
+      /Showing 1 to 25 of 45/,
+    );
+    const cleared = await get(
+      preview,
+      matched.$(".filter-actions a").getAttribute("href"),
+    );
+    assert.equal(cleared.$(".directory-table"), null);
+    const headings = matched.$$(".directory-table thead th");
     assert.deepEqual(
       headings
         .slice(0, 4)
@@ -172,11 +185,11 @@ test("named profiles can be browsed before any search term is entered", async ()
     assert.equal(headings[0].getAttribute("aria-sort"), "ascending");
     assert.equal(
       headings[0].querySelector("a").getAttribute("href"),
-      "/officials?sort=name-desc",
+      "/officials?q=fictional&sort=name-desc",
     );
     assert.equal(
       headings[3].querySelector("a").getAttribute("href"),
-      "/officials?sort=checked",
+      "/officials?q=fictional&sort=checked",
     );
     assert.ok(headings.every((th) => th.getAttribute("scope") === "col"));
 
@@ -189,7 +202,7 @@ test("named profiles can be browsed before any search term is entered", async ()
       page.main(),
       /\b(current employee|currently employed|incumbent|vacant)\b/i,
     );
-    assert.match(page.main(), /does not confirm\s+current employment/);
+    assert.match(matched.main(), /does not confirm\s+current employment/);
   });
 });
 
@@ -363,16 +376,16 @@ test("search covers names, titles and organizations, and same names stay separat
 
 test("sorting and pagination work across the whole result set", async () => {
   await withPreview("fictional", async (preview) => {
-    const first = await get(preview, "/officials");
+    const first = await get(preview, "/officials?q=fictional");
     const next = first.$('.directory-pager a[rel="next"]').getAttribute("href");
-    assert.equal(next, "/officials?page=2");
+    assert.equal(next, "/officials?q=fictional&page=2");
     assert.equal(first.$('.directory-pager a[rel="prev"]'), null);
     assert.match(first.$(".pager-status").textContent, /Page 1 of 2/);
     const second = await get(preview, next);
     assert.equal(rows(second).length, 20);
     assert.equal(
       second.$('.directory-pager a[rel="prev"]').getAttribute("href"),
-      "/officials",
+      "/officials?q=fictional",
     );
     assert.equal(second.$('.directory-pager a[rel="next"]'), null);
     assert.equal(
@@ -391,7 +404,7 @@ test("sorting and pagination work across the whole result set", async () => {
     // A profile opened from page 2 remembers page 2.
     assert.match(
       rows(second)[0].querySelector(".person-name").getAttribute("href"),
-      /\?from=page%3D2$/,
+      /\?from=q%3Dfictional%26page%3D2$/,
     );
 
     const descending = await get(
@@ -416,10 +429,13 @@ test("sorting and pagination work across the whole result set", async () => {
     assert.equal(checked.$$("th[aria-sort]").length, 1);
     assert.match(checked.$("th[aria-sort]").textContent, /Source checked/);
     // Paging keeps the sort.
-    const sortedFirst = await get(preview, "/officials?sort=checked-desc");
+    const sortedFirst = await get(
+      preview,
+      "/officials?q=fictional&sort=checked-desc",
+    );
     assert.equal(
       sortedFirst.$('.directory-pager a[rel="next"]').getAttribute("href"),
-      "/officials?sort=checked-desc&page=2",
+      "/officials?q=fictional&sort=checked-desc&page=2",
     );
 
     // A stale page number explains itself and links back.
@@ -725,11 +741,8 @@ test("empty and partially populated databases give honest empty states", async (
   await withPreview("empty", async (preview) => {
     const page = await get(preview, "/officials");
     assert.equal(page.status, 200);
-    assert.match(
-      page.main(),
-      /No officials or employees have been documented yet/,
-    );
-    assert.deepEqual(tabCounts(page)[0], ["Named profiles", "0", "page"]);
+    assert.match(page.main(), /Search or filter to see profiles/);
+    assert.deepEqual(tabCounts(page)[0], ["Named profiles", null, "page"]);
     assert.equal(page.$(".directory-table"), null);
     const county = await get(preview, "/officials?county=08069");
     assert.match(

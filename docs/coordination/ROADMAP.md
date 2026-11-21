@@ -93,7 +93,9 @@ that show the state of profiles, departments and grievances.
   desktop, tablet and mobile sizes.
 - **Today:** the county map, directory, editorial search and several visual
   fixes are merged. The visual audit's follow-ups VIS-7 to VIS-19 remain.
-  Browse-all is merged in BROWSE-1; hosted populated behavior is still open.
+  Browse-all is merged for `/people` and `/organizations` in BROWSE-1. The
+  `/officials` table starts hidden until a search or filter is applied.
+  Hosted populated behavior is still open.
 - **Remaining:** the remaining VIS follow-ups, hosted verification of the merged browse-all and banner carousel work, and the final deployed visual parity check (VIS-20).
 
 ### November 18, 2026 data prerequisite update

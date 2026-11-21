@@ -1135,12 +1135,22 @@ async function main() {
     assert.match(childOrganizationHtml, /No subunit is recorded\./);
 
     // M4-D officials directory through the hosted D1 read path.
-    const officials = await fetch(`${base}/officials`);
+    const initialOfficials = await fetch(`${base}/officials`);
+    assert.equal(initialOfficials.status, 200);
+    const initialOfficialsHtml = await initialOfficials.text();
+    assert.match(initialOfficialsHtml, /Search or filter to see profiles/);
+    assert.doesNotMatch(
+      initialOfficialsHtml,
+      /directory-table|Synthetic Person/,
+    );
+    const officials = await fetch(`${base}/officials?q=Synthetic`);
     const officialsHtml = await officials.text();
     assert.equal(officials.status, 200, officialsHtml);
     assert.match(officialsHtml, /27 profiles match/);
     assert.match(officialsHtml, /Page 1 of 2/);
-    const officialsPageTwo = await fetch(`${base}/officials?page=2`);
+    const officialsPageTwo = await fetch(
+      `${base}/officials?q=Synthetic&page=2`,
+    );
     assert.match(await officialsPageTwo.text(), /Showing 26 to 27 of 27/);
     const countyOfficials = await fetch(
       `${base}/officials?county=08001&sort=checked-desc`,

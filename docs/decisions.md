@@ -477,3 +477,11 @@ Profile and Officials & Employees directory show the published title first,
 then the inferred title, and omit the title when both are blank. Store the
 inferred label separately from published text. See the
 [Profiles import contract](architecture/profiles-import.md#role-title-display).
+
+## Officials directory initial view — November 21, 2026
+
+Match Beta-1 on `/officials` by showing profiles only after a search or a
+county or office filter. An unfiltered table would repeatedly put the same
+people first solely because of alphabetical order. Sorting or paging alone
+does not open the table. See the
+[Officials directory contract](architecture/public-site.md#officials-directory-m4-d).
