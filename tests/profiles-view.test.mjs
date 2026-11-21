@@ -235,6 +235,18 @@ test("the grid pages, searches across pages and labels row selection separately 
     assert.ok(
       $(".tabulator").getAttribute("role") === "grid" || $("[role=grid]"),
     );
+    assert.deepEqual(
+      [...container.querySelectorAll(".tabulator-col-title")]
+        .slice(0, 3)
+        .map((column) => column.textContent.trim()),
+      ["Select", "Visible", "Display Name"],
+    );
+    assert.equal($("#profiles-grid").style.height, "87.5vh");
+    assert.equal(
+      $("#profiles-hide").nextElementSibling.id,
+      "profiles-delete-selected",
+    );
+    assert.equal($("#profiles-delete-selected").disabled, true);
     // Two different checkboxes per row, each with its own label.
     const first = rows()[0];
     assert.match(
@@ -632,12 +644,15 @@ test("a roleless Profile has one row with its status, and Visible stays disabled
   });
 });
 
-test("the owner grid confirms a single Profile deletion inside the dashboard", async () => {
-  await mount(async ({ $, database }) => {
+test("the owner grid confirms a single Profile deletion from the selection toolbar", async () => {
+  await mount(async ({ $, database, rowFor }) => {
+    const select = rowFor("Synthetic Former Official").querySelector(
+      "input[data-select-role]",
+    );
+    select.checked = true;
+    select.dispatchEvent(new window.Event("change", { bubbles: true }));
     const open = async () => {
-      const trigger = $(
-        'button[aria-label="Delete Website Profile for Synthetic Former Official"]',
-      );
+      const trigger = $("#profiles-delete-selected");
       trigger.click();
       return waitFor(
         () => $("#profiles-delete-confirmation"),
@@ -677,6 +692,67 @@ test("the owner grid confirms a single Profile deletion inside the dashboard", a
     );
     assert.ok(
       database.prepare("SELECT 1 FROM people WHERE id = 'person-multi'").get(),
+    );
+  });
+});
+
+test("deleting selected Profiles reviews cross-page selections once and stops on a stale target", async () => {
+  await mount(async ({ $, $$, database }) => {
+    const selectAll = $$(".cw-profiles-actions button").find((button) =>
+      button.textContent.startsWith("Select all matching"),
+    );
+    selectAll.click();
+    await waitFor(
+      () =>
+        /4 role rows selected across 3 Profiles/.test(
+          $(".cw-profiles-selection").textContent,
+        ),
+      "all rows selected",
+    );
+    $("#profiles-delete-selected").click();
+    const input = await waitFor(
+      () => $("#profiles-delete-confirmation"),
+      "bulk preview",
+    );
+    const panel = $("#profiles-delete-h").parentElement;
+    assert.deepEqual(
+      [...panel.querySelectorAll("li strong")].map((node) => node.textContent),
+      [
+        "Synthetic Former Official",
+        "Synthetic Multi Role",
+        "Synthetic Office Only",
+      ],
+    );
+    assert.equal(database.prepare("SELECT COUNT(*) n FROM people").get().n, 3);
+    database.exec(
+      "UPDATE people SET display_name = 'Synthetic Updated Multi Role', version = version + 1 WHERE id = 'person-multi'",
+    );
+    const reason = $("#profiles-delete-reason");
+    reason.value = "incorrect";
+    reason.dispatchEvent(new window.Event("change"));
+    input.value = "DELETE";
+    input.dispatchEvent(new window.Event("input"));
+    const confirm = [...panel.querySelectorAll("button")].find(
+      (button) => button.textContent === "Delete 3 Website Profiles",
+    );
+    confirm.click();
+    await waitFor(
+      () =>
+        /1 of 3 Profiles deleted/.test(panel.textContent) &&
+        !$("#profiles-grid").inert,
+      "partial deletion result",
+    );
+    assert.equal(confirm.disabled, true);
+    assert.deepEqual(
+      database
+        .prepare("SELECT id FROM people ORDER BY id")
+        .all()
+        .map((record) => record.id),
+      ["person-multi", "person-office"],
+    );
+    assert.match(
+      $(".cw-profiles-selection").textContent,
+      /3 role rows selected across 2 Profiles/,
     );
   });
 });

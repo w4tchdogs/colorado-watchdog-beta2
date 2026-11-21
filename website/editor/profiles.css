@@ -1,9 +1,9 @@
-.cw-profiles { display: grid; gap: 0.75rem; }
+.cw-profiles { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
 .cw-profiles-filters { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end; }
 .cw-profiles-field { display: grid; gap: 0.25rem; }
 .cw-profiles-bar, .cw-profiles-actions { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; }
 .cw-profiles-bar p { margin: 0; }
-.cw-profiles-grid { max-width: 100%; overflow: hidden; border: 1px solid #8a8a8a; }
+.cw-profiles-grid { min-width: 0; overflow: hidden; border: 1px solid #8a8a8a; }
 .cw-profiles .tabulator { font-size: 0.875rem; }
 .cw-profiles .tabulator .tabulator-header { position: sticky; top: 0; }
 .cw-profiles .tabulator .tabulator-row .tabulator-cell { padding: 2px 6px; border-right: 1px solid #8a8a8a; border-bottom: 1px solid #c4c4c4; }

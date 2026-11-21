@@ -39,6 +39,7 @@ import {
 } from "../contracts/profiles.js";
 import {
   PROFILE_DELETE_REASONS,
+  type ProfileDeletePreview,
   type ProfileDeleteReason,
 } from "../contracts/profiles-delete.js";
 import type { DashboardViewFactory } from "./dashboard.js";
@@ -336,6 +337,11 @@ export function createProfilesView(options: {
       () => stageVisibility(true),
       { id: "profiles-restore" },
     );
+    const deleteButton = button(
+      "Delete selected Profiles",
+      () => void reviewDelete(),
+      { id: "profiles-delete-selected" },
+    );
     const selectPage = button("Select this page", () => selectCurrentPage());
     const selectMatching = button(
       `Select all matching (up to ${PROFILES_MAX_SELECT_ALL})`,
@@ -412,6 +418,7 @@ export function createProfilesView(options: {
           clearSelection,
           setButton,
           hideButton,
+          deleteButton,
           restoreButton,
           saveButton,
           discardButton,
@@ -515,6 +522,7 @@ export function createProfilesView(options: {
       const none = selected.size === 0;
       setButton.disabled = none;
       hideButton.disabled = none;
+      deleteButton.disabled = none || deleting;
       restoreButton.disabled = none;
       clearSelection.disabled = none;
       for (const input of Array.from(
@@ -1414,140 +1422,191 @@ export function createProfilesView(options: {
       );
     }
 
-    async function reviewDelete(
-      row: ProfileRow,
-      trigger: HTMLElement,
-    ): Promise<void> {
+    async function reviewDelete(): Promise<void> {
       if (deleting) return;
+      const ids = new Set(
+        [...selected.values()].map((entry) => entry.profileId),
+      );
+      if (!ids.size) return;
       const hasPendingEdits = () =>
-        [...staged.values()].some((entry) => entry.profileId === row.profileId);
+        [...staged.values()].some(
+          (entry) => entry.profileId && ids.has(entry.profileId),
+        );
       if (hasPendingEdits() || reviewing) {
         announce(
-          "Finish the current save or discard unsaved edits for this Profile before deleting it.",
+          "Save or discard pending edits for the selected Profiles before deleting.",
         );
         return;
       }
+
       const request = ++deleteRequest;
       const heading = el(
         doc,
         "h2",
         { id: "profiles-delete-h", tabindex: -1 },
-        `Delete ${row.displayName}`,
+        "Delete selected Website Profiles",
       );
-      const status = el(
-        doc,
-        "p",
-        { role: "status" },
-        "Checking what will be removed.",
-      );
+      const status = el(doc, "p", { role: "status" });
       const close = () => {
         ++deleteRequest;
         deletePanel.hidden = true;
         clear(deletePanel);
-        if (trigger.isConnected) trigger.focus();
-        else searchInput.focus();
+        (deleteButton.disabled ? searchInput : deleteButton).focus();
       };
       const cancel = button("Cancel", close);
+      const list = el(doc, "ul");
       clear(deletePanel);
-      deletePanel.append(heading, status, cancel);
+      deletePanel.append(
+        heading,
+        el(
+          doc,
+          "p",
+          {},
+          "Review every selected Profile, including selections on other pages. Each deletion is permanent and is recorded separately.",
+        ),
+        list,
+        status,
+        cancel,
+      );
       deletePanel.hidden = false;
       heading.focus();
+
+      const previews: ProfileDeletePreview[] = [];
+      let blocked = false;
       try {
-        const preview = await client.deletePreview(row.profileId);
-        if (destroyed || request !== deleteRequest) return;
-        heading.textContent = `Delete ${preview.displayName}`;
-        status.textContent = "";
-        const blockers = [
-          preview.blockers.reports
-            ? `${preview.blockers.reports} grievance references. Review them in Reports.`
-            : "",
-          preview.blockers.editorialLinks
-            ? `${preview.blockers.editorialLinks} editorial links. Remove the live associations in Posts & Stories.`
-            : "",
-          preview.blockers.duplicateReviews
-            ? `${preview.blockers.duplicateReviews} duplicate-review records. These references need a separate resolution before deletion.`
-            : "",
-        ].filter(Boolean);
-        const details = el(
-          doc,
-          "div",
-          {},
-          el(
-            doc,
-            "p",
-            {},
-            `Website Profile ID ${preview.profileId}. ${preview.visible ? "Visible" : "Hidden"}. Counties ${preview.counties.join(", ") || "none"}.`,
-          ),
-          el(
-            doc,
-            "p",
-            {},
-            `${preview.counts.roles} roles, ${preview.counts.names} alternate names and ${preview.counts.countyLinks} County Structure links will be removed.`,
-          ),
-          el(
-            doc,
-            "p",
-            {},
-            "The offline master and source catalog stay intact. To bring back a corrected copy, re-add it from a fresh CSV preview.",
-          ),
-        );
-        deletePanel.insertBefore(details, status);
-        if (blockers.length) {
-          details.append(
-            el(doc, "h3", {}, "Resolve references before deleting"),
+        for (const id of ids) {
+          status.textContent = `Checking Profile ${previews.length + 1} of ${ids.size}.`;
+          const preview = await client.deletePreview(id);
+          if (destroyed || request !== deleteRequest) return;
+          previews.push(preview);
+          const blockers = [
+            preview.blockers.reports
+              ? `${preview.blockers.reports} grievance references. Review them in Reports.`
+              : "",
+            preview.blockers.editorialLinks
+              ? `${preview.blockers.editorialLinks} editorial links. Remove the live associations in Posts & Stories.`
+              : "",
+            preview.blockers.duplicateReviews
+              ? `${preview.blockers.duplicateReviews} duplicate-review records. Resolve these references first.`
+              : "",
+          ].filter(Boolean);
+          blocked ||= blockers.length > 0;
+          list.appendChild(
             el(
               doc,
-              "ul",
+              "li",
               {},
-              ...blockers.map((item) => el(doc, "li", {}, item)),
+              el(doc, "strong", {}, preview.displayName),
+              el(
+                doc,
+                "p",
+                {},
+                `Website Profile ID ${preview.profileId}. ${preview.visible ? "Visible" : "Hidden"}. Counties ${preview.counties.join(", ") || "none"}.`,
+              ),
+              el(
+                doc,
+                "p",
+                {},
+                `${preview.counts.roles} roles, ${preview.counts.names} alternate names and ${preview.counts.countyLinks} County Structure links will be removed.`,
+              ),
+              ...blockers.map((item) =>
+                el(doc, "p", { class: "cw-profiles-error" }, item),
+              ),
             ),
           );
+        }
+      } catch (error) {
+        if (!destroyed && request === deleteRequest)
+          status.textContent = describeError(error);
+        return;
+      }
+
+      if (blocked) {
+        status.textContent =
+          "Resolve the listed references or change the selection and preview again.";
+        return;
+      }
+      status.textContent = "";
+      deletePanel.insertBefore(
+        el(
+          doc,
+          "p",
+          {},
+          "The offline master and source catalog stay intact. Re-add a corrected copy from a fresh import preview.",
+        ),
+        status,
+      );
+      const reason = el(
+        doc,
+        "select",
+        { id: "profiles-delete-reason" },
+        el(doc, "option", { value: "" }, "Choose a reason"),
+        ...Object.entries(PROFILE_DELETE_REASONS).map(([value, label]) =>
+          el(doc, "option", { value }, label),
+        ),
+      );
+      const confirmation = el(doc, "input", {
+        id: "profiles-delete-confirmation",
+        type: "text",
+        autocomplete: "off",
+        maxlength: 6,
+      });
+      const keys = previews.map(() => newKey());
+      let completed = 0;
+      const confirm = button(
+        ids.size === 1
+          ? "Delete Website Profile"
+          : `Delete ${ids.size} Website Profiles`,
+        () => void commit(),
+      );
+      const syncConfirmation = () => {
+        confirm.disabled = confirmation.value !== "DELETE" || !reason.value;
+      };
+      syncConfirmation();
+      confirmation.addEventListener("input", syncConfirmation);
+      reason.addEventListener("change", syncConfirmation);
+      deletePanel.insertBefore(field("Reason", reason, reason.id), status);
+      deletePanel.insertBefore(
+        field("Type DELETE to confirm", confirmation, confirmation.id),
+        status,
+      );
+      deletePanel.insertBefore(confirm, cancel);
+
+      async function commit(): Promise<void> {
+        if (deleting || confirm.disabled || request !== deleteRequest) return;
+        const current = new Set(
+          [...selected.values()].map((entry) => entry.profileId),
+        );
+        if (
+          current.size !== previews.length - completed ||
+          previews.slice(completed).some((item) => !current.has(item.profileId))
+        ) {
+          status.textContent =
+            "Selection changed. Cancel and open a new deletion preview.";
           return;
         }
-        const reason = el(
-          doc,
-          "select",
-          { id: "profiles-delete-reason" },
-          el(doc, "option", { value: "" }, "Choose a reason"),
-          ...Object.entries(PROFILE_DELETE_REASONS).map(([value, label]) =>
-            el(doc, "option", { value }, label),
-          ),
-        );
-        const confirmation = el(doc, "input", {
-          id: "profiles-delete-confirmation",
-          type: "text",
-          autocomplete: "off",
-          maxlength: 6,
-        });
-        const key = newKey();
-        const confirm = button("Delete Website Profile", () => void commit());
-        confirm.disabled = true;
-        const syncConfirmation = () => {
-          confirm.disabled = confirmation.value !== "DELETE" || !reason.value;
-        };
-        confirmation.addEventListener("input", syncConfirmation);
-        reason.addEventListener("change", syncConfirmation);
-        deletePanel.insertBefore(field("Reason", reason, reason.id), status);
-        deletePanel.insertBefore(
-          field("Type DELETE to confirm", confirmation, confirmation.id),
-          status,
-        );
-        deletePanel.insertBefore(confirm, cancel);
-        async function commit() {
-          if (deleting || confirm.disabled) return;
-          if (hasPendingEdits() || reviewing) {
-            status.textContent =
-              "Save or discard pending edits before deleting.";
-            return;
-          }
-          deleting = true;
-          gridHost.inert = true;
-          confirm.disabled =
-            cancel.disabled =
-            reason.disabled =
-            confirmation.disabled =
-              true;
-          try {
+        if (hasPendingEdits() || reviewing) {
+          status.textContent = "Save or discard pending edits before deleting.";
+          return;
+        }
+        deleting = true;
+        gridHost.inert = true;
+        const actions = deleteButton.parentElement;
+        if (actions) actions.inert = true;
+        confirm.disabled =
+          cancel.disabled =
+          reason.disabled =
+          confirmation.disabled =
+            true;
+        namesPanel.hidden = true;
+        clear(namesPanel);
+        const previouslyCompleted = completed;
+        let retry = false;
+        try {
+          while (!destroyed && completed < previews.length) {
+            const preview = previews[completed];
+            if (!preview) break;
+            status.textContent = `Deleting ${preview.displayName} (${completed + 1} of ${previews.length}).`;
             await client.deleteProfile(
               {
                 profileId: preview.profileId,
@@ -1555,45 +1614,53 @@ export function createProfilesView(options: {
                 reason: reason.value as ProfileDeleteReason,
                 confirmation: confirmation.value,
               },
-              key,
+              keys[completed] ?? "",
             );
+            completed++;
             for (const [rowKey, selection] of selected)
               if (selection.profileId === preview.profileId)
                 selected.delete(rowKey);
-            if (destroyed) return;
-            namesPanel.hidden = true;
-            clear(namesPanel);
-            close();
-            searchInput.focus();
-            announce("Website Profile deleted.");
+          }
+        } catch (error) {
+          const failed = previews[completed]?.displayName ?? "The next Profile";
+          const partial = `${completed} of ${previews.length} Profiles deleted. ${failed}: `;
+          if (
+            error instanceof ProfilesApiError &&
+            [404, 409].includes(error.status)
+          ) {
+            status.textContent = `${partial}the Profile or its references changed. Cancel and preview the remaining selection.`;
+          } else {
+            status.textContent = partial + describeError(error);
+            // Retry the same request and key if the response was lost.
+            confirm.textContent = "Retry remaining deletions";
+            retry = true;
+          }
+        } finally {
+          if (!destroyed && completed > previouslyCompleted) {
             try {
               await reload();
             } catch {
-              announce(
-                "Website Profile deleted. Reload the page to refresh the grid.",
-              );
+              announce("Reload the page to refresh the Profiles grid.");
             }
-          } catch (error) {
-            if (
-              error instanceof ProfilesApiError &&
-              [404, 409].includes(error.status)
-            ) {
-              status.textContent =
-                "The Profile or its references changed. Cancel and open a new deletion preview.";
-            } else {
-              status.textContent = describeError(error);
-              // Keep the request body fixed while a lost response is retried.
-              confirm.disabled = false;
-            }
-          } finally {
-            deleting = false;
-            gridHost.inert = false;
-            cancel.disabled = false;
           }
+          deleting = false;
+          gridHost.inert = false;
+          if (actions) actions.inert = false;
+          cancel.disabled = false;
+          confirm.disabled = !retry;
+          refreshSelectionState();
         }
-      } catch (error) {
-        if (!destroyed && request === deleteRequest)
-          status.textContent = describeError(error);
+
+        if (
+          !destroyed &&
+          request === deleteRequest &&
+          completed === previews.length
+        ) {
+          close();
+          announce(
+            `${completed} Website ${completed === 1 ? "Profile" : "Profiles"} deleted.`,
+          );
+        }
       }
     }
 
@@ -1950,11 +2017,11 @@ export function createProfilesView(options: {
     function columnDefinitions(): TabulatorColumnDefinition[] {
       const columns: TabulatorColumnDefinition[] = [
         {
-          title: "Select row",
+          title: "Select",
           headerSort: false,
           resizable: false,
           frozen: true,
-          width: 90,
+          width: 68,
           cssClass: "cw-col-select",
           formatter: (cell) => {
             const row = cell.getRow().getData() as unknown as ProfileRow;
@@ -1975,23 +2042,9 @@ export function createProfilesView(options: {
           },
         },
       ];
-      columns.push({
-        title: "Profile actions",
-        headerSort: false,
-        width: 152,
-        formatter: (cell) => {
-          const row = cell.getRow().getData() as unknown as ProfileRow;
-          const trigger = button(
-            "Delete Profile",
-            () => void reviewDelete(row, trigger),
-            { "aria-label": `Delete Website Profile for ${row.displayName}` },
-          );
-          return trigger;
-        },
-      });
       const order = [
-        "displayName",
         "visible",
+        "displayName",
         ...PROFILE_FIELDS.filter(
           (item) =>
             item.status !== "unavailable" &&
@@ -2023,7 +2076,7 @@ export function createProfilesView(options: {
         width: frozen
           ? definition.id === "displayName"
             ? 220
-            : 130
+            : 90
           : undefined,
         headerTooltip: false,
         cssClass: `cw-col-${definition.status}`,
@@ -2214,7 +2267,7 @@ export function createProfilesView(options: {
       index: "rowKey",
       columns: columnDefinitions(),
       layout: "fitData",
-      height: "70vh",
+      height: "87.5vh",
       renderVertical: "basic",
       pagination: true,
       paginationMode: "remote",

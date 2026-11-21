@@ -288,7 +288,7 @@ export const PROFILE_FIELDS: readonly ProfileFieldDefinition[] = [
   },
   {
     id: "visible",
-    label: "Visible on Website",
+    label: "Visible",
     status: "editable",
     scope: "profile",
     source: "person_visibility.visible (no row means visible)",

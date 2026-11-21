@@ -95,7 +95,7 @@ CSV import, county-tree editing, creating Profiles from the sheet and editing or
 
 ## Delete one Website Profile
 
-Use **Delete Profile** in the row's Profile actions column. Every role row for the person opens the same preview. Review the Website ID, counties, visibility, and affected counts, select a reason, and type `DELETE`. The online copy is permanently removed. The private offline master stays authoritative and is outside this write path.
+Select one or more Profiles and choose **Delete selected Profiles** next to **Hide selected Profiles**. The preview lists each selected Profile once, including selections on other pages. Review the Website IDs, counties, visibility, affected counts, and blockers, then select a reason and type `DELETE`. Each Profile is permanently removed in a separate audited request. If a request fails, the operation stops and reports how many succeeded. The private offline master stays authoritative and is outside this write path.
 
 The owner-only `POST /delete/preview` and `POST /delete/commit` routes under `/api/admin/profiles` use the existing human session, capability and same-origin guards. Commit checks the reviewed dependency snapshot and takes an actor-scoped idempotency key. Active grievance subjects, editorial associations and duplicate-review records block the delete. Existing history remains available as historical ID snapshots. The atomic write removes alternate and legacy names, visibility, County Structure role display links and roles, then the Profile. Shared and unused source catalog records both remain available for reuse. The actor, reason, target and counts are recorded without copying name or source contents into the new audit event.
 
