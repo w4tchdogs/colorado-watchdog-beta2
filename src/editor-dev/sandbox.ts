@@ -14,7 +14,10 @@ import {
   createFixtureAiProvider,
 } from "../services/ai-proposals.js";
 import { D1BannerAdministration } from "../services/banner-admin-d1.js";
-import { MemoryBannerObjectStorage } from "../services/banner-storage.js";
+import {
+  type ImmutableObjectStorage,
+  MemoryBannerObjectStorage,
+} from "../services/banner-storage.js";
 import { createContentService } from "../services/content.js";
 import { D1CountyRoleAttachments } from "../services/county-role-attachment-d1.js";
 import { D1CountyStructureAdministration } from "../services/county-structure-d1.js";
@@ -46,6 +49,7 @@ import {
   isProfilesPath,
 } from "../transport/profiles-api.js";
 import { createLocalD1Binding } from "./d1-binding.js";
+import { DraftBannerObjectStorage } from "./draft-banner-storage.js";
 import { LookupRequestError, parseLookupRequest, runLookup } from "./lookup.js";
 
 /**
@@ -122,8 +126,8 @@ export interface EditorSandboxOptions {
 export interface EditorSandbox {
   readonly token: string;
   readonly database: WebsiteDatabase;
-  /** In-memory banner object storage, exposed so tests can hide or corrupt objects. */
-  readonly bannerStorage: MemoryBannerObjectStorage;
+  /** Shares the local image copies with the draft public-page preview. */
+  readonly bannerStorage: ImmutableObjectStorage;
   fetch(request: Request): Promise<Response>;
   close(): void;
 }
@@ -341,7 +345,6 @@ export async function createEditorSandbox(
 
   const service = createContentService(database, { authorize: sandboxPolicy });
   const dashboard = createDashboardService(database, {
-    draftReview,
     recentContent: (principal) =>
       service.listDrafts(principal, { limit: 5, sort: "modified" }).items,
   });
@@ -372,10 +375,11 @@ export async function createEditorSandbox(
     resolvePrincipal: localPrincipal,
     service: dashboard,
   });
-  // Reuse the hosted services on disposable local storage. Only this sandbox
-  // supplies the synthetic principal and in-memory database and object adapters.
+  // Use the normal administration service with local database and object adapters.
   const localD1 = new AsyncD1Database(createLocalD1Binding(database));
-  const bannerStorage = new MemoryBannerObjectStorage();
+  const bannerStorage = draftReview
+    ? new DraftBannerObjectStorage(database)
+    : new MemoryBannerObjectStorage();
   const bannerTransport = createBannerAdminApiTransport({
     resolvePrincipal: localPrincipal,
     authorize: (principal) =>
@@ -513,8 +517,6 @@ export async function createEditorSandbox(
     if (!tokensEqual(token, request.headers.get(SANDBOX_TOKEN_HEADER))) {
       return sandboxJson(403, { error: "forbidden" });
     }
-    if (draftReview && isBannerAdminPath(url.pathname))
-      return sandboxJson(404, { error: "not_found" });
     if (url.pathname === SANDBOX_INFO_PATH) {
       if (request.method !== "GET") {
         return sandboxJson(405, { error: "method_not_allowed" });

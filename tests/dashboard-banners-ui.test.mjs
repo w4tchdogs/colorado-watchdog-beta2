@@ -34,6 +34,7 @@ async function mountBanners({
   account = "admin",
   hash = "#/banners",
   hook,
+  draftPreviewUrl,
 } = {}) {
   const sandbox = await startSandbox();
   const dom = new JSDOM("<!doctype html><body><div id=app></div></body>", {
@@ -64,6 +65,7 @@ async function mountBanners({
         overview: overviewView,
         account: accountView,
         banners: createBannersView({
+          draftPreviewUrl,
           client: createBannerAdminClient({
             fetch: connection.fetch,
             headers: sandboxHeaders(connection),
@@ -754,15 +756,19 @@ test("banner access follows the live role matrix and stays private", async () =>
   }
 });
 
-test("the county has a new-tab link, file names fill the form and banners show a private preview", async () => {
+test("an approved banner can link to its local county page and show a private preview", async () => {
   const fixtures = bannerAdminFixtures();
-  const d = await mountBanners();
+  const d = await mountBanners({ draftPreviewUrl: "http://127.0.0.1:8790/" });
   try {
     await waitFor(() => d.$("#banners-heading"), "banners view");
     await openCounty(d, "08001", "Adams");
 
     const link = d.$("#banner-county a.banner-county-link");
-    assert.equal(link.getAttribute("href"), "/counties/08001");
+    assert.equal(
+      link.getAttribute("href"),
+      "http://127.0.0.1:8790/counties/08001",
+    );
+    assert.match(d.text(".dash-lede"), /only to this private local preview/);
     assert.equal(link.getAttribute("target"), "_blank");
     assert.match(link.getAttribute("rel"), /noopener/);
     assert.match(link.textContent, /new tab/);

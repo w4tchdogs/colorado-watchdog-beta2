@@ -96,7 +96,15 @@ New Profiles start hidden. Set eligible records to **Visible** in the
 local dashboard to see them on the public-page preview. Use the dashboard
 to audit hidden records. Local imports and edits persist across restarts.
 Use a different review directory for an older checkout or a fresh audit.
-Banners administration remains available in the disposable sandbox.
+
+In **Banners**, select a county and choose an approved JPEG or PNG from your
+private banner folder. Stage the image and check its preview, caption and alt
+text. **Publish** makes the banner visible on the local county page and eligible
+for the local homepage carousel. Use the link beside the county name to check
+the rendered image, crop and caption. **Withdraw** removes it from those local
+views and retains its history. Image copies and edits are saved in the same
+private SQLite file. The original images stay in `banners\approved`.
+
 The local database can retain larger import receipts than hosted D1.
 The import formats and publication checks still apply.
 
