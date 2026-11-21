@@ -87,7 +87,11 @@ test("the stylesheet fixes the frame at 3:1 and never stretches images", () => {
   }
   // The placeholder uses only the owner's logo, never banner or stock imagery.
   const urls = [...css.matchAll(/url\(([^)]+)\)/g)].map((match) => match[1]);
-  assert.deepEqual(urls, ['"/assets/brand-logo-white-large.png"']);
+  assert.deepEqual(urls, [
+    '"/assets/brand-logo-white-large.png"',
+    '"/assets/inter-latin.woff2"',
+    '"/assets/archivo-black-latin.woff2"',
+  ]);
 });
 
 test("synthetic sources of 21:9, 13:5 and 3:1 render in cover and contain", async () => {
@@ -739,11 +743,7 @@ test("county switcher redirects to the chosen county", async () => {
     // County navigation follows the same model on every county.
     assert.deepEqual(
       county.$$(".county-nav ul a").map((a) => a.getAttribute("href")),
-      [
-        "/counties/08069",
-        "/officials?county=08069",
-        "/officials?directoryView=structure&county=08069",
-      ],
+      ["/counties/08069", "/officials?county=08069", "/stories?county=08069"],
     );
   });
 });

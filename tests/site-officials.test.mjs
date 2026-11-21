@@ -523,11 +523,7 @@ test("county navigation connects county pages and the directory", async () => {
         "/officials?county=08069",
         current === 1 ? "page" : null,
       ],
-      [
-        "County structure",
-        "/officials?directoryView=structure&county=08069",
-        current === 2 ? "page" : null,
-      ],
+      ["Community Voices", "/stories?county=08069", null],
     ];
     const home = await get(preview, "/counties/08069");
     assert.deepEqual(links(home), expected(0));
@@ -536,11 +532,7 @@ test("county navigation connects county pages and the directory", async () => {
       "/counties",
     );
     assert.ok(home.$('.hero-actions a[href="/officials?county=08069"]'));
-    assert.ok(
-      home.$(
-        '.hero-actions a[href="/officials?directoryView=structure&county=08069"]',
-      ),
-    );
+    assert.ok(home.$('.hero-actions a[href="/submit-report"]'));
 
     const officials = await get(preview, "/officials?county=08069");
     assert.deepEqual(links(officials), expected(1));
