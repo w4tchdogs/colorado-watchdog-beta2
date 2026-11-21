@@ -36,11 +36,23 @@ export function personIsPublicSql(idExpression: string): string {
 /** One count per public Profile, including people with roles in several counties. */
 export async function countPublicPeople(
   runner: Pick<DirectoryQueryRunner, "first">,
+  countyFips?: string,
 ): Promise<number> {
   const row = await runner.first(
     `SELECT COUNT(*) AS total FROM profile_publication_ready p
-     WHERE ${personIsNotHiddenSql("p.person_id")}`,
-    [],
+     WHERE ${personIsNotHiddenSql("p.person_id")}
+       ${
+         countyFips === undefined
+           ? ""
+           : `AND EXISTS (
+         SELECT 1 FROM person_roles r
+         LEFT JOIN positions pos ON pos.id = r.position_id
+         LEFT JOIN organizations o ON o.id = pos.organization_id
+         WHERE r.person_id = p.person_id AND (r.county_fips = ? OR o.county_fips = ?
+           OR EXISTS (SELECT 1 FROM organization_county_affiliations a
+             WHERE a.organization_id = o.id AND a.county_fips = ?)))`
+       }`,
+    countyFips === undefined ? [] : [countyFips, countyFips, countyFips],
   );
   if (typeof row?.total !== "number")
     throw new Error("Public Profile count is unavailable");

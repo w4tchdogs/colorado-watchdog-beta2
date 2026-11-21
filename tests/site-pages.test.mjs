@@ -30,6 +30,8 @@ test("homepage renders navigation, discovery entry points and honest content", a
         "Colorado counties",
         "Departments and offices",
         "County officials and employees",
+        "Reports",
+        "Grievances",
       ],
     );
     assert.deepEqual(
@@ -110,10 +112,7 @@ test("homepage renders navigation, discovery entry points and honest content", a
     }
     // Nothing unimplemented is advertised.
     // The shared header now offers Submit a report, so check the page body.
-    assert.doesNotMatch(
-      page.main(),
-      /submit a report|log in|sign up|grievance/i,
-    );
+    assert.doesNotMatch(page.main(), /submit a report|log in|sign up/i);
     assert.ok(page.$$(".article-card").length > 0);
     for (const card of page.$$(".cv-pathway, .editorial-grid .article-card")) {
       assert.equal(card.querySelectorAll("a[href]").length, 1);
@@ -193,7 +192,7 @@ test("homepage on an empty database stays useful and claims nothing", async () =
     assert.equal(page.$$(".article-card").length, 0);
     assert.deepEqual(
       page.$$(".stat-row dd").map((value) => value.textContent),
-      ["64", "0", "0"],
+      ["64", "0", "0", "—", "—"],
     );
     assert.match(page.main(), /Nothing has been published yet/);
     assert.equal(page.$$(".cv-pathway").length, 3);
@@ -236,7 +235,10 @@ test("county directory lists all 64 counties and every county page loads", async
       const county = await get(preview, href);
       assert.equal(county.status, 200, href);
       assert.match(county.$("h1").textContent, / County$/);
-      assert.match(county.main(), /No profiles for .+ yet/);
+      assert.deepEqual(
+        county.$$(".stat-row dd").map((d) => d.textContent),
+        ["0", "0", "—", "—"],
+      );
       assert.match(county.main(), /not the county's government/);
     }
     assert.ok(page.$("#county-directory > .county-index-grid"));
@@ -501,16 +503,15 @@ test("county page separates county organizations from affiliated ones", async ()
     const page = await get(preview, "/counties/08001");
     assert.equal(page.status, 200);
     assert.equal(page.$("h1").textContent, "Adams County");
-    assert.match(page.$(".hero").textContent, /FIPS 08001/);
+    assert.match(
+      page.$(".hero").textContent,
+      /County government. Community experiences. One lasting record./,
+    );
     assert.ok(page.$(".hero [data-banner-frame] .banner-placeholder"));
     assert.equal(page.$("[data-banner-frame] img"), null);
     assert.deepEqual(
       page.$$(".county-nav ul a").map((a) => a.getAttribute("href")),
-      [
-        "/counties/08001",
-        "/officials?county=08001",
-        "/officials?directoryView=structure&county=08001",
-      ],
+      ["/counties/08001", "/officials?county=08001", "/stories?county=08001"],
     );
     assert.equal(page.$$("#county-switch option").length, 64);
     assert.equal(page.$("#county-switch option[selected]").value, "08001");
@@ -525,14 +526,14 @@ test("county page separates county organizations from affiliated ones", async ()
         ]),
     );
     assert.deepEqual(stats, {
-      "Organizations in the database": "7",
-      "County organizations": "4",
-      "Affiliated organizations": "3",
-      "Documented role records": "38",
+      "Departments and offices": "0",
+      "County officials and employees": "36",
+      Reports: "—",
+      Grievances: "—",
     });
     assert.match(
       page.main(),
-      /do not measure staffing, completeness, vacancies or current employment/,
+      /County directory eligibility does not require a unit attachment/,
     );
 
     const lists = page.$$("#organizations .record-list");

@@ -268,6 +268,9 @@ test("empty database directories and profiles respond helpfully", async () => {
     );
     const county = await get(preview, "/counties/08069");
     assert.equal(county.$("#organizations"), null);
-    assert.equal(county.$(".stat-row"), null);
+    assert.deepEqual(
+      county.$$(".stat-row dd").map((d) => d.textContent),
+      ["0", "0", "\u2014", "\u2014"],
+    );
   });
 });

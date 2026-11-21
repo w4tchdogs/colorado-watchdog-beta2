@@ -2811,3 +2811,85 @@ th[aria-sort] .sort-mark {
 .structure-type,
 .structure-aliases { margin-left: 0.5rem; font-size: 0.9em; color: var(--muted, #4a4a4a); }
 .structure-people { list-style: none; margin: 0.2rem 0 0; padding-left: 1.1rem; }
+
+/* County typography measured from the archived Beta-1 Moffat reference.
+   Fonts are self-hosted Google Fonts distributions under the adjacent OFL licenses. */
+@font-face {
+  font-family: "County Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/assets/inter-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "County Display";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/assets/archivo-black-latin.woff2") format("woff2");
+}
+main:has(.hero-county), .county-nav {
+  --font-body: "County Inter", Arial, Helvetica, sans-serif;
+  --font-display: "County Display", "Arial Black", Arial, sans-serif;
+  font-family: var(--font-body);
+}
+main:has(.hero-county) h1, main:has(.hero-county) h2 { font-weight: 400; }
+main:has(.hero-county) h2 { font-size: 1.875rem; line-height: 1.3; }
+.hero-county h1 { font-size: clamp(2.125rem, 4.3vw, 3.6875rem); line-height: 1.12; }
+.hero-county .eyebrow { font-size: 0.625rem; letter-spacing: 0.12em; }
+.hero-county .hero-lede { max-width: 42rem; font-size: 0.9375rem; line-height: 1.8; }
+.hero-county .button { font-size: 0.6875rem; font-weight: 800; }
+.county-nav { font-size: 0.625rem; }
+.county-nav-name { font-family: var(--font-display); font-size: 1rem; font-weight: 400; }
+.county-switch select, .county-switch button { font-size: 0.75rem; }
+.county-stat-row dt { font-size: 0.5625rem; letter-spacing: 0.015625rem; line-height: 1.7; }
+.county-stat-row dd { font-size: 2.1875rem; font-weight: 400; line-height: 1.2; }
+.county-stat-row { border-top: 0; }
+.stat-row div { flex-direction: column; justify-content: flex-start; }
+.stat-row dd { order: -1; }
+.stat-status { color: var(--ink-soft); font-size: 0.75rem; }
+.county-entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1.5625rem; }
+.county-entry-card { display: flex; flex-direction: column; min-width: 0; padding: 1.625rem 1.3125rem; border: 1px solid #bbb; border-radius: 0; background: white; color: var(--ink); text-decoration: none; }
+.county-entry-card h3 { font-family: var(--font-body); font-size: 1.0625rem; font-weight: 800; line-height: 1.5; margin: 0.5rem 0 0.8125rem; }
+.county-entry-card p { font-size: 0.75rem; line-height: 1.9; color: #555; }
+.county-entry-card span { margin-top: auto; padding-top: 0.625rem; color: var(--red); font-size: 0.625rem; font-weight: 800; }
+.county-entry-card:hover, .county-entry-card:focus-visible { border-color: var(--red); }
+.county-entry-card:hover span { text-decoration: underline; }
+@media (max-width: 43.75rem) {
+  .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hero-county h1 { font-size: 2.25rem; }
+  .hero-county .hero-lede { font-size: 0.8125rem; }
+  .county-stat-row dd { font-size: 1.9375rem; }
+  main:has(.hero-county) h2 { font-size: 1.5625rem; }
+}
+@media (max-width: 28.125rem) {
+  .county-entry-grid { grid-template-columns: 1fr; }
+  .hero-county h1 { font-size: 1.9375rem; }
+}
+
+/* Beta-1 county menu and selector; all county routes share this component. */
+.county-nav { background: #eaeae6; border-bottom: 1px solid #ccc; }
+.county-nav-inner { max-width: none; width: 100%; padding: 1.0625rem 2rem; gap: 0.8125rem 1.375rem; }
+.county-nav-name { font-family: var(--font-body); font-weight: 800; color: #171717; text-decoration: none; }
+.county-nav ul { gap: 1.125rem; margin-right: auto; }
+.county-nav ul a { padding: 0; border: 0; font-size: 0.625rem; font-weight: 400; color: #444; }
+.county-nav ul a[aria-current], .county-nav ul a:hover { color: var(--red); text-decoration: underline; text-underline-offset: 0.3125rem; }
+.county-switch { margin: 0; }
+.county-switch select { flex: initial; width: auto; max-width: 11.875rem; min-height: 0; padding: 0.5rem; border: 1px solid #bbb; border-radius: 2px; background: white; font-family: var(--font-body); font-size: 0.6875rem; }
+.county-switch.is-enhanced button { display: none; }
+.county-nav-all { min-height: 0; font-size: 0.625rem; font-weight: 400; color: #444; text-decoration: none; }
+@media (max-width: 68.75rem) { .county-nav-inner { padding: 1.0625rem 1.5rem; } }
+@media (max-width: 43.75rem) {
+  .county-nav-inner { padding: 1rem 1.125rem; gap: 0.8125rem; }
+  .county-nav-name { width: 100%; }
+  .county-nav ul { gap: 0.875rem; }
+  .county-switch { flex: 1 1 0; }
+}
+@media (max-width: 28.125rem) {
+  .county-nav ul { gap: 0.625rem 0.9375rem; width: 100%; }
+  .county-nav ul a { font-size: 0.5625rem; }
+  .county-switch select { width: 100%; }
+}
+
+.county-stat-row + .stat-note { font-size: 0.625rem; line-height: 1.8; padding-top: 0.875rem; }
+.county-entry-section > p { font-size: 0.8125rem; line-height: 1.9; }

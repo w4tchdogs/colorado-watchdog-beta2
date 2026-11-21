@@ -38,6 +38,8 @@ import {
  * touches the Profiles research database, and is not imported by the Worker.
  */
 const ASSET_TYPES: Readonly<Record<string, string>> = {
+  "inter-latin.woff2": "font/woff2",
+  "archivo-black-latin.woff2": "font/woff2",
   "site.css": "text/css; charset=utf-8",
   "site.js": "text/javascript; charset=utf-8",
   "community-voices.css": "text/css; charset=utf-8",

@@ -134,6 +134,9 @@ const allowed = new Set([
   "website/site/report-demo.js",
   "tests/site-fixtures.mjs",
   "tests/site-pages.test.mjs",
+  "tests/county-stats.test.mjs",
+  "website/site/inter-OFL.txt",
+  "website/site/archivoblack-OFL.txt",
   "tests/site-counties-search.test.mjs",
   "tests/site-directory.test.mjs",
   "tests/site-safety.test.mjs",
@@ -527,6 +530,10 @@ const allowed = new Set([
   "scripts/d1-local-check.mjs",
   "scripts/report-demo.mjs",
 ]);
+const publicFonts = new Set([
+  "website/site/inter-latin.woff2",
+  "website/site/archivo-black-latin.woff2",
+]);
 // Web derivatives of the owner's logo and mascot artwork: the only binary
 // files allowed. Each is a small PNG; masters stay outside this repository.
 const brandImages = new Set([
@@ -571,6 +578,12 @@ const secretPatterns = [
   /\bsk-[A-Za-z0-9_-]{32,}\b/,
 ];
 for (const file of files) {
+  if (publicFonts.has(file)) {
+    const font = staged ? git("show", `:${file}`) : readFileSync(file);
+    if (font.length > 128 * 1024 || font.subarray(0, 4).toString() !== "wOF2")
+      errors.push(`Invalid or oversized WOFF2 font: ${file}`);
+    continue;
+  }
   if (brandImages.has(file)) {
     const image = staged ? git("show", `:${file}`) : readFileSync(file);
     if (image.length > 96 * 1024) errors.push(`Image exceeds 96 KiB: ${file}`);

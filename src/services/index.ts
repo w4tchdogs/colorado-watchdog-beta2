@@ -191,7 +191,7 @@ export interface ApplicationServices {
     input: CountyOverviewRequest,
   ): ReturnType<typeof getCountyOverview>;
   listCounties(): ReturnType<typeof listCounties>;
-  countPublicPeople(): ReturnType<typeof countPublicPeople>;
+  countPublicPeople(countyFips?: string): ReturnType<typeof countPublicPeople>;
   listOfficials(
     input?: OfficialsDirectoryRequest,
   ): ReturnType<typeof listOfficials>;
@@ -374,8 +374,11 @@ export function createServices(
     listCounties() {
       return listCounties(requireDatabase());
     },
-    async countPublicPeople() {
-      return countPublicPeople(sqliteDirectoryRunner(requireDatabase()));
+    async countPublicPeople(countyFips) {
+      return countPublicPeople(
+        sqliteDirectoryRunner(requireDatabase()),
+        countyFips,
+      );
     },
     listOfficials(input) {
       return listOfficials(sqliteDirectoryRunner(requireDatabase()), input);

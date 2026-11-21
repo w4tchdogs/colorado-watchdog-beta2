@@ -78,6 +78,56 @@ The owner uploads the reviewed role file for one county. Only three columns are 
 
 Hidden Profiles stay off County Structure and county browse even when attached, because both public reads apply the Profile visibility predicate.
 
+### Public totals and badge counts (STATS-1 follow-up)
+
+Homepage and county totals use public County Structure units (all types, including
+nested units, excluding display headings and units hidden by status or reporting
+ancestors). County people totals use the Officials & Employees directory county
+predicate: a role's county, its legacy organization's county, or that organization's
+county affiliation. A qualifying visible Profile counts once per county and once
+statewide. An unattached Profile remains eligible. The existing county overview
+API's organization and role fields are unchanged; the page reads separate totals.
+Reports and Grievances display an em dash with Pending. A failed live count displays
+an em dash with Unavailable; a successful empty read displays zero.
+
+Each unit's `profileCount` is a SQL `COUNT(DISTINCT person_id)` over reviewed `home`
+attachments to that exact unit and county, with the shared public visibility rule.
+It is independent of the bounded displayed people list. Duplicate roles do not
+inflate it. Units and headings are read in keyset pages so the 1,000-row D1 bound
+cannot remove later units. Elected and department-leader classifications remain
+separate from home placement. Existing per-county layout preferences are read unchanged.
+
+The November 21 local read-only Moffat diagnostic found 25 active public units,
+32 imported roles for 31 visible Profiles, 32 valid unreversed import-key mappings,
+and no `county_role_display` rows. Missing reviewed attachments explain those zero
+badges. No real attachments were written. No verified Moffat role-to-unit crosswalk
+was located in the inspected local review folders; matching names is insufficient.
+The source fix also corrects the separate duplicate-role and read-cap risks,
+reproduced with synthetic fixtures.
+
+Owner preview steps (any county):
+
+1. Start the current checkout's private draft preview and select **Olive Owner**.
+2. Open **Dashboard > County Structure**, choose the county, and open **Attach Roles**.
+3. Upload a reviewed CSV containing `role_id,county_fips,county_unit_id`.
+   Use the original imported role keys and the stable IDs in the current County
+   Structure export. Leave unresolved unit IDs blank; keep those rows for review.
+4. Choose **Preview**. Check attached, unchanged, remapped, skipped, unattached,
+   and blocked rows. Preserve approved placements; do not accept an unintended
+   remap. A missing import key is skipped, and a county/unit mismatch is blocked.
+5. The owner reviews and commits the real attachments. Refresh the county home:
+   only the exact attached unit badge changes; an already-visible, eligible
+   Profile was already included in the county total. Hidden Profiles contribute
+   to neither public count. Review elected or leader membership separately.
+
+Synthetic tests cover the actual Profiles import -> stable key -> attachment
+preview/commit -> public badge path, including unchanged county totals and hidden
+Profiles. Additional fixtures exceed 1,000 people and units, include nested units,
+duplicate roles, cross-county roles and nonpublic units, and exercise all 64 county
+routes, pending placeholders, verified zero and unavailable reads. Hosted state
+and the owner's real attachment commit remain outside this assignment.
+
+
 ## Verification
 
 The service tests run on an in-process SQLite and cover the 25 cases in `tests/county-structure.test.mjs`. The same service also runs against Wrangler’s local D1 engine in `tests/d1/county-structure-checks.mjs`, with 21 checks that include a county of 3,010 units, so chunked writes and keyset reads are exercised on the real engine. Both ran locally in the Linux workspace on the owner’s computer with synthetic data. They are local results only. Nothing here has run on the hosted Site.

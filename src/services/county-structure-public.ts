@@ -32,6 +32,7 @@ export interface PublicUnit {
   readonly organizationType: string;
   readonly aliases: readonly string[];
   readonly people: readonly PublicPerson[];
+  readonly profileCount: number;
   readonly children: readonly PublicUnit[];
 }
 
@@ -59,7 +60,7 @@ export interface PublicCountyStructure {
 
 export interface CountyStructureReader {
   getCountyStructure(countyFips: string): Promise<PublicCountyStructure>;
-  countPublicUnits(): Promise<number | null>;
+  countPublicUnits(countyFips?: string): Promise<number | null>;
 }
 
 /** The reader used when no County Structure database is attached. */
@@ -89,6 +90,7 @@ interface UnitRow {
   organization_type: string;
   display_order: number | null;
   aliases: string | null;
+  profile_count: number;
 }
 
 const byOrder = (
@@ -141,8 +143,29 @@ const headingKey = (value: string): string =>
 export class D1CountyStructurePublicService implements CountyStructureReader {
   constructor(private readonly database: AsyncD1Database) {}
 
+  /** Keyset pages retain every unit and heading without relaxing the D1 read bound. */
+  private async readAll<T extends { id: string }>(
+    sql: string,
+    values: readonly string[],
+  ): Promise<T[]> {
+    const rows: T[] = [];
+    let after = "";
+    while (true) {
+      const page = await this.database.all<T>(
+        `SELECT * FROM (${sql}) WHERE id > ? ORDER BY id COLLATE BINARY`,
+        LIMIT,
+        [...values, after],
+      );
+      rows.push(...page);
+      if (page.length < LIMIT) return rows;
+      const last = page.at(-1);
+      if (!last) return rows;
+      after = last.id;
+    }
+  }
+
   /** Each public reporting unit counts once. Browse headings are separate records. */
-  async countPublicUnits(): Promise<number> {
+  async countPublicUnits(countyFips?: string): Promise<number> {
     const row = await this.database.first<{ total: number }>(
       `WITH RECURSIVE public_units(id, county_fips) AS (
          SELECT u.id, u.county_fips
@@ -158,7 +181,8 @@ export class D1CountyStructurePublicService implements CountyStructureReader {
            ON parent.id = u.parent_unit_id AND parent.county_fips = u.county_fips
          WHERE u.status = 'active'
        )
-       SELECT COUNT(*) AS total FROM public_units`,
+       SELECT COUNT(*) AS total FROM public_units${countyFips === undefined ? "" : " WHERE county_fips = ?"}`,
+      countyFips === undefined ? [] : [countyFips],
     );
     if (typeof row?.total !== "number")
       throw new Error("Public County Structure count is unavailable");
@@ -175,25 +199,28 @@ export class D1CountyStructurePublicService implements CountyStructureReader {
         empty: true,
       };
 
-    const groups = await this.database.all<{
+    const groups = await this.readAll<{
       id: string;
       name: string;
       display_order: number | null;
     }>(
       `SELECT id, name, display_order FROM county_unit_display
        WHERE county_fips = ? AND status = 'active'`,
-      LIMIT,
       [countyFips],
     );
-    const units = await this.database.all<UnitRow>(
+    const units = await this.readAll<UnitRow>(
       `SELECT u.id, u.parent_unit_id, u.display_group_id, u.browse_parent_unit_id,
               u.name, u.organization_type,
               u.display_order,
+              (SELECT COUNT(DISTINCT r.person_id) FROM county_role_display d
+               JOIN person_roles r ON r.id = d.person_role_id
+               WHERE d.listing = 'home' AND d.unit_id = u.id
+                 AND d.county_fips = u.county_fips
+                 AND ${personIsPublicSql("r.person_id")}) AS profile_count,
               (SELECT json_group_array(alias)
                  FROM (SELECT alias FROM county_unit_alias a
                        WHERE a.unit_id = u.id ORDER BY position)) AS aliases
        FROM county_unit u WHERE u.county_fips = ? AND u.status = 'active'`,
-      LIMIT,
       [countyFips],
     );
     const roles = await this.database.all<{
@@ -263,7 +290,8 @@ export class D1CountyStructurePublicService implements CountyStructureReader {
         visibleIds.has(role.unit_id)
       ) {
         const list = homePeople.get(role.unit_id) ?? [];
-        list.push(person);
+        if (!list.some((entry) => entry.personId === person.personId))
+          list.push(person);
         homePeople.set(role.unit_id, list);
       }
       if (role.listing === "elected_official") {
@@ -336,6 +364,7 @@ export class D1CountyStructurePublicService implements CountyStructureReader {
         unit.aliases ? (JSON.parse(unit.aliases) as string[]) : [],
       ),
       people: homePeople.get(unit.id) ?? [],
+      profileCount: unit.profile_count,
       children: (childrenOf.get(unit.id) ?? []).sort(byOrder).map(node),
     });
 

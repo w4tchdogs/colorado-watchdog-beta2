@@ -609,7 +609,8 @@ export function createD1PublicReadServices(
 
   return {
     listCounties,
-    countPublicPeople: () => countPublicPeople(directoryRunner),
+    countPublicPeople: (countyFips?: string) =>
+      countPublicPeople(directoryRunner, countyFips),
     getCountyOverview,
     listCountyOrganizations,
     listCountyRoleEntries,
