@@ -1,4 +1,7 @@
-import { DASHBOARD_API_PATHS } from "../contracts/dashboard.js";
+import {
+  DASHBOARD_API_PATHS,
+  DASHBOARD_LOGIN_HREF,
+} from "../contracts/dashboard.js";
 import type { TrustedPrincipal } from "../services/security.js";
 import type { DashboardTransportService } from "./dashboard-api.js";
 import { createDashboardApiTransport } from "./dashboard-api.js";
@@ -14,7 +17,6 @@ import { createDashboardApiTransport } from "./dashboard-api.js";
  * Every data request is authorized again by the service on its own.
  */
 export const DASHBOARD_PAGE_PATH = "/dashboard";
-export const DASHBOARD_LOGIN_PATH = "/auth/login?return_to=%2Fdashboard";
 
 export function isDashboardPath(pathname: string): boolean {
   return (
@@ -112,7 +114,7 @@ export async function handleDashboardRequest(
       status: 303,
       headers: {
         "cache-control": "no-store",
-        location: DASHBOARD_LOGIN_PATH,
+        location: DASHBOARD_LOGIN_HREF,
       },
     });
   }

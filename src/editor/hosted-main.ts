@@ -1,3 +1,4 @@
+import { DASHBOARD_LOGIN_HREF } from "../contracts/dashboard.js";
 import { createEditorApiClient, type FetchLike } from "./api-client.js";
 import {
   type BannerAdminFetch,
@@ -73,6 +74,7 @@ if (root) {
         client: createCountyStructureClient({ fetch: profilesFetch }),
       }),
     },
+    signInHref: DASHBOARD_LOGIN_HREF,
     signOut: { action: "/auth/logout" },
   });
 }

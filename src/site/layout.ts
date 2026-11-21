@@ -1,3 +1,4 @@
+import { DASHBOARD_LOGIN_HREF } from "../contracts/dashboard.js";
 import { html, type SafeHtml, trusted } from "./html.js";
 import type { AccountEntry, Breadcrumb, Page } from "./types.js";
 
@@ -10,8 +11,6 @@ const NAVIGATION = [
   { key: "about", label: "About", href: "/about" },
 ] as const;
 
-/** Same-origin sign-in start that returns the visitor to the dashboard. */
-export const DASHBOARD_LOGIN_HREF = "/auth/login?return_to=%2Fdashboard";
 export const DASHBOARD_HREF = "/dashboard";
 
 /** Public report form. Always offered, so visitors can reach the availability message and tracking. */

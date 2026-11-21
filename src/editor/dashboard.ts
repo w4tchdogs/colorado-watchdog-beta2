@@ -53,6 +53,8 @@ export interface DashboardOptions {
   /** Sandbox wording for the page title and the signed-out panel. */
   readonly titleSuffix?: string;
   readonly signedOutNote?: string;
+  /** Hosted sign-in link, shown when the dashboard requires sign-in. */
+  readonly signInHref?: string;
   /**
    * Hosted sign-out. Renders a same-origin form that posts to the Website
    * sign-out route, which revokes the session and clears its cookie. The
@@ -246,7 +248,12 @@ export function mountDashboard(
   win?.addEventListener("hashchange", onHashChange);
 
   // ---------------------------------------------------------- rendering
-  function renderChrome(): void {
+  const signInLink = () =>
+    options.signInHref
+      ? h("a", { class: "dash-signin", href: options.signInHref }, "Sign in")
+      : null;
+
+  function renderChrome(signInRequired: boolean): void {
     const groups = new Map<string, DashboardModuleLink[]>();
     for (const module of session?.modules ?? []) {
       const list = groups.get(module.groupLabel) ?? [];
@@ -299,7 +306,12 @@ export function mountDashboard(
       replaceChildren(
         doc,
         accountSlot,
-        h("p", { class: "dash-signed-out", id: "signed-out" }, "Not signed in"),
+        (signInRequired ? signInLink() : null) ??
+          h(
+            "p",
+            { class: "dash-signed-out", id: "signed-out" },
+            "Not signed in",
+          ),
       );
       return;
     }
@@ -414,21 +426,22 @@ export function mountDashboard(
       failure = error;
     }
     if (destroyed || token !== renderToken) return;
-    renderChrome();
+    const signInRequired =
+      failure instanceof EditorApiError &&
+      (failure.code === "authentication_required" ||
+        failure.code === "forbidden");
+    renderChrome(signInRequired);
     if (session) {
       await route();
       return;
     }
     setTitle("");
-    if (
-      failure instanceof EditorApiError &&
-      (failure.code === "authentication_required" ||
-        failure.code === "forbidden")
-    ) {
+    if (signInRequired) {
       panel(
         "state-signed-out",
         "Sign in required",
         "The dashboard is available to signed-in accounts. No account is signed in, or this account is not active.",
+        signInLink(),
         options.signedOutNote ? h("p", {}, options.signedOutNote) : null,
       );
       return;
