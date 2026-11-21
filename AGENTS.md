@@ -127,7 +127,7 @@ computer.
 | `banners\` | Approved banner originals (`approved\`), inventory and manifests (`manifests\`) and reports (`reports\`). Private, never committed |
 | `profiles\` | The private Profiles research database (`database\research.sqlite`), reports and backups. Access is restricted. Repository docs call this folder `<private-root>` |
 | `documents\` | Reports, audits and workspace records |
-| `archive\beta-1\` | Archived Beta-1 material |
+| `archive\beta-1\` | Former local Beta-1 archive location. The owner reported removing this copy to reclaim disk space. Use the archived Site and existing visual-reference evidence where available. |
 | `_trash\` | Items set aside instead of deleted |
 
 Never delete local files. Move them to `_trash\`, which only the owner
