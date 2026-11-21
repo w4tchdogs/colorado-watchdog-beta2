@@ -179,7 +179,8 @@ test("matching visibility reviews and changes more than 13,000 profiles in one g
       WITH RECURSIVE numbers(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM numbers WHERE n < 13000)
       INSERT INTO people (id, display_name) SELECT 'bulk-' || n, 'Bulk candidate ' || n FROM numbers;
       INSERT INTO people (id, display_name) VALUES
-        ('no-role', 'Bulk candidate incomplete'), ('already', 'Bulk candidate visible'), ('outside', 'Outside filter');
+        ('no-role', 'Bulk candidate incomplete'), ('no-visibility', 'Bulk candidate roleless'),
+        ('already', 'Bulk candidate visible'), ('outside', 'Outside filter');
       INSERT INTO person_roles (id, person_id, county_fips, published_office)
       SELECT 'r-' || id, id, '08001', 'Test office'
       FROM people WHERE id LIKE 'bulk-%' OR id IN ('already', 'outside');
@@ -204,7 +205,7 @@ test("matching visibility reviews and changes more than 13,000 profiles in one g
     const first = await review();
     assert.deepEqual(
       [first.matched, first.willChange, first.alreadySet, first.incomplete],
-      [13002, 13000, 1, 1],
+      [13003, 13000, 1, 2],
     );
     assert.equal(
       database

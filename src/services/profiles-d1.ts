@@ -888,12 +888,13 @@ export function createD1ProfilesService(
        SELECT (SELECT generation FROM website_dependency_generation WHERE id = 1) AS generation,
               (SELECT COUNT(*) FROM profile_write_receipts) AS profile_writes,
               COUNT(*) AS matched,
-              COUNT(CASE WHEN COALESCE(v.visible, 1) = ? THEN 1 END) AS already_set,
-              COUNT(CASE WHEN ? = 1 AND v.visible = 0 AND ready.person_id IS NULL THEN 1 END) AS incomplete
+              COUNT(CASE WHEN COALESCE(v.visible, 1) = ?
+                         AND (? = 0 OR ready.person_id IS NOT NULL) THEN 1 END) AS already_set,
+              COUNT(CASE WHEN ? = 1 AND ready.person_id IS NULL THEN 1 END) AS incomplete
        FROM matching m
        LEFT JOIN person_visibility v ON v.person_id = m.person_id
        LEFT JOIN profile_publication_ready ready ON ready.person_id = m.person_id`,
-      [...values, Number(visible), Number(visible)],
+      [...values, Number(visible), Number(visible), Number(visible)],
     );
     const generation = row?.generation;
     if (
