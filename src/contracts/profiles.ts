@@ -504,6 +504,17 @@ export const PROFILE_FIELDS: readonly ProfileFieldDefinition[] = [
     sortable: true,
   },
   {
+    id: "unitLink",
+    label: "Unit Linked",
+    status: "read-only",
+    scope: "role",
+    source:
+      "Exact county and office match against County Structure, with the reviewed home placement",
+    owner: "Website. Saved in County Structure as a role-to-unit link.",
+    defaultVisible: true,
+    sortable: false,
+  },
+  {
     id: "position",
     label: "Position",
     status: "read-only",
@@ -679,6 +690,7 @@ export interface ProfileRow {
   readonly countyUnit: string | null;
   readonly countySubUnit: string | null;
   readonly officeDepartment: string | null;
+  readonly unitLink: ProfileUnitLink | null;
   readonly position: string | null;
   readonly roleDuties: string | null;
   readonly employmentStart: string | null;
@@ -688,6 +700,29 @@ export interface ProfileRow {
   readonly roleCreatedOn: string | null;
   readonly roleUpdatedOn: string | null;
   readonly profileUpdatedOn: string;
+}
+
+export type ProfileUnitLinkState =
+  | "linked"
+  | "ready"
+  | "unmatched"
+  | "multiple"
+  | "review";
+
+export interface ProfileUnitLink {
+  readonly state: ProfileUnitLinkState;
+  readonly paths: readonly string[];
+}
+
+export type ProfileUnitLinkPreview = Readonly<
+  Record<ProfileUnitLinkState, number>
+> & {
+  readonly digest: string;
+};
+
+export interface ProfileUnitLinkReceipt {
+  readonly attached: number;
+  readonly replayed: boolean;
 }
 
 export interface ProfilePage {

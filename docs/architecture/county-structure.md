@@ -78,6 +78,24 @@ The owner uploads the reviewed role file for one county. Only three columns are 
 
 Hidden Profiles stay off County Structure and county browse even when attached, because both public reads apply the Profile visibility predicate.
 
+### Exact matches from the Profiles dashboard
+
+**Profiles → Unit Linked** compares each role's displayed **Office / Department**
+with the saved unit name in the same county. The comparison uses the stored
+spelling, case and punctuation. A group heading or alternate name cannot match.
+One matching unit is ready to link. No match is shown on the row, and multiple
+matches expose their hierarchy paths and stable IDs for review. An existing
+home placement is preserved, with a review status when the text no longer
+identifies its unit uniquely.
+
+**Link exact matches** previews every role row within the Profiles filters,
+across all pages. Confirming the preview attaches only previously unlinked
+roles with one exact match. The owner action saves ordinary reviewed
+`county_role_display` home rows using stable IDs. A new role, renamed unit
+or changed placement that affects the preview requires a fresh review.
+The batch is atomic and retry safe. Visibility, other listings, and the
+separate reviewed CSV workflow are unchanged.
+
 ### Public totals and badge counts (STATS-1 follow-up)
 
 Homepage and county totals use public County Structure units (all types, including

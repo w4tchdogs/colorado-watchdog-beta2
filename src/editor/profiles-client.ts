@@ -11,6 +11,8 @@ import {
   type ProfileQuery,
   type ProfileSaveResult,
   type ProfileSelectionEntry,
+  type ProfileUnitLinkPreview,
+  type ProfileUnitLinkReceipt,
 } from "../contracts/profiles.js";
 import type {
   ProfileDeletePreview,
@@ -53,6 +55,12 @@ export class ProfilesApiError extends Error {
 export interface ProfilesClient {
   rows(query: ProfileQuery): Promise<ProfilePage>;
   facets(): Promise<ProfileFacets>;
+  previewUnitLinks(query: ProfileQuery): Promise<ProfileUnitLinkPreview>;
+  commitUnitLinks(
+    query: ProfileQuery,
+    digest: string,
+    key: string,
+  ): Promise<ProfileUnitLinkReceipt>;
   selectAll(query: ProfileQuery): Promise<{
     readonly entries: readonly ProfileSelectionEntry[];
     readonly truncated: boolean;
@@ -193,7 +201,32 @@ export function createProfilesClient(options: {
         ...(review ? { digest: review.digest } : {}),
       }),
     });
+  const unitLinkPost = <T>(
+    operation: "preview" | "commit",
+    query: ProfileQuery,
+    review?: { digest: string; key: string },
+  ) =>
+    call<T>(`/unit-links/${operation}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(review ? { "idempotency-key": review.key } : {}),
+      },
+      body: JSON.stringify({
+        filters: {
+          query: query.query,
+          county: query.countyFips,
+          office: query.office,
+          visibility: query.visibility,
+        },
+        ...(review ? { digest: review.digest } : {}),
+      }),
+    });
   return {
+    previewUnitLinks: (query) =>
+      unitLinkPost<ProfileUnitLinkPreview>("preview", query),
+    commitUnitLinks: (query, digest, key) =>
+      unitLinkPost<ProfileUnitLinkReceipt>("commit", query, { digest, key }),
     previewMatchingVisibility: (query, visible) =>
       matchingVisibilityPost<MatchingProfileVisibilityPreview>(
         "preview",

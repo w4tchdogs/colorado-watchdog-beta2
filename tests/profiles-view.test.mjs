@@ -103,6 +103,62 @@ const SEED = `
 `;
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+test("Unit Linked shows the current match and updates after a reviewed bulk link", async () => {
+  await mount(
+    async ({ database, $, click, cell, rowFor }) => {
+      database
+        .prepare(`
+      INSERT INTO county_unit (id, county_fips, name, organization_type)
+      VALUES ('ui-exact-unit', '08001', 'Synthetic Adams Office', 'office')
+    `)
+        .run();
+      const county = $("#profiles-county");
+      await waitFor(
+        () => county.querySelector('option[value="08001"]'),
+        "county options",
+      );
+      county.value = "08001";
+      county.dispatchEvent(new window.Event("change", { bubbles: true }));
+      const unitStatus = () =>
+        cell(rowFor("Multi Role", "Clerk"), "unitLink")?.textContent;
+      await waitFor(
+        () => unitStatus() === "Exact match · ready to link",
+        "ready unit status",
+      );
+      click($("#profiles-link-exact"));
+      const confirm = await waitFor(
+        () => $("#profiles-confirm-exact-links"),
+        "exact links review",
+      );
+      assert.equal(confirm.textContent, "Link 2 roles");
+      county.value = "08069";
+      county.dispatchEvent(new window.Event("change", { bubbles: true }));
+      assert.equal($("#profiles-confirm-exact-links"), null);
+      assert.equal(
+        database.prepare("SELECT COUNT(*) AS n FROM county_role_display").get()
+          .n,
+        0,
+      );
+      county.value = "08001";
+      county.dispatchEvent(new window.Event("change", { bubbles: true }));
+      click($("#profiles-link-exact"));
+      click(
+        await waitFor(
+          () => $("#profiles-confirm-exact-links"),
+          "fresh exact links review",
+        ),
+      );
+      await waitFor(() => unitStatus() === "✓ Linked", "saved unit status");
+      assert.equal(
+        database.prepare("SELECT COUNT(*) AS n FROM county_role_display").get()
+          .n,
+        2,
+      );
+    },
+    { pageSize: 10 },
+  );
+});
+
 async function waitFor(check, label, timeout = 4000) {
   const start = Date.now();
   for (;;) {

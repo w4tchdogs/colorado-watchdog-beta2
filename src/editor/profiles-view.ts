@@ -290,6 +290,11 @@ export function createProfilesView(options: {
       "aria-labelledby": "profiles-matching-visibility-h",
       hidden: true,
     });
+    const unitLinkPanel = el(doc, "section", {
+      class: "cw-profiles-review",
+      "aria-labelledby": "profiles-unit-links-h",
+      hidden: true,
+    });
     const deletePanel = el(doc, "section", {
       class: "cw-profiles-review",
       "aria-labelledby": "profiles-delete-h",
@@ -364,6 +369,11 @@ export function createProfilesView(options: {
       () => openMatchingVisibility(),
       { id: "profiles-select-all-matching" },
     );
+    const linkExactMatches = button(
+      "Link exact matches",
+      () => void openUnitLinks(),
+      { id: "profiles-link-exact" },
+    );
     const clearSelection = button("Clear selection", () => {
       selected.clear();
       refreshSelectionState();
@@ -405,6 +415,7 @@ export function createProfilesView(options: {
           button(
             "Clear filters",
             () => {
+              closeUnitLinks();
               searchInput.value = "";
               countySelect.value = "";
               officeSelect.value = "";
@@ -433,6 +444,7 @@ export function createProfilesView(options: {
           selectPage,
           selectMatchingProfiles,
           selectMatching,
+          linkExactMatches,
           clearSelection,
           setButton,
           hideButton,
@@ -448,6 +460,7 @@ export function createProfilesView(options: {
         namesPanel,
         reviewPanel,
         matchingVisibilityPanel,
+        unitLinkPanel,
         deletePanel,
         gridHost,
       ),
@@ -888,6 +901,113 @@ export function createProfilesView(options: {
         );
       } catch (error) {
         announce(describeError(error));
+      }
+    }
+
+    function closeUnitLinks(): void {
+      unitLinkPanel.hidden = true;
+      clear(unitLinkPanel);
+    }
+
+    async function openUnitLinks(): Promise<void> {
+      if (staged.size || reviewing || deleting) {
+        announce("Finish or discard the current edits before linking roles.");
+        return;
+      }
+      const scope: ProfileQuery = {
+        ...query,
+        query: searchInput.value.trim(),
+        countyFips: countySelect.value || null,
+        office: officeSelect.value || null,
+        visibility: visibilitySelect.value as ProfileQuery["visibility"],
+      };
+      closeUnitLinks();
+      unitLinkPanel.hidden = false;
+      const heading = el(
+        doc,
+        "h2",
+        { id: "profiles-unit-links-h", tabindex: -1 },
+        "Link exact matches",
+      );
+      const status = el(
+        doc,
+        "p",
+        { role: "status" },
+        "Checking role rows across all pages of the current filters.",
+      );
+      const cancel = button("Close", () => {
+        closeUnitLinks();
+        linkExactMatches.focus();
+      });
+      unitLinkPanel.append(heading, status, cancel);
+      heading.focus();
+      try {
+        const reviewed = await client.previewUnitLinks(scope);
+        if (destroyed || !unitLinkPanel.contains(status)) return;
+        status.textContent = (
+          [
+            [reviewed.ready, "ready to link"],
+            [reviewed.linked, "already linked"],
+            [reviewed.unmatched, "with no exact match"],
+            [reviewed.multiple, "with multiple matches"],
+            [reviewed.review, "with an existing link to review"],
+          ] as const
+        )
+          .map(([count, label]) => `${count.toLocaleString()} ${label}`)
+          .join(" · ");
+        if (!reviewed.ready) return;
+        const key = newKey();
+        const confirm = button(
+          `Link ${reviewed.ready.toLocaleString()} ${reviewed.ready === 1 ? "role" : "roles"}`,
+          async () => {
+            if (staged.size || reviewing || deleting) {
+              announce(
+                "Finish or discard the current edits before linking roles.",
+              );
+              return;
+            }
+            confirm.disabled =
+              cancel.disabled =
+              linkExactMatches.disabled =
+                true;
+            try {
+              const receipt = await client.commitUnitLinks(
+                scope,
+                reviewed.digest,
+                key,
+              );
+              if (destroyed) return;
+              closeUnitLinks();
+              announce(
+                `Linked ${receipt.attached.toLocaleString()} ${receipt.attached === 1 ? "role" : "roles"} to County Structure.`,
+              );
+              await reload().catch(() =>
+                announce("Links saved. Reload the page to refresh the grid."),
+              );
+              linkExactMatches.focus();
+            } catch (error) {
+              if (destroyed) return;
+              if (
+                error instanceof ProfilesApiError &&
+                error.code === "stale_preview"
+              ) {
+                confirm.remove();
+                status.textContent =
+                  "Roles, units, or placements changed. Choose Link exact matches to preview again.";
+              } else {
+                status.textContent = describeError(error);
+                confirm.disabled = false;
+              }
+            } finally {
+              cancel.disabled = linkExactMatches.disabled = false;
+            }
+          },
+          { id: "profiles-confirm-exact-links" },
+        );
+        unitLinkPanel.insertBefore(confirm, cancel);
+      } catch (error) {
+        if (!destroyed && unitLinkPanel.contains(status))
+          status.textContent = describeError(error);
       }
     }
 
@@ -2344,6 +2464,41 @@ export function createProfilesView(options: {
           },
         };
       }
+      if (definition.id === "unitLink") {
+        return {
+          ...common,
+          formatter: (cell) => {
+            const link = (cell.getRow().getData() as unknown as ProfileRow)
+              .unitLink;
+            if (!link) return "";
+            if (link.state === "multiple") {
+              return el(
+                doc,
+                "details",
+                {},
+                el(doc, "summary", {}, "Multiple matches"),
+                el(
+                  doc,
+                  "ul",
+                  {},
+                  ...link.paths.map((path) => el(doc, "li", {}, path)),
+                ),
+              );
+            }
+            return el(
+              doc,
+              "span",
+              {},
+              {
+                linked: "✓ Linked",
+                ready: "Exact match · ready to link",
+                unmatched: "No exact match",
+                review: "Review existing link",
+              }[link.state],
+            );
+          },
+        };
+      }
       if (definition.id === "alternateNameCount") {
         return {
           ...common,
@@ -2526,12 +2681,14 @@ export function createProfilesView(options: {
     );
     searchInput.addEventListener("input", () => {
       closeMatchingVisibility();
+      closeUnitLinks();
       if (timer) clearTimeout(timer);
       timer = setTimeout(applyFilters, 350);
     });
     for (const control of [countySelect, officeSelect, visibilitySelect])
       control.addEventListener("change", () => {
         closeMatchingVisibility();
+        closeUnitLinks();
         applyFilters();
       });
     container
@@ -2539,6 +2696,7 @@ export function createProfilesView(options: {
       ?.addEventListener("submit", (event) => {
         event.preventDefault();
         closeMatchingVisibility();
+        closeUnitLinks();
         applyFilters();
       });
     void client

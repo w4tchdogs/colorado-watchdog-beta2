@@ -197,6 +197,7 @@ const allowed = new Set([
   "src/services/person-profile.ts",
   "src/services/person-visibility.ts",
   "src/services/profiles-d1.ts",
+  "src/services/profile-unit-links.ts",
   "src/services/profiles-delete-d1.ts",
   "src/services/profile-csv.ts",
   "src/services/profiles-import-csv.ts",
