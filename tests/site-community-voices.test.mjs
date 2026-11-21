@@ -386,6 +386,42 @@ test("empty production state keeps the shared layout and stays truthful", async 
   });
 });
 
+test("Stories cards and controls use the shared boxed-link hover and focus styles", async () => {
+  await withPreview("empty", async (preview) => {
+    const page = await get(preview, "/stories");
+    const { document } = page;
+    const { getComputedStyle } = document.defaultView;
+    for (const asset of ["site.css", "community-voices.css"]) {
+      const style = document.createElement("style");
+      style.textContent = (await get(preview, `/assets/${asset}`)).text
+        .replaceAll(":hover", "[data-test-hover]")
+        .replaceAll(":focus-visible", "[data-test-focus]");
+      document.head.append(style);
+    }
+
+    const controls = page.$$(
+      ".cv-pathway-link, .cv-types a, .cv-filter-actions .button, .cv-results .button",
+    );
+    assert.equal(controls.length, 8);
+    for (const control of controls) {
+      const box = control.closest(".cv-pathway") ?? control;
+      for (const state of ["data-test-hover", "data-test-focus"]) {
+        control.setAttribute(state, "");
+        const style = getComputedStyle(box);
+        assert.equal(style.backgroundColor, "rgb(23, 23, 23)");
+        assert.equal(style.color, "rgb(255, 255, 255)");
+        assert.equal(style.outline, "1px solid rgb(255, 255, 255)");
+        assert.equal(style.outlineOffset, "-1px");
+        for (const text of box.querySelectorAll("h3, p, a")) {
+          assert.equal(getComputedStyle(text).color, "rgb(255, 255, 255)");
+        }
+        assert.equal(getComputedStyle(control).textDecorationLine, "none");
+        control.removeAttribute(state);
+      }
+    }
+  });
+});
+
 test("the production site never carries preview fixtures or reads drafts", () => {
   assert.deepEqual(emptyEditorialSource.list("story"), []);
   assert.deepEqual(emptyEditorialSource.list("post"), []);
