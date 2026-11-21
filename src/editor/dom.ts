@@ -59,3 +59,19 @@ export function replaceChildren(
   clear(parent);
   append(doc, parent, children);
 }
+
+export function downloadBlob(
+  doc: Document,
+  fileName: string,
+  blob: Blob,
+): void {
+  const url = URL.createObjectURL(blob);
+  const link = el(doc, "a", { href: url, download: fileName });
+  doc.body.append(link);
+  try {
+    link.click();
+  } finally {
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+}

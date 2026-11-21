@@ -21,8 +21,11 @@ import {
   type AlternateNameList,
   type AlternateNameRecord,
   PROFILE_FIELDS,
+  PROFILE_GRID_FIELDS,
   PROFILE_NAME_COMPONENT_COLUMNS,
+  PROFILE_UNIT_LINK_LABELS,
   PROFILES_DEFAULT_PAGE_SIZE,
+  PROFILES_EXPORT_FILENAME,
   PROFILES_MAX_CHANGES,
   PROFILES_MAX_NAME_AFFIX_LENGTH,
   PROFILES_MAX_NAME_COMPONENT_LENGTH,
@@ -43,7 +46,7 @@ import {
   type ProfileDeleteReason,
 } from "../contracts/profiles-delete.js";
 import type { DashboardViewFactory } from "./dashboard.js";
-import { clear, el } from "./dom.js";
+import { clear, downloadBlob, el } from "./dom.js";
 import { ProfilesApiError, type ProfilesClient } from "./profiles-client.js";
 import { createImportPanel } from "./profiles-import-view.js";
 import { createProfileOfficeFilters } from "./profiles-office-filters.js";
@@ -71,39 +74,6 @@ Tabulator.registerModule([
  * permission, version check and write. The browser never treats its own state
  * as authority.
  */
-
-type RowKey = keyof ProfileRow;
-
-/** Field map ID to the row property the grid shows. */
-const ROW_KEY: Readonly<Record<string, RowKey>> = {
-  profileId: "profileId",
-  displayName: "displayName",
-  firstName: "firstName",
-  middleName: "middleName",
-  lastName: "lastName",
-  preferredFirstName: "preferredFirstName",
-  namePrefix: "namePrefix",
-  nameSuffix: "nameSuffix",
-  alternateNameCount: "alternateNameCount",
-  nameReview: "nameReview",
-  visible: "visible",
-  publicationStatus: "publicationStatus",
-  createdOn: "createdOn",
-  lastUploaded: "lastUploaded",
-  county: "county",
-  countyUnit: "countyUnit",
-  countySubUnit: "countySubUnit",
-  officeDepartment: "officeDepartment",
-  position: "position",
-  roleDuties: "roleDuties",
-  employmentStart: "employmentStart",
-  employmentEnd: "employmentEnd",
-  affiliation: "affiliation",
-  dateReviewed: "dateReviewed",
-  roleId: "roleId",
-  profileVersion: "profileVersion",
-  roleVersion: "roleVersion",
-};
 
 const ROLE_BULK_FIELDS = [
   { id: "visible", column: "visible", label: "Visible" },
@@ -345,6 +315,13 @@ export function createProfilesView(options: {
         control,
       );
 
+    const exportButton = button(
+      "Export view as CSV",
+      () => void exportCurrentView(),
+      {
+        id: "profiles-export",
+      },
+    );
     const saveButton = button("Save changes", () => void review(), {
       id: "profiles-save",
     });
@@ -467,6 +444,7 @@ export function createProfilesView(options: {
           hideButton,
           deleteButton,
           restoreButton,
+          exportButton,
           saveButton,
           discardButton,
           discardConfirm,
@@ -604,7 +582,9 @@ export function createProfilesView(options: {
       // A roleless Profile row has no role fields to edit.
       if (!profileLevel && row.roleId === null) return;
       const required = fieldId === "displayName";
-      const before = (row[ROW_KEY[fieldId] as RowKey] ?? null) as string | null;
+      const before = (row[fieldId as keyof ProfileRow] ?? null) as
+        | string
+        | null;
       const change: ProfileChange = {
         kind: "field",
         entity: profileLevel ? "people" : "person_roles",
@@ -2509,22 +2489,7 @@ export function createProfilesView(options: {
           },
         },
       ];
-      const order = [
-        "visible",
-        "displayName",
-        ...PROFILE_FIELDS.filter(
-          (item) =>
-            item.status !== "unavailable" &&
-            item.id !== "displayName" &&
-            item.id !== "visible",
-        ).map((item) => item.id),
-      ];
-      for (const id of order) {
-        const definition = PROFILE_FIELDS.find((item) => item.id === id);
-        if (!definition) continue;
-        columns.push(columnFor(definition));
-      }
-      return columns;
+      return [...columns, ...PROFILE_GRID_FIELDS.map(columnFor)];
     }
 
     function columnFor(
@@ -2600,7 +2565,7 @@ export function createProfilesView(options: {
                 doc,
                 "details",
                 {},
-                el(doc, "summary", {}, "Multiple matches"),
+                el(doc, "summary", {}, PROFILE_UNIT_LINK_LABELS[link.state]),
                 suggest(),
                 el(
                   doc,
@@ -2613,12 +2578,7 @@ export function createProfilesView(options: {
               doc,
               "span",
               {},
-              {
-                linked: "✓ Linked",
-                ready: "Exact match · ready to link",
-                unmatched: "No exact match",
-                review: "Review existing link",
-              }[link.state],
+              PROFILE_UNIT_LINK_LABELS[link.state],
               ...(row.officeDepartment &&
               row.countyFips &&
               link.state === "unmatched"
@@ -2695,6 +2655,34 @@ export function createProfilesView(options: {
         visibility: visibilitySelect.value as ProfileQuery["visibility"],
         unitLink: unitLinkSelect.value as ProfileQuery["unitLink"],
       };
+    }
+
+    async function exportCurrentView(): Promise<void> {
+      const ids = PROFILE_GRID_FIELDS.filter((field) =>
+        visibleColumns.has(field.id),
+      ).map(({ id }) => id);
+      const unsaved = staged.size > 0;
+      exportButton.disabled = true;
+      announce("Preparing CSV export…");
+      try {
+        const csv = await client.exportCsv(currentFilters(), ids);
+        if (destroyed) return;
+        downloadBlob(doc, PROFILES_EXPORT_FILENAME, csv);
+        announce(
+          unsaved
+            ? "CSV downloaded with saved values. Unsaved edits are still in the table."
+            : "CSV downloaded.",
+        );
+      } catch (error) {
+        if (!destroyed)
+          announce(
+            error instanceof ProfilesApiError && error.code === "stale_version"
+              ? "Profiles changed during the export. Try exporting again."
+              : describeError(error),
+          );
+      } finally {
+        exportButton.disabled = false;
+      }
     }
 
     function applyFilters(): void {

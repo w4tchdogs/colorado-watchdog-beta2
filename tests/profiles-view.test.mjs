@@ -1108,6 +1108,44 @@ test("changing page size preserves filters, sort, selection and staged edits", a
   );
 });
 
+test("the Profiles toolbar downloads the filtered view with the chosen columns", async () => {
+  const originalClick = window.HTMLAnchorElement.prototype.click;
+  let download;
+  window.HTMLAnchorElement.prototype.click = function () {
+    download = {
+      name: this.download,
+      text: fetch(this.href).then((r) => r.text()),
+    };
+  };
+  try {
+    await mount(async ({ $, click, announcements }) => {
+      const county = $("#profiles-county");
+      await waitFor(
+        () => county.querySelector('option[value="08069"]'),
+        "county filters",
+      );
+      county.value = "08069";
+      county.dispatchEvent(new window.Event("change", { bubbles: true }));
+      const hiddenColumn = $("#profiles-col-position");
+      hiddenColumn.checked = false;
+      hiddenColumn.dispatchEvent(new window.Event("change", { bubbles: true }));
+      click($("#profiles-export"));
+      const saved = await waitFor(() => download, "CSV download");
+      assert.equal(saved.name, "profiles-view.csv");
+      const csv = await saved.text;
+      const [header] = csv.split("\r\n");
+      assert.match(header, /^Visible,Display Name,/);
+      assert.doesNotMatch(header, /(?:^|,)Position(?:,|$)|Select|Profile ID/);
+      assert.match(csv, /Multi Role/);
+      assert.match(csv, /Larimer/);
+      assert.doesNotMatch(csv, /Adams/);
+      assert.ok(announcements.includes("CSV downloaded."));
+    });
+  } finally {
+    window.HTMLAnchorElement.prototype.click = originalClick;
+  }
+});
+
 test("remote pagination returns exactly 1000 rows then the remainder without duplicates", async () => {
   await mount(
     async ({ $, $$, click, rows, database, announcements }) => {

@@ -56,6 +56,7 @@ export class ProfilesApiError extends Error {
 
 export interface ProfilesClient {
   rows(query: ProfileQuery): Promise<ProfilePage>;
+  exportCsv(query: ProfileQuery, columns: readonly string[]): Promise<Blob>;
   facets(): Promise<ProfileFacets>;
   suggestUnits(roleId: string): Promise<ProfileUnitSuggestions>;
   linkSuggestedUnit(
@@ -137,13 +138,15 @@ function queryString(query: ProfileQuery, paged: boolean): string {
 export function createProfilesClient(options: {
   readonly fetch: ProfilesFetch;
 }): ProfilesClient {
-  async function call<T>(path: string, init?: RequestInit): Promise<T> {
-    let response: Response;
+  async function request(path: string, init?: RequestInit): Promise<Response> {
     try {
-      response = await options.fetch(`${PROFILES_API_PREFIX}${path}`, init);
+      return await options.fetch(`${PROFILES_API_PREFIX}${path}`, init);
     } catch {
       throw new ProfilesApiError(0, "network_error");
     }
+  }
+
+  async function readJson<T>(response: Response): Promise<T> {
     let body: Record<string, unknown> = {};
     try {
       body = (await response.json()) as Record<string, unknown>;
@@ -163,6 +166,8 @@ export function createProfilesClient(options: {
     }
     return body as T;
   }
+  const call = async <T>(path: string, init?: RequestInit) =>
+    readJson<T>(await request(path, init));
   const post = (
     path: string,
     changes: readonly ProfileChange[],
@@ -298,6 +303,15 @@ export function createProfilesClient(options: {
     importReverse: (batchId, key) =>
       importPost<ProfilesImportReversal>("reverse", { batchId }, key),
     rows: (query) => call<ProfilePage>(`/rows?${queryString(query, true)}`),
+    async exportCsv(query, columns) {
+      const params = new URLSearchParams(queryString(query, false));
+      params.set("columns", columns.join(","));
+      const response = await request(`/export?${params}`);
+      if (!response.ok) await readJson(response);
+      if (response.headers.get("content-type")?.split(";")[0] !== "text/csv")
+        throw new ProfilesApiError(500, "internal_error");
+      return response.blob();
+    },
     async facets() {
       const first = await call<ProfileFacets>("/facets");
       const offices = [...first.offices];

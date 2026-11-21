@@ -27,7 +27,7 @@ import {
   type LinkedRoleResponse,
 } from "./county-structure-client.js";
 import type { DashboardViewFactory } from "./dashboard.js";
-import { clear, el } from "./dom.js";
+import { clear, downloadBlob, el } from "./dom.js";
 import { readUploadBase64 } from "./upload.js";
 
 const MODE_LABELS: Readonly<Record<ImportMode, string>> = {
@@ -1622,7 +1622,12 @@ export function createCountyStructureView(options: {
           ? `county-${selectedCounty}.csv`
           : "county.csv";
         if (options.download) options.download(fileName, file.csv);
-        else downloadText(doc, fileName, file.csv);
+        else
+          downloadBlob(
+            doc,
+            fileName,
+            new Blob([file.csv], { type: "text/csv" }),
+          );
         say(`Exported ${fileName}.`);
       } catch (error) {
         say(describe(error));
@@ -1705,13 +1710,4 @@ function field(
     el(doc, "label", { for: id }, label),
     control,
   );
-}
-
-function downloadText(doc: Document, fileName: string, text: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
-  const link = el(doc, "a", { href: url, download: fileName });
-  doc.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
 }

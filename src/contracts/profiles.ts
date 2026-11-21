@@ -14,6 +14,7 @@
  */
 export const PROFILES_API_PREFIX = "/api/admin/profiles";
 export const PROFILES_CAPABILITY = "profile.manage";
+export const PROFILES_EXPORT_FILENAME = "profiles-view.csv";
 
 export const PROFILES_MAX_PAGE_SIZE = 1_000;
 export const PROFILES_DEFAULT_PAGE_SIZE = 50;
@@ -630,6 +631,18 @@ export const PROFILE_FIELDS: readonly ProfileFieldDefinition[] = [
   },
 ] as const;
 
+const PINNED_PROFILE_FIELDS = ["visible", "displayName"];
+export const PROFILE_GRID_FIELDS = [
+  ...PINNED_PROFILE_FIELDS.map((id) =>
+    PROFILE_FIELDS.find((field) => field.id === id),
+  ).filter((field) => field !== undefined),
+  ...PROFILE_FIELDS.filter(
+    (field) =>
+      field.status !== "unavailable" &&
+      !PINNED_PROFILE_FIELDS.includes(field.id),
+  ),
+];
+
 export const PROFILE_SORT_FIELDS = PROFILE_FIELDS.filter(
   (field) => field.sortable,
 ).map((field) => field.id);
@@ -711,6 +724,16 @@ export type ProfileUnitLinkState =
   | "unmatched"
   | "multiple"
   | "review";
+
+export const PROFILE_UNIT_LINK_LABELS: Readonly<
+  Record<ProfileUnitLinkState, string>
+> = {
+  linked: "✓ Linked",
+  ready: "Exact match · ready to link",
+  unmatched: "No exact match",
+  multiple: "Multiple matches",
+  review: "Review existing link",
+};
 
 export interface ProfileUnitLink {
   readonly state: ProfileUnitLinkState;
