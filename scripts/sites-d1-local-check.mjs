@@ -632,53 +632,14 @@ async function main() {
   const editorHash = await hashCredential(editorToken);
   const disabledHash = await hashCredential(disabledToken);
   const contributorHash = await hashCredential(contributorToken);
-  const migrations = [
-    "0001_counties.sql",
-    "0002_foundation.sql",
-    "0003_county_fips_prefix.sql",
-    "0004_m1_county_roles.sql",
-    "0005_m2_sync_batches.sql",
-    "0006_m2_sync_reversals.sql",
-    "0007_m2_duplicate_flags.sql",
-    "0008_duplicate_flag_observations.sql",
-    "0009_content_foundation.sql",
-    "0010_content_revisions.sql",
-    "0011_m2_dependency_generation.sql",
-    "0012_banner_assets.sql",
-    "0013_private_report_intake.sql",
-    "0014_owner_bootstrap_audit.sql",
-    "0015_correct_lake_la_plata_county_names.sql",
-    "0016_banner_homepage_curation.sql",
-    "0017_content_publication.sql",
-    "0018_banner_publications.sql",
-    "0019_human_sign_in.sql",
-    "0020_role_source_publisher_classification.sql",
-    "0021_report_challenge_claims.sql",
-    "0022_unstructured_person_roles.sql",
-    "0023_sync_batch_result_size.sql",
-    "0024_agent_capability_grants.sql",
-    "0025_agent_inspect_grant.sql",
-    "0026_agent_banner_publish_grant.sql",
-    "0027_archived_accounts.sql",
-    "0028_optional_role_source_found_date.sql",
-    "0029_content_revision_checkpoint_label.sql",
-    "0030_profile_visibility.sql",
-    "0031_county_structure.sql",
-    "0032_profile_names.sql",
-    "0033_county_structure_v4_contract.sql",
-    "0034_profile_publication_rule.sql",
-    "0035_profile_delete.sql",
-    "0036_county_structure_pinned_layout.sql",
-    "0037_private_profile_role_evidence.sql",
-    "0038_profile_publication_point_checks.sql",
-  ];
+  const { loadWebsiteMigrations } = await import(
+    "../dist/database/migrations.js"
+  );
   const migrationFile = join(persist, "website-migrations.sql");
   writeFileSync(
     migrationFile,
-    migrations
-      .map((name) =>
-        readFileSync(join(root, "website", "migrations", name), "utf8"),
-      )
+    loadWebsiteMigrations()
+      .map(({ sql }) => sql)
       .join("\n"),
   );
   command([

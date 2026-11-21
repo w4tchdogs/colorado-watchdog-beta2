@@ -51,9 +51,9 @@ import { reverseSyncBatchD1 } from "./sync-revert-d1.js";
  * from the one the owner reviewed, and then writes through the shared sync
  * commit engine in one atomic batch: Website-assigned IDs, expected versions,
  * a retry-safe receipt, audit events and reversal all come from that engine.
- * New Profiles are created hidden in the same batch. Existing Profiles, their
- * visibility, owner edits and every record the file does not mention are left
- * alone. Stable keys persist as namespaced client references on the committed
+ * New Profiles are created hidden in the same batch. A master workbook updates
+ * fields it supplies on previously mapped Profiles and roles. Visibility and
+ * records outside the upload are preserved. Stable keys persist on committed
  * sync items, so no new table is needed.
  */
 export class ImportInputError extends Error {
@@ -167,11 +167,11 @@ export function createD1ProfilesImportService(
   }
 
   async function plan(input: unknown) {
-    const draftWorkbook =
-      options.privateDraftReview === true &&
+    const masterWorkbook =
       input !== null &&
       typeof input === "object" &&
       Object.hasOwn(input, "workbook");
+    const draftWorkbook = options.privateDraftReview === true && masterWorkbook;
     const files = await parseFiles(
       input,
       draftWorkbook
@@ -191,10 +191,11 @@ export function createD1ProfilesImportService(
       database,
       files,
       now,
+      masterWorkbook,
       readd,
       maxRequestBytes,
     );
-    return { ...planned, maxRequestBytes };
+    return { ...planned, maxRequestBytes, masterWorkbook };
   }
 
   return {
@@ -249,6 +250,7 @@ export function createD1ProfilesImportService(
           now,
           createdPeopleHidden: true,
           importerBatch: true,
+          allowImporterRoleTextUpdates: planned.masterWorkbook,
           maxImporterRequestBytes: planned.maxRequestBytes,
           expectedGeneration: generation,
         },
@@ -497,12 +499,17 @@ async function buildPlan(
   db: AsyncD1Database,
   files: ProfilesImportFiles,
   now: () => Date,
+  masterWorkbook: boolean,
   readdProfileId?: string,
   maxRequestBytes?: number,
 ): Promise<Plan> {
   const issues: ImportIssue[] = [];
   const rows: ImportRowReport[] = [];
   const notes: string[] = [];
+  if (masterWorkbook)
+    notes.push(
+      "The workbook supplies the Website values for supported Profiles and Roles fields. Blank optional role cells clear the included fields. Review the updates before committing.",
+    );
   const ignored: {
     file: typeof PROFILE_FILE | typeof ROLE_FILE | typeof NAME_FILE;
     columns: readonly string[];
@@ -517,12 +524,14 @@ async function buildPlan(
   let profiles: readonly ProfileRecord[] = profileChecked.records;
 
   let roles: readonly RoleRecord[] = [];
+  let roleHeaders: readonly string[] = [];
   if (files.profileRole !== undefined) {
     const roleParsed = parseImportFile(ROLE_FILE, files.profileRole);
     issues.push(...roleParsed.issues);
     if (roleParsed.ignoredColumns.length)
       ignored.push({ file: ROLE_FILE, columns: roleParsed.ignoredColumns });
-    const roleChecked = validateRoleRows(roleParsed);
+    roleHeaders = roleParsed.headers;
+    const roleChecked = validateRoleRows(roleParsed, masterWorkbook);
     issues.push(...roleChecked.issues);
     roles = roleChecked.records;
   } else {
@@ -702,6 +711,7 @@ async function buildPlan(
     person_id: string;
     version: number;
     county_fips: string | null;
+    position_id: string | null;
     start_date: string | null;
     end_date: string | null;
     published_office: string | null;
@@ -710,7 +720,7 @@ async function buildPlan(
   }>(
     db,
     "person_roles",
-    "id, person_id, version, county_fips, start_date, end_date, published_office, published_title, job_description",
+    "id, person_id, version, county_fips, position_id, start_date, end_date, published_office, published_title, job_description",
     mappedRoleIds,
   );
   const hidden = new Set<string>();
@@ -825,7 +835,7 @@ async function buildPlan(
       };
       if (diffs.length === 0) {
         rows.push({ ...base, action: "unchanged" });
-      } else if (current.version === mapped.baselineVersion) {
+      } else if (masterWorkbook || current.version === mapped.baselineVersion) {
         addChange(
           {
             op: "update_record",
@@ -1061,6 +1071,17 @@ async function buildPlan(
     }
     const mappedRole = mapOf(IMPORT_REF.role, role.roleId);
     if (!mappedRole) {
+      if (
+        !role.publishedOffice &&
+        !role.publishedTitle &&
+        !role.jobDescription
+      ) {
+        blockedRow(
+          "A new role needs published_office, published_title or job_description.",
+          "role_detail_required",
+        );
+        continue;
+      }
       addChange(
         {
           op: "create_person_role",
@@ -1107,11 +1128,11 @@ async function buildPlan(
     const expectedPerson = mappedProfile?.websiteId;
     const fixed: { field: string; current: string | null; proposed: string }[] =
       [];
-    if (expectedPerson && current.person_id !== expectedPerson)
+    if (current.person_id !== expectedPerson)
       fixed.push({
         field: "profile",
         current: current.person_id,
-        proposed: expectedPerson,
+        proposed: expectedPerson ?? role.profileId,
       });
     if (current.county_fips !== null && current.county_fips !== role.countyFips)
       fixed.push({
@@ -1119,12 +1140,13 @@ async function buildPlan(
         current: current.county_fips,
         proposed: role.countyFips,
       });
-    for (const [field, value, now_] of [
+    const roleText = [
       ["published_office", role.publishedOffice, current.published_office],
       ["published_title", role.publishedTitle, current.published_title],
       ["job_description", role.jobDescription, current.job_description],
-    ] as const)
-      if (value !== undefined && value !== now_)
+    ] as const;
+    for (const [field, value, now_] of roleText)
+      if (!masterWorkbook && value !== undefined && value !== now_)
         fixed.push({ field, current: now_, proposed: value });
     if (fixed.length) {
       rows.push({
@@ -1135,29 +1157,45 @@ async function buildPlan(
         action: "conflict",
         websiteId: mappedRole.websiteId,
         visibility: "not_applicable",
-        reason:
-          "These fields cannot change through import. Edit them in the Profiles sheet. The Website values are kept.",
+        reason: masterWorkbook
+          ? "The role key is already assigned to another Profile or county. Review the key and assignment."
+          : "These fields differ from the Website. CSV imports keep the Website values.",
         fields: fixed,
       });
       continue;
     }
     const diffs: {
-      field: "start_date" | "end_date";
+      field: string;
       current: string | null;
-      proposed: string;
+      proposed: string | null;
     }[] = [];
-    if (role.startDate && role.startDate !== current.start_date)
-      diffs.push({
-        field: "start_date",
-        current: current.start_date,
-        proposed: role.startDate,
-      });
-    if (role.endDate && role.endDate !== current.end_date)
-      diffs.push({
-        field: "end_date",
-        current: current.end_date,
-        proposed: role.endDate,
-      });
+    const dates = [
+      ["start_date", role.startDate, current.start_date],
+      ["end_date", role.endDate, current.end_date],
+    ] as const;
+    if (
+      masterWorkbook &&
+      !current.position_id &&
+      !roleText.some(([field, value, before]) =>
+        roleHeaders.includes(field) ? value : before,
+      )
+    ) {
+      blockedRow(
+        "The workbook would clear the last role detail. Keep an office, title or duties.",
+        "role_detail_required",
+      );
+      continue;
+    }
+    for (const [field, value, before] of masterWorkbook
+      ? [...roleText, ...dates]
+      : dates) {
+      const supplied = masterWorkbook
+        ? roleHeaders.includes(field)
+        : value !== undefined;
+      const proposed = value ?? null;
+      if (supplied && proposed !== before)
+        diffs.push({ field, current: before, proposed });
+    }
     if (diffs.length === 0) {
       rows.push({
         kind: "role",
@@ -1168,7 +1206,10 @@ async function buildPlan(
         websiteId: mappedRole.websiteId,
         visibility: "not_applicable",
       });
-    } else if (current.version === mappedRole.baselineVersion) {
+    } else if (
+      masterWorkbook ||
+      current.version === mappedRole.baselineVersion
+    ) {
       addChange(
         {
           op: "update_record",
@@ -1239,6 +1280,7 @@ async function buildPlan(
   let request: SyncChangeSetRequest | null = null;
   const blocking = issues.length > 0;
   const digestBase = {
+    ...(masterWorkbook ? { masterWorkbook: true } : {}),
     ...(readdProfileId ? { readdProfileId } : {}),
     files: [
       await sha256Hex(files.profile),
@@ -1262,6 +1304,7 @@ async function buildPlan(
     const dryRun = await planSyncChangesetD1(db, request, now, undefined, {
       maxRequestBytes,
       allowRolesWithoutSource: true,
+      allowImporterRoleTextUpdates: masterWorkbook,
     });
     for (const error of dryRun.errors) issues.push(issueFor(error, allOrigins));
   }

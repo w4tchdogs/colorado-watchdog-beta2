@@ -4,6 +4,7 @@ import {
   PROFILES_MAX_NAME_COMPONENT_LENGTH,
   PROFILES_MAX_NAME_LENGTH,
 } from "../contracts/profiles.js";
+import { IMPORT_ROLE_TEXT_LIMITS } from "../contracts/profiles-import.js";
 import type {
   PlannedSyncItem,
   SyncEntity,
@@ -63,6 +64,11 @@ const UPDATE_FIELDS: Record<string, readonly string[]> = {
     "applies_until",
   ],
 };
+const ROLE_TEXT_FIELDS = Object.entries(IMPORT_ROLE_TEXT_LIMITS);
+const IMPORT_ROLE_UPDATE_FIELDS = [
+  ...(UPDATE_FIELDS.person_roles ?? []),
+  ...Object.keys(IMPORT_ROLE_TEXT_LIMITS),
+];
 /** Component fields and their length limits. Affixes are shorter. */
 const NAME_COMPONENT_LIMITS: Readonly<Record<string, number>> = {
   first_name: PROFILES_MAX_NAME_COMPONENT_LENGTH,
@@ -191,6 +197,7 @@ export async function planSyncChangesetD1(
   options: {
     maxRequestBytes?: number;
     allowRolesWithoutSource?: boolean;
+    allowImporterRoleTextUpdates?: boolean;
   } = {},
 ): Promise<SyncPlan> {
   const maxRequestBytes = options.maxRequestBytes ?? MAX_SYNC_REQUEST_BYTES;
@@ -326,7 +333,16 @@ export async function planSyncChangesetD1(
     }
     const op = typeof raw.op === "string" ? raw.op : "";
     if (op === "update_record") {
-      await planUpdate(lookups, raw, i, items, targets, add, now);
+      await planUpdate(
+        lookups,
+        raw,
+        i,
+        items,
+        targets,
+        add,
+        now,
+        options.allowImporterRoleTextUpdates === true,
+      );
       continue;
     }
     const entity = CREATE.get(op);
@@ -595,6 +611,7 @@ async function planUpdate(
     version?: number,
   ) => void,
   now: () => Date,
+  allowImporterRoleTextUpdates: boolean,
 ) {
   if (
     typeof raw.entity !== "string" ||
@@ -644,7 +661,10 @@ async function planUpdate(
   }
   targets.add(key);
   const fields = raw.fields;
-  const allowed = UPDATE_FIELDS[entity] ?? [];
+  const allowed =
+    entity === "person_roles" && allowImporterRoleTextUpdates
+      ? IMPORT_ROLE_UPDATE_FIELDS
+      : (UPDATE_FIELDS[entity] ?? []);
   if (Object.keys(fields).some((f) => !allowed.includes(f))) {
     add("unsupported_field", index);
     items.push({
@@ -969,10 +989,28 @@ async function validateRoleUpdate(
     add("invalid_reference", i);
     return false;
   }
+  const proposed = (field: string) =>
+    Object.hasOwn(f, field) ? f[field] : row[field];
+  if (ROLE_TEXT_FIELDS.some(([key]) => Object.hasOwn(f, key))) {
+    for (const [key, max] of ROLE_TEXT_FIELDS) {
+      if (
+        Object.hasOwn(f, key) &&
+        f[key] !== null &&
+        !validNonempty(f[key], max)
+      ) {
+        add("invalid_field", i);
+        return false;
+      }
+    }
+    if (!row.position_id && !ROLE_TEXT_FIELDS.some(([key]) => proposed(key))) {
+      add("invalid_field", i);
+      return false;
+    }
+  }
   return validateRoleDates(
     {
-      start_date: f.start_date ?? row.start_date,
-      end_date: f.end_date ?? row.end_date,
+      start_date: proposed("start_date"),
+      end_date: proposed("end_date"),
       source_checked_at: Object.hasOwn(f, "source_checked_at")
         ? f.source_checked_at
         : Object.hasOwn(f, "source_id")

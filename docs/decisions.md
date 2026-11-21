@@ -452,3 +452,11 @@ saved placement status on each Profiles role row. A bulk review may attach
 the unique matches using their stable IDs. Preserve existing links and leave
 unmatched or ambiguous values for review. See the
 [Profiles dashboard workflow](architecture/county-structure.md#exact-matches-from-the-profiles-dashboard).
+
+## Excel master updates — November 21, 2026
+
+The owner designated the uploaded Excel workbook as the master for supported
+Profiles and Roles fields. A reviewed workbook commit overwrites those values
+by stable key, including earlier Website edits. Preserve the Website identity,
+county assignment, visibility and reviewed unit links. See the
+[Profiles import contract](architecture/profiles-import.md).

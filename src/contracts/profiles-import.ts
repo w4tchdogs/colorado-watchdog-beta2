@@ -93,6 +93,11 @@ export const NAME_FILE_COLUMNS = {
     "public_display",
   ],
 } as const;
+export const IMPORT_ROLE_TEXT_LIMITS = {
+  published_office: 500,
+  published_title: 500,
+  job_description: 2000,
+} as const;
 export const ROLE_FILE_COLUMNS = {
   required: ["role_id", "profile_id", "county_fips"],
   /** At least one of published_office, published_title or job_description per row. */
