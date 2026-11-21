@@ -460,3 +460,10 @@ Profiles and Roles fields. A reviewed workbook commit overwrites those values
 by stable key, including earlier Website edits. Preserve the Website identity,
 county assignment, visibility and reviewed unit links. See the
 [Profiles import contract](architecture/profiles-import.md).
+
+## County Structure Excel upload — November 21, 2026
+
+The owner requested direct Excel upload in the County Structure tab. Accept
+a single worksheet with the existing 17-column layout and use the same
+reviewed preview and commit workflow as CSV. See the
+[County Structure import contract](architecture/county-structure-csv.md#excel-workbook).

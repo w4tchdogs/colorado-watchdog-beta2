@@ -10,6 +10,7 @@ import { createBannerAdminClient } from "../dist/editor/banner-admin-client.js";
 import { createCountyStructureClient } from "../dist/editor/county-structure-client.js";
 import { createProfilesClient } from "../dist/editor/profiles-client.js";
 import { openDraftPreviewDatabase } from "../dist/editor-dev/draft-database.js";
+import { readCsvTable } from "../dist/services/county-structure-csv.js";
 import {
   createDraftSitePreview,
   createSitePreview,
@@ -98,7 +99,7 @@ test("the local owner can pin a fictional group and see it in the companion prev
   }
 });
 
-test("draft workbook, county CSV and layout pins survive restart and share public visibility", async () => {
+test("draft Profiles and County Structure workbooks and layout pins survive restart and share public visibility", async () => {
   const directory = mkdtempSync(join(tmpdir(), "watchdog-draft-review-"));
   const start = () =>
     startSandbox({ draftDatabase: openDraftPreviewDatabase(directory) });
@@ -127,13 +128,31 @@ test("draft workbook, county CSV and layout pins survive restart and share publi
       0,
     );
 
+    const { rows: countyRows } = readCsvTable(countyCsv);
+    const countyWorkbook = buildProfilesWorkbook({
+      "County Structure": countyRows,
+    }).toString("base64");
+    await assert.rejects(
+      structure.prepare({
+        fileName: "county.xlsx",
+        csv: countyCsv,
+        workbook: countyWorkbook,
+        mode: "merge",
+      }),
+      { status: 400 },
+    );
     const county = await structure.prepare({
-      fileName: "county.csv",
-      csv: countyCsv,
+      fileName: "county.xlsx",
+      workbook: countyWorkbook,
       mode: "merge",
       countyFips: null,
     });
     assert.equal(county.committable, true);
+    assert.equal(county.import.fileName, "county.xlsx");
+    assert.equal(
+      sandbox.database.prepare("SELECT COUNT(*) AS n FROM county_unit").get().n,
+      0,
+    );
     await structure.commit(
       county.import.id,
       {

@@ -2,11 +2,11 @@ import {
   type ChangeCounts,
   COUNTY_STRUCTURE_API_PREFIX,
   type CountyStructureCounts,
+  type CountyStructureImportRequest,
   type CountyStructureLayout,
   type CountyStructurePinnedGroup,
   type CountySummary,
   type CsvIssue,
-  type ImportMode,
   type ImportSummary,
   type PreparedImport,
   type UnitNode,
@@ -79,12 +79,7 @@ export interface CountyStructureClient {
   exportCsv(
     fips?: string,
   ): Promise<{ readonly csv: string; readonly version: number }>;
-  prepare(request: {
-    readonly fileName: string;
-    readonly csv: string;
-    readonly mode: ImportMode;
-    readonly countyFips: string | null;
-  }): Promise<PreparedImport>;
+  prepare(request: CountyStructureImportRequest): Promise<PreparedImport>;
   commit(
     importId: string,
     request: {

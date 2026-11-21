@@ -3,11 +3,11 @@ import {
   type ChangeCounts,
   type ChangeItem,
   type CountyStructureCounts,
+  type CountyStructureImportRequest,
   type CountySummary,
   type CsvIssue,
   DISPLAY_GROUP_TYPE,
   IMPORT_MODES,
-  type ImportMode,
   type ImportSummary,
   MAX_CSV_BYTES,
   MAX_TEXT,
@@ -37,6 +37,8 @@ import {
   planImport,
   sha256Hex,
 } from "./county-structure-plan.js";
+import { readCountyWorkbook } from "./county-structure-xlsx.js";
+import { ImportWorkbookError } from "./import-workbook.js";
 import { newId, type TrustedPrincipal } from "./security.js";
 
 /**
@@ -407,12 +409,7 @@ export class D1CountyStructureAdministration {
 
   async prepareImport(
     principal: TrustedPrincipal,
-    request: {
-      readonly fileName: string;
-      readonly csv: string;
-      readonly mode: ImportMode;
-      readonly countyFips?: string | null;
-    },
+    request: CountyStructureImportRequest,
   ): Promise<PreparedImport> {
     await this.authorize(principal);
     if (!(IMPORT_MODES as readonly string[]).includes(request.mode))
@@ -424,7 +421,21 @@ export class D1CountyStructureAdministration {
           message: "Choose merge, replace_county or replace_state.",
         },
       ]);
-    if (request.csv.length > MAX_CSV_BYTES)
+    const csv =
+      request.workbook === undefined
+        ? request.csv
+        : await readCountyWorkbook(request.workbook).catch((error: unknown) => {
+            if (!(error instanceof ImportWorkbookError)) throw error;
+            throw new CountyStructureValidationError([
+              {
+                row: 0,
+                column: null,
+                code: "invalid_workbook",
+                message: error.message,
+              },
+            ]);
+          });
+    if (csv.length > MAX_CSV_BYTES)
       throw new CountyStructureValidationError([
         {
           row: 0,
@@ -434,7 +445,7 @@ export class D1CountyStructureAdministration {
         },
       ]);
     const registry = await this.registry();
-    const parsed = parseCountyCsv(request.csv, registry);
+    const parsed = parseCountyCsv(csv, registry);
     if (!parsed.file) throw new CountyStructureValidationError(parsed.issues);
 
     const [version, current, references] = await Promise.all([
@@ -454,9 +465,11 @@ export class D1CountyStructureAdministration {
     const { changeset } = plan;
 
     const id = this.newIdentifier();
-    const fileSha = await sha256Hex(request.csv);
+    const fileSha = await sha256Hex(csv);
     const blocked = changeset.counts.blocked > 0;
-    const fileName = request.fileName.trim().slice(0, 255) || "county.csv";
+    const fileName =
+      request.fileName.trim().slice(0, 255) ||
+      (request.workbook === undefined ? "county.csv" : "county.xlsx");
     const statements: D1BatchStatement[] = [
       this.database.prepare(
         `INSERT INTO county_structure_import
@@ -472,7 +485,7 @@ export class D1CountyStructureAdministration {
           fileName,
           fileSha,
           changeset.checksum,
-          request.csv,
+          csv,
           version,
           blocked ? "blocked" : "prepared",
           JSON.stringify(changeset.counts),

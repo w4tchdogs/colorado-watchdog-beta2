@@ -580,8 +580,11 @@ function quote(value: string): string {
 }
 
 /** Deterministic text: header first, CRLF line ends, a final line break. */
-export function writeCsvTable(rows: readonly (readonly string[])[]): string {
-  const lines = [COUNTY_CSV_COLUMNS.map(quote).join(",")];
+export function writeCsvTable(
+  rows: readonly (readonly string[])[],
+  header: readonly string[] = COUNTY_CSV_COLUMNS,
+): string {
+  const lines = [header.map(quote).join(",")];
   for (const row of rows) lines.push(row.map(quote).join(","));
   return `${lines.join("\r\n")}\r\n`;
 }

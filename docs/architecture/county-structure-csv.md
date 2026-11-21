@@ -1,6 +1,6 @@
 # County Structure CSV contract and operator guide
 
-This is the contract for `county.csv`, the single file that imports and exports the County Structure. It covers the 17 columns, the rules the importer enforces, the three import modes, and the steps an operator follows. The design behind it is in [County Structure](county-structure.md). A worked example is in [`tests/fixtures/county-structure-example.csv.txt`](../../tests/fixtures/county-structure-example.csv.txt). It uses synthetic data only. The repository ignores every `.csv` file so that no real data is committed by accident, which is why the example carries a `.txt` ending. Save a copy as `county.csv` to try it.
+The County Structure dashboard accepts a single CSV or Excel workbook for import and exports `county.csv`. It covers the 17 columns, the rules the importer enforces, the three import modes, and the steps an operator follows. The design behind it is in [County Structure](county-structure.md). A worked example is in [`tests/fixtures/county-structure-example.csv.txt`](../../tests/fixtures/county-structure-example.csv.txt). It uses synthetic data only. The repository ignores every `.csv` file so that no real data is committed by accident, which is why the example carries a `.txt` ending. Save a copy as `county.csv` to try it.
 
 ## The file
 
@@ -25,6 +25,15 @@ The file is UTF-8 comma-separated text with a header row. A leading byte order m
 | 15 | Applies until | Optional date, `YYYY-MM-DD`. It must not be earlier than Applies from. |
 | 16 | Display order | Optional whole number. Siblings sort by it, then by name. |
 | 17 | Status | `active`, `former`, `historical`, `review_required` or `hidden`. Blank means `active`. |
+
+## Excel workbook
+
+Upload an `.xlsx` with one worksheet whose first row has the same 17 headings
+in the same order. Use values in the worksheet. The importer accepts a
+numeric county code such as `8001` as `08001` and reads formatted Excel dates
+as `YYYY-MM-DD`. Both the workbook and its normalized import data must fit
+within 1 MiB. The import receipt keeps the original filename and the normalized
+CSV used by the preview and commit.
 
 ## Stable IDs
 
