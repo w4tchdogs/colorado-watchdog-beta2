@@ -1390,7 +1390,8 @@ img {
   gap: 16px;
   margin-top: 25px;
 }
-.discovery-card {
+.discovery-card,
+.county-entry-card {
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -1453,22 +1454,22 @@ img {
   box-shadow: none;
 }
 
-/* Draw the homepage cards' white outline inside the box. */
-.home-page :is(
-  :is(a.button, .discovery-card):is(:hover, :focus-visible),
-  .cv-pathway:has(.cv-pathway-link:is(:hover, :focus-visible)),
-  .editorial-grid .article-card:has(.article-card-title a:is(:hover, :focus-visible))
+/* Draw the white outline inside featured links on home and county pages. */
+:is(
+  :is(.home-page a.button, .discovery-card, .hero-county .hero-actions a.button, .county-entry-card):is(:hover, :focus-visible),
+  .home-page .cv-pathway:has(.cv-pathway-link:is(:hover, :focus-visible)),
+  .home-page .editorial-grid .article-card:has(.article-card-title a:is(:hover, :focus-visible))
 ) {
-  background: #111111;
+  background: var(--ink);
   color: #ffffff;
-  border-color: #111111;
+  border-color: var(--ink);
   outline: 1px solid #ffffff;
   outline-offset: -1px;
 }
-.home-page :is(
-  :is(a.button, .discovery-card):is(:hover, :focus-visible),
-  .cv-pathway:has(.cv-pathway-link:is(:hover, :focus-visible)),
-  .editorial-grid .article-card:has(.article-card-title a:is(:hover, :focus-visible))
+:is(
+  :is(.home-page a.button, .discovery-card, .hero-county .hero-actions a.button, .county-entry-card):is(:hover, :focus-visible),
+  .home-page .cv-pathway:has(.cv-pathway-link:is(:hover, :focus-visible)),
+  .home-page .editorial-grid .article-card:has(.article-card-title a:is(:hover, :focus-visible))
 ) * {
   color: inherit;
 }
@@ -1476,10 +1477,10 @@ img {
   background: transparent;
   border-color: currentColor;
 }
-.home-page :is(
-  :is(a.button, .discovery-card):focus-visible,
-  .cv-pathway:has(.cv-pathway-link:focus-visible),
-  .editorial-grid .article-card:has(.article-card-title a:focus-visible)
+:is(
+  :is(.home-page a.button, .discovery-card, .hero-county .hero-actions a.button, .county-entry-card):focus-visible,
+  .home-page .cv-pathway:has(.cv-pathway-link:focus-visible),
+  .home-page .editorial-grid .article-card:has(.article-card-title a:focus-visible)
 ) {
   box-shadow: 0 0 0 2pt var(--ink);
 }
@@ -1494,7 +1495,8 @@ img {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .discovery-card {
+  .discovery-card,
+  .county-entry-card {
     transition: none;
   }
 }
@@ -2849,12 +2851,9 @@ main:has(.hero-county) h2 { font-size: 1.875rem; line-height: 1.3; }
 .stat-row dd { order: -1; }
 .stat-status { color: var(--ink-soft); font-size: 0.75rem; }
 .county-entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1.5625rem; }
-.county-entry-card { display: flex; flex-direction: column; min-width: 0; padding: 1.625rem 1.3125rem; border: 1px solid #bbb; border-radius: 0; background: white; color: var(--ink); text-decoration: none; }
 .county-entry-card h3 { font-family: var(--font-body); font-size: 1.0625rem; font-weight: 800; line-height: 1.5; margin: 0.5rem 0 0.8125rem; }
 .county-entry-card p { font-size: 0.75rem; line-height: 1.9; color: #555; }
 .county-entry-card span { margin-top: auto; padding-top: 0.625rem; color: var(--red); font-size: 0.625rem; font-weight: 800; }
-.county-entry-card:hover, .county-entry-card:focus-visible { border-color: var(--red); }
-.county-entry-card:hover span { text-decoration: underline; }
 @media (max-width: 43.75rem) {
   .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hero-county h1 { font-size: 2.25rem; }

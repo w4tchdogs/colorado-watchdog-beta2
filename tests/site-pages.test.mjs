@@ -183,6 +183,54 @@ test("Home and Stories share navigation, MENU and footer hover styles", async ()
   });
 });
 
+test("county hero links and cards share the homepage hover and focus treatment", async () => {
+  await withPreview("fictional", async (preview) => {
+    const css = (await get(preview, "/assets/site.css")).text
+      .replaceAll(":hover", "[data-test-hover]")
+      .replaceAll(":focus-visible", "[data-test-focus]");
+    for (const [path, cardSelector, cardCount] of [
+      ["/", ".discovery-card", 4],
+      ["/counties/08081", ".county-entry-card", 2],
+    ]) {
+      const page = await get(preview, path);
+      const style = page.document.createElement("style");
+      style.textContent = css;
+      page.document.head.append(style);
+      const { getComputedStyle } = page.document.defaultView;
+      const heroLinks = page.$$(".hero-actions a.button");
+      const cards = page.$$(cardSelector);
+      assert.equal(heroLinks.length, 2, path);
+      assert.equal(cards.length, cardCount, path);
+      for (const card of cards)
+        assert.equal(getComputedStyle(card).borderRadius, "4px", path);
+      for (const link of [...heroLinks, ...cards]) {
+        for (const state of ["data-test-hover", "data-test-focus"]) {
+          link.setAttribute(state, "");
+          const hovered = getComputedStyle(link);
+          assert.equal(hovered.backgroundColor, "rgb(23, 23, 23)", path);
+          assert.equal(hovered.color, "rgb(255, 255, 255)", path);
+          assert.equal(hovered.outline, "1px solid rgb(255, 255, 255)", path);
+          assert.equal(hovered.outlineOffset, "-1px", path);
+          assert.equal(hovered.textDecorationLine, "none", path);
+          for (const text of link.querySelectorAll("h3, p, span")) {
+            assert.equal(
+              getComputedStyle(text).color,
+              "rgb(255, 255, 255)",
+              path,
+            );
+            assert.equal(
+              getComputedStyle(text).textDecorationLine,
+              "none",
+              path,
+            );
+          }
+          link.removeAttribute(state);
+        }
+      }
+    }
+  });
+});
+
 test("homepage on an empty database stays useful and claims nothing", async () => {
   await withPreview("empty", async (preview) => {
     const page = await get(preview, "/");
