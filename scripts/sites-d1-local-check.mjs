@@ -635,13 +635,9 @@ async function main() {
   const { loadWebsiteMigrations } = await import(
     "../dist/database/migrations.js"
   );
+  const migrations = loadWebsiteMigrations();
   const migrationFile = join(persist, "website-migrations.sql");
-  writeFileSync(
-    migrationFile,
-    loadWebsiteMigrations()
-      .map(({ sql }) => sql)
-      .join("\n"),
-  );
+  writeFileSync(migrationFile, migrations.map(({ sql }) => sql).join("\n"));
   command([
     "d1",
     "execute",
