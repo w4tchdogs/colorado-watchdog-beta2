@@ -122,7 +122,7 @@ export async function editorialListPage(
     breadcrumbs: [{ label: "Home", href: "/" }, { label: kind.plural }],
     head: COMMUNITY_VOICES_HEAD,
     body: html`${pageHeader(kind.heading, kind.intro, undefined, `Community Voices \u00b7 ${kind.plural}`)}
-      ${pathwayCards(base, kind.plural, filters.pathway, filters)}
+      ${pathwayCards(base, kind.plural, { filters, showAssignmentNote: true })}
       <section class="cv-browse" aria-label="Browse ${noun}">
         ${contentTypeNav(type, filters)}
         ${filterForm({ plural: kind.plural, singular: kind.singular, base }, filterOptions(all), filters)}

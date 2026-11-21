@@ -83,9 +83,9 @@ export async function homePage(context: SiteContext): Promise<Page> {
       ${["Reports", "Grievances"].map((label) => html`<div><dt>${label}</dt><dd aria-label="Pending">—</dd><span class="stat-status">Pending</span></div>`)}
     </dl>
     ${
-      counties && units !== null && people !== null
-        ? html`<p class="stat-note">Each public unit and profile is counted once statewide.</p>`
-        : html`<p class="stat-note">Some statewide totals are temporarily unavailable.</p>`
+      counties === null || units === null || people === null
+        ? html`<p class="stat-note">Some statewide totals are temporarily unavailable.</p>`
+        : ""
     }
   </section>
 
