@@ -13,6 +13,7 @@ import { el } from "./dom.js";
  * file, carries none of them.
  */
 export interface DashboardSandboxSwitch {
+  readonly draftReview?: boolean;
   readonly accounts: readonly {
     readonly key: string;
     readonly label: string;
@@ -62,7 +63,9 @@ function buildSandboxBar(
     h(
       "p",
       { class: "sandbox-flag", id: "sandbox-flag" },
-      "LOCAL SANDBOX - fictional data only, nothing is published",
+      sandbox.draftReview
+        ? "PRIVATE LOCAL DRAFT REVIEW - changes are saved on this computer"
+        : "LOCAL SANDBOX - fictional data only, nothing is published",
     ),
     h(
       "div",

@@ -50,7 +50,7 @@ export interface PublicSiteOptions {
    * True only in the local preview. Shows a persistent notice that all
    * records and articles are fictional demonstration data.
    */
-  readonly preview?: boolean;
+  readonly preview?: boolean | "draft-review";
   /** Permit the ChatGPT editor to frame public browsing pages on Alpha-1. */
   readonly allowChatGptEditor?: boolean;
   readonly now?: () => Date;

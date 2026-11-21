@@ -1,10 +1,13 @@
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { createEditorSandbox } from "../dist/editor-dev/sandbox.js";
-import { createSitePreview } from "../dist/site-dev/preview.js";
+import {
+  createDraftSitePreview,
+  createSitePreview,
+} from "../dist/site-dev/preview.js";
 
-// The sandbox deliberately ignores DATABASE_PATH and every other production
-// setting. It only ever uses a fresh, disposable in-memory database.
+// The sandbox ignores DATABASE_PATH and hosted settings. Draft review takes
+// an explicit directory and uses a dedicated local file.
 if (/^production$/i.test(process.env.APP_ENV ?? process.env.NODE_ENV ?? "")) {
   console.error(
     "Refusing to start: the dashboard sandbox never runs in a production environment.",
@@ -12,15 +15,24 @@ if (/^production$/i.test(process.env.APP_ENV ?? process.env.NODE_ENV ?? "")) {
   process.exit(1);
 }
 
+const args = process.argv.slice(2);
+if (
+  args.length &&
+  (args.length !== 2 || args[0] !== "--draft-review" || !args[1])
+)
+  throw new Error(
+    "Usage: npm run editor:dev -- --draft-review <local-directory>",
+  );
+const draftDirectory = args[1];
+
 const host = "127.0.0.1";
 const port = Number(process.env.EDITOR_PORT ?? 8788);
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error("EDITOR_PORT must be an integer between 1 and 65535");
 }
 
-// The fictional public site preview runs beside the dashboard so the "View
-// public site" link has a local destination. It is the same read-only preview
-// as `npm run site:dev`, with its own separate in-memory database.
+// The public preview runs beside the dashboard. Draft review shares the
+// local file, while the fictional preview keeps its own fixture database.
 const sitePort = Number(process.env.SITE_PORT ?? 8790);
 if (
   !Number.isInteger(sitePort) ||
@@ -33,8 +45,14 @@ if (
   );
 }
 const publicSiteUrl = `http://${host}:${sitePort}/`;
+const draftDatabase = draftDirectory
+  ? (
+      await import("../dist/editor-dev/draft-database.js")
+    ).openDraftPreviewDatabase(draftDirectory)
+  : undefined;
 
 const sandbox = await createEditorSandbox({
+  draftDatabase,
   publicSiteUrl,
   staticDirectory: fileURLToPath(
     new URL("../website/editor/", import.meta.url),
@@ -88,19 +106,46 @@ const server = createServer(async (incoming, outgoing) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`Dashboard sandbox (fictional data, in-memory) running at:`);
+  console.log(
+    draftDatabase
+      ? "Private local draft dashboard running at:"
+      : "Dashboard sandbox (fictional data, in-memory) running at:",
+  );
   console.log(`  http://${host}:${port}/`);
-  console.log("Press Ctrl+C to stop. All sandbox data is discarded on exit.");
+  console.log(
+    draftDatabase
+      ? "Press Ctrl+C to stop. Draft edits are saved in website-draft.sqlite."
+      : "Press Ctrl+C to stop. All sandbox data is discarded on exit.",
+  );
 });
 
-const sitePreview = await createSitePreview({
-  staticDirectory: fileURLToPath(new URL("../website/site/", import.meta.url)),
-  data: "fictional",
-});
+const staticDirectory = fileURLToPath(
+  new URL("../website/site/", import.meta.url),
+);
+const sitePreview = draftDatabase
+  ? createDraftSitePreview(sandbox.database, staticDirectory)
+  : await createSitePreview({ staticDirectory, data: "fictional" });
 const siteServer = createServer(async (incoming, outgoing) => {
   try {
     const method = incoming.method ?? "GET";
-    if (method !== "GET" && method !== "HEAD") incoming.resume();
+    if (method !== "GET" && method !== "HEAD") {
+      incoming.resume();
+      if (draftDatabase) {
+        outgoing.writeHead(405, { allow: "GET, HEAD" });
+        outgoing.end();
+        return;
+      }
+    }
+    if (
+      draftDatabase &&
+      ![`${host}:${sitePort}`, `localhost:${sitePort}`].includes(
+        incoming.headers.host,
+      )
+    ) {
+      outgoing.writeHead(403);
+      outgoing.end();
+      return;
+    }
     const headers = new Headers();
     for (const [name, value] of Object.entries(incoming.headers)) {
       if (value === undefined || name === "host" || name === "connection") {
@@ -117,7 +162,13 @@ const siteServer = createServer(async (incoming, outgoing) => {
         headers,
       }),
     );
-    outgoing.writeHead(response.status, Object.fromEntries(response.headers));
+    const responseHeaders = Object.fromEntries(response.headers);
+    if (draftDatabase) {
+      responseHeaders["cache-control"] = "no-store";
+      responseHeaders["referrer-policy"] = "no-referrer";
+      responseHeaders["cross-origin-resource-policy"] = "same-origin";
+    }
+    outgoing.writeHead(response.status, responseHeaders);
     outgoing.end(
       method === "HEAD" ? undefined : Buffer.from(await response.arrayBuffer()),
     );
@@ -127,6 +178,13 @@ const siteServer = createServer(async (incoming, outgoing) => {
   }
 });
 siteServer.on("error", (error) => {
+  if (draftDatabase) {
+    console.error(
+      `Could not start the private public-page preview on port ${sitePort}. Stop the other preview or choose a different SITE_PORT.`,
+    );
+    shutdown();
+    process.exit(1);
+  }
   // Another preview (for example `npm run site:dev`) may already hold the
   // port. The dashboard keeps working and its link points at that preview.
   console.log(
@@ -136,7 +194,11 @@ siteServer.on("error", (error) => {
   );
 });
 siteServer.listen(sitePort, host, () => {
-  console.log(`Fictional public site preview (read-only) running at:`);
+  console.log(
+    draftDatabase
+      ? "Private local public-page preview (read-only) running at:"
+      : "Fictional public site preview (read-only) running at:",
+  );
   console.log(`  ${publicSiteUrl}`);
 });
 
@@ -147,7 +209,7 @@ function shutdown() {
   server.close();
   siteServer.close();
   sandbox.close();
-  sitePreview.close();
+  if (!draftDatabase) sitePreview.close();
 }
 process.on("SIGINT", () => {
   shutdown();

@@ -365,6 +365,8 @@ const allowed = new Set([
   "src/editor/profiles-view.ts",
   "src/types/tabulator-tables.d.ts",
   "src/editor-dev/d1-binding.ts",
+  "src/editor-dev/draft-database.ts",
+  "tests/draft-preview.test.mjs",
   "tests/dashboard-banners-ui.test.mjs",
   "docs/architecture/dashboard.md",
   "docs/architecture/profiles-sheet.md",

@@ -1,13 +1,18 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createApplication } from "../application.js";
+import { AsyncD1Database } from "../database/d1.js";
 import { migrateWebsiteDatabase } from "../database/migrations.js";
 import {
   openWebsiteDatabase,
   type WebsiteDatabase,
 } from "../database/sqlite.js";
+import { createLocalD1Binding } from "../editor-dev/d1-binding.js";
+import { D1CountyStructurePublicService } from "../services/county-structure-public.js";
+import { createD1PublicReadServices } from "../services/d1-public-reads.js";
 import { createServices } from "../services/index.js";
 import type { BannerSource } from "../site/banner.js";
+import { createD1EditorialSource } from "../site/d1-editorial-source.js";
 import {
   createPublicSite,
   createWebsite,
@@ -96,6 +101,24 @@ export interface SitePreview {
   readonly database: WebsiteDatabase;
   fetch(request: Request): Promise<Response>;
   close(): void;
+}
+
+/** The dashboard owns this database and closes it when both previews stop. */
+export function createDraftSitePreview(
+  database: WebsiteDatabase,
+  staticDirectory: string,
+) {
+  const localD1 = new AsyncD1Database(createLocalD1Binding(database));
+  return createWebsite({
+    application: createApplication(createServices({ database })),
+    site: createPublicSite({
+      services: createD1PublicReadServices(localD1),
+      countyStructure: new D1CountyStructurePublicService(localD1),
+      editorial: createD1EditorialSource(localD1),
+      assets: createFileAssets(staticDirectory),
+      preview: "draft-review",
+    }),
+  });
 }
 
 export async function createSitePreview(

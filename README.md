@@ -74,6 +74,32 @@ Choose **Olive Owner (owner)** under **Acting as** to open
 Structure workspace has a fictional hierarchy in Adams County. Edits are
 discarded when you stop the sandbox.
 
+### Private draft review
+
+Use the current import formats for the latest draft Profiles workbook and
+County Structure CSV. Keep the inputs and the review database in the private
+Watchdog folder, outside the Git checkout. From a checkout with this feature
+and Node.js 22.13 or later, run:
+
+```powershell
+npm.cmd run editor:dev -- --draft-review 'D:\ChatGPT\Watchdog\local-preview'
+```
+
+This opens or creates `website-draft.sqlite` in that directory. The
+[dashboard](http://127.0.0.1:8788/) and [public-page preview](http://127.0.0.1:8790/)
+use the same database on loopback. Under **Acting as**, select **Olive
+Owner (owner)**. In **County Structure**, preview and commit the draft
+`county.csv`. In **Profiles → Import Profiles**, choose the draft Excel
+workbook, preview it, and commit after reviewing the totals and issues.
+
+New Profiles start hidden. Set eligible records to **Visible** in the
+local dashboard to see them on the public-page preview. Use the dashboard
+to audit hidden records. Local imports and edits persist across restarts.
+Use a different review directory for an older checkout or a fresh audit.
+Banners administration remains available in the disposable sandbox.
+The local database can retain larger import receipts than hosted D1.
+The import formats and publication checks still apply.
+
 For the report form, run `npm run report:demo` and open
 [Submit or Track a Report demo](http://127.0.0.1:8791/).
 

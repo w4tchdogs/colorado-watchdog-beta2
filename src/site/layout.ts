@@ -48,7 +48,7 @@ function breadcrumbs(items: readonly Breadcrumb[] | undefined): SafeHtml {
 
 export function renderDocument(
   page: Page,
-  preview: boolean,
+  preview: boolean | "draft-review",
   entry: AccountEntry | null = null,
 ): string {
   const title =
@@ -73,7 +73,9 @@ ${page.head ?? ""}
 <a class="skip-link" href="#main">Skip to main content</a>
 ${
   preview
-    ? html`<p class="preview-notice" role="note"><strong>Local preview.</strong> Every person, organization, record and article shown here is fictional demonstration data.</p>`
+    ? preview === "draft-review"
+      ? html`<p class="preview-notice" role="note"><strong>Private local draft review.</strong> This site shows draft data stored on this computer.</p>`
+      : html`<p class="preview-notice" role="note"><strong>Local preview.</strong> Every person, organization, record and article shown here is fictional demonstration data.</p>`
     : ""
 }
 <header class="site-header">
