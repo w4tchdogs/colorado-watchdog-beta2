@@ -302,6 +302,11 @@ h2 {
   max-width: 76rem;
 }
 
+.dash-view[data-view="profiles"],
+.dash-view[data-view="county-structure"] {
+  max-width: none;
+}
+
 .editor-host:focus {
   outline: none;
 }
