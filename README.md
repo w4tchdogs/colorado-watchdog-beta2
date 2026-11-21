@@ -48,21 +48,25 @@ Worker entrypoint, and no hosted D1/R2 service or credentials are required.
 
 ## Public website preview
 
-`npm run site:dev` serves the M4 public website alpha at
-`http://127.0.0.1:8790/` with fictional demonstration data in a disposable
-in-memory database. `npm run site:dev:empty` shows the same site with an empty
-database. This local preview deploys nothing; see
-[CURRENT](docs/coordination/CURRENT.md) for the separate hosted Alpha-1
-deployment status. See
-[public website alpha](docs/architecture/public-site.md) for what the preview
-covers.
+From the checkout you want to review, run `npm ci` the first time or after the
+lockfile changes. Run `npm run site:dev` and open
+[Public site preview](http://127.0.0.1:8790/). Leave the terminal open while
+you review. Press Ctrl+C to stop the preview.
+
+The preview uses fictional demonstration data in a disposable in-memory
+database. `npm run site:dev:empty` shows the site with an empty database. See
+the [public website guide](docs/architecture/public-site.md) for preview
+coverage and [CURRENT](docs/coordination/CURRENT.md) for hosted status. Local
+review is the default. Alpha-1 staging releases happen when the owner requests
+them.
 
 ## Local dashboard preview
 
-After `npm ci`, run `npm run editor:dev` and open
-`http://127.0.0.1:8788/`. The preview uses a disposable sandbox with synthetic
-accounts and data. See the [dashboard guide](docs/architecture/dashboard.md)
-for details.
+Run `npm run editor:dev` and open
+[Dashboard preview](http://127.0.0.1:8788/). The same command starts the public
+preview on port 8790 if that port is available. The dashboard uses a
+disposable sandbox with synthetic accounts and data. See the
+[dashboard guide](docs/architecture/dashboard.md) for details.
 
 ## Repository checks
 

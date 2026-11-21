@@ -257,9 +257,10 @@ operator procedure is in [the Profiles foundation guide](research/R0-foundation.
 - The owner made this repository public for transparency and standard Actions compute availability. The existing boundaries on private research, credentials and original artwork still apply.
 - The owner confirmed the approved-folder lineage and the reviewed caption and alt text for the single Adams banner pilot. That decision is limited to the selected artwork. See the [approved-artwork pilot preparation](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/137#issuecomment-6933879397). Its scope is the county page on Cloudflare staging.
 
-## Alpha-1 staging deployment default, November 20, 2026
+## Local review and Alpha-1 staging releases, November 20, 2026
 
-- After merging Website changes that pass CI, deploy the latest passing `main` to the shared [Cloudflare Alpha-1 staging Worker](https://colorado-watchdog-alpha1-staging.dauthfamilymail.workers.dev/) so the owner can see the updates. Use the [staging runbook](deployment/cloudflare-staging.md) and verify the affected hosted paths. Record the deployed source, Worker version, and verification result in the relevant GitHub thread. If deployment access is unavailable, record the blocker and the source ready to deploy.
+- Review Website changes locally by default. Give the owner the [local preview command and link](../README.md#public-website-preview) for the affected page when handing off a change. GitHub `main` records the latest merged source.
+- Deploy passing changes to the shared [Cloudflare Alpha-1 staging Worker](https://colorado-watchdog-alpha1-staging.dauthfamilymail.workers.dev/) when the owner asks for a release. Each release can include several merged changes. Use the [staging runbook](deployment/cloudflare-staging.md) and verify the affected hosted paths. Record the exact source, Worker version, and verification result in the relevant GitHub thread. If deployment access is unavailable, record the blocker and the source ready to deploy.
 - Public Sites publishing and production cutover remain separately scoped. Existing account, data, and intake boundaries apply to the shared staging release.
 
 ## Public report attribution, November 16, 2026
