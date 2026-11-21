@@ -31,10 +31,17 @@ import {
   type ProfileRow,
   type ProfileSaveResult,
   type ProfileSelectionEntry,
+  type ProfileUnitLink,
+  type ProfileUnitLinkPreview,
+  type ProfileUnitLinkReceipt,
 } from "../contracts/profiles.js";
 import { StorageUnavailableError } from "../contracts/storage.js";
 import type { AsyncD1Database, D1BatchStatement } from "../database/d1.js";
 import { assertCredentialFree } from "./audit.js";
+import {
+  createProfileUnitLinks,
+  readProfileUnitLinks,
+} from "./profile-unit-links.js";
 import { createProfilesDelete } from "./profiles-delete-d1.js";
 import { AuthorizationError, type TrustedPrincipal } from "./security.js";
 import { IMPORTER_BATCH_KEY_PREFIX } from "./sync-commit-d1.js";
@@ -181,13 +188,15 @@ const READINESS_COLUMNS = `
   EXISTS (SELECT 1 ${ROLE_FROM_SQL} AND ${ROLE_COUNTY_SQL}) AS any_county,
   EXISTS (SELECT 1 ${ROLE_FROM_SQL} AND ${ROLE_DETAIL_SQL}) AS any_detail`;
 
-const FROM_CLAUSE = `
+const ROLE_JOINS = `
   FROM people p
   LEFT JOIN person_roles pr ON pr.person_id = p.id
   LEFT JOIN person_visibility pv ON pv.person_id = p.id
-  LEFT JOIN (${LAST_UPLOAD_SQL}) lu ON lu.person_id = p.id
   LEFT JOIN positions pos ON pos.id = pr.position_id
-  LEFT JOIN organizations o ON o.id = pos.organization_id
+  LEFT JOIN organizations o ON o.id = pos.organization_id`;
+
+const FROM_CLAUSE = `${ROLE_JOINS}
+  LEFT JOIN (${LAST_UPLOAD_SQL}) lu ON lu.person_id = p.id
   LEFT JOIN organizations parent ON parent.id = o.parent_organization_id
   LEFT JOIN counties c ON c.fips = ${COUNTY_EXPRESSION}`;
 
@@ -252,6 +261,15 @@ export interface ProfilesServiceOptions {
 export interface ProfilesService
   extends ReturnType<typeof createProfilesDelete> {
   listRows(principal: TrustedPrincipal, input: unknown): Promise<ProfilePage>;
+  previewUnitLinks(
+    principal: TrustedPrincipal,
+    input: unknown,
+  ): Promise<ProfileUnitLinkPreview>;
+  commitUnitLinks(
+    principal: TrustedPrincipal,
+    key: string,
+    input: unknown,
+  ): Promise<ProfileUnitLinkReceipt>;
   facets(principal: TrustedPrincipal): Promise<ProfileFacets>;
   selectAll(
     principal: TrustedPrincipal,
@@ -290,6 +308,7 @@ export function createD1ProfilesService(
   options: ProfilesServiceOptions,
 ): ProfilesService {
   const now = options.now ?? (() => new Date());
+  const unitLinks = createProfileUnitLinks(database);
 
   async function require(principal: TrustedPrincipal): Promise<void> {
     let allowed = false;
@@ -365,7 +384,10 @@ export function createD1ProfilesService(
     return `ORDER BY ${expression} ${direction}, p.id COLLATE BINARY ASC, pr.id COLLATE BINARY ASC`;
   }
 
-  function toRow(row: Row): ProfileRow {
+  function toRow(
+    row: Row,
+    unitLink: ProfileUnitLink | null = null,
+  ): ProfileRow {
     const roleId = nullable(row.role_id);
     const missing = missingForPublication(row);
     const visible = num(row.visible) === 1;
@@ -398,6 +420,7 @@ export function createD1ProfilesService(
       countyUnit: nullable(row.county_unit),
       countySubUnit: nullable(row.county_sub_unit),
       officeDepartment: nullable(row.office),
+      unitLink,
       position: nullable(row.position),
       roleDuties: nullable(row.job_description),
       employmentStart: nullable(row.start_date),
@@ -942,8 +965,50 @@ export function createD1ProfilesService(
     ]);
   }
 
+  function unitLinkScope(input: unknown) {
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      throw new ProfilesInputError("Choose the matching role rows.");
+    const { filters, digest } = input as Record<string, unknown>;
+    if (
+      !filters ||
+      typeof filters !== "object" ||
+      Array.isArray(filters) ||
+      Object.keys(filters).some(
+        (key) => !["query", "county", "office", "visibility"].includes(key),
+      )
+    )
+      throw new ProfilesInputError("Choose valid role filters.");
+    const { where, values } = filterClause(parseQuery(filters));
+    return {
+      digest,
+      scope: {
+        sql: `SELECT pr.id AS role_id, ${COUNTY_EXPRESSION} AS county_fips,
+         ${OFFICE_EXPRESSION} AS office ${ROLE_JOINS}
+         ${where ? `${where} AND` : "WHERE"} pr.id IS NOT NULL`,
+        values,
+      },
+    };
+  }
+
   return {
     ...createProfilesDelete(database, require, now),
+    async previewUnitLinks(principal, input) {
+      await require(principal);
+      return unitLinks.preview(principal, unitLinkScope(input).scope);
+    },
+    async commitUnitLinks(principal, key, input) {
+      await require(principal);
+      const { digest, scope } = unitLinkScope(input);
+      if (
+        typeof digest !== "string" ||
+        !/^[0-9a-f]{64}$/.test(digest) ||
+        !/^[A-Za-z0-9._:-]{8,128}$/.test(key)
+      )
+        throw new ProfilesInputError(
+          "An exact match preview and idempotency key are required.",
+        );
+      return unitLinks.commit(principal, scope, digest, key);
+    },
     async listRows(principal, input) {
       await require(principal);
       const query = parseQuery(input);
@@ -961,8 +1026,24 @@ export function createD1ProfilesService(
         query.pageSize,
         values,
       );
+      const links = await readProfileUnitLinks(
+        database,
+        rows.flatMap((row) =>
+          typeof row.role_id === "string"
+            ? [
+                {
+                  roleId: row.role_id,
+                  countyFips: nullable(row.county_fips),
+                  office: nullable(row.office),
+                },
+              ]
+            : [],
+        ),
+      );
       return {
-        rows: rows.map(toRow),
+        rows: rows.map((row) =>
+          toRow(row, links.get(str(row.role_id)) ?? null),
+        ),
         total,
         page,
         pageSize: query.pageSize,

@@ -7,6 +7,7 @@ import {
   migrateWebsiteDatabase,
 } from "../dist/database/migrations.js";
 import { openWebsiteDatabase } from "../dist/database/sqlite.js";
+import { D1CountyStructurePublicService } from "../dist/services/county-structure-public.js";
 import { createD1PublicReadServices } from "../dist/services/d1-public-reads.js";
 import { createServices } from "../dist/services/index.js";
 import {
@@ -25,6 +26,138 @@ import { createPublicSite } from "../dist/site/index.js";
 import { siteAssets } from "./site-fixtures.mjs";
 
 const NOW = () => new Date("2026-11-18T12:00:00.000Z");
+
+test("exact unit links use county and literal office names and preserve reviewed placements", async () => {
+  await fixture(async ({ database, d1, service, owner, editor }) => {
+    database.exec(`
+      INSERT INTO county_unit (id, county_fips, name, organization_type) VALUES
+        ('exact-adams', '08001', 'Synthetic Adams Office', 'office'),
+        ('same-name-other-county', '08069', 'Synthetic Adams Office', 'office'),
+        ('case-only', '08001', 'synthetic assessor office', 'office'),
+        ('larimer-parent-a', '08069', 'Synthetic Division A', 'division'),
+        ('larimer-parent-b', '08069', 'Synthetic Division B', 'division'),
+        ('existing-home', '08001', 'Synthetic Existing Unit', 'office');
+      INSERT INTO county_unit (id, county_fips, name, organization_type, parent_unit_id, parent_relationship) VALUES
+        ('larimer-duplicate-a', '08069', 'Synthetic Larimer Office', 'office', 'larimer-parent-a', 'part_of'),
+        ('larimer-duplicate-b', '08069', 'Synthetic Larimer Office', 'office', 'larimer-parent-b', 'part_of');
+      INSERT INTO county_role_display (id, person_role_id, county_fips, unit_id, listing, reviewed_by_account_id)
+      VALUES ('reviewed-home', 'role-former', '08001', 'existing-home', 'home', 'acct-owner');
+      INSERT INTO person_roles (id, person_id, county_fips, published_office)
+      VALUES ('role-multi-duplicate', 'person-multi', '08001', 'Synthetic Adams Office');
+    `);
+    const input = { filters: {} };
+    const initial = await service.listRows(owner, query());
+    const links = new Map(
+      initial.rows.map((row) => [row.roleId, row.unitLink]),
+    );
+    assert.equal(links.get("role-multi-a").state, "ready");
+    assert.equal(links.get("role-office").state, "unmatched");
+    assert.equal(links.get("role-former").state, "review");
+    assert.deepEqual(links.get("role-multi-b"), {
+      state: "multiple",
+      paths: [
+        "Synthetic Division A › Synthetic Larimer Office (larimer-duplicate-a)",
+        "Synthetic Division B › Synthetic Larimer Office (larimer-duplicate-b)",
+      ],
+    });
+    await assert.rejects(service.previewUnitLinks(editor, input), {
+      name: "AuthorizationError",
+    });
+    const preview = await service.previewUnitLinks(owner, input);
+    assert.deepEqual(
+      { ...preview, digest: undefined },
+      {
+        linked: 0,
+        ready: 2,
+        unmatched: 1,
+        multiple: 1,
+        review: 1,
+        digest: undefined,
+      },
+    );
+    assert.equal(
+      database.prepare("SELECT COUNT(*) AS n FROM county_role_display").get().n,
+      1,
+    );
+    const countyOnly = await service.previewUnitLinks(owner, {
+      filters: { county: "08069" },
+    });
+    assert.equal(countyOnly.ready, 0);
+    assert.equal(countyOnly.multiple, 1);
+    database
+      .prepare(
+        "UPDATE county_unit SET name='Synthetic Renamed', version=2 WHERE id='exact-adams'",
+      )
+      .run();
+    await assert.rejects(
+      service.commitUnitLinks(owner, "stale-link-01", {
+        ...input,
+        digest: preview.digest,
+      }),
+      { code: "stale_preview" },
+    );
+    database
+      .prepare(
+        "UPDATE county_unit SET name='Synthetic Adams Office', version=3 WHERE id='exact-adams'",
+      )
+      .run();
+    const reviewed = await service.previewUnitLinks(owner, input);
+    const request = { ...input, digest: reviewed.digest };
+    assert.deepEqual(
+      await service.commitUnitLinks(owner, "exact-link-01", request),
+      { attached: 2, replayed: false },
+    );
+    assert.deepEqual(
+      await service.commitUnitLinks(owner, "exact-link-01", request),
+      { attached: 2, replayed: true },
+    );
+    assert.equal(
+      database
+        .prepare(
+          "SELECT unit_id FROM county_role_display WHERE id='reviewed-home'",
+        )
+        .get().unit_id,
+      "existing-home",
+    );
+    const after = await service.listRows(owner, query());
+    assert.equal(
+      after.rows.find((row) => row.roleId === "role-multi-a").unitLink.state,
+      "linked",
+    );
+    const reader = new D1CountyStructurePublicService(d1);
+    const structure = await reader.getCountyStructure("08001");
+    assert.equal(
+      structure.groups
+        .flatMap((g) => g.units)
+        .find((u) => u.id === "exact-adams").profileCount,
+      1,
+    );
+  });
+});
+
+test("exact match review and commit include roles beyond the grid page limit", async () => {
+  await fixture(async ({ database, service, owner }) => {
+    database.exec(`
+      INSERT INTO county_unit (id, county_fips, name, organization_type)
+      VALUES ('mass-unit', '08001', 'Synthetic Mass Office', 'office');
+      WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM n WHERE x < 1002)
+      INSERT INTO person_roles (id, person_id, county_fips, published_office)
+      SELECT 'mass-role-' || x, 'person-multi', '08001', 'Synthetic Mass Office' FROM n;
+    `);
+    const filters = { county: "08001", office: "Synthetic Mass Office" };
+    const preview = await service.previewUnitLinks(owner, { filters });
+    assert.equal(preview.ready, 1002);
+    const receipt = await service.commitUnitLinks(owner, "mass-link-01", {
+      filters,
+      digest: preview.digest,
+    });
+    assert.equal(receipt.attached, 1002);
+    assert.equal(
+      (await service.previewUnitLinks(owner, { filters })).linked,
+      1002,
+    );
+  });
+});
 
 export function d1Over(database) {
   const statement = (sql, values = []) => ({

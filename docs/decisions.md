@@ -443,3 +443,12 @@ The [offline application proposal](architecture/county-structure.md#proposed-app
 - Match Beta-1 typography and styling with two desktop columns, one narrow-screen column, red unit names and right-aligned profile counts. Follow the CSV group order and preserve hierarchy and browse mappings. Keep Office and Department type badges in the dashboard only. [#300](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/300) implements the styling.
 - The owner reviewed the local County Structure pinning preview and requested it in the default preview. Allow the owner to pin public headings to either column and set their order per county. Unpinned headings use masonry. Keep these display preferences separate from the CSV hierarchy and Profile links. [#318](https://github.com/w4tchdogs/colorado-watchdog-beta2/pull/318) implements the controls.
 - After the earlier preparation hold, the owner reported committing the approved statewide County Structure CSV. See [CURRENT](coordination/CURRENT.md) for verification status. The later Adams Profiles CSV trial was scoped to shared staging, with the new records left hidden pending owner review. Statewide Profiles replacement and public cutover remain on hold.
+
+## Exact role-to-unit attachment — November 21, 2026
+
+The owner approved using the reviewed Office / Department value to find a
+unique exact County Structure unit in the role's county. Show the match and
+saved placement status on each Profiles role row. A bulk review may attach
+the unique matches using their stable IDs. Preserve existing links and leave
+unmatched or ambiguous values for review. See the
+[Profiles dashboard workflow](architecture/county-structure.md#exact-matches-from-the-profiles-dashboard).

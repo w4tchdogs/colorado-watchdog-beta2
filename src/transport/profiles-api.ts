@@ -2,6 +2,7 @@ import { exactSameOrigin } from "../auth/http.js";
 import { PROFILES_API_PREFIX } from "../contracts/profiles.js";
 import { PROFILES_IMPORT_MAX_BYTES } from "../contracts/profiles-import.js";
 import { StorageUnavailableError } from "../contracts/storage.js";
+import { ProfileUnitLinkError } from "../services/profile-unit-links.js";
 import {
   ProfilesConflictError,
   ProfilesIdempotencyError,
@@ -72,6 +73,8 @@ type Op =
   | "selectAll"
   | "matchingVisibilityPreview"
   | "matchingVisibilitySave"
+  | "unitLinksPreview"
+  | "unitLinksCommit"
   | "names"
   | "preview"
   | "save"
@@ -100,6 +103,8 @@ function match(
     "select-all": ["selectAll", "GET"],
     "matching-visibility/preview": ["matchingVisibilityPreview", "POST"],
     "matching-visibility/save": ["matchingVisibilitySave", "POST"],
+    "unit-links/preview": ["unitLinksPreview", "POST"],
+    "unit-links/commit": ["unitLinksCommit", "POST"],
     names: ["names", "GET"],
     preview: ["preview", "POST"],
     save: ["save", "POST"],
@@ -206,6 +211,19 @@ async function handle(
         return json(400, { error: "invalid_request" });
       return json(200, {
         ...(await importService.reverse(principal, batchId, key)),
+      });
+    }
+    if (matched.op === "unitLinksPreview" || matched.op === "unitLinksCommit") {
+      const input = await readObject(request, limit);
+      if (!input) return json(400, { error: "invalid_json" });
+      if (matched.op === "unitLinksPreview")
+        return json(200, {
+          ...(await service.previewUnitLinks(principal, input)),
+        });
+      const key = request.headers.get("idempotency-key");
+      if (!key) return json(400, { error: "idempotency_key_required" });
+      return json(200, {
+        ...(await service.commitUnitLinks(principal, key, input)),
       });
     }
     if (matched.op === "deletePreview" || matched.op === "deleteCommit") {
@@ -341,6 +359,11 @@ async function readBody(
 }
 
 function failure(error: unknown): Response {
+  if (error instanceof ProfileUnitLinkError)
+    return json(error.code === "scope_too_large" ? 400 : 409, {
+      error: error.code,
+      message: error.message,
+    });
   if (error instanceof ProfilesDeleteError)
     return json(
       error.code === "invalid_request"
