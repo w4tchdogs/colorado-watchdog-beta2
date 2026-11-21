@@ -75,6 +75,15 @@ test("synthetic county totals and exact-unit badges survive duplicate roles and 
     const root = units.find((u) => u.id === "root");
     assert.equal(root.profileCount, 0);
     assert.equal(root.children[0].profileCount, 1004);
+    const unitDirectory = await reads.listOfficials({
+      countyFips: "08081",
+      countyUnitId: "child",
+      page: 11,
+      limit: 100,
+    });
+    assert.equal(unitDirectory.total, 1004);
+    assert.equal(unitDirectory.items.length, 4);
+    assert.equal((await reader.listPublicUnits("08081")).length, 1007);
     assert.ok(root.children[0].people.length < 1004);
     assert.equal(
       new Set(root.children[0].people.map((p) => p.personId)).size,

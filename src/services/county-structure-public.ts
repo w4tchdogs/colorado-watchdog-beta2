@@ -58,13 +58,22 @@ export interface PublicCountyStructure {
   readonly empty: boolean;
 }
 
+export interface PublicCountyUnit {
+  readonly id: string;
+  readonly name: string;
+}
+
 export interface CountyStructureReader {
+  listPublicUnits(countyFips: string): Promise<readonly PublicCountyUnit[]>;
   getCountyStructure(countyFips: string): Promise<PublicCountyStructure>;
   countPublicUnits(countyFips?: string): Promise<number | null>;
 }
 
 /** The reader used when no County Structure database is attached. */
 export const emptyCountyStructure: CountyStructureReader = {
+  async listPublicUnits() {
+    return [];
+  },
   async countPublicUnits() {
     return null;
   },
@@ -140,6 +149,25 @@ const OTHER = COUNTY_STRUCTURE_LAYOUT_CATEGORIES[4];
 const headingKey = (value: string): string =>
   labelKey(value).toLowerCase().replace(/s$/u, "");
 
+/** Public reporting roots and their active descendants. The county, if set, binds once. */
+export function publicCountyUnitsCte(countyScoped: boolean): string {
+  return `public_units(id, county_fips, name) AS (
+     SELECT u.id, u.county_fips, u.name
+     FROM county_unit u
+     WHERE u.parent_unit_id IS NULL AND u.status = 'active'
+       ${countyScoped ? "AND u.county_fips = ?" : ""}
+       AND (u.display_group_id IS NULL OR EXISTS (
+         SELECT 1 FROM county_unit_display g
+         WHERE g.id = u.display_group_id AND g.status = 'active'
+       ))
+     UNION ALL
+     SELECT u.id, u.county_fips, u.name
+     FROM county_unit u JOIN public_units parent
+       ON parent.id = u.parent_unit_id AND parent.county_fips = u.county_fips
+     WHERE u.status = 'active'
+   )`;
+}
+
 export class D1CountyStructurePublicService implements CountyStructureReader {
   constructor(private readonly database: AsyncD1Database) {}
 
@@ -164,24 +192,20 @@ export class D1CountyStructurePublicService implements CountyStructureReader {
     }
   }
 
+  async listPublicUnits(
+    countyFips: string,
+  ): Promise<readonly PublicCountyUnit[]> {
+    return this.readAll(
+      `WITH RECURSIVE ${publicCountyUnitsCte(true)} SELECT id, name FROM public_units`,
+      [countyFips],
+    );
+  }
+
   /** Each public reporting unit counts once. Browse headings are separate records. */
   async countPublicUnits(countyFips?: string): Promise<number> {
     const row = await this.database.first<{ total: number }>(
-      `WITH RECURSIVE public_units(id, county_fips) AS (
-         SELECT u.id, u.county_fips
-         FROM county_unit u
-         WHERE u.parent_unit_id IS NULL AND u.status = 'active'
-           AND (u.display_group_id IS NULL OR EXISTS (
-             SELECT 1 FROM county_unit_display g
-             WHERE g.id = u.display_group_id AND g.status = 'active'
-           ))
-         UNION ALL
-         SELECT u.id, u.county_fips
-         FROM county_unit u JOIN public_units parent
-           ON parent.id = u.parent_unit_id AND parent.county_fips = u.county_fips
-         WHERE u.status = 'active'
-       )
-       SELECT COUNT(*) AS total FROM public_units${countyFips === undefined ? "" : " WHERE county_fips = ?"}`,
+      `WITH RECURSIVE ${publicCountyUnitsCte(countyFips !== undefined)}
+       SELECT COUNT(*) AS total FROM public_units`,
       countyFips === undefined ? [] : [countyFips],
     );
     if (typeof row?.total !== "number")

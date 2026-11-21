@@ -14,6 +14,8 @@ export type SortDirection = "asc" | "desc";
 export interface OfficialsDirectoryRequest {
   /** Limit to organizations of, or affiliated with, this county. */
   readonly countyFips?: string | null;
+  /** Limit to reviewed home role placements in this exact public unit. Requires countyFips. */
+  readonly countyUnitId?: string | null;
   /** Limit to this organization and its documented subunits. */
   readonly organizationId?: string | null;
   /** Limit to organizations of one stored type. */

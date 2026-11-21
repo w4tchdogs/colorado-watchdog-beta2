@@ -1084,7 +1084,7 @@ test("the documented example county.csv imports, exports and round-trips", async
   });
 });
 
-test("the public county section shows names and people but never private fields", async () => {
+test("the public county section shows unit count links and elected names without profile links or private fields", async () => {
   await withStructure(async (ctx) => {
     await load(ctx, csv(adamsRows()));
     const roleId = addPerson(ctx.database);
@@ -1102,6 +1102,11 @@ test("the public county section shows names and people but never private fields"
     assert.match(page, /Sheriff&#39;s Office|Sheriff's Office/);
     assert.match(page, /Synthetic Sheriff/);
     assert.match(page, /Elected officials/);
+    assert.match(
+      page,
+      /href="\/officials\?county=08001&amp;office=unit%2Fadams-sheriff"[^>]*>1 profile<\/a>/,
+    );
+    assert.doesNotMatch(page, /href="\/people\//);
     assert.ok(!page.includes("Synthetic evidence"));
     assert.ok(!page.includes("example.invalid"));
     const empty = String(

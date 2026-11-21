@@ -15,6 +15,95 @@ const tabCounts = (page) =>
       tab.getAttribute("aria-current"),
     ]);
 
+test("County Structure count links select the exact public unit throughout the directory", async () => {
+  await withPreview("empty", async (preview) => {
+    const db = preview.database;
+    db.exec(`
+      INSERT INTO accounts (id, kind, role, display_name)
+        VALUES ('unit-reviewer', 'human', 'owner', 'Synthetic Owner');
+      INSERT INTO county_unit (id, county_fips, name, organization_type, status) VALUES
+        ('root', '08081', 'Synthetic Office', 'office', 'active'),
+        ('other', '08001', 'Synthetic Section', 'section', 'active'),
+        ('hidden', '08081', 'Synthetic Hidden', 'office', 'hidden');
+      INSERT INTO county_unit (id, county_fips, name, organization_type, parent_unit_id, parent_relationship)
+        VALUES ('section:one', '08081', 'Synthetic Section', 'section', 'root', 'part_of');
+    `);
+    for (let i = 0; i < 28; i++) {
+      const id = `person-${i}`;
+      const unitId = i === 27 ? "other" : "section:one";
+      const county = i === 27 ? "08001" : "08081";
+      db.prepare("INSERT INTO people (id, display_name) VALUES (?, ?)").run(
+        id,
+        `Synthetic Person ${String(i).padStart(2, "0")}`,
+      );
+      db.prepare(
+        "INSERT INTO person_roles (id, person_id, county_fips, published_title) VALUES (?, ?, ?, ?)",
+      ).run(id, id, county, "Synthetic Position");
+      db.prepare(
+        "INSERT INTO county_role_display (id, person_role_id, county_fips, unit_id, listing, reviewed_by_account_id) VALUES (?, ?, ?, ?, 'home', 'unit-reviewer')",
+      ).run(id, id, county, unitId);
+      db.prepare(`INSERT INTO person_visibility (person_id, visible, changed_by_account_id) VALUES (?, ?, 'unit-reviewer')
+        ON CONFLICT (person_id) DO UPDATE SET visible = excluded.visible, version = version + 1, changed_by_account_id = excluded.changed_by_account_id`).run(
+        id,
+        i === 26 ? 0 : 1,
+      );
+    }
+    db.exec(`
+      INSERT INTO person_roles (id, person_id, county_fips, published_title)
+        VALUES ('second-role', 'person-0', '08081', 'Another assignment');
+      INSERT INTO county_role_display (id, person_role_id, county_fips, unit_id, listing, reviewed_by_account_id) VALUES
+        ('second-placement', 'second-role', '08081', 'section:one', 'home', 'unit-reviewer'),
+        ('elected-placement', 'person-0', '08081', 'root', 'elected_official', 'unit-reviewer');
+    `);
+
+    const county = await get(preview, "/counties/08081");
+    const section = county.$("#structure");
+    assert.equal(section.querySelector('[href^="/people/"]'), null);
+    const counts = [...section.querySelectorAll("a.structure-count")];
+    assert.deepEqual(
+      counts.map((link) => link.textContent),
+      ["0 profiles", "26 profiles"],
+    );
+    const [parent, linked] = await Promise.all(
+      counts.map((link) => get(preview, link.getAttribute("href"))),
+    );
+    assert.equal(parent.$("#directory-office").value, "unit/root");
+    assert.match(parent.main(), /No documented profiles match/);
+    assert.equal(linked.$("#directory-county").value, "08081");
+    assert.equal(linked.$("#directory-office").value, "unit/section:one");
+    assert.equal(
+      linked.$("#directory-office option:checked").textContent,
+      "Synthetic Section",
+    );
+    assert.match(
+      linked.$(".directory-status").textContent,
+      /26 profiles match/,
+    );
+    const nextHref = linked.$('a[rel="next"]').getAttribute("href");
+    assert.equal(
+      new URL(nextHref, ORIGIN).searchParams.get("office"),
+      "unit/section:one",
+    );
+    assert.deepEqual(rowNames(await get(preview, nextHref)), [
+      "Synthetic Person 25",
+    ]);
+    const profileHref = linked
+      .$('.directory-table a[href^="/people/"]')
+      .getAttribute("href");
+    const profile = await get(preview, profileHref);
+    assert.equal(
+      profile.$('.breadcrumbs a[href^="/officials"]').getAttribute("href"),
+      counts[1].getAttribute("href"),
+    );
+    for (const path of [
+      "/officials?county=08001&office=unit%2Fsection%3Aone",
+      "/officials?county=08081&office=unit%2Fhidden",
+    ]) {
+      assert.equal((await get(preview, path)).status, 400);
+    }
+  });
+});
+
 test("named profiles can be browsed before any search term is entered", async () => {
   await withPreview("fictional", async (preview) => {
     const page = await get(preview, "/officials");
