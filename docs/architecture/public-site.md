@@ -157,6 +157,11 @@ desktop and stacked cards on narrow screens. It was modeled on the live Beta-1
 directory as viewed in a browser. No Beta-1 record, count or classification
 was imported.
 
+The Named profiles view displays controls and a prompt until a search, county,
+or office filter is supplied. Sorting and page parameters alone do not show
+profiles. A county or office filter can show profiles with the search box empty,
+including on links from a county page. Clear all returns to the initial prompt.
+
 **Services.** `src/services/officials-directory.ts` adds two read-only
 functions to the shared service layer:
 
