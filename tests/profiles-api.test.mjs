@@ -177,6 +177,25 @@ test("the owner reads, saves, retries and hits a stale version through the API",
     assert.match(rows.headers.get("cache-control"), /no-store/);
     const page = await rows.json();
     assert.equal(page.total, 1);
+    assert.equal(page.pageSize, 10);
+    const defaultPage = await call("/api/admin/profiles/rows", {
+      subject: "owner",
+    });
+    assert.equal(defaultPage.status, 200);
+    assert.equal((await defaultPage.json()).pageSize, 50);
+    const thousand = await call("/api/admin/profiles/rows?pageSize=1000", {
+      subject: "owner",
+    });
+    assert.equal(thousand.status, 200);
+    assert.equal((await thousand.json()).pageSize, 1000);
+    assert.equal(
+      (
+        await call("/api/admin/profiles/rows?pageSize=1001", {
+          subject: "owner",
+        })
+      ).status,
+      400,
+    );
     // Public-private boundary: no citation or review data in the grid payload.
     const text = JSON.stringify(page);
     assert.equal(text.includes("private-citation"), false);

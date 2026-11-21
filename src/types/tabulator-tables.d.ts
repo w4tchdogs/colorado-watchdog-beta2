@@ -54,6 +54,8 @@ declare module "tabulator-tables" {
     paginationSize?: number;
     paginationSizeSelector?: number[];
     paginationCounter?: string | ((...args: number[]) => string);
+    locale?: string;
+    langs?: Record<string, { pagination?: { page_size?: string } }>;
     sortMode?: string;
     ajaxURL?: string;
     ajaxRequestFunc?: (

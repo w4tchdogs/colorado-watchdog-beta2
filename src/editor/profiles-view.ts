@@ -23,6 +23,7 @@ import {
   PROFILE_FIELDS,
   PROFILE_NAME_COMPONENT_COLUMNS,
   PROFILES_DEFAULT_PAGE_SIZE,
+  PROFILES_MAX_CHANGES,
   PROFILES_MAX_NAME_AFFIX_LENGTH,
   PROFILES_MAX_NAME_COMPONENT_LENGTH,
   PROFILES_MAX_NAME_LENGTH,
@@ -105,6 +106,7 @@ const ROW_KEY: Readonly<Record<string, RowKey>> = {
 };
 
 const ROLE_BULK_FIELDS = [
+  { id: "visible", column: "visible", label: "Visible" },
   { id: "employmentStart", column: "start_date", label: "Employment Start" },
   { id: "employmentEnd", column: "end_date", label: "Employment End" },
   { id: "dateReviewed", column: "source_checked_at", label: "Date Reviewed" },
@@ -342,7 +344,9 @@ export function createProfilesView(options: {
       () => void reviewDelete(),
       { id: "profiles-delete-selected" },
     );
-    const selectPage = button("Select this page", () => selectCurrentPage());
+    const selectPage = button("Select this page", () => selectCurrentPage(), {
+      id: "profiles-select-page",
+    });
     const selectMatching = button(
       `Select all matching (up to ${PROFILES_MAX_SELECT_ALL})`,
       () => void selectAllMatching(),
@@ -656,9 +660,9 @@ export function createProfilesView(options: {
       for (const entry of selected.values())
         if (!profiles.has(entry.profileId))
           profiles.set(entry.profileId, entry);
-      let staging = 0;
-      let skipped = 0;
+      let already = 0;
       let incomplete = 0;
+      const pending: Staged[] = [];
       for (const entry of profiles.values()) {
         const current =
           (
@@ -666,8 +670,8 @@ export function createProfilesView(options: {
               | { visible: boolean }
               | undefined
           )?.visible ?? entry.visible;
-        if (current === visible && !staged.has(`v:${entry.profileId}`)) {
-          skipped += 1;
+        if (current === visible) {
+          already += 1;
           continue;
         }
         // The server refuses to publish an incomplete Profile. Staging it
@@ -676,26 +680,48 @@ export function createProfilesView(options: {
           incomplete += 1;
           continue;
         }
-        stageVisibilityFor(
-          {
-            ...(base.get(entry.rowKey) ?? ({} as ProfileRow)),
-            rowKey: entry.rowKey,
-            roleId: entry.roleId,
-            profileId: entry.profileId,
-            profileVersion: entry.profileVersion,
-            roleVersion: entry.roleVersion,
-            visibilityVersion: entry.visibilityVersion,
-            visible: entry.visible,
-            displayName: entry.displayName,
-          } as ProfileRow,
-          visible,
-        );
-        staging += 1;
+        pending.push({
+          change: {
+            kind: "visibility",
+            personId: entry.profileId,
+            expectedVersion: entry.visibilityVersion,
+            visible,
+          },
+          label: "Visible on Website",
+          who: entry.displayName,
+          profileId: entry.profileId,
+          before: entry.visible,
+          after: visible,
+          error: null,
+        });
       }
+      if (projectedStagedSize(pending) > PROFILES_MAX_CHANGES) {
+        announceChangeLimit();
+        return;
+      }
+      for (const entry of pending) stage(entry);
       refreshTableRows();
       refreshStatus();
       announce(
-        `${visible ? "Restore" : "Hide"} staged for ${staging} ${staging === 1 ? "Profile" : "Profiles"} from ${selected.size} selected role ${selected.size === 1 ? "row" : "rows"}.${skipped ? ` ${skipped} already ${visible ? "visible" : "hidden"}.` : ""}${incomplete ? ` ${incomplete} not restored because ${incomplete === 1 ? "it is" : "they are"} missing required information. See the Status column.` : ""} Choose Save changes to apply.`,
+        `${visible ? "Visible" : "Hidden"}: ${pending.length} ${pending.length === 1 ? "Profile" : "Profiles"} will change; ${already} already have the requested value (${visible ? "Visible" : "Hidden"}).${incomplete ? ` ${incomplete} ${incomplete === 1 ? "Profile cannot" : "Profiles cannot"} be made Visible because ${incomplete === 1 ? "it is" : "they are"} missing required information.` : ""} Choose Save changes to review and apply.`,
+      );
+    }
+
+    function projectedStagedSize(entries: readonly Staged[]): number {
+      const projected = new Map(staged);
+      for (const entry of entries) {
+        const key = stagedKey(entry.change);
+        const existing = projected.get(key);
+        const baseline = existing ? existing.before : entry.before;
+        if (entry.after === baseline) projected.delete(key);
+        else projected.set(key, entry);
+      }
+      return projected.size;
+    }
+
+    function announceChangeLimit(): void {
+      announce(
+        `Nothing was staged because this would exceed the ${PROFILES_MAX_CHANGES}-change save limit. Reduce the selection with Clear selection, narrow your filters, or clear some staged edits, then try again. Changes are not split automatically.`,
       );
     }
 
@@ -718,31 +744,55 @@ export function createProfilesView(options: {
         id: "profiles-set-blank",
         type: "checkbox",
       });
+      const visibilityValue = el(
+        doc,
+        "select",
+        { id: "profiles-set-visibility-value", hidden: true },
+        el(doc, "option", { value: "true" }, "Visible"),
+        el(doc, "option", { value: "false" }, "Hidden"),
+      );
+      const valueField = field("Value", value, "profiles-set-value");
+      const blankField = el(
+        doc,
+        "div",
+        { class: "cw-profiles-field", id: "profiles-set-blank-field" },
+        blank,
+        el(
+          doc,
+          "label",
+          { for: "profiles-set-blank" },
+          "Leave blank (unknown)",
+        ),
+      );
       const error = el(doc, "p", { class: "cw-profiles-error", role: "alert" });
+      const syncBulkField = () => {
+        const isVisibility = fieldSelect.value === "visible";
+        valueField.hidden = isVisibility;
+        blankField.hidden = isVisibility;
+        visibilityValue.hidden = !isVisibility;
+      };
+      fieldSelect.addEventListener("change", syncBulkField);
+      syncBulkField();
       setPanel.append(
         el(doc, "h2", { id: "profiles-set-h" }, "Set selected values"),
         el(
           doc,
           "p",
           {},
-          `Applies to the ${selected.size} selected role ${selected.size === 1 ? "row" : "rows"}. Only supported role fields can be set in bulk. Nothing is written until you choose Save changes.`,
+          `Applies to the ${selected.size} selected ${selected.size === 1 ? "row" : "rows"}. Profile visibility is applied once per Profile, including roleless Profiles. Nothing is written until you choose Save changes.`,
         ),
         field("Field", fieldSelect, "profiles-set-field"),
-        field("Value", value, "profiles-set-value"),
-        el(
-          doc,
-          "div",
-          { class: "cw-profiles-field" },
-          blank,
-          el(
-            doc,
-            "label",
-            { for: "profiles-set-blank" },
-            "Leave blank (unknown)",
-          ),
-        ),
+        valueField,
+        field("Value", visibilityValue, visibilityValue.id),
+        blankField,
         error,
         button("Stage values", () => {
+          if (fieldSelect.value === "visible") {
+            stageVisibility(visibilityValue.value === "true");
+            setPanel.hidden = true;
+            setButton.focus();
+            return;
+          }
           const spec = ROLE_BULK_FIELDS.find(
             (item) => item.id === fieldSelect.value,
           );
@@ -757,7 +807,7 @@ export function createProfilesView(options: {
             error.textContent = problem;
             return;
           }
-          let count = 0;
+          const pending: Staged[] = [];
           for (const entry of selected.values()) {
             if (entry.roleId === null) continue;
             const key = `person_roles:${entry.roleId}:${spec.column}`;
@@ -765,7 +815,7 @@ export function createProfilesView(options: {
               (staged.get(key)?.before as string | null | undefined) ??
               (entry as unknown as Record<string, string | null>)[spec.id] ??
               null;
-            stage({
+            pending.push({
               change: {
                 kind: "field",
                 entity: "person_roles",
@@ -781,13 +831,17 @@ export function createProfilesView(options: {
               after: text,
               error: null,
             });
-            count += 1;
           }
+          if (projectedStagedSize(pending) > PROFILES_MAX_CHANGES) {
+            error.textContent = `Nothing was staged because this would exceed the ${PROFILES_MAX_CHANGES}-change save limit. Reduce the selection with Clear selection, narrow your filters, or clear some staged edits, then try again. Changes are not split automatically.`;
+            return;
+          }
+          for (const entry of pending) stage(entry);
           setPanel.hidden = true;
           refreshTableRows();
           refreshStatus();
           announce(
-            `${spec.label} staged for ${count} role ${count === 1 ? "row" : "rows"}. Choose Save changes to apply.`,
+            `${spec.label} staged for ${pending.length} role ${pending.length === 1 ? "row" : "rows"}. Choose Save changes to review and apply.`,
           );
           setButton.focus();
         }),
@@ -1904,7 +1958,18 @@ export function createProfilesView(options: {
         reviewPanel.querySelector<HTMLButtonElement>("#profiles-confirm");
       if (confirm) confirm.disabled = true;
       try {
+        const visibilityUpdates = new Map<string, boolean>();
+        for (const entry of staged.values())
+          if (entry.change.kind === "visibility")
+            visibilityUpdates.set(entry.change.personId, entry.change.visible);
         const result = await client.save(changeList(), key);
+        for (const [rowKey, selection] of selected)
+          if (visibilityUpdates.has(selection.profileId))
+            selected.set(rowKey, {
+              ...selection,
+              visible: visibilityUpdates.get(selection.profileId) ?? false,
+              visibilityVersion: selection.visibilityVersion + 1,
+            });
         staged.clear();
         reviewKey = null;
         reviewPanel.hidden = true;
@@ -1992,7 +2057,11 @@ export function createProfilesView(options: {
       total = page.total;
       query = { ...query, page: page.page };
       base.clear();
-      for (const row of page.rows) base.set(row.rowKey, row);
+      for (const row of page.rows) {
+        base.set(row.rowKey, row);
+        if (selected.has(row.rowKey))
+          selected.set(row.rowKey, toSelection(row));
+      }
       queueMicrotask(() => {
         refreshStatus();
         markErrors();
@@ -2272,6 +2341,10 @@ export function createProfilesView(options: {
       pagination: true,
       paginationMode: "remote",
       paginationSize: query.pageSize,
+      paginationSizeSelector: [50, 100, 250, 500, 1_000],
+      paginationCounter: "rows",
+      locale: "default",
+      langs: { default: { pagination: { page_size: "Rows per page" } } },
       sortMode: "remote",
       ajaxURL: "profiles",
       ajaxRequestFunc: (_url, _config, params) => loadPage(params),
