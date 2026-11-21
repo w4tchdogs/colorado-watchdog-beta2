@@ -68,6 +68,14 @@ preview on port 8790 if that port is available. The dashboard uses a
 disposable sandbox with synthetic accounts and data. See the
 [dashboard guide](docs/architecture/dashboard.md) for details.
 
+The sandbox covers Overview, My Account, Posts & Stories, and Banners.
+Profiles and County Structure use the hosted dashboard entry. For changes
+to those views, ask the implementer for a local Worker preview with synthetic
+data and the exact URL they verified.
+
+For the report form, run `npm run report:demo` and open
+[Submit or Track a Report demo](http://127.0.0.1:8791/).
+
 ## Repository checks
 
 Run `node scripts/check.mjs` with Node 22 or later and Git. It checks tracked file paths, formatting, whitespace, conflict markers and common credential patterns. Enable the optional local commit hook with `git config --local core.hooksPath .githooks`.
