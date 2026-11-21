@@ -919,12 +919,12 @@ export default {
     ).all();
     check(
       "ordered custom migration history and checksums",
-      history.results?.length === 35 &&
+      history.results?.length === 36 &&
         history.results.every(
           (row, index) =>
             row.version === index + 1 &&
             row.name ===
-              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake", "owner_bootstrap_audit", "correct_lake_la_plata_county_names", "banner_homepage_curation", "content_publication", "banner_publications", "human_sign_in", "role_source_publisher_classification", "report_challenge_claims", "unstructured_person_roles", "sync_batch_result_size", "agent_capability_grants", "agent_inspect_grant", "agent_banner_publish_grant", "archived_accounts", "optional_role_source_found_date", "content_revision_checkpoint_label", "profile_visibility", "county_structure", "profile_names", "county_structure_v4_contract", "profile_publication_rule", "profile_delete"][index]}.sql` &&
+              `${String(index + 1).padStart(4, "0")}_${["counties", "foundation", "county_fips_prefix", "m1_county_roles", "m2_sync_batches", "m2_sync_reversals", "m2_duplicate_flags", "duplicate_flag_observations", "content_foundation", "content_revisions", "m2_dependency_generation", "banner_assets", "private_report_intake", "owner_bootstrap_audit", "correct_lake_la_plata_county_names", "banner_homepage_curation", "content_publication", "banner_publications", "human_sign_in", "role_source_publisher_classification", "report_challenge_claims", "unstructured_person_roles", "sync_batch_result_size", "agent_capability_grants", "agent_inspect_grant", "agent_banner_publish_grant", "archived_accounts", "optional_role_source_found_date", "content_revision_checkpoint_label", "profile_visibility", "county_structure", "profile_names", "county_structure_v4_contract", "profile_publication_rule", "profile_delete", "county_structure_pinned_layout"][index]}.sql` &&
             /^[0-9a-f]{64}$/.test(row.sha256),
         ),
     );
@@ -1271,10 +1271,10 @@ export default {
       },
     );
     check(
-      "generation triggers cover all 30 dependency tables",
-      generationTriggers.results?.length === 90 &&
-        dependencyTables.results?.length === 30 &&
-        triggerCoverage.size === 30 &&
+      "generation triggers cover all 33 dependency tables",
+      generationTriggers.results?.length === 99 &&
+        dependencyTables.results?.length === 33 &&
+        triggerCoverage.size === 33 &&
         completeCoverage,
     );
     await env.DB.prepare(`INSERT INTO accounts (id, kind, role, display_name)

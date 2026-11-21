@@ -10,7 +10,10 @@ import { createBannerAdminClient } from "../dist/editor/banner-admin-client.js";
 import { createCountyStructureClient } from "../dist/editor/county-structure-client.js";
 import { createProfilesClient } from "../dist/editor/profiles-client.js";
 import { openDraftPreviewDatabase } from "../dist/editor-dev/draft-database.js";
-import { createDraftSitePreview } from "../dist/site-dev/preview.js";
+import {
+  createDraftSitePreview,
+  createSitePreview,
+} from "../dist/site-dev/preview.js";
 import { bannerAdminFixtures } from "./d1/banner-admin-fixtures.mjs";
 import { ORIGIN, startSandbox } from "./editor-fixtures.mjs";
 import { buildProfilesWorkbook } from "./support/profiles-workbook.mjs";
@@ -48,7 +51,54 @@ function requestPage(site, path) {
   return site.fetch(new Request(`http://127.0.0.1:8790${path}`));
 }
 
-test("draft workbook and county CSV survive restart and share public visibility", async () => {
+test("the local owner can pin a fictional group and see it in the companion preview", async () => {
+  const sandbox = await startSandbox();
+  const site = await createSitePreview({
+    staticDirectory,
+    data: "fictional",
+    countyStructure: sandbox.countyStructure,
+  });
+  try {
+    const { structure } = clients(sandbox);
+    const fips = "08001";
+    const countyPath = `/counties/${fips}`;
+    const before = await (await requestPage(site, countyPath)).text();
+    assert.match(before, /Fictional Offices/);
+    assert.doesNotMatch(before, /aria-label="Pinned right column"/);
+
+    const layout = await structure.countyLayout(fips);
+    const group = layout.availableGroups.find(
+      ({ name }) => name === "Fictional Offices",
+    );
+    assert.ok(group);
+    await assert.rejects(
+      clients(sandbox, "readonly").structure.countyLayout(fips),
+      { status: 403 },
+    );
+    await structure.saveCountyLayout(
+      fips,
+      {
+        expectedVersion: layout.version,
+        pinnedGroups: [{ groupId: group.id, column: "right", position: 1 }],
+      },
+      "preview-pin-fictional-offices",
+    );
+    const after = await (await requestPage(site, countyPath)).text();
+    assert.match(
+      after,
+      /aria-label="Pinned right column">\s*<section[^>]*>\s*<h3[^>]*>Fictional Offices<\/h3>/,
+    );
+    assert.match(
+      after,
+      /class="county-structure-grid"[\s\S]*Fictional Services/,
+    );
+  } finally {
+    site.close();
+    sandbox.close();
+  }
+});
+
+test("draft workbook, county CSV and layout pins survive restart and share public visibility", async () => {
   const directory = mkdtempSync(join(tmpdir(), "watchdog-draft-review-"));
   const start = () =>
     startSandbox({ draftDatabase: openDraftPreviewDatabase(directory) });
@@ -84,6 +134,7 @@ test("draft workbook and county CSV survive restart and share public visibility"
   }).toString("base64");
   let sandbox = await start();
   let personId;
+  let pinnedGroup;
   try {
     const { profiles, structure, site, fetch } = clients(sandbox);
     assert.equal(
@@ -109,6 +160,17 @@ test("draft workbook and county CSV survive restart and share public visibility"
         expectedVersion: (await structure.counties()).version,
       },
       "draft-preview-counties",
+    );
+    const layout = await structure.countyLayout("08001");
+    const group = layout.availableGroups.find(
+      ({ name }) => name === "Elected Official",
+    );
+    assert.ok(group);
+    pinnedGroup = { groupId: group.id, column: "left", position: 1 };
+    await structure.saveCountyLayout(
+      "08001",
+      { expectedVersion: layout.version, pinnedGroups: [pinnedGroup] },
+      "draft-preview-pin-officials",
     );
     const planned = await profiles.importPreview({ workbook });
     assert.equal(planned.canCommit, true, JSON.stringify(planned.issues));
@@ -157,6 +219,16 @@ test("draft workbook and county CSV survive restart and share public visibility"
     assert.equal(page.rows[0].profileId, personId);
     assert.equal(page.rows[0].visible, true);
     assert.ok((await structure.county("08001")).counts.units > 0);
+    assert.deepEqual((await structure.countyLayout("08001")).pinnedGroups, [
+      pinnedGroup,
+    ]);
+    const countyHtml = await (
+      await requestPage(site, "/counties/08001")
+    ).text();
+    assert.match(
+      countyHtml,
+      /aria-label="Pinned left column">\s*<section[^>]*>\s*<h3[^>]*>Elected Official<\/h3>/,
+    );
     assert.equal((await requestPage(site, `/people/${personId}`)).status, 200);
   } finally {
     sandbox.close();

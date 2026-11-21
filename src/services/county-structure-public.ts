@@ -1,3 +1,8 @@
+import {
+  COUNTY_STRUCTURE_LAYOUT_CATEGORIES,
+  type CountyStructurePinnedGroup,
+  displayGroupLayoutKey,
+} from "../contracts/county-structure.js";
 import type { AsyncD1Database } from "../database/d1.js";
 import { personIsPublicSql } from "./person-visibility.js";
 
@@ -32,6 +37,7 @@ export interface PublicUnit {
 
 export interface PublicGroup {
   readonly id: string;
+  readonly layoutKey: string;
   readonly name: string;
   readonly units: readonly PublicUnit[];
 }
@@ -46,6 +52,7 @@ export interface PublicCountyStructure {
   /** Browse headings. Each shown unit appears once, under one heading. */
   readonly groups: readonly PublicGroup[];
   readonly electedOfficials: readonly PublicElectedOfficial[];
+  readonly pinnedGroups: readonly CountyStructurePinnedGroup[];
   /** True when no County Structure has been imported for this county. */
   readonly empty: boolean;
 }
@@ -61,6 +68,7 @@ export const emptyCountyStructure: CountyStructureReader = {
       countyFips,
       groups: [],
       electedOfficials: [],
+      pinnedGroups: [],
       empty: true,
     };
   },
@@ -115,12 +123,12 @@ function publicAliases(name: string, aliases: readonly string[]): string[] {
 
 /** Generic browse headings, in display order, keyed by unit type. */
 const CATEGORIES = [
-  { id: "category:departments", name: "Departments", types: ["department"] },
-  { id: "category:offices", name: "Offices", types: ["office"] },
-  { id: "category:boards", name: "Boards", types: ["board"] },
-  { id: "category:commissions", name: "Commissions", types: ["commission"] },
+  { ...COUNTY_STRUCTURE_LAYOUT_CATEGORIES[0], types: ["department"] },
+  { ...COUNTY_STRUCTURE_LAYOUT_CATEGORIES[1], types: ["office"] },
+  { ...COUNTY_STRUCTURE_LAYOUT_CATEGORIES[2], types: ["board"] },
+  { ...COUNTY_STRUCTURE_LAYOUT_CATEGORIES[3], types: ["commission"] },
 ] as const;
-const OTHER = { id: "category:other", name: "Other" } as const;
+const OTHER = COUNTY_STRUCTURE_LAYOUT_CATEGORIES[4];
 
 /** Singular/plural and case differences do not make a different heading. */
 const headingKey = (value: string): string =>
@@ -135,6 +143,7 @@ export class D1CountyStructurePublicService implements CountyStructureReader {
         countyFips,
         groups: [],
         electedOfficials: [],
+        pinnedGroups: [],
         empty: true,
       };
 
@@ -175,6 +184,17 @@ export class D1CountyStructurePublicService implements CountyStructureReader {
        WHERE d.county_fips = ? AND ${personIsPublicSql("p.id")}
        ORDER BY p.display_name, p.id, d.id`,
       LIMIT,
+      [countyFips],
+    );
+    const pinnedRows = await this.database.all<{
+      group_id: string;
+      pinned_column: "left" | "right";
+      position: number;
+    }>(
+      `SELECT group_id, pinned_column, position
+       FROM county_structure_pinned_group WHERE county_fips = ?
+       ORDER BY pinned_column, position, group_id`,
+      100,
       [countyFips],
     );
 
@@ -297,18 +317,29 @@ export class D1CountyStructurePublicService implements CountyStructureReader {
       .sort(byOrder)
       .map((group) => ({
         id: group.id,
+        layoutKey: displayGroupLayoutKey(group.id),
         name: group.name,
         units: unitsUnder(group.id),
       }));
     for (const heading of [...CATEGORIES, OTHER]) {
       const units = unitsUnder(heading.id);
       if (units.length > 0)
-        publicGroups.push({ id: heading.id, name: heading.name, units });
+        publicGroups.push({
+          id: heading.id,
+          layoutKey: heading.id,
+          name: heading.name,
+          units,
+        });
     }
     return {
       countyFips,
       groups: publicGroups,
       electedOfficials,
+      pinnedGroups: pinnedRows.map((row) => ({
+        groupId: row.group_id,
+        column: row.pinned_column,
+        position: Number(row.position),
+      })),
       empty: groups.length === 0 && units.length === 0,
     };
   }
