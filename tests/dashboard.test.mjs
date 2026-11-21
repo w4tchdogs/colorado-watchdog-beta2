@@ -49,7 +49,14 @@ test("navigation follows the existing role matrix for every human role", async (
       },
       owner: {
         role: "owner",
-        modules: ["overview", "account", "posts", "banners"],
+        modules: [
+          "overview",
+          "account",
+          "posts",
+          "banners",
+          "profiles",
+          "county-structure",
+        ],
       },
     };
     for (const [account, want] of Object.entries(expected)) {
@@ -60,12 +67,9 @@ test("navigation follows the existing role matrix for every human role", async (
       assert.equal(body.account.role, want.role);
       assert.deepEqual(ids(body.modules), want.modules, account);
       // Planned modules are listed only where the role holds the capability.
-      // Profiles and County Structure are hosted-only, so the local sandbox lists them as planned.
       const planned = DASHBOARD_MODULES.filter(
         (module) =>
-          (module.state === "planned" ||
-            module.id === "profiles" ||
-            module.id === "county-structure") &&
+          module.state === "planned" &&
           roleHasCapability(want.role, module.access.capability),
       ).map((module) => module.id);
       assert.deepEqual(ids(body.planned), planned, account);
@@ -75,8 +79,6 @@ test("navigation follows the existing role matrix for every human role", async (
     const owner = await (await session(sandbox, "owner")).json();
     assert.deepEqual(ids(owner.planned), [
       "reports",
-      "profiles",
-      "county-structure",
       "accounts",
       "audit",
       "status",
@@ -223,6 +225,43 @@ test("direct requests to restricted, planned and unknown views are refused", asy
         .get().n,
       0,
     );
+  } finally {
+    sandbox.close();
+  }
+});
+
+test("the local owner can read fictional Profiles and county units with sandbox guards", async () => {
+  const sandbox = await startSandbox();
+  try {
+    for (const [id, path] of [
+      ["profiles", "/api/admin/profiles/rows"],
+      ["county-structure", "/api/admin/county-structure/counties/08001"],
+    ]) {
+      assert.deepEqual(await (await view(sandbox, "owner", id)).json(), {
+        view: id,
+      });
+      const data = await call(sandbox, path, { account: "owner" });
+      assert.equal(data.status, 200, path);
+      assert.match(await data.text(), /Fictional/);
+      assert.equal((await view(sandbox, "admin", id)).status, 403);
+      assert.equal(
+        (await call(sandbox, path, { account: "admin" })).status,
+        403,
+      );
+      assert.equal(
+        (await call(sandbox, path, { account: "anonymous" })).status,
+        401,
+      );
+      assert.equal(
+        (
+          await call(sandbox, path, {
+            account: "owner",
+            headers: { "x-editor-token": "wrong" },
+          })
+        ).status,
+        403,
+      );
+    }
   } finally {
     sandbox.close();
   }

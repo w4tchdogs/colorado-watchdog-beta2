@@ -1,9 +1,8 @@
-import { createEditorApiClient, type FetchLike } from "./api-client.js";
-import {
-  type BannerAdminFetch,
-  createBannerAdminClient,
-} from "./banner-admin-client.js";
+import { createEditorApiClient } from "./api-client.js";
+import { createBannerAdminClient } from "./banner-admin-client.js";
 import { createBannersView } from "./banner-views.js";
+import { createCountyStructureClient } from "./county-structure-client.js";
+import { createCountyStructureView } from "./county-structure-view.js";
 import { createDashboardClient } from "./dashboard-client.js";
 import { mountSandboxDashboard, sandboxHeaders } from "./dashboard-sandbox.js";
 import {
@@ -11,6 +10,8 @@ import {
   createPostsView,
   overviewView,
 } from "./dashboard-views.js";
+import { createProfilesClient } from "./profiles-client.js";
+import { createProfilesView } from "./profiles-view.js";
 
 const root = document.getElementById("app");
 const token =
@@ -22,7 +23,7 @@ if (root) {
   // The acting account lives in memory only. Nothing is kept in browser
   // storage, so a reload returns to the default sandbox account.
   const session = { account: "author" };
-  const sameOriginFetch: FetchLike = (input, init) =>
+  const sameOriginFetch = (input: string, init?: RequestInit) =>
     fetch(input, {
       ...init,
       credentials: "same-origin",
@@ -34,22 +35,22 @@ if (root) {
     token,
     account: () => session.account,
   };
+  const headersForSandbox = sandboxHeaders(connection);
   const editorClient = createEditorApiClient(connection);
   const dashboardClient = createDashboardClient({
     fetch: sameOriginFetch,
-    headers: sandboxHeaders(connection),
+    headers: headersForSandbox,
   });
-  const bannerFetch: BannerAdminFetch = (input, init) =>
-    fetch(input, {
-      ...init,
-      credentials: "same-origin",
-      cache: "no-store",
-      redirect: "error",
-    });
   const bannerClient = createBannerAdminClient({
-    fetch: bannerFetch,
-    headers: sandboxHeaders(connection),
+    fetch: sameOriginFetch,
+    headers: headersForSandbox,
   });
+  const sandboxFetch = (input: string, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
+    for (const [key, value] of Object.entries(headersForSandbox()))
+      headers.set(key, value);
+    return sameOriginFetch(input, { ...init, headers });
+  };
 
   void (async () => {
     // Sandbox-only details: the synthetic accounts and the local public site.
@@ -71,6 +72,12 @@ if (root) {
         account: accountView,
         posts: createPostsView({ client: editorClient, session }),
         banners: createBannersView({ client: bannerClient }),
+        profiles: createProfilesView({
+          client: createProfilesClient({ fetch: sandboxFetch }),
+        }),
+        "county-structure": createCountyStructureView({
+          client: createCountyStructureClient({ fetch: sandboxFetch }),
+        }),
       },
       sandbox: {
         accounts,
