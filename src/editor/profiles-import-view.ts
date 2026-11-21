@@ -240,9 +240,11 @@ export function createImportPanel(options: {
       preview = await client.importPreview(files);
       render();
       say(
-        preview.canCommit
-          ? "Preview ready. Review every row, then choose Commit import."
-          : "Preview has blocking issues. Fix the files and preview again. Nothing was written.",
+        !preview.canCommit
+          ? "Preview has blocking issues. Fix the files and preview again. Nothing was written."
+          : preview.rows.length === 0
+            ? "No changes to import."
+            : "Preview ready. Review the listed rows, then choose Commit import.",
       );
     } catch (error) {
       preview = null;
@@ -316,8 +318,8 @@ export function createImportPanel(options: {
       "tr",
       {},
       el(doc, "th", { scope: "row" }, label),
-      ...(["add", "update", "unchanged", "conflict", "blocked"] as const).map(
-        (k) => el(doc, "td", {}, String(c[k])),
+      ...(["add", "update", "conflict", "blocked"] as const).map((k) =>
+        el(doc, "td", {}, c[k].toLocaleString("en-US")),
       ),
     );
   }
@@ -446,6 +448,15 @@ export function createImportPanel(options: {
           : "",
         el(
           doc,
+          "p",
+          { id: "import-unchanged-counts" },
+          `Unchanged Profiles (${p.profiles.unchanged.toLocaleString("en-US")}) · Unchanged roles (${p.roles.unchanged.toLocaleString("en-US")})`,
+          p.names.unchanged > 0
+            ? ` · Unchanged alternate names (${p.names.unchanged.toLocaleString("en-US")})`
+            : "",
+        ),
+        el(
+          doc,
           "table",
           { class: "cw-import-counts" },
           el(
@@ -457,8 +468,8 @@ export function createImportPanel(options: {
               "tr",
               {},
               el(doc, "th", { scope: "col" }, "Records"),
-              ...["Add", "Update", "Unchanged", "Conflict", "Blocked"].map(
-                (h) => el(doc, "th", { scope: "col" }, h),
+              ...["Add", "Update", "Conflict", "Blocked"].map((h) =>
+                el(doc, "th", { scope: "col" }, h),
               ),
             ),
           ),
@@ -534,8 +545,8 @@ export function createImportPanel(options: {
             "caption",
             {},
             p.rowsTruncated
-              ? "First rows of the preview. Conflicts and blocked rows come first."
-              : "Every row in the files",
+              ? "First rows to review. Conflicts and blocked rows come first."
+              : "Rows to review",
           ),
           el(
             doc,

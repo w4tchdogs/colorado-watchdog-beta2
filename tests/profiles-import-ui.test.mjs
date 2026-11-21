@@ -231,6 +231,10 @@ async function runImport(format) {
     }
     click($("#import-preview"));
     await waitFor(() => $("#import-preview-result"), "preview result");
+    assert.equal(
+      $("#import-unchanged-counts").textContent,
+      "Unchanged Profiles (0) · Unchanged roles (0)",
+    );
     assert.match(
       $("#import-visibility").textContent,
       /2 new Profiles will be created hidden/,

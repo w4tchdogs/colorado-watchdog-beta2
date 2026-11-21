@@ -6,7 +6,7 @@ The owner selects reviewed CSV files or one Excel workbook in the Profiles tab, 
 
 1. **Upload.** The browser sends CSV text or a base64-encoded Excel workbook. It does not parse or match records.
 2. **Preview.** `POST /api/admin/profiles/import/preview` is read-only. The server parses and validates the files, matches rows to existing Website records, runs the shared sync planner as a dry run and returns the plan with a digest.
-3. **Inspect.** The panel shows counts and every row with its action, Website ID, field differences and visibility. Blocking issues name the file, line and key.
+3. **Inspect.** The panel shows exact totals for unchanged Profiles and roles. Details include changes, conflicts, blockers, and rows marked Deleted on Website. The detail limit applies to the rows shown. Blocking issues name the file, line and key.
 4. **Commit.** `POST /api/admin/profiles/import/commit` carries the reviewed digest and an idempotency key. The server recomputes the plan, refuses with `409 stale_preview` if it differs, and otherwise writes through the shared sync commit engine in one atomic batch.
 5. **Reverse.** `POST /api/admin/profiles/import/reverse` reverses a committed batch through the shared reversal path.
 

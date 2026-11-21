@@ -185,6 +185,7 @@ export interface ProfilesImportPreview {
   readonly newNamesPrivate: number;
   /** Rows whose file marks the name Public or Confirmed. Both are ignored. */
   readonly namesPublishRequested: number;
+  /** Unchanged Profiles and roles appear in the totals. Deleted rows retain details. */
   readonly rows: readonly ImportRowReport[];
   readonly rowsTruncated: boolean;
   readonly issues: readonly ImportIssue[];
