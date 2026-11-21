@@ -23,6 +23,7 @@ test("homepage renders navigation, discovery entry points and honest content", a
     assert.equal(page.$$("h1").length, 1);
     const stats = page.$('main section[aria-label="Statewide totals"]');
     assert.ok(stats.querySelector(".stat-row"));
+    assert.equal(stats.querySelector(".stat-note"), null);
     assert.ok(stats.nextElementSibling.matches(".home-discovery"));
     assert.deepEqual(
       [...stats.querySelectorAll("dt")].map((label) => label.textContent),
@@ -79,6 +80,7 @@ test("homepage renders navigation, discovery entry points and honest content", a
     );
     const pathways = page.$$(".cv-pathway");
     assert.equal(pathways.length, 3);
+    assert.equal(page.$(".cv-pathway-note"), null);
     assert.deepEqual(
       pathways.map(
         (card) => card.querySelector(".cv-pathway-title").textContent,

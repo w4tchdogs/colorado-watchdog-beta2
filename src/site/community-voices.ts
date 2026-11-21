@@ -302,9 +302,10 @@ const WRAPPED_ARROW = trusted('<span aria-hidden="true">&nbsp;→</span>');
 export function pathwayCards(
   listingBase: string,
   listingPlural: string,
-  active?: EditorialPathway,
-  filters: EditorialFilters = {},
+  options: { filters?: EditorialFilters; showAssignmentNote?: boolean } = {},
 ): SafeHtml {
+  const { filters = {}, showAssignmentNote = false } = options;
+  const active = filters.pathway;
   return html`<section class="cv-pathways" aria-labelledby="cv-pathways-heading">
     <h2 class="visually-hidden" id="cv-pathways-heading">Community Voices pathways</h2>
     <ul class="cv-pathway-grid">
@@ -320,7 +321,7 @@ export function pathwayCards(
         </li>`,
       )}
     </ul>
-    <p class="cv-pathway-note">A pathway lists only articles that editors have explicitly assigned to it.</p>
+    ${showAssignmentNote ? html`<p class="cv-pathway-note">A pathway lists only articles that editors have explicitly assigned to it.</p>` : ""}
   </section>`;
 }
 

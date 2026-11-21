@@ -35,6 +35,7 @@ test("three pathway cards use verified Beta-1 labels and valid destinations", as
       const page = await get(preview, base);
       const cards = page.$$(".cv-pathway");
       assert.equal(cards.length, 3);
+      assert.ok(page.$(".cv-pathway-note"));
       assert.deepEqual(
         cards.map((c) => c.querySelector(".cv-pathway-title").textContent),
         ["Local series", "Guest Voices", "Statewide County Issues"],
