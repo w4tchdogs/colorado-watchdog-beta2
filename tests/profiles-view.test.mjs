@@ -131,12 +131,23 @@ test("Unit Linked shows the current match and updates after a reviewed bulk link
         "exact links review",
       );
       assert.equal(confirm.textContent, "Link 2 roles");
+      county.value = "08069";
+      county.dispatchEvent(new window.Event("change", { bubbles: true }));
+      assert.equal($("#profiles-confirm-exact-links"), null);
       assert.equal(
         database.prepare("SELECT COUNT(*) AS n FROM county_role_display").get()
           .n,
         0,
       );
-      click(confirm);
+      county.value = "08001";
+      county.dispatchEvent(new window.Event("change", { bubbles: true }));
+      click($("#profiles-link-exact"));
+      click(
+        await waitFor(
+          () => $("#profiles-confirm-exact-links"),
+          "fresh exact links review",
+        ),
+      );
       await waitFor(() => unitStatus() === "✓ Linked", "saved unit status");
       assert.equal(
         database.prepare("SELECT COUNT(*) AS n FROM county_role_display").get()

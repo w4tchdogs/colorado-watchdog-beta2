@@ -415,6 +415,7 @@ export function createProfilesView(options: {
           button(
             "Clear filters",
             () => {
+              closeUnitLinks();
               searchInput.value = "";
               countySelect.value = "";
               officeSelect.value = "";
@@ -2680,12 +2681,14 @@ export function createProfilesView(options: {
     );
     searchInput.addEventListener("input", () => {
       closeMatchingVisibility();
+      closeUnitLinks();
       if (timer) clearTimeout(timer);
       timer = setTimeout(applyFilters, 350);
     });
     for (const control of [countySelect, officeSelect, visibilitySelect])
       control.addEventListener("change", () => {
         closeMatchingVisibility();
+        closeUnitLinks();
         applyFilters();
       });
     container
@@ -2693,6 +2696,7 @@ export function createProfilesView(options: {
       ?.addEventListener("submit", (event) => {
         event.preventDefault();
         closeMatchingVisibility();
+        closeUnitLinks();
         applyFilters();
       });
     void client
