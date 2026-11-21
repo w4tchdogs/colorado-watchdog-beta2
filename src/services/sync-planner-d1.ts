@@ -188,6 +188,7 @@ export async function planSyncChangesetD1(
   input: unknown,
   now: () => Date = () => new Date(),
   reads?: SyncPlanReads,
+  maxRequestBytes = MAX_SYNC_REQUEST_BYTES,
 ): Promise<SyncPlan> {
   const errors: SyncPlanError[] = [];
   const add = (
@@ -202,7 +203,11 @@ export async function planSyncChangesetD1(
       ...(itemIndex === undefined ? {} : { itemIndex }),
       ...(clientRef ? { clientRef } : {}),
       ...(currentVersion === undefined ? {} : { currentVersion }),
-      message: SAFE_MESSAGES[code],
+      message:
+        code === "request_too_large" &&
+        maxRequestBytes !== MAX_SYNC_REQUEST_BYTES
+          ? `The request exceeds the ${maxRequestBytes / 1024 / 1024} MiB limit.`
+          : SAFE_MESSAGES[code],
     });
   };
   const requestId =
@@ -235,7 +240,7 @@ export async function planSyncChangesetD1(
     add("invalid_request");
     return result(requestId, [], errors, []);
   }
-  if (totalBytes > MAX_SYNC_REQUEST_BYTES) {
+  if (totalBytes > maxRequestBytes) {
     add("request_too_large");
     return result(requestId, [], errors, []);
   }
