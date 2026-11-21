@@ -10,7 +10,10 @@ import {
 import { createLocalD1Binding } from "../editor-dev/d1-binding.js";
 import { D1BannerPublicService } from "../services/banner-public.js";
 import type { ImmutableObjectStorage } from "../services/banner-storage.js";
-import { D1CountyStructurePublicService } from "../services/county-structure-public.js";
+import {
+  type CountyStructureReader,
+  D1CountyStructurePublicService,
+} from "../services/county-structure-public.js";
 import { createD1PublicReadServices } from "../services/d1-public-reads.js";
 import { createServices } from "../services/index.js";
 import type { BannerSource } from "../site/banner.js";
@@ -84,6 +87,8 @@ export interface SitePreviewOptions {
   readonly staticDirectory: string;
   /** "fictional" seeds demonstration records; "empty" leaves only counties. */
   readonly data?: "fictional" | "empty";
+  /** Read the same county structure the local dashboard edits. */
+  readonly countyStructure?: CountyStructureReader;
   /** Show synthetic banner test patterns on a few counties. */
   readonly bannerFixtures?: boolean;
   /** With bannerFixtures, false leaves the homepage on the branded fallback. */
@@ -141,6 +146,7 @@ export async function createSitePreview(
     application: createApplication(services),
     site: createPublicSite({
       services,
+      countyStructure: options.countyStructure,
       assets: options.bannerFixtures ? withBannerFixtures(files) : files,
       ...(options.banners
         ? { banners: options.banners }

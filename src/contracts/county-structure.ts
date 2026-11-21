@@ -77,6 +77,36 @@ export type ImportMode = (typeof IMPORT_MODES)[number];
 export const COUNTY_STRUCTURE_API_PREFIX = "/api/admin/county-structure";
 export const COUNTY_STRUCTURE_CAPABILITY = "county_structure.manage";
 
+export const COUNTY_STRUCTURE_ELECTED_GROUP_KEY = "listing:elected_officials";
+export const COUNTY_STRUCTURE_LAYOUT_CATEGORIES = [
+  { id: "category:departments", name: "Departments" },
+  { id: "category:offices", name: "Offices" },
+  { id: "category:boards", name: "Boards" },
+  { id: "category:commissions", name: "Commissions" },
+  { id: "category:other", name: "Other" },
+] as const;
+export const displayGroupLayoutKey = (id: string): string =>
+  `display-group:${id}`;
+export type CountyStructurePinColumn = "left" | "right";
+
+export interface CountyStructureLayoutGroup {
+  readonly id: string;
+  readonly name: string;
+}
+
+export interface CountyStructurePinnedGroup {
+  readonly groupId: string;
+  readonly column: CountyStructurePinColumn;
+  readonly position: number;
+}
+
+export interface CountyStructureLayout {
+  readonly countyFips: string;
+  readonly version: number;
+  readonly availableGroups: readonly CountyStructureLayoutGroup[];
+  readonly pinnedGroups: readonly CountyStructurePinnedGroup[];
+}
+
 export const UNIT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 export const MAX_CSV_BYTES = 1_048_576;
 export const MAX_CSV_ROWS = 20_000;

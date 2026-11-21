@@ -2,6 +2,8 @@ import {
   type ChangeCounts,
   COUNTY_STRUCTURE_API_PREFIX,
   type CountyStructureCounts,
+  type CountyStructureLayout,
+  type CountyStructurePinnedGroup,
   type CountySummary,
   type CsvIssue,
   type ImportMode,
@@ -126,6 +128,20 @@ export interface CountyStructureClient {
     },
     idempotencyKey: string,
   ): Promise<RoleAttachmentReceipt>;
+  countyLayout(fips: string): Promise<CountyStructureLayout>;
+  saveCountyLayout(
+    fips: string,
+    request: {
+      readonly expectedVersion: number;
+      readonly pinnedGroups: readonly CountyStructurePinnedGroup[];
+    },
+    idempotencyKey: string,
+  ): Promise<{
+    readonly version: number;
+    readonly pinnedGroups: readonly CountyStructurePinnedGroup[];
+    readonly replayed: boolean;
+    readonly noop: boolean;
+  }>;
 }
 
 export function createCountyStructureClient(options: {
@@ -205,5 +221,15 @@ export function createCountyStructureClient(options: {
       post("/role-attachments/preview", request),
     commitRoleAttachments: (request, key) =>
       post("/role-attachments/commit", request, key),
+    countyLayout: (fips) => call(`/layouts/${encodeURIComponent(fips)}`),
+    saveCountyLayout: (fips, request, key) =>
+      post(
+        `/layouts/${encodeURIComponent(fips)}`,
+        {
+          countyFips: fips,
+          ...request,
+        },
+        key,
+      ),
   };
 }

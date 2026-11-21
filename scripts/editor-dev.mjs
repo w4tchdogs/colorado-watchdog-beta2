@@ -128,7 +128,11 @@ const sitePreview = draftDatabase
       staticDirectory,
       sandbox.bannerStorage,
     )
-  : await createSitePreview({ staticDirectory, data: "fictional" });
+  : await createSitePreview({
+      staticDirectory,
+      data: "fictional",
+      countyStructure: sandbox.countyStructure,
+    });
 const siteServer = createServer(async (incoming, outgoing) => {
   try {
     const method = incoming.method ?? "GET";

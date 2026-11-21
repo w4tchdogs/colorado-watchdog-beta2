@@ -10,7 +10,10 @@ import { createBannerAdminClient } from "../dist/editor/banner-admin-client.js";
 import { createCountyStructureClient } from "../dist/editor/county-structure-client.js";
 import { createProfilesClient } from "../dist/editor/profiles-client.js";
 import { openDraftPreviewDatabase } from "../dist/editor-dev/draft-database.js";
-import { createDraftSitePreview } from "../dist/site-dev/preview.js";
+import {
+  createDraftSitePreview,
+  createSitePreview,
+} from "../dist/site-dev/preview.js";
 import { bannerAdminFixtures } from "./d1/banner-admin-fixtures.mjs";
 import { ORIGIN, startSandbox } from "./editor-fixtures.mjs";
 import { buildProfilesWorkbook } from "./support/profiles-workbook.mjs";
@@ -47,6 +50,53 @@ function clients(sandbox, account = "owner") {
 function requestPage(site, path) {
   return site.fetch(new Request(`http://127.0.0.1:8790${path}`));
 }
+
+test("the local owner can pin a fictional group and see it in the companion preview", async () => {
+  const sandbox = await startSandbox();
+  const site = await createSitePreview({
+    staticDirectory,
+    data: "fictional",
+    countyStructure: sandbox.countyStructure,
+  });
+  try {
+    const { structure } = clients(sandbox);
+    const fips = "08001";
+    const countyPath = `/counties/${fips}`;
+    const before = await (await requestPage(site, countyPath)).text();
+    assert.match(before, /Fictional Offices/);
+    assert.doesNotMatch(before, /aria-label="Pinned right column"/);
+
+    const layout = await structure.countyLayout(fips);
+    const group = layout.availableGroups.find(
+      ({ name }) => name === "Fictional Offices",
+    );
+    assert.ok(group);
+    await assert.rejects(
+      clients(sandbox, "readonly").structure.countyLayout(fips),
+      { status: 403 },
+    );
+    await structure.saveCountyLayout(
+      fips,
+      {
+        expectedVersion: layout.version,
+        pinnedGroups: [{ groupId: group.id, column: "right", position: 1 }],
+      },
+      "preview-pin-fictional-offices",
+    );
+    const after = await (await requestPage(site, countyPath)).text();
+    assert.match(
+      after,
+      /aria-label="Pinned right column">\s*<section[^>]*>\s*<h3[^>]*>Fictional Offices<\/h3>/,
+    );
+    assert.match(
+      after,
+      /class="county-structure-grid"[\s\S]*Fictional Services/,
+    );
+  } finally {
+    site.close();
+    sandbox.close();
+  }
+});
 
 test("draft workbook and county CSV survive restart and share public visibility", async () => {
   const directory = mkdtempSync(join(tmpdir(), "watchdog-draft-review-"));

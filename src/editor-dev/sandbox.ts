@@ -21,6 +21,8 @@ import {
 import { createContentService } from "../services/content.js";
 import { D1CountyRoleAttachments } from "../services/county-role-attachment-d1.js";
 import { D1CountyStructureAdministration } from "../services/county-structure-d1.js";
+import { D1CountyStructureLayoutAdministration } from "../services/county-structure-layout-d1.js";
+import { D1CountyStructurePublicService } from "../services/county-structure-public.js";
 import { createDashboardService } from "../services/dashboard.js";
 import { createD1ProfilesService } from "../services/profiles-d1.js";
 import { createD1ProfilesImportService } from "../services/profiles-import-d1.js";
@@ -128,6 +130,7 @@ export interface EditorSandbox {
   readonly database: WebsiteDatabase;
   /** Shares the local image copies with the draft public-page preview. */
   readonly bannerStorage: ImmutableObjectStorage;
+  readonly countyStructure: D1CountyStructurePublicService;
   fetch(request: Request): Promise<Response>;
   close(): void;
 }
@@ -402,6 +405,7 @@ export async function createEditorSandbox(
       hasCapability(database, principal, "county_structure.manage"),
     administration: new D1CountyStructureAdministration(localD1),
     roleAttachments: new D1CountyRoleAttachments(localD1),
+    layouts: new D1CountyStructureLayoutAdministration(localD1),
   });
 
   if (!draftReview) await seedContent(database, service);
@@ -547,6 +551,7 @@ export async function createEditorSandbox(
     token,
     database,
     bannerStorage,
+    countyStructure: new D1CountyStructurePublicService(localD1),
     fetch: handle,
     close: () => database.close(),
   };
@@ -606,11 +611,15 @@ function seedDirectory(database: WebsiteDatabase): void {
     VALUES ('sbx-role-1','sbx-person-1','sbx-pos-1','sbx-src-1','2026-01-01'),
            ('sbx-role-2','sbx-person-4','sbx-pos-2','sbx-src-2','2026-01-01');
     INSERT INTO county_unit_display (id, county_fips, name)
-    VALUES ('sbx-county-offices','08001','Fictional Offices');
+    VALUES ('sbx-county-offices','08001','Fictional Offices'),
+           ('sbx-county-services','08001','Fictional Services'),
+           ('sbx-county-programs','08001','Fictional Programs');
     INSERT INTO county_unit
       (id, county_fips, display_group_id, parent_relationship, name, organization_type)
     VALUES
-      ('sbx-county-records','08001','sbx-county-offices','display_group','Fictional Records Office','office');
+      ('sbx-county-records','08001','sbx-county-offices','display_group','Fictional Records Office','office'),
+      ('sbx-county-resource','08001','sbx-county-services','display_group','Fictional Resource Center','office'),
+      ('sbx-county-training','08001','sbx-county-programs','display_group','Fictional Training Office','office');
     INSERT INTO county_unit
       (id, county_fips, parent_unit_id, parent_relationship, name, organization_type)
     VALUES

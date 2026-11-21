@@ -122,3 +122,7 @@ Readers that still depend on the older tables today are the Officials directory 
 - Replace all counties is bounded by the file limits of 1 MiB and 20,000 rows. A larger load should go county by county.
 - Dashboard edits use the global version for concurrency. Two owners editing at once will see a stale-version message and reload, which is intended.
 - The dashboard view is covered by build and type checks and by the hosted dashboard registry tests. It has not been exercised in a browser in this change, so keyboard, screen reader and narrow-width checks belong in the staging checklist.
+
+## Public County Structure layout preferences
+
+The owner can pin any public County Structure heading, including the elected listing, built-in type categories, and county display groups, into the left or right page column and assign its vertical position from Dashboard → County Structure → Public page layout. Unpinned headings continue to use the public masonry layout. These preferences are stored per county in migration 0036, with optimistic versions and append-only, idempotent save receipts. They do not change `county.csv`, unit names, reporting relationships, browse placement, Profile links, or another county’s layout. The owner-only API is `GET` and `POST /api/admin/county-structure/layouts/:fips`; save requires the `Idempotency-Key` header and the layout version returned by GET. A stale version must be reloaded before saving.
